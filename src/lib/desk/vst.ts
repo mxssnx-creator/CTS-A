@@ -2237,7 +2237,7 @@ export function horizonFromEngine(e: VstEngine, hours: number, _peak?: number): 
   };
 }
 
-export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[] }) {
+export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig }) {
   const ticks = Math.max(1, Math.round(hours * TICKS_PER_HOUR));
   const rangeType = opts?.rangeType ?? "atr";
   const engine = initVstEngine(cfg, {
@@ -2303,7 +2303,8 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     tickVst(engine, cfg, tactic, {
       rangeType,
       symbolCount: opts?.symbolCount,
-      orderType: opts?.orderType
+      orderType: opts?.orderType,
+      block: opts?.block,
     });
     if (engine.ledger.trades > seenClosed) {
       const added = engine.ledger.trades - seenClosed;

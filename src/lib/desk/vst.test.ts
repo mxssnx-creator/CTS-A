@@ -1049,6 +1049,21 @@ describe("VST engine", () => {
     assert.ok(report.trades >= 4);
   });
 
+  it("block on vs off: adds rungs when enabled and stays inert when disabled", () => {
+    const off = { ...DEFAULT_BLOCK_CONFIG, enabled: false };
+    const on = { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false, cadence: 4, addOnWin: true, flattenConflict: false };
+    const a = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "atr", block: on });
+    const b = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "atr", block: off });
+    assert.ok(a.report.passed, a.report.issues.join("; "));
+    assert.ok(b.report.passed, b.report.issues.join("; "));
+    finiteNum(a.report.pf, b.report.pf, a.report.net, b.report.net);
+    const blockCloses = a.engine.closed.filter((c) => c.playbook === "block").length;
+    const offCloses = b.engine.closed.filter((c) => c.playbook === "block").length;
+    assert.equal(offCloses, 0);
+    assert.ok(a.engine.lastBlockAt > 0 || blockCloses > 0 || a.engine.queue.some((o) => /^Block #/.test(o.note)) || a.engine.positions.some((p) => p.playbook === "block"));
+    assert.equal(b.engine.lastBlockAt ?? 0, 0);
+  });
+
   it("playbook tagging and indications stay independent", () => {
     const e = initVstEngine(CFG, { warmup: 10, symbolCount: 12 });
     const ids = new Set(Object.keys(e.quotes).slice(0, 12).map((id) => classifyIndication(e, id)));
