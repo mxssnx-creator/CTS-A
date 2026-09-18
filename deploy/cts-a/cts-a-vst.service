@@ -1,0 +1,35 @@
+[Unit]
+Description=CTS-A BingX VST 2h session (max universe, auto-adjust)
+After=network-online.target cts-a-desk.service
+Wants=network-online.target
+StartLimitIntervalSec=180
+StartLimitBurst=8
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/cts-a/cts-a.env
+EnvironmentFile=-/etc/cts-a/credentials.env
+WorkingDirectory=/opt/cts-a
+ExecStart=/usr/bin/node --experimental-strip-types /opt/cts-a/scripts/cts-a-vst-session.mjs
+Restart=always
+RestartSec=8
+RuntimeMaxSec=45000
+TimeoutStartSec=180
+TimeoutStopSec=20
+OOMPolicy=kill
+OOMScoreAdjust=-200
+Environment=CTS_A_VST_HOURS=12
+Environment=CTS_A_STATUS=/var/lib/cts-a/vst-session.json
+Environment=CTS_A_CONN=bingx-vst-02
+Environment=CTS_A_TICK_MS=1500
+Environment=NODE_OPTIONS=--max-old-space-size=256
+LimitNOFILE=4096
+MemoryHigh=320M
+MemoryMax=448M
+TasksMax=64
+StandardOutput=append:/var/log/cts-a/vst-session.log
+StandardError=append:/var/log/cts-a/vst-session.err.log
+SyslogIdentifier=cts-a-vst
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=CTS-A backup snapshot
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/cts-a/deploy/cts-a/backup-cts-a.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "IBM Plex Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --color-bg: #f4f4f4;
+  --color-surface: #ffffff;
+  --color-surface-muted: #e8e8e8;
+  --color-fg: #161616;
+  --color-muted: #525252;
+  --color-subtle: #6f6f6f;
+  --color-border: #e0e0e0;
+  --color-border-strong: #8d8d8d;
+  --color-primary: #0f62fe;
+  --color-primary-hover: #0353e9;
+  --color-primary-active: #002d9c;
+  --color-primary-fg: #ffffff;
+  --color-primary-soft: #d0e2ff;
+  --color-header: #0f62fe;
+  --color-header-fg: #ffffff;
+  --color-nav: #161616;
+  --color-nav-fg: #f4f4f4;
+  --color-nav-muted: #c6c6c6;
+  --color-nav-hover: #2c2c2c;
+  --color-up: #198038;
+  --color-up-soft: #a7f0ba;
+  --color-down: #da1e28;
+  --color-down-soft: #ffd7d9;
+  --color-warn: #f1c21b;
+  --color-info: #0043ce;
+
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 2px;
+  --radius-lg: 4px;
+  --radius-xl: 8px;
+  --radius: 0px;
+
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.06);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
+    overflow-x: hidden;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 2px;
+    background: var(--color-border-strong);
+    border-radius: 0;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--color-primary);
+    border: 0;
+    cursor: pointer;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: var(--color-primary);
+    border: 0;
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "cts-a",
+  "label": "CTS-A AXIS Desk",
+  "port": 3202,
+  "root": "/opt/cts-a",
+  "unit": "cts-a-desk.service",
+  "publicUrl": "http://152.53.114.112:3202"
+}
