@@ -407,8 +407,8 @@ async function ensureProtect(network, book, cfg) {
     cur[k].push(o);
     grouped.set(key, cur);
   }
-  lastBook.sl = hasSl.size;
-  lastBook.tp = hasTp.size;
+  lastBook.sl = (book.positions ?? []).filter((p) => hasSl.has(`${p.symbol}:${p.side}`)).length;
+  lastBook.tp = (book.positions ?? []).filter((p) => hasTp.has(`${p.symbol}:${p.side}`)).length;
   const occupied = new Set((book.positions ?? []).map((p) => `${p.symbol}:${p.side}`));
   const posQty = new Map((book.positions ?? []).map((p) => [`${p.symbol}:${p.side}`, p.qty]));
   const owned = (book.positions ?? []).filter((p) => {
@@ -473,7 +473,7 @@ async function ensureProtect(network, book, cfg) {
   const notes = [];
   let posts = 0;
   for (const p of book.positions ?? []) {
-    if (posts >= 6) break;
+    if (posts >= 16) break;
     const key = `${p.symbol}:${p.side}`;
     if (!mirrored.has(`own:${key}`) && !mirrored.has(`live:${key}`)) continue;
     const px = p.mark || p.entry || 0;
@@ -531,7 +531,7 @@ async function ensureProtect(network, book, cfg) {
     };
     if (!hasSl.has(key)) {
       notes.push(await attach("sl", "STOP_MARKET", `sl:${key}`));
-      if (posts >= 6) break;
+      if (posts >= 16) break;
     }
     if (!hasTp.has(key)) {
       notes.push(await attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`));
@@ -599,7 +599,7 @@ async function mirrorToExchange(e, network, cfg) {
       mark: p.mark,
       pnl: p.pnl,
     })),
-    orders: (book.orders ?? []).slice(0, 80).map((o) => ({
+    orders: (book.orders ?? []).slice(0, 250).map((o) => ({
       connId: CONN,
       id: String(o.id ?? ""),
       symbol: o.symbol,
@@ -625,9 +625,17 @@ async function mirrorToExchange(e, network, cfg) {
     }
   }
   if (n) claimed = true;
-  const note = n ? `claim ${n}` : null;
+  const notes = [];
+  if (n) notes.push(`claim ${n}`);
   const guard = await ensureProtect(network, book, cfg);
-  if (guard) return note ? `${note} · ${guard}` : guard;
+  if (guard) {
+    notes.push(guard);
+    return notes.join(" · ");
+  }
+  if (lastBook.sl < lastBook.pos || lastBook.tp < lastBook.pos) {
+    notes.push(`wait protect ${lastBook.pos - Math.min(lastBook.sl, lastBook.tp)}`);
+    return notes.join(" · ");
+  }
   const occupied = new Set(book.positions.map((p) => `${p.symbol}:${p.side}`));
   const paperOpen = new Set((e.positions || []).map((p) => `${p.symbol}:${p.side}`));
   for (const k of paperOpen) mirrored.delete(`seed:${k}`);
@@ -645,12 +653,11 @@ async function mirrorToExchange(e, network, cfg) {
     }
   }
 
-  if (openN >= liveMaxPos() || accountN >= liveMaxPos()) return null;
+  if (openN >= liveMaxPos() || accountN >= liveMaxPos()) return notes.length ? notes.join(" · ") : null;
 
   let placed = 0;
   let failed = 0;
-  const notes = [];
-  for (const f of e.fills.slice(0, 24)) {
+  for (const f of e.fills.slice(0, 80)) {
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
@@ -703,7 +710,6 @@ async function mirrorToExchange(e, network, cfg) {
     notes.push(`live ${f.symbol} ${f.side}`);
     if (placed >= 8) break;
   }
-  if (note) notes.unshift(note);
   return notes.length ? notes.slice(0, 4).join(" · ") : null;
 }
 

@@ -1086,7 +1086,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     tick: e.tick
   };
   e.fills.unshift(qFill);
-  if (e.fills.length > 40) e.fills.length = 40;
+  if (e.fills.length > 200) e.fills.length = 200;
   if (done) markTerminal(e, o, "filled");
   else o.status = "partial";
 }
