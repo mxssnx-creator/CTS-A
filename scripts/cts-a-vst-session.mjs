@@ -267,6 +267,13 @@ function writeStatus(s) {
   }
 }
 
+let lastStatusAt = 0;
+function wantStatus(force) {
+  if (!force && Date.now() - lastStatusAt < 2000) return false;
+  lastStatusAt = Date.now();
+  return true;
+}
+
 function isRateLimited(s) {
   return /100410|109418|frequency limit|disabled period|too many request|rate limit|over 20/i.test(String(s || ""));
 }
@@ -897,7 +904,7 @@ async function main() {
             }
             writeFileSync(
               OVERALL,
-              JSON.stringify({ ...prev, executions: { ok: true, realized: ex.realized, bySymbol: ex.bySymbol, orders: ex.orders.slice(0, 80), at: ex.at } }, null, 2),
+              JSON.stringify({ ...prev, executions: { ok: true, realized: ex.realized, bySymbol: ex.bySymbol, orders: ex.orders.slice(0, 40), at: ex.at } }),
             );
           }
         } catch (err) {
@@ -908,14 +915,9 @@ async function main() {
       ioInFlight = false;
     }
     try {
-      const snap = snapshot(engine, { ...statusBase(), computeDone });
-      writeStatus(snap);
-      if (engine.tick % 40 === 0) {
-        try {
-          let prev = {};
-          try { prev = JSON.parse(readFileSync(OVERALL, "utf8")); } catch { prev = {}; }
-          writeFileSync(OVERALL, JSON.stringify({ ...prev, live: snap.overall, at: Date.now() }, null, 2));
-        } catch { /* ignore */ }
+      if (wantStatus(false)) {
+        const snap = snapshot(engine, { ...statusBase(), computeDone });
+        writeStatus(snap);
       }
     } catch {
       /* keep io moving */
@@ -1007,6 +1009,7 @@ async function main() {
     }
     if (
       engine.running &&
+      lastBook.pos < 8 &&
       engine.positions.length === 0 &&
       engine.queue.length === 0 &&
       engine.orders.length === 0 &&
@@ -1024,8 +1027,14 @@ async function main() {
 
   let lastSettingsAt = Date.now();
 
+  let lastSettingsRead = 0;
+  let cachedRemote = null;
   while (Date.now() < ends) {
-    const remote = readSettingsPick();
+    if (Date.now() - lastSettingsRead > 3000) {
+      lastSettingsRead = Date.now();
+      cachedRemote = readSettingsPick();
+    }
+    const remote = cachedRemote;
     if (remote) {
       applyExecFromSettings(remote);
       const nextPhase = remote.sessionPhase || "running";
@@ -1091,7 +1100,7 @@ async function main() {
     }
 
     if (hostPhase === "paused" || hostPhase === "stopped") {
-      if (engine.tick % 10 === 0) writeStatus(snapshot(engine, { ...statusBase(), sessionPhase: hostPhase, computeDone }));
+      if (wantStatus(false)) writeStatus(snapshot(engine, { ...statusBase(), sessionPhase: hostPhase, computeDone }));
       await sleep(TICK_MS);
       continue;
     }
@@ -1100,12 +1109,11 @@ async function main() {
       doTick();
 
       if (engine.tick % 4 === 0) void ioCycle();
-      if (engine.tick % 4 === 0) writeStatus(snapshot(engine, { ...statusBase(), computeDone }));
-      if (engine.tick % 10 === 0) {
+      if (engine.tick % 12 === 0) {
         const note = intenseCheck(engine, pick);
         if (note) adjustments.push(note);
       }
-      if (engine.tick % 20 === 0) healEngine(engine, pick.cfg, pick.tactic, pick.range);
+      if (engine.tick % 80 === 0) healEngine(engine, pick.cfg, pick.tactic, pick.range);
       if (adjustments.length > 40) adjustments.splice(0, adjustments.length - 24);
       if (liveBusy > 8) liveBusy = 0;
     } catch (err) {
@@ -1132,7 +1140,7 @@ async function main() {
       }
     }
 
-    if (engine.tick % 10 === 0) writeStatus(snapshot(engine, { ...statusBase(), computeDone }));
+    if (wantStatus(false)) writeStatus(snapshot(engine, { ...statusBase(), computeDone }));
     await sleep(TICK_MS);
   }
 

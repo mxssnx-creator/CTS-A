@@ -10,7 +10,7 @@ Type=simple
 EnvironmentFile=-/etc/cts-a/cts-a.env
 EnvironmentFile=-/etc/cts-a/credentials.env
 WorkingDirectory=/opt/cts-a
-ExecStart=/usr/bin/node --experimental-strip-types /opt/cts-a/scripts/cts-a-vst-session.mjs
+ExecStart=/usr/bin/node --max-old-space-size=384 --experimental-strip-types /opt/cts-a/scripts/cts-a-vst-session.mjs
 Restart=always
 RestartSec=8
 RuntimeMaxSec=45000
