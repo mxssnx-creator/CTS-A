@@ -37,7 +37,7 @@ export interface LiveOrderResult {
   error?: string;
 }
 
-export const MAX_LIVE_NOTIONAL = 50;
+export const MAX_LIVE_NOTIONAL = 150;
 /** Size at least this multiple of exchange min qty / min notional. */
 export const MIN_SIZE_RATIO = 1.08;
 

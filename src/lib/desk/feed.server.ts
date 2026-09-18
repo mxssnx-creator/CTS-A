@@ -600,10 +600,10 @@ export async function placeSwapOrder(input: {
     usedNotional = floor.notional;
   }
   if (!(qty > 0) && !input.closePosition) return { ok: false, error: "Quantity below exchange minimum" };
-  if (!input.closePosition && input.equity && input.equity > 0 && usedNotional > input.equity * 0.12) {
-    const minFloor = exchangeMinNotional(spec, Math.max(px, 1e-8)) * ratio;
-    const allowMin = usedNotional <= minFloor * 1.2 && usedNotional <= input.equity * 0.25;
-    if (!allowMin) return { ok: false, error: "min notional exceeds 12% equity" };
+  if (!input.closePosition && input.equity && input.equity > 0 && usedNotional > input.equity * 0.4) {
+    const floorN = exchangeMinNotional(spec, Math.max(px, 1e-8)) * ratio;
+    const allowMin = usedNotional <= floorN * 1.2 && usedNotional <= input.equity * 0.8;
+    if (!allowMin) return { ok: false, error: "min notional exceeds size cap" };
   }
 
   if (!input.closePosition && input.type === "MARKET") {

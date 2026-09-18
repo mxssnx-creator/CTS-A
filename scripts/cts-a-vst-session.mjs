@@ -36,7 +36,7 @@ const OVERALL = process.env.CTS_A_OVERALL ?? "/var/lib/cts-a/overall-stats.json"
 const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CONN = process.env.CTS_A_CONN ?? "bingx-vst-02";
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || CONN === "bingx-x01" ? "mainnet" : "testnet";
-const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? (NETWORK_PREF === "mainnet" ? 16 : 30));
+const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? (NETWORK_PREF === "mainnet" ? 30 : 50));
 const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? (NETWORK_PREF === "mainnet" ? 1.5 : 1.15));
 let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [] };
 const bookAvg = { pos: 0, ord: 0, n: 0 };
@@ -313,14 +313,14 @@ const cancelFailed = new Set();
 const skipUntil = new Map();
 const skippedFills = new Set();
 const trimHits = new Map();
-const LIVE_NOTIONAL = Math.min(NETWORK_PREF === "mainnet" ? 8 : 10, MAX_LIVE_NOTIONAL);
+const LIVE_NOTIONAL = Math.min(NETWORK_PREF === "mainnet" ? 15 : 10, MAX_LIVE_NOTIONAL);
 
 function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
-  const pct = eq * 0.001;
+  const pct = eq * 0.002;
   if (NETWORK_PREF === "mainnet") {
-    const cap = Math.max(0.5, eq * 0.08);
-    return Math.min(cap, Math.max(pct, Math.min(1, cap)));
+    const cap = Math.max(2, eq * 0.25);
+    return Math.min(cap, Math.max(pct, Math.min(5, cap)));
   }
   return Math.max(LIVE_NOTIONAL, Math.min(250, pct > 0 ? Math.max(LIVE_NOTIONAL, pct) : LIVE_NOTIONAL));
 }
@@ -328,8 +328,8 @@ function sizeNotional(equity) {
 function liveMaxPos(equity) {
   if (NETWORK_PREF !== "mainnet") return LIVE_MAX_POS;
   const eq = Number(equity) || 0;
-  if (eq < 25) return 6;
-  if (eq < 80) return 8;
+  if (eq < 25) return Math.min(16, LIVE_MAX_POS);
+  if (eq < 80) return Math.min(24, LIVE_MAX_POS);
   return LIVE_MAX_POS;
 }
 
@@ -708,7 +708,7 @@ async function mirrorToExchange(e, network, cfg) {
       const quiet = noteApiFail(r);
       failed += 1;
       notes.push(`skip ${f.symbol} ${err.slice(0, 80)}`);
-      if (quiet || failed >= 2) break;
+      if (quiet || failed >= 4) break;
       continue;
     }
     mirrored.add(f.id);
@@ -717,7 +717,7 @@ async function mirrorToExchange(e, network, cfg) {
     occupied.add(`${f.symbol}:${f.side}`);
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
-    if (placed >= 2) break;
+    if (placed >= 4) break;
   }
   if (note) notes.unshift(note);
   return notes.length ? notes.slice(0, 4).join(" · ") : null;
