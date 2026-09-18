@@ -113,8 +113,10 @@ function snapshot(e, extra) {
   const overall = overlayExchangeBook(structuredClone(cachedOverall), lastBook, e);
   const last12 = overall.lastN?.["12"] ?? null;
   const winnerPf = Number(e.completeWinner?.pf);
-  const rawLive = last12?.n ? last12.pf : Number.isFinite(winnerPf) && winnerPf > 0 ? winnerPf : e.stats.pf;
-  const rawPf = e.ledger.trades > 0 ? e.stats.pf : Number.isFinite(winnerPf) && winnerPf > 0 ? winnerPf : e.stats.pf;
+  const winnerWr = Number(e.completeWinner?.wr);
+  const tapeReady = e.ledger.trades >= 12 && Number(e.stats.pf) > 0;
+  const rawLive = last12?.n && last12.pf > 0 ? last12.pf : Number.isFinite(winnerPf) && winnerPf > 0 ? winnerPf : e.stats.pf;
+  const rawPf = tapeReady ? e.stats.pf : Number.isFinite(winnerPf) && winnerPf > 0 ? winnerPf : e.stats.pf;
   const clampPf = (v, n) => {
     const x = Number(v);
     if (!Number.isFinite(x) || x <= 0) return 0;
@@ -122,10 +124,10 @@ function snapshot(e, extra) {
     return Math.min(x, 20);
   };
   const livePf = clampPf(rawLive, last12?.n ?? e.ledger.trades);
-  const pf = clampPf(rawPf, e.ledger.trades);
+  const pf = clampPf(rawPf, tapeReady ? e.ledger.trades : last12?.n ?? 0);
   const net = Number.isFinite(lastBook.pnl) ? lastBook.pnl : e.stats.net;
-  const wr = e.ledger.trades > 0 ? e.stats.wr : Number(last12?.wr ?? e.stats.wr);
-  const tapeThin = e.ledger.trades < 3;
+  const wr = tapeReady ? e.stats.wr : Number(last12?.wr || winnerWr || e.stats.wr);
+  const tapeThin = !tapeReady;
   const positive = Number.isFinite(livePf) && livePf >= 1 && (tapeThin || ((last12?.net ?? net) >= -0.05 && ((last12?.wr ?? wr) >= 0.36 || livePf >= 1.5)));
   return {
     ...extra,
@@ -316,14 +318,23 @@ function apiQuiet() {
   return Date.now() < apiQuietUntil;
 }
 
+function isBenignApi(s) {
+  return /position not exist|order not exist|order filled|nothing to cancel|no need to cancel/i.test(String(s || ""));
+}
+
 function noteApiFail(err) {
   const s = String(err?.error || err?.message || err || "");
+  if (isBenignApi(s)) return false;
   if (s) lastApiError = s.slice(0, 180);
   if (isRateLimited(s)) {
     apiQuietUntil = Math.max(apiQuietUntil, Date.now() + quietMs(s));
     return true;
   }
   return false;
+}
+
+function noteApiOk() {
+  lastApiError = "";
 }
 
 function sleep(ms) {
@@ -535,6 +546,7 @@ async function mirrorToExchange(e, network, cfg) {
     noteApiFail(book);
     return `live book ${book?.error ?? "fail"}`;
   }
+  noteApiOk();
   if ((book.positions?.length ?? 0) === 0 && lastBook.pos > 0) {
     try {
       await sleep(400);
@@ -886,14 +898,14 @@ async function main() {
         try {
           const ex = await withTimeout(fetchLiveExecutions({ network: ping.network, connId: CONN, since: started }), 8000, "exec");
           if (ex.ok) {
-            if (ex.realized?.n > 0) {
+            if (ex.realized?.n > 0 && Number(ex.realized.pf) > 0) {
               engine.ledger.trades = Math.max(engine.ledger.trades || 0, ex.realized.n);
               engine.ledger.wins = Math.max(engine.ledger.wins || 0, ex.realized.wins);
               engine.ledger.profit = Math.max(engine.ledger.profit || 0, Math.max(0, ex.realized.net));
               engine.stats.trades = engine.ledger.trades;
-              engine.stats.pf = ex.realized.pf || engine.stats.pf;
+              engine.stats.pf = ex.realized.pf;
               engine.stats.wr = ex.realized.wr || engine.stats.wr;
-              engine.stats.net = ex.realized.net;
+              if (Number.isFinite(ex.realized.net) && ex.realized.net !== 0) engine.stats.net = ex.realized.net;
               engine.stats.mdd = ex.realized.mdd || engine.stats.mdd;
             }
             let prev = {};
