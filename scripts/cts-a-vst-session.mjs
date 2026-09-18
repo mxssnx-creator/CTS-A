@@ -38,7 +38,7 @@ const CONN = process.env.CTS_A_CONN ?? "bingx-vst-02";
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || CONN === "bingx-x01" ? "mainnet" : "testnet";
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? (NETWORK_PREF === "mainnet" ? 16 : 30));
 const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? (NETWORK_PREF === "mainnet" ? 1.5 : 1.15));
-let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, positions: [], orders: [] };
+let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [] };
 const bookAvg = { pos: 0, ord: 0, n: 0 };
 let cachedOverall = null;
 let cachedOverallTick = -1;
@@ -328,8 +328,8 @@ function sizeNotional(equity) {
 function liveMaxPos(equity) {
   if (NETWORK_PREF !== "mainnet") return LIVE_MAX_POS;
   const eq = Number(equity) || 0;
-  if (eq < 25) return Math.min(2, LIVE_MAX_POS);
-  if (eq < 80) return Math.min(4, LIVE_MAX_POS);
+  if (eq < 25) return 6;
+  if (eq < 80) return 8;
   return LIVE_MAX_POS;
 }
 
@@ -600,6 +600,7 @@ async function mirrorToExchange(e, network, cfg) {
     ok: true,
     sl: lastBook.sl,
     tp: lastBook.tp,
+    equity: Number(book.equity) || lastBook.equity || 0,
     positions: (book.positions ?? []).map((p) => ({
       connId: CONN,
       symbol: p.symbol,
@@ -702,10 +703,11 @@ async function mirrorToExchange(e, network, cfg) {
     }
     if (!r.ok) {
       skippedFills.add(f.id);
-      skipUntil.set(f.symbol, Date.now() + (isRateLimited(r.error) ? 480_000 : 90_000));
+      const err = String(r.error ?? "err");
+      if (!/min notional exceeds/i.test(err)) skipUntil.set(f.symbol, Date.now() + (isRateLimited(r.error) ? 480_000 : 90_000));
       const quiet = noteApiFail(r);
       failed += 1;
-      notes.push(`skip ${f.symbol} ${String(r.error ?? "err").slice(0, 80)}`);
+      notes.push(`skip ${f.symbol} ${err.slice(0, 80)}`);
       if (quiet || failed >= 2) break;
       continue;
     }
@@ -826,7 +828,7 @@ async function main() {
       elapsedMin: Number(elapsedMin.toFixed(2)),
       network: ping.network,
       pingOk: ping.pingOk,
-      equity: ping.equity,
+      equity: Number(lastBook.equity) || ping.equity,
       tactic: pick.tactic,
       range: pick.range,
       stable: locked,
@@ -886,15 +888,16 @@ async function main() {
     try {
       if (apiQuiet()) {
         /* skip private API until BingX unban */
-      } else if (!ping.pingOk && Date.now() - lastPingAt > 45000) {
+      } else if (Date.now() - lastPingAt > 90000) {
         lastPingAt = Date.now();
         try {
-          ping = await withTimeout(pingVst(), 6000, "reping");
-          if (ping.pingOk) adjustments.push(`BingX re-ping ok · eq ${Number(ping.equity || 0).toFixed(2)}`);
-          else noteApiFail(ping);
-        } catch (err) {
-          noteApiFail(err);
-          adjustments.push(`reping ${err instanceof Error ? err.message : "fail"}`);
+          const next = await withTimeout(pingVst(), 6000, "reping");
+          if (next.pingOk) {
+            ping = next;
+            if (next.equity > 0) lastBook.equity = next.equity;
+          }
+        } catch {
+          /* keep last */
         }
       }
       const live = Date.now() - lastTape > 2500;

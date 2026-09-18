@@ -497,9 +497,18 @@ export async function pingAccount(input: {
       }
       let equity = 0;
       const data = body.data;
-      if (Array.isArray(data)) equity = num(data[0]?.balance);
-      else if (data && typeof data === "object") {
-        equity = num(data.balance?.balance ?? (data as { balance?: string }).balance);
+      const bal = Array.isArray(data)
+        ? data[0]
+        : data && typeof data === "object"
+          ? ((data as { balance?: Record<string, unknown> }).balance ?? data)
+          : null;
+      if (bal && typeof bal === "object") {
+        const row = bal as Record<string, unknown>;
+        equity =
+          num(row.equity) ||
+          num(row.balance) ||
+          num(row.availableMargin) ||
+          num(row.available);
       }
       return { ok: true, latencyMs: out.ms, equity };
     } catch (err) {
@@ -592,7 +601,9 @@ export async function placeSwapOrder(input: {
   }
   if (!(qty > 0) && !input.closePosition) return { ok: false, error: "Quantity below exchange minimum" };
   if (!input.closePosition && input.equity && input.equity > 0 && usedNotional > input.equity * 0.12) {
-    return { ok: false, error: "min notional exceeds 12% equity" };
+    const minFloor = exchangeMinNotional(spec, Math.max(px, 1e-8)) * ratio;
+    const allowMin = usedNotional <= minFloor * 1.2 && usedNotional <= input.equity * 0.25;
+    if (!allowMin) return { ok: false, error: "min notional exceeds 12% equity" };
   }
 
   if (!input.closePosition && input.type === "MARKET") {
