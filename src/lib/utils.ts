@@ -31,6 +31,11 @@ export function fmtUsd(n: number, digits = 2): string {
   return sign + "$" + fmtNum(Math.abs(n), digits);
 }
 
+export function fmtEquity(n: number): string {
+  if (!Number.isFinite(n) || n === 0) return "—";
+  return fmtUsd(n, Math.abs(n) < 100 ? 2 : 0);
+}
+
 export function fmtPx(n: number): string {
   if (!Number.isFinite(n)) return "—";
   if (n >= 1000) return fmtNum(n, 1);

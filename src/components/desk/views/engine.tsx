@@ -3,7 +3,7 @@ import { Pause, Play, RotateCcw, Square } from "lucide-react";
 import { VST_MAX_SYMBOLS, universeSymbols } from "@/lib/desk/vst";
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
-import { clsPnl, cn, fmtNum, fmtPct, fmtPx, fmtUsd } from "@/lib/utils";
+import { clsPnl, cn, fmtEquity, fmtNum, fmtPct, fmtPx, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { fmtMdd, fmtPf, fmtWr, Kpi, Panel, pfTone, Pill, StatLine } from "../widgets";
 import { SystemPanel } from "../system-panel";
@@ -49,7 +49,7 @@ export function EngineView() {
     <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-subtle">BingX VST ×02</p>
+          <p className="text-xs font-medium uppercase tracking-widest text-subtle">{liveSnap.venueLabel}</p>
           <h1 className="text-2xl font-semibold tracking-tight">Live engine</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted">
             {symbolCount}-symbol universe, 100-position cap, unlimited orders. Rate-limited batches of
@@ -103,9 +103,9 @@ export function EngineView() {
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
         <Kpi
           label="Equity"
-          value={liveSnap.equity ? fmtUsd(liveSnap.equity, 0) : "—"}
+          value={liveSnap.equity ? fmtEquity(liveSnap.equity) : "—"}
           tone={liveSnap.pingOk ? "up" : "neutral"}
-          hint="BingX VST-02"
+          hint={liveSnap.venueLabel}
         />
         <Kpi label="PF" value={fmtPf(liveSnap.pf)} tone={pfTone(liveSnap.pf)} hint={`${liveSnap.trades} closed`} />
         <Kpi label="Win rate" value={fmtWr(liveSnap.wr)} />

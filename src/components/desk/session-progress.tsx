@@ -28,7 +28,7 @@ import {
   systemSnapshot,
 } from "@/lib/desk/vst";
 import type { EnginePhase, OrderTypeId, RangeType, TacticKind } from "@/lib/desk/types";
-import { cn, fmtUsd } from "@/lib/utils";
+import { cn, fmtUsd, fmtEquity } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { fmtMdd, fmtPf, fmtWr, Meter, Panel, pfTone, Pill, StatLine } from "./widgets";
 
@@ -132,7 +132,7 @@ export function SessionProgress({
         <div className="flex flex-wrap items-center gap-2">
           <Pill tone={PHASE_TONE[liveSnap.hasLive ? (liveRunning ? "running" : "paused") : phase]}>{liveSnap.hasLive ? (liveRunning ? "live" : shownPhase) : phase}</Pill>
           <Pill tone={liveSnap.pingOk || feed.state === "live" ? "up" : feed.state === "error" ? "down" : "accent"}>
-            {liveSnap.hasLive ? "BingX VST-02" : `tape ${feed.state}`}
+            {liveSnap.hasLive ? liveSnap.venueLabel : `tape ${feed.state}`}
           </Pill>
         </div>
       }
@@ -248,9 +248,9 @@ export function SessionProgress({
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-x-4 sm:grid-cols-4 xl:grid-cols-8">
-        <StatLine k="Equity" v={fmtUsd(liveSnap.hasLive ? liveSnap.equity : st.equity, 0)} tone={(liveSnap.hasLive ? liveSnap.net : st.net) >= 0 ? "up" : "down"} />
+        <StatLine k="Equity" v={fmtEquity(liveSnap.hasLive ? liveSnap.equity : st.equity)} tone={(liveSnap.hasLive ? liveSnap.net : st.net) >= 0 ? "up" : "down"} />
         <StatLine k="Live PF" v={fmtPf(liveSnap.hasLive ? liveSnap.pf : st.pf)} tone={pfTone(liveSnap.hasLive ? liveSnap.pf : st.pf)} />
-        <StatLine k="Net" v={fmtUsd(liveSnap.hasLive ? liveSnap.net : st.net, 0)} tone={(liveSnap.hasLive ? liveSnap.net : st.net) >= 0 ? "up" : "down"} />
+        <StatLine k="Net" v={fmtUsd(liveSnap.hasLive ? liveSnap.net : st.net)} tone={(liveSnap.hasLive ? liveSnap.net : st.net) >= 0 ? "up" : "down"} />
         <StatLine k="Win rate" v={fmtWr(liveSnap.hasLive ? liveSnap.wr : st.wr)} />
         <StatLine k="Max DD" v={fmtMdd(liveSnap.hasLive ? liveSnap.mdd : st.mdd)} />
         <StatLine k="Vol factor" v={th.minVf.toFixed(2)} />

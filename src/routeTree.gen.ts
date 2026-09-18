@@ -16,12 +16,15 @@ import { Route as DeskCombinationsRouteImport } from './routes/_desk/combination
 import { Route as DeskConnectionsRouteImport } from './routes/_desk/connections'
 import { Route as DeskEngineRouteImport } from './routes/_desk/engine'
 import { Route as DeskLanesRouteImport } from './routes/_desk/lanes'
+import { Route as DeskOrdersRouteImport } from './routes/_desk/orders'
 import { Route as DeskPerformanceRouteImport } from './routes/_desk/performance'
 import { Route as DeskPositionsRouteImport } from './routes/_desk/positions'
 import { Route as DeskReplayRouteImport } from './routes/_desk/replay'
 import { Route as DeskResultsRouteImport } from './routes/_desk/results'
 import { Route as DeskSettingsRouteImport } from './routes/_desk/settings'
+import { Route as DeskStatisticsRouteImport } from './routes/_desk/statistics'
 import { Route as DeskStrategiesRouteImport } from './routes/_desk/strategies'
+import { Route as DeskSystemRouteImport } from './routes/_desk/system'
 import { Route as DeskTacticsRouteImport } from './routes/_desk/tactics'
 
 const DeskRoute = DeskRouteImport.update({
@@ -58,6 +61,11 @@ const DeskLanesRoute = DeskLanesRouteImport.update({
   path: '/lanes',
   getParentRoute: () => DeskRoute,
 } as any)
+const DeskOrdersRoute = DeskOrdersRouteImport.update({
+  id: '/orders',
+  path: '/orders',
+  getParentRoute: () => DeskRoute,
+} as any)
 const DeskPerformanceRoute = DeskPerformanceRouteImport.update({
   id: '/performance',
   path: '/performance',
@@ -83,9 +91,19 @@ const DeskSettingsRoute = DeskSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => DeskRoute,
 } as any)
+const DeskStatisticsRoute = DeskStatisticsRouteImport.update({
+  id: '/statistics',
+  path: '/statistics',
+  getParentRoute: () => DeskRoute,
+} as any)
 const DeskStrategiesRoute = DeskStrategiesRouteImport.update({
   id: '/strategies',
   path: '/strategies',
+  getParentRoute: () => DeskRoute,
+} as any)
+const DeskSystemRoute = DeskSystemRouteImport.update({
+  id: '/system',
+  path: '/system',
   getParentRoute: () => DeskRoute,
 } as any)
 const DeskTacticsRoute = DeskTacticsRouteImport.update({
@@ -101,12 +119,15 @@ export interface FileRoutesByFullPath {
   '/connections': typeof DeskConnectionsRoute
   '/engine': typeof DeskEngineRoute
   '/lanes': typeof DeskLanesRoute
+  '/orders': typeof DeskOrdersRoute
   '/performance': typeof DeskPerformanceRoute
   '/positions': typeof DeskPositionsRoute
   '/replay': typeof DeskReplayRoute
   '/results': typeof DeskResultsRoute
   '/settings': typeof DeskSettingsRoute
+  '/statistics': typeof DeskStatisticsRoute
   '/strategies': typeof DeskStrategiesRoute
+  '/system': typeof DeskSystemRoute
   '/tactics': typeof DeskTacticsRoute
 }
 export interface FileRoutesByTo {
@@ -115,12 +136,15 @@ export interface FileRoutesByTo {
   '/connections': typeof DeskConnectionsRoute
   '/engine': typeof DeskEngineRoute
   '/lanes': typeof DeskLanesRoute
+  '/orders': typeof DeskOrdersRoute
   '/performance': typeof DeskPerformanceRoute
   '/positions': typeof DeskPositionsRoute
   '/replay': typeof DeskReplayRoute
   '/results': typeof DeskResultsRoute
   '/settings': typeof DeskSettingsRoute
+  '/statistics': typeof DeskStatisticsRoute
   '/strategies': typeof DeskStrategiesRoute
+  '/system': typeof DeskSystemRoute
   '/tactics': typeof DeskTacticsRoute
   '/': typeof DeskIndexRoute
 }
@@ -132,12 +156,15 @@ export interface FileRoutesById {
   '/_desk/connections': typeof DeskConnectionsRoute
   '/_desk/engine': typeof DeskEngineRoute
   '/_desk/lanes': typeof DeskLanesRoute
+  '/_desk/orders': typeof DeskOrdersRoute
   '/_desk/performance': typeof DeskPerformanceRoute
   '/_desk/positions': typeof DeskPositionsRoute
   '/_desk/replay': typeof DeskReplayRoute
   '/_desk/results': typeof DeskResultsRoute
   '/_desk/settings': typeof DeskSettingsRoute
+  '/_desk/statistics': typeof DeskStatisticsRoute
   '/_desk/strategies': typeof DeskStrategiesRoute
+  '/_desk/system': typeof DeskSystemRoute
   '/_desk/tactics': typeof DeskTacticsRoute
   '/_desk/': typeof DeskIndexRoute
 }
@@ -150,12 +177,15 @@ export interface FileRouteTypes {
     | '/connections'
     | '/engine'
     | '/lanes'
+    | '/orders'
     | '/performance'
     | '/positions'
     | '/replay'
     | '/results'
     | '/settings'
+    | '/statistics'
     | '/strategies'
+    | '/system'
     | '/tactics'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -164,12 +194,15 @@ export interface FileRouteTypes {
     | '/connections'
     | '/engine'
     | '/lanes'
+    | '/orders'
     | '/performance'
     | '/positions'
     | '/replay'
     | '/results'
     | '/settings'
+    | '/statistics'
     | '/strategies'
+    | '/system'
     | '/tactics'
     | '/'
   id:
@@ -180,12 +213,15 @@ export interface FileRouteTypes {
     | '/_desk/connections'
     | '/_desk/engine'
     | '/_desk/lanes'
+    | '/_desk/orders'
     | '/_desk/performance'
     | '/_desk/positions'
     | '/_desk/replay'
     | '/_desk/results'
     | '/_desk/settings'
+    | '/_desk/statistics'
     | '/_desk/strategies'
+    | '/_desk/system'
     | '/_desk/tactics'
     | '/_desk/'
   fileRoutesById: FileRoutesById
@@ -245,6 +281,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DeskLanesRouteImport
       parentRoute: typeof DeskRoute
     }
+    '/_desk/orders': {
+      id: '/_desk/orders'
+      path: '/orders'
+      fullPath: '/orders'
+      preLoaderRoute: typeof DeskOrdersRouteImport
+      parentRoute: typeof DeskRoute
+    }
     '/_desk/performance': {
       id: '/_desk/performance'
       path: '/performance'
@@ -280,11 +323,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DeskSettingsRouteImport
       parentRoute: typeof DeskRoute
     }
+    '/_desk/statistics': {
+      id: '/_desk/statistics'
+      path: '/statistics'
+      fullPath: '/statistics'
+      preLoaderRoute: typeof DeskStatisticsRouteImport
+      parentRoute: typeof DeskRoute
+    }
     '/_desk/strategies': {
       id: '/_desk/strategies'
       path: '/strategies'
       fullPath: '/strategies'
       preLoaderRoute: typeof DeskStrategiesRouteImport
+      parentRoute: typeof DeskRoute
+    }
+    '/_desk/system': {
+      id: '/_desk/system'
+      path: '/system'
+      fullPath: '/system'
+      preLoaderRoute: typeof DeskSystemRouteImport
       parentRoute: typeof DeskRoute
     }
     '/_desk/tactics': {
@@ -303,12 +360,15 @@ interface DeskRouteChildren {
   DeskConnectionsRoute: typeof DeskConnectionsRoute
   DeskEngineRoute: typeof DeskEngineRoute
   DeskLanesRoute: typeof DeskLanesRoute
+  DeskOrdersRoute: typeof DeskOrdersRoute
   DeskPerformanceRoute: typeof DeskPerformanceRoute
   DeskPositionsRoute: typeof DeskPositionsRoute
   DeskReplayRoute: typeof DeskReplayRoute
   DeskResultsRoute: typeof DeskResultsRoute
   DeskSettingsRoute: typeof DeskSettingsRoute
+  DeskStatisticsRoute: typeof DeskStatisticsRoute
   DeskStrategiesRoute: typeof DeskStrategiesRoute
+  DeskSystemRoute: typeof DeskSystemRoute
   DeskTacticsRoute: typeof DeskTacticsRoute
   DeskIndexRoute: typeof DeskIndexRoute
 }
@@ -319,12 +379,15 @@ const DeskRouteChildren: DeskRouteChildren = {
   DeskConnectionsRoute: DeskConnectionsRoute,
   DeskEngineRoute: DeskEngineRoute,
   DeskLanesRoute: DeskLanesRoute,
+  DeskOrdersRoute: DeskOrdersRoute,
   DeskPerformanceRoute: DeskPerformanceRoute,
   DeskPositionsRoute: DeskPositionsRoute,
   DeskReplayRoute: DeskReplayRoute,
   DeskResultsRoute: DeskResultsRoute,
   DeskSettingsRoute: DeskSettingsRoute,
+  DeskStatisticsRoute: DeskStatisticsRoute,
   DeskStrategiesRoute: DeskStrategiesRoute,
+  DeskSystemRoute: DeskSystemRoute,
   DeskTacticsRoute: DeskTacticsRoute,
   DeskIndexRoute: DeskIndexRoute,
 }

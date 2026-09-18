@@ -6,7 +6,7 @@ import { MAX_LIVE_NOTIONAL } from "@/lib/desk/feed";
 import type { NetworkMode, OrderTypeId, Side } from "@/lib/desk/types";
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
-import { cn, fmtPx, fmtUsd } from "@/lib/utils";
+import { cn, fmtEquity, fmtPx, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { controlClass, Field, Panel, Pill, StatLine } from "../widgets";
 import { LiveBookStrip } from "../live-book-strip";
@@ -58,7 +58,7 @@ export function ConnectionsView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Venues</p>
         <h1 className="text-2xl font-semibold tracking-tight">Connections</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Live BingX VST-02 is the default session. Tape, ping and the exchange book come from BingX.
+          Live {liveSnap.hasLive ? liveSnap.venueLabel : "BingX"} is the default session. Tape, ping and the exchange book come from BingX.
           Tickets, cancels, stops and rearms apply only to the current session.
         </p>
       </div>
@@ -77,7 +77,7 @@ export function ConnectionsView() {
       {liveSnap.hasLive ? (
         <Panel title={`BingX book · ${connId}`}>
           <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
-            <StatLine k="Equity" v={liveSnap.equity ? fmtUsd(liveSnap.equity, 0) : "—"} />
+            <StatLine k="Equity" v={liveSnap.equity ? fmtEquity(liveSnap.equity) : "—"} />
             <StatLine k="Positions" v={String(liveSnap.livePos)} />
             <StatLine k="Orders" v={String(liveSnap.liveOrd)} />
             <StatLine k="Ping" v={liveSnap.pingOk ? (liveSnap.latencyMs ? `${liveSnap.latencyMs} ms` : "ok") : "connecting"} />

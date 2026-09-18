@@ -38,7 +38,19 @@ export type LiveNumbers = {
   liveShort: number;
   at: number;
   hasLive: boolean;
+  conn: string;
+  network: string;
+  venueLabel: string;
 };
+
+export function venueLabelFor(conn?: string, network?: string): string {
+  const id = String(conn || "");
+  const net = String(network || "");
+  if (id === "bingx-x01" || net === "mainnet") return "BingX Live-01";
+  if (id === "bingx-vst-02") return "BingX VST-02";
+  if (id === "bingx-vst-01") return "BingX VST-01";
+  return net === "testnet" ? "BingX VST" : "BingX";
+}
 
 const LiveCtx = createContext<LiveDeskPayload | null>(null);
 
@@ -107,6 +119,9 @@ export function liveNumbers(
   const posRows = (exchange?.positions?.length ? exchange.positions : sessBook) as { side?: string }[];
   const liveLong = posRows.filter((p) => p.side === "long").length;
   const liveShort = posRows.filter((p) => p.side === "short").length;
+  const conn = str(session?.conn, "bingx-x01");
+  const network = str(session?.network, conn === "bingx-x01" ? "mainnet" : "testnet");
+  const venueLabel = venueLabelFor(conn, network);
   return {
     session,
     overall,
@@ -126,7 +141,7 @@ export function liveNumbers(
     elapsedMin: num(session?.elapsedMin),
     tactic: str(session?.tactic, "hybrid"),
     range: str(session?.range, "atr"),
-    lastMsg: str(session?.lastMsg, pingOk ? "BingX VST-02 live" : "Waiting for host session"),
+    lastMsg: str(session?.lastMsg, pingOk ? `${venueLabel} live` : "Waiting for host session"),
     positive: Boolean(session?.positive),
     occupied,
     slots: num(session?.slots) || livePos,
@@ -134,6 +149,9 @@ export function liveNumbers(
     liveShort,
     at: payload?.at ?? Date.now(),
     hasLive: Boolean(session || (exchange && exchange.ok)),
+    conn,
+    network,
+    venueLabel,
   };
 }
 
@@ -166,6 +184,8 @@ function sameSnap(a: LiveNumbers, b: LiveNumbers) {
     a.range === b.range &&
     a.hasLive === b.hasLive &&
     a.occupied === b.occupied &&
+    a.conn === b.conn &&
+    a.network === b.network &&
     a.tactic === b.tactic &&
     a.range === b.range &&
     a.hasLive === b.hasLive &&

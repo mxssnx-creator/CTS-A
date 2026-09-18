@@ -774,7 +774,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.running = true;
     e.phase = "running";
     e.lastMsg = get().liveSession
-      ? `Host BingX VST-02 resume · ${tactic} · ${rangeType}`
+      ? `Host ${get().activeConnId} resume · ${tactic} · ${rangeType}`
       : from === "paused"
         ? `Resumed · ${tactic} · ${rangeType}`
         : from === "stopped"
@@ -793,7 +793,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     if (e.phase !== "running" && !get().liveSession) return;
     e.running = false;
     e.phase = "paused";
-    e.lastMsg = get().liveSession ? "Host pause requested · BingX VST-02" : "Paused · book frozen, press Start to resume";
+    e.lastMsg = get().liveSession ? `Host pause requested · ${get().activeConnId}` : "Paused · book frozen, press Start to resume";
     set({ vst: snapshotVst(e), ticketMsg: e.lastMsg, sessionPhase: "paused" });
     get().syncSettings();
   },
@@ -815,7 +815,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.symbolCount = get().symbolCount;
     e.orderType = get().orderType;
     resetVstSession(e, get().tacticConfig, get().tactic, get().rangeType);
-    e.lastMsg = get().liveSession ? "Host reset · rearm BingX VST-02" : e.lastMsg;
+    e.lastMsg = get().liveSession ? `Host reset · rearm ${get().activeConnId}` : e.lastMsg;
     set({
       vst: snapshotVst(e),
       ticketMsg: e.lastMsg,
@@ -1298,7 +1298,9 @@ export const useDesk = create<DeskStore>((set, get) => ({
                   openOrderCount: nextOrd || c.openOrderCount,
                   apiKeyMasked: c.apiKeyMasked === "—" ? "env •••" : c.apiKeyMasked,
                 }
-              : c,
+              : c.armed || c.status === "connected"
+                ? { ...c, armed: false, status: "disconnected" as const, positionCount: 0, openOrderCount: 0 }
+                : c,
           ),
       ticketMsg:
         equity > 0

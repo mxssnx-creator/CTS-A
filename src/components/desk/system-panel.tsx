@@ -18,7 +18,7 @@ import {
   systemSnapshot,
 } from "@/lib/desk/vst";
 import { MAX_LIVE_NOTIONAL } from "@/lib/desk/feed";
-import { fmtUsd } from "@/lib/utils";
+import { fmtEquity, fmtUsd } from "@/lib/utils";
 import { fmtMdd, fmtPf, fmtWr, Kpi, Meter, Panel, pfTone, Pill, StatLine } from "./widgets";
 
 export function SystemPanel({
@@ -99,7 +99,7 @@ export function SystemPanel({
 
       <h3 className="mt-5 text-xs font-medium uppercase tracking-widest text-subtle">Stats</h3>
       <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-        <Kpi label="Equity" value={fmtUsd(liveSnap.hasLive ? liveSnap.equity : st.equity, 0)} tone={(liveSnap.hasLive ? liveSnap.net : st.net) >= 0 ? "up" : "down"} hint={`${liveSnap.hasLive ? liveSnap.trades : st.trades} closed`} />
+        <Kpi label="Equity" value={fmtEquity(liveSnap.hasLive ? liveSnap.equity : st.equity)} tone={(liveSnap.hasLive ? liveSnap.net : st.net) >= 0 ? "up" : "down"} hint={`${liveSnap.hasLive ? liveSnap.trades : st.trades} closed`} />
         <Kpi label="Live PF" value={fmtPf(liveSnap.hasLive ? liveSnap.pf : st.pf)} tone={pfTone(liveSnap.hasLive ? liveSnap.pf : st.pf)} hint={fmtWr(liveSnap.hasLive ? liveSnap.wr : st.wr)} />
         <Kpi
           label="Slots"

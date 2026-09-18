@@ -312,6 +312,7 @@ let lastApiError = "";
 const cancelFailed = new Set();
 const skipUntil = new Map();
 const skippedFills = new Set();
+const trimHits = new Map();
 const LIVE_NOTIONAL = Math.min(NETWORK_PREF === "mainnet" ? 8 : 10, MAX_LIVE_NOTIONAL);
 
 function sizeNotional(equity) {
@@ -459,6 +460,8 @@ async function ensureProtect(network, book, cfg) {
     for (const kind of ["sl", "tp"]) {
       const list = g[kind];
       if (!list || list.length <= 1) continue;
+      const tk = `${key}:${kind}`;
+      if ((trimHits.get(tk) || 0) >= 2) continue;
       list.sort((a, b) => Math.abs((a.qty || 0) - want) - Math.abs((b.qty || 0) - want));
       const extra = list[list.length - 1];
       const extraId = String(extra?.id || "");
@@ -471,7 +474,10 @@ async function ensureProtect(network, book, cfg) {
           orderId: extraId,
         }),
       );
-      if (r.ok) return `trim ${kind} ${extra.symbol}`;
+      if (r.ok) {
+        trimHits.set(tk, (trimHits.get(tk) || 0) + 1);
+        return `trim ${kind} ${extra.symbol}`;
+      }
       cancelFailed.add(extraId);
       noteApiFail(r);
     }

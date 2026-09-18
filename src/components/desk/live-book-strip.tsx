@@ -1,13 +1,13 @@
 import { useLiveSnapshot } from "@/lib/desk/live-ctx";
-import { fmtUsd } from "@/lib/utils";
+import { fmtEquity, fmtUsd } from "@/lib/utils";
 import { fmtPf, fmtWr, Panel, pfTone, StatLine } from "./widgets";
 
-export function LiveBookStrip({ title = "BingX VST-02 live" }: { title?: string }) {
+export function LiveBookStrip({ title }: { title?: string }) {
   const live = useLiveSnapshot();
   return (
-    <Panel title={title}>
+    <Panel title={title ?? `${live.venueLabel} live`}>
       <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
-        <StatLine k="Equity" v={live.equity ? fmtUsd(live.equity, 0) : "—"} tone={live.pingOk ? "up" : "neutral"} />
+        <StatLine k="Equity" v={live.equity ? fmtEquity(live.equity) : "—"} tone={live.pingOk ? "up" : "neutral"} />
         <StatLine k="Live PF" v={fmtPf(live.pf)} tone={pfTone(live.pf)} />
         <StatLine k="Win rate" v={fmtWr(live.wr)} />
         <StatLine k="Net" v={fmtUsd(live.net)} tone={live.net >= 0 ? "up" : "down"} />

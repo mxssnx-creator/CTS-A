@@ -16,7 +16,7 @@ import {
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
 import { bookCounts, exchangeAsPositions, liveDeskBook, overallLiveStats, positionsAsTrades } from "@/lib/desk/vst";
-import { fmtNum, fmtPct, fmtSigned, fmtUsd } from "@/lib/utils";
+import { fmtNum, fmtPct, fmtSigned, fmtUsd, fmtEquity } from "@/lib/utils";
 import { EquityChart } from "../charts";
 import { CostHeatmap } from "../heatmap";
 import { SessionProgress } from "../session-progress";
@@ -148,7 +148,7 @@ export function OverviewView() {
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
         <Kpi
           label="BingX equity"
-          value={liveSnap.equity ? fmtUsd(liveSnap.equity, 0) : "—"}
+          value={liveSnap.equity ? fmtEquity(liveSnap.equity) : "—"}
           hint={liveSnap.pingOk ? `${liveSnap.latencyMs || "ok"} · ${activeConnId}` : "connecting"}
           tone={liveSnap.pingOk ? "up" : "neutral"}
         />
@@ -159,7 +159,7 @@ export function OverviewView() {
       </div>
 
       {session ? (
-        <Panel title="Live BingX VST session">
+        <Panel title={`${liveSnap.venueLabel} session`}>
           <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
             <StatLine k="Tactic / range" v={`${String(session.tactic ?? "—")} · ${String(session.range ?? "—")}`} />
             <StatLine k="Elapsed" v={`${Number(session.elapsedMin ?? 0).toFixed(1)} min`} />
@@ -233,7 +233,7 @@ export function OverviewView() {
       {liveSnap.hasLive ? (
         <Panel title={`Exchange book · ${activeConnId}`}>
           <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
-            <StatLine k="Equity" v={liveSnap.equity ? fmtUsd(liveSnap.equity, 0) : "—"} />
+            <StatLine k="Equity" v={liveSnap.equity ? fmtEquity(liveSnap.equity) : "—"} />
             <StatLine k="Positions" v={String(liveSnap.livePos)} />
             <StatLine k="Open orders" v={String(liveSnap.liveOrd)} />
             <StatLine k="Ping" v={liveSnap.pingOk ? `${liveSnap.latencyMs || "ok"}` : "connecting"} />
