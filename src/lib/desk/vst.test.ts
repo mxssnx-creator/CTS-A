@@ -1165,6 +1165,10 @@ describe("VST engine", () => {
     assert.equal(snap.tactic, "hybrid");
     assert.equal(snap.symbolCount, 50);
     assert.equal(snap.tacticConfig.tpRatio, 3);
+    assert.equal(snap.hedgeMode, true);
+    assert.equal(snap.marginMode, "cross");
+    assert.equal(snap.useMaxLeverage, true);
+    assert.ok(snap.minSizeRatio >= 1);
     assert.ok(snap.lastN <= 50);
     assert.deepEqual(snap.enabledKinds, ["normal"]);
     const legacy = sanitizeDeskSettings({

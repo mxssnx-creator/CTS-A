@@ -136,6 +136,11 @@ interface DeskStore {
   evalHours: number[];
   evalLastNs: number[];
   sessionPhase: "idle" | "running" | "paused" | "stopped";
+  hedgeMode: boolean;
+  marginMode: "cross" | "isolated";
+  useMaxLeverage: boolean;
+  leverage: number;
+  minSizeRatio: number;
   exchange: ExchangeBook | null;
   settingsRev: number;
   settingsAt: number;
@@ -199,6 +204,7 @@ interface DeskStore {
   setNetwork: (connId: string, network: NetworkMode) => void;
   setConnKeys: (connId: string, apiKey: string, secret: string) => void;
   armMainnet: (connId: string, on: boolean) => void;
+  setLiveExec: (p: Partial<{ hedgeMode: boolean; marginMode: "cross" | "isolated"; useMaxLeverage: boolean; leverage: number; minSizeRatio: number }>) => void;
   pingLive: (connId: string) => Promise<void>;
   hydrateCredentials: () => Promise<void>;
   pullExchange: () => Promise<void>;
@@ -325,6 +331,11 @@ export const useDesk = create<DeskStore>((set, get) => ({
   evalHours: [...STAGE_HOURS],
   evalLastNs: [...LANE_EVAL_NS],
   sessionPhase: "idle" as const,
+  hedgeMode: true,
+  marginMode: "cross" as const,
+  useMaxLeverage: true,
+  leverage: 125,
+  minSizeRatio: 1.08,
   exchange: null,
   liveSession: null,
   liveOverall: null,
@@ -426,6 +437,11 @@ export const useDesk = create<DeskStore>((set, get) => ({
       orderType: "limit",
       enabledKinds: [...DEFAULT_ENABLED_KINDS],
       validation: null,
+      hedgeMode: true,
+      marginMode: "cross" as const,
+      useMaxLeverage: true,
+      leverage: 125,
+      minSizeRatio: 1.08,
     });
     get().applyLiveConfig();
   },
@@ -963,6 +979,16 @@ export const useDesk = create<DeskStore>((set, get) => ({
     set({ evalLastNs: next.length ? [...next] : [...LANE_EVAL_NS] });
     get().syncSettings();
   },
+  setLiveExec: (p) => {
+    set({
+      hedgeMode: p.hedgeMode ?? get().hedgeMode,
+      marginMode: p.marginMode ?? get().marginMode,
+      useMaxLeverage: p.useMaxLeverage ?? get().useMaxLeverage,
+      leverage: p.leverage != null ? Math.min(150, Math.max(1, Math.round(p.leverage))) : get().leverage,
+      minSizeRatio: p.minSizeRatio != null ? Math.min(2, Math.max(1, p.minSizeRatio)) : get().minSizeRatio,
+    });
+    get().syncSettings();
+  },
   setLiveTape: (liveTape) => {
     set({ liveTape });
     get().syncSettings();
@@ -1370,6 +1396,11 @@ export const useDesk = create<DeskStore>((set, get) => ({
         evalHours: snap.evalHours,
         evalLastNs: snap.evalLastNs,
         sessionPhase: snap.sessionPhase,
+        hedgeMode: snap.hedgeMode,
+        marginMode: snap.marginMode,
+        useMaxLeverage: snap.useMaxLeverage,
+        leverage: snap.leverage,
+        minSizeRatio: snap.minSizeRatio,
         settingsRev: snap.rev,
         settingsAt: snap.at,
         settingsSource: source,

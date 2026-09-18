@@ -26,7 +26,7 @@ describe("live feed", () => {
   });
 
   it("lifts qty to exchange min × ratio", () => {
-    const spec = { symbol: "PEPE-USDT", minQty: 100, step: 1, qtyPrec: 0, pxPrec: 6, minUsdt: 5 };
+    const spec = { symbol: "PEPE-USDT", minQty: 100, step: 1, qtyPrec: 0, pxPrec: 6, minUsdt: 5, maxLeverage: 50 };
     assert.ok(snapQty(1, spec) >= 100);
     const lifted = liftQtyToMin(1, spec, 0.01);
     assert.ok(lifted.qty >= 100 * MIN_SIZE_RATIO - 1e-6);
@@ -34,6 +34,9 @@ describe("live feed", () => {
     assert.equal(lifted.lifted, true);
     const usdt = liftQtyToMin(1, { ...spec, minQty: 1, minUsdt: 8 }, 1);
     assert.ok(usdt.notional >= 8 * MIN_SIZE_RATIO - 1e-6);
+    const tiny = liftQtyToMin(0, { symbol: "SOL-USDT", minQty: 0.01, step: 0.01, qtyPrec: 2, pxPrec: 3, minUsdt: 5, maxLeverage: 75 }, 20);
+    assert.ok(tiny.notional + 1e-9 >= 5 * MIN_SIZE_RATIO);
+    assert.ok(tiny.qty + 1e-12 >= 0.01);
     assert.ok(isMinSizeError("order quantity is below min quantity"));
     assert.ok(isMinSizeError("notional too small"));
     assert.equal(isMinSizeError("insufficient margin"), false);

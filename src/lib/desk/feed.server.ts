@@ -108,6 +108,7 @@ export type ContractSpec = {
   qtyPrec: number;
   pxPrec: number;
   minUsdt: number;
+  maxLeverage?: number;
 };
 
 /** Exchange-safe minimum stop distance. */
@@ -133,6 +134,7 @@ export async function fetchContractMap(network: "mainnet" | "testnet"): Promise<
         const step = num(r.size) || Math.pow(10, -Math.max(0, qtyPrec));
         const minQty = Math.max(num(r.tradeMinQuantity), num(r.tradeMinVolume), num(r.minQty), step, 0);
         const minUsdt = Math.max(num(r.tradeMinUSDT), num(r.minNotional), 0);
+        const maxLev = Math.max(num(r.maxLongLeverage), num(r.maxShortLeverage), num(r.maxLeverage), num(r.leverage), 20);
         map.set(symbol, {
           symbol,
           minQty,
@@ -140,6 +142,7 @@ export async function fetchContractMap(network: "mainnet" | "testnet"): Promise<
           qtyPrec,
           pxPrec: num(r.pricePrecision),
           minUsdt: minUsdt > 0 ? minUsdt : 2,
+          maxLeverage: Math.min(150, Math.max(1, maxLev || 125)),
         });
       }
       if (map.size) break;
@@ -186,6 +189,117 @@ export function exchangeMinNotional(spec: ContractSpec | null | undefined, px: n
   const minQtyN = (spec?.minQty ?? 0) * p;
   const minUsdt = spec?.minUsdt ?? 2;
   return Math.max(minUsdt, minQtyN);
+}
+
+export type LiveExecConfig = {
+  hedgeMode: boolean;
+  marginMode: "cross" | "isolated";
+  useMaxLeverage: boolean;
+  leverage: number;
+  minSizeRatio: number;
+};
+
+let liveExec: LiveExecConfig = {
+  hedgeMode: true,
+  marginMode: "cross",
+  useMaxLeverage: true,
+  leverage: 125,
+  minSizeRatio: MIN_SIZE_RATIO,
+};
+
+export function configureLiveExecution(p: Partial<LiveExecConfig>) {
+  liveExec = {
+    hedgeMode: p.hedgeMode ?? liveExec.hedgeMode,
+    marginMode: p.marginMode === "isolated" ? "isolated" : p.marginMode === "cross" ? "cross" : liveExec.marginMode,
+    useMaxLeverage: p.useMaxLeverage ?? liveExec.useMaxLeverage,
+    leverage: Math.min(150, Math.max(1, Math.round(Number(p.leverage ?? liveExec.leverage) || liveExec.leverage))),
+    minSizeRatio: Math.min(2, Math.max(1, Number(p.minSizeRatio ?? liveExec.minSizeRatio) || liveExec.minSizeRatio)),
+  };
+}
+
+export function liveExecutionConfig(): LiveExecConfig {
+  return { ...liveExec };
+}
+
+function execRatio() {
+  return liveExec.minSizeRatio;
+}
+
+async function signedTrade(
+  network: "mainnet" | "testnet",
+  connId: string | undefined,
+  path: string,
+  extra: Record<string, string | number>,
+): Promise<LiveOrderResult> {
+  const { apiKey, secret } = resolveKeys(connId, undefined, undefined);
+  if (!apiKey || !secret) return { ok: false, error: "API key and secret required" };
+  let last = "trade failed";
+  for (const host of HOSTS[network]) {
+    try {
+      const params: Record<string, string | number> = {
+        recvWindow: 5000,
+        timestamp: Date.now(),
+        ...extra,
+      };
+      const url = signedUrl(host, path, secret, params);
+      const out = await getJson(url, { method: "POST", headers: { "X-BX-APIKEY": apiKey } });
+      const body = out.json as { code?: number; msg?: string };
+      if (body?.code === 0) return { ok: true };
+      last = body?.msg || `BingX ${body?.code ?? out.status}`;
+      if (/already|no need|not modified|same leverage|position side/i.test(last)) return { ok: true };
+    } catch (err) {
+      last = err instanceof Error ? err.message : "trade failed";
+    }
+  }
+  return { ok: false, error: last };
+}
+
+let hedgeArmed = "";
+const marginArmed = new Set<string>();
+const levArmed = new Set<string>();
+
+export async function ensureLiveAccountMode(input: {
+  network: "mainnet" | "testnet";
+  connId?: string;
+  venueSymbol?: string;
+  spec?: ContractSpec | null;
+}): Promise<string | null> {
+  const notes: string[] = [];
+  const key = `${input.network}:${input.connId ?? ""}:${liveExec.hedgeMode}`;
+  if (hedgeArmed !== key) {
+    const r = await signedTrade(input.network, input.connId, "/openApi/swap/v1/positionSide/dual", {
+      dualSidePosition: liveExec.hedgeMode ? "true" : "false",
+    });
+    if (r.ok) hedgeArmed = key;
+    notes.push(r.ok ? `hedge ${liveExec.hedgeMode ? "on" : "off"}` : `hedge ${r.error}`);
+  }
+  const venue = input.venueSymbol;
+  if (!venue) return notes[0] ?? null;
+  const marginWant = liveExec.marginMode === "isolated" ? "ISOLATED" : "CROSSED";
+  const mk = `${venue}:${marginWant}`;
+  if (!marginArmed.has(mk)) {
+    const r = await signedTrade(input.network, input.connId, "/openApi/swap/v2/trade/marginType", {
+      symbol: venue,
+      marginType: marginWant,
+    });
+    if (r.ok) marginArmed.add(mk);
+    notes.push(r.ok ? `${marginWant.toLowerCase()} ${venue}` : `margin ${r.error}`);
+  }
+  const maxLev = Math.max(1, input.spec?.maxLeverage ?? 125);
+  const lev = liveExec.useMaxLeverage ? maxLev : Math.min(maxLev, liveExec.leverage);
+  const sides = liveExec.hedgeMode ? (["LONG", "SHORT"] as const) : (["BOTH"] as const);
+  for (const side of sides) {
+    const lk = `${venue}:${side}:${lev}`;
+    if (levArmed.has(lk)) continue;
+    const r = await signedTrade(input.network, input.connId, "/openApi/swap/v2/trade/leverage", {
+      symbol: venue,
+      side,
+      leverage: lev,
+    });
+    if (r.ok) levArmed.add(lk);
+    notes.push(r.ok ? `lev ${side} ${lev}x` : `lev ${r.error}`);
+  }
+  return notes.length ? notes.slice(0, 3).join(" · ") : null;
 }
 
 export function liftQtyToMin(
@@ -421,35 +535,55 @@ export async function placeSwapOrder(input: {
   const posSide: Side = input.positionSide === "SHORT" ? "short" : "long";
   const liveSide: Side = input.side === "SELL" ? "short" : "long";
   const protectSide = input.closePosition ? posSide : liveSide;
-  const minFloor = exchangeMinNotional(spec, Math.max(px, 1e-8)) * MIN_SIZE_RATIO;
+  const ratio = execRatio();
+  const minFloor = exchangeMinNotional(spec, Math.max(px, 1e-8)) * ratio;
   const cap = Math.max(MAX_LIVE_NOTIONAL, minFloor);
 
   let qty = input.quantity;
   let usedNotional = input.notional;
   if (input.type === "MARKET" && !input.closePosition) {
-    const resolved = await resolveLiveQty(input.network, venueSymbol, Math.max(px, 1e-8), input.notional);
+    const resolved = await resolveLiveQty(input.network, venueSymbol, Math.max(px, 1e-8), input.notional, ratio);
     qty = resolved.qty;
     usedNotional = resolved.notional;
-  } else {
+  } else if (!input.closePosition) {
     const lifted = liftQtyToMin(
       input.quantity > 0 ? input.quantity : input.notional / Math.max(px, 1e-8),
       spec,
       Math.max(px, 1e-8),
+      ratio,
     );
     qty = lifted.qty;
     usedNotional = lifted.notional;
+  } else {
+    qty = input.quantity > 0 ? snapQtyDown(input.quantity, spec) : 0;
+    usedNotional = qty * Math.max(px, 1e-8);
   }
-  if (!input.closePosition && input.type === "MARKET" && usedNotional > cap + 1e-6) {
+  if (!input.closePosition) {
+    const floor = liftQtyToMin(qty, spec, Math.max(px, 1e-8), ratio);
+    if (floor.qty > qty) {
+      qty = floor.qty;
+      usedNotional = floor.notional;
+    }
+  }
+  if (!input.closePosition && input.type === "MARKET" && usedNotional > cap + 1e-6 && usedNotional - minFloor > 1e-6) {
     const p = Math.max(px, 1e-8);
     const down = snapQtyDown(cap / p, spec);
     const downN = down * p;
-    if (down > 0 && downN + 1e-9 >= minFloor * 0.95 && downN <= usedNotional) {
+    if (down > 0 && downN + 1e-9 >= minFloor) {
       qty = down;
       usedNotional = downN;
     }
-    /* otherwise keep the exchange-min lift — never block entries on lot snap */
+  }
+  if (!(qty > 0) && !input.closePosition) {
+    const floor = liftQtyToMin(0, spec, Math.max(px, 1e-8), ratio);
+    qty = floor.qty;
+    usedNotional = floor.notional;
   }
   if (!(qty > 0) && !input.closePosition) return { ok: false, error: "Quantity below exchange minimum" };
+
+  if (!input.closePosition && input.type === "MARKET") {
+    await ensureLiveAccountMode({ network: input.network, connId: input.connId, venueSymbol, spec });
+  }
 
   const post = async (sendQty: number): Promise<LiveOrderResult> => {
     const params: Record<string, string | number> = {
@@ -507,15 +641,12 @@ export async function placeSwapOrder(input: {
   let result = await post(qty);
   if (isRateLimitedMsg(result.error)) return result;
   if (!result.ok && isMinSizeError(result.error) && !input.closePosition) {
-    const bump = liftQtyToMin(qty, spec, Math.max(px, 1e-8), MIN_SIZE_RATIO * 1.25);
-    if (bump.qty > qty && bump.notional <= cap * 1.5) {
+    for (const mul of [1.25, 1.5, 2]) {
+      const bump = liftQtyToMin(qty, spec, Math.max(px, 1e-8), execRatio() * mul);
+      if (!(bump.qty > qty)) continue;
       result = await post(bump.qty);
-    }
-  }
-  if (!result.ok && isMinSizeError(result.error) && !input.closePosition) {
-    const bump = liftQtyToMin(qty, spec, Math.max(px, 1e-8), MIN_SIZE_RATIO * 1.5);
-    if (bump.qty > qty && bump.notional <= Math.max(cap, minFloor * 1.5) * 1.2) {
-      result = await post(bump.qty);
+      if (result.ok || isRateLimitedMsg(result.error) || !isMinSizeError(result.error)) break;
+      qty = bump.qty;
     }
   }
   return result;

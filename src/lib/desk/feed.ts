@@ -209,7 +209,14 @@ export const placeBingxOrder = createServerFn({ method: "POST" })
     },
   )
   .handler(async ({ data }): Promise<LiveOrderResult> => {
-    const { placeSwapOrder } = await import("./feed.server.ts");
+    const { placeSwapOrder, configureLiveExecution } = await import("./feed.server.ts");
+    try {
+      const { readSettingsFile } = await import("./settings.server.ts");
+      const snap = readSettingsFile();
+      if (snap) configureLiveExecution(snap);
+    } catch {
+      /* host defaults */
+    }
     return placeSwapOrder(data);
   });
 

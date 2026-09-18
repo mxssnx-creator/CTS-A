@@ -4,7 +4,7 @@
  * Keys from env — never printed.
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder } from "../src/lib/desk/feed.server.ts";
+import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional } from "../src/lib/desk/engine.ts";
 import {
@@ -202,6 +202,11 @@ function writeSettingsPick(pick, extra = {}) {
     evalHours: [4, 8, 16],
     evalLastNs: [5, 10, 15],
     sessionPhase: extra.sessionPhase ?? "running",
+    hedgeMode: true,
+    marginMode: "cross",
+    useMaxLeverage: true,
+    leverage: 125,
+    minSizeRatio: 1.08,
     ...extra,
   };
   try {
@@ -684,6 +689,20 @@ function intenseCheck(e, pick) {
   return null;
 }
 
+function applyExecFromSettings(remote) {
+  if (!remote || typeof remote !== "object") {
+    configureLiveExecution({ hedgeMode: true, marginMode: "cross", useMaxLeverage: true, leverage: 125, minSizeRatio: 1.08 });
+    return;
+  }
+  configureLiveExecution({
+    hedgeMode: remote.hedgeMode !== false,
+    marginMode: remote.marginMode === "isolated" ? "isolated" : "cross",
+    useMaxLeverage: remote.useMaxLeverage !== false,
+    leverage: Number(remote.leverage) || 125,
+    minSizeRatio: Number(remote.minSizeRatio) || 1.08,
+  });
+}
+
 async function main() {
   const started = Date.now();
   const ends = started + HOURS * 3600 * 1000;
@@ -695,9 +714,18 @@ async function main() {
   engine.symbolCount = VST_MAX_SYMBOLS;
 
   let ping = await pingVst();
+  applyExecFromSettings(readSettingsPick());
   const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${VST_MAX_SYMBOLS} sym`];
   if (ping.pingOk) adjustments.push(`BingX ${ping.network} ping ok · eq ${ping.equity.toFixed(2)}`);
   else adjustments.push(`BingX ping failed · ${ping.error ?? "auth"} · paper tape`);
+  if (ping.pingOk) {
+    try {
+      const mode = await ensureLiveAccountMode({ network: ping.network, connId: CONN });
+      if (mode) adjustments.push(mode);
+    } catch (err) {
+      adjustments.push(`mode ${err instanceof Error ? err.message : "fail"}`);
+    }
+  }
 
   try {
     const prev = JSON.parse(readFileSync(STATUS, "utf8"));
@@ -999,6 +1027,7 @@ async function main() {
   while (Date.now() < ends) {
     const remote = readSettingsPick();
     if (remote) {
+      applyExecFromSettings(remote);
       const nextPhase = remote.sessionPhase || "running";
       if (nextPhase !== hostPhase) {
         hostPhase = nextPhase;

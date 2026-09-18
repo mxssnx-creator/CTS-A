@@ -67,6 +67,11 @@ export interface DeskSettingsSnap {
   evalHours: number[];
   evalLastNs: number[];
   sessionPhase: "idle" | "running" | "paused" | "stopped";
+  hedgeMode: boolean;
+  marginMode: "cross" | "isolated";
+  useMaxLeverage: boolean;
+  leverage: number;
+  minSizeRatio: number;
 }
 
 function asNum(n: unknown, fallback: number) {
@@ -114,6 +119,11 @@ export function defaultDeskSettings(): DeskSettingsSnap {
     evalHours: [...STAGE_HOURS],
     evalLastNs: [...LANE_EVAL_NS],
     sessionPhase: "running",
+    hedgeMode: true,
+    marginMode: "cross",
+    useMaxLeverage: true,
+    leverage: 125,
+    minSizeRatio: 1.08,
   };
 }
 
@@ -214,6 +224,11 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       raw.sessionPhase === "paused" || raw.sessionPhase === "stopped" || raw.sessionPhase === "idle" || raw.sessionPhase === "running"
         ? raw.sessionPhase
         : "running",
+    hedgeMode: asBool((raw as { hedgeMode?: boolean }).hedgeMode, true),
+    marginMode: (raw as { marginMode?: string }).marginMode === "isolated" ? "isolated" : "cross",
+    useMaxLeverage: asBool((raw as { useMaxLeverage?: boolean }).useMaxLeverage, true),
+    leverage: Math.min(150, Math.max(1, Math.round(asNum((raw as { leverage?: number }).leverage, 125)))),
+    minSizeRatio: Math.min(2, Math.max(1, asNum((raw as { minSizeRatio?: number }).minSizeRatio, 1.08))),
   };
   if (!snap.evalHours.length) snap.evalHours = [...STAGE_HOURS];
   if (!snap.evalLastNs.length) snap.evalLastNs = [...LANE_EVAL_NS];
@@ -244,6 +259,11 @@ export function collectDeskSettings(s: {
   sessionPhase?: "idle" | "running" | "paused" | "stopped";
   settingsRev?: number;
   settingsAt?: number;
+  hedgeMode?: boolean;
+  marginMode?: "cross" | "isolated";
+  useMaxLeverage?: boolean;
+  leverage?: number;
+  minSizeRatio?: number;
 }): DeskSettingsSnap {
   return sanitizeDeskSettings({
     v: SETTINGS_VERSION,
@@ -270,6 +290,11 @@ export function collectDeskSettings(s: {
     evalHours: s.evalHours,
     evalLastNs: s.evalLastNs,
     sessionPhase: s.sessionPhase,
+    hedgeMode: s.hedgeMode,
+    marginMode: s.marginMode,
+    useMaxLeverage: s.useMaxLeverage,
+    leverage: s.leverage,
+    minSizeRatio: s.minSizeRatio,
   });
 }
 

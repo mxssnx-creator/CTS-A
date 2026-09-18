@@ -214,6 +214,12 @@ export function SettingsView() {
   const evalLastNs = useDesk((s) => s.evalLastNs);
   const setEvalHours = useDesk((s) => s.setEvalHours);
   const setEvalLastNs = useDesk((s) => s.setEvalLastNs);
+  const hedgeMode = useDesk((s) => s.hedgeMode);
+  const marginMode = useDesk((s) => s.marginMode);
+  const useMaxLeverage = useDesk((s) => s.useMaxLeverage);
+  const leverage = useDesk((s) => s.leverage);
+  const minSizeRatio = useDesk((s) => s.minSizeRatio);
+  const setLiveExec = useDesk((s) => s.setLiveExec);
   const runStageEval = useDesk((s) => s.runStageEval);
   const stageEval = useDesk((s) => s.stageEval);
   const blockCfg = useDesk((s) => s.blockConfig);
@@ -1220,6 +1226,10 @@ export function SettingsView() {
             <StatLine k="Tick" v={`${VST_TICK_MS} ms · ${TICKS_PER_HOUR}/h`} />
             <StatLine k="TP / SL" v={`${cfg.tpRatio.toFixed(2)}R · 0.25–3.00`} />
             <StatLine k="Live notional cap" v={fmtUsd(MAX_LIVE_NOTIONAL, 0)} />
+            <StatLine k="Min size ratio" v={`${minSizeRatio.toFixed(2)}×`} />
+            <StatLine k="Margin" v={marginMode} />
+            <StatLine k="Position mode" v={hedgeMode ? "hedge L+S" : "one-way"} />
+            <StatLine k="Leverage" v={useMaxLeverage ? "max / contract" : `${leverage}x`} />
             <StatLine k="Research unit base" v={fmtUsd(BASE_EQUITY, 0)} />
             <StatLine k="Unit notional" v={fmtUsd(UNIT_NOTIONAL, 0)} />
             <StatLine k="Cost steps" v={`${COST_STEPS.length} (${COST_STEPS[0]}–${COST_STEPS[COST_STEPS.length - 1]})`} />
@@ -1234,12 +1244,64 @@ export function SettingsView() {
             <Pill>TP/SL 0.25–3.00 step 0.25</Pill>
             <Pill>Slots = symbol + direction</Pill>
           </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Field label="Margin">
+              <Segmented
+                value={marginMode}
+                onChange={(v) => setLiveExec({ marginMode: v as "cross" | "isolated" })}
+                options={[
+                  { id: "cross", label: "Cross" },
+                  { id: "isolated", label: "Isolated" },
+                ]}
+              />
+            </Field>
+            <Field label="Position mode">
+              <Segmented
+                value={hedgeMode ? "hedge" : "oneway"}
+                onChange={(v) => setLiveExec({ hedgeMode: v === "hedge" })}
+                options={[
+                  { id: "hedge", label: "Hedge L+S" },
+                  { id: "oneway", label: "One-way" },
+                ]}
+              />
+            </Field>
+            <Field label="Leverage">
+              <Segmented
+                value={useMaxLeverage ? "max" : "fixed"}
+                onChange={(v) => setLiveExec({ useMaxLeverage: v === "max" })}
+                options={[
+                  { id: "max", label: "Max" },
+                  { id: "fixed", label: "Fixed" },
+                ]}
+              />
+            </Field>
+            <Field label={useMaxLeverage ? "Max per contract" : "Fixed leverage"}>
+              <input
+                aria-label="Leverage"
+                type="number"
+                min={1}
+                max={150}
+                disabled={useMaxLeverage}
+                className="h-10 border border-border bg-surface px-3 text-sm"
+                value={leverage}
+                onChange={(e) => setLiveExec({ leverage: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="Min size ratio">
+              <input
+                aria-label="Min size ratio"
+                type="number"
+                min={1}
+                max={2}
+                step={0.01}
+                className="h-10 border border-border bg-surface px-3 text-sm"
+                value={minSizeRatio}
+                onChange={(e) => setLiveExec({ minSizeRatio: Number(e.target.value) })}
+              />
+            </Field>
+          </div>
           <p className="mt-3 text-sm text-muted">
-            Position slots still count unique symbol + direction. Connections, keys and network stay on{" "}
-            <Link to="/connections" className="font-medium text-primary hover:underline">
-              Connections
-            </Link>
-            .
+            Entries always lift to the exchange min quantity / min USDT. Cross + hedge (both directions) and max leverage are applied on the live BingX account.
           </p>
         </Panel>
       </div>
