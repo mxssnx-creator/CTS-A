@@ -1,12 +1,8 @@
-import { useLayoutEffect, useRef } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/desk/app-shell";
 import { LiveDeskProvider } from "@/lib/desk/live-ctx";
-import { loadLiveDesk } from "@/lib/desk/feed";
-import { useDesk } from "@/lib/desk/store";
 
 export const Route = createFileRoute("/_desk")({
-  loader: () => loadLiveDesk(),
   staleTime: Infinity,
   gcTime: Infinity,
   shouldReload: false,
@@ -28,16 +24,6 @@ function DeskNotFound() {
 }
 
 function DeskFrame() {
-  const live = Route.useLoaderData();
-  const once = useRef(false);
-  useLayoutEffect(() => {
-    if (once.current || !live) return;
-    once.current = true;
-    const sess = live.session as { livePos?: number } | null;
-    const incoming = Number(sess?.livePos ?? live.exchange?.positions?.length ?? 0);
-    const cur = Number(useDesk.getState().liveSession?.livePos ?? 0);
-    if (!(incoming === 0 && cur > 0)) useDesk.getState().applyLiveDesk(live);
-  }, [live]);
   return (
     <LiveDeskProvider value={null}>
       <AppShell />

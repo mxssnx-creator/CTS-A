@@ -16,7 +16,7 @@ import {
   Trophy,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DESK, LAST_N_OPTIONS, lastPrice, priceChange, RANGE_META, REPLAY_RANGES, replayBarsFor, TACTIC_META } from "@/lib/desk/engine";
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, useDeskPaneScroll, bindDeskScroll } from "@/lib/desk/live-ctx";
@@ -74,6 +74,7 @@ function NavLinks({ onNavigate, inverse }: { onNavigate?: () => void; inverse?: 
 }
 
 export function AppShell() {
+  const paneRef = useRef<HTMLElement | null>(null);
   const [pane, setPane] = useState<HTMLElement | null>(null);
   useDeskPaneScroll(pane);
   const liveSnap = useLiveSnapshot();
@@ -332,8 +333,9 @@ export function AppShell() {
         <main
           id="desk-scroll"
           ref={(el) => {
+            paneRef.current = el;
             bindDeskScroll(el);
-            if (el !== pane) setPane(el);
+            if (el && el !== pane) setPane(el);
           }}
           className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4 lg:px-6"
         >

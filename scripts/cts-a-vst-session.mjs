@@ -233,12 +233,6 @@ function writeStatus(s) {
     mkdirSync("/var/lib/cts-a", { recursive: true });
     const body = JSON.stringify(s);
     writeFileSync(STATUS, body);
-    try {
-      mkdirSync("/opt/cts-a/public", { recursive: true });
-      writeFileSync("/opt/cts-a/public/live-session.json", body);
-    } catch {
-      /* optional public mirror */
-    }
     const now = Date.now();
     if (now - lastOverallWrite > 45000) {
       lastOverallWrite = now;
@@ -260,11 +254,6 @@ function writeStatus(s) {
         trades: s.trades,
       };
       writeFileSync(OVERALL, JSON.stringify(next));
-      try {
-        writeFileSync("/opt/cts-a/public/overall-stats.json", JSON.stringify(next));
-      } catch {
-        /* optional */
-      }
     }
   } catch {
     writeFileSync("/tmp/cts-a-vst-session.json", JSON.stringify(s));

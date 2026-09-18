@@ -11,4 +11,7 @@ screenshots
 *.log
 .DS_Store
 .node_modules.lock
+public/live-session.json
+public/overall-stats.json
 public/config-results.html
+

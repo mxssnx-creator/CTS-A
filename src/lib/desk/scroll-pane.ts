@@ -1,6 +1,10 @@
 const scrollByPath: Record<string, number> = {};
 let deskScroll: HTMLElement | null = null;
 
+if (typeof window !== "undefined" && "scrollRestoration" in history) {
+  history.scrollRestoration = "manual";
+}
+
 export function bindDeskScroll(el: HTMLElement | null) {
   deskScroll = el;
 }
@@ -11,7 +15,7 @@ export function deskScrollY() {
 
 export function setDeskScrollY(y: number) {
   if (deskScroll) deskScroll.scrollTop = y;
-  else if (typeof window !== "undefined") window.scrollTo(0, y);
+  else if (typeof window !== "undefined") window.scrollTo({ top: y, left: 0, behavior: "instant" as ScrollBehavior });
 }
 
 export function saveDeskScroll(path: string) {

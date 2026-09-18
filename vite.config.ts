@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { createReadStream, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
@@ -30,6 +30,36 @@ function hasGlobbedMigrations(root: string): boolean {
  * migrations — no schema to apply — skips it entirely rather than paying for a
  * PGLite instance it never queries.
  */
+function liveJsonPlugin(): Plugin {
+  const files: Record<string, string[]> = {
+    "/live-session.json": ["/var/lib/cts-a/vst-session.json", "/tmp/cts-a-vst-session.json"],
+    "/overall-stats.json": ["/var/lib/cts-a/overall-stats.json", "/tmp/cts-a-overall-stats.json"],
+  };
+  return {
+    name: "cts-a-live-json",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathOnly = (req.url ?? "").split("?", 1)[0] ?? "";
+        const cands = files[pathOnly];
+        if (!cands) {
+          next();
+          return;
+        }
+        for (const file of cands) {
+          if (!existsSync(file)) continue;
+          res.statusCode = 200;
+          res.setHeader("content-type", "application/json; charset=utf-8");
+          res.setHeader("cache-control", "no-store");
+          createReadStream(file).pipe(res);
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
+
 function pgliteBootstrapPlugin(): Plugin {
   return {
     name: "app-builder:pglite-bootstrap",
@@ -151,7 +181,19 @@ export default defineConfig(({ command, isPreview }) => ({
     port: 8080,
     strictPort: true,
     hmr: { overlay: false },
-    watch: { ignored: ["**/node_modules/**", "**/.git/**", "**/artifacts/**", "**/.output/**"] },
+    watch: {
+      ignored: [
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/artifacts/**",
+        "**/.output/**",
+        "**/public/live-session.json",
+        "**/public/overall-stats.json",
+        "**/public/config-results.html",
+        "**/public/config-results.json",
+        "/var/lib/cts-a/**",
+      ],
+    },
   },
   preview: {
     host: "127.0.0.1",
@@ -163,6 +205,7 @@ export default defineConfig(({ command, isPreview }) => ({
   build: { sourcemap: false, reportCompressedSize: false },
   resolve: { tsconfigPaths: true },
   plugins: [
+    liveJsonPlugin(),
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),

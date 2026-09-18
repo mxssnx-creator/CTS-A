@@ -143,7 +143,6 @@ export function useLiveSnapshot(): LiveNumbers {
   const overall = useDesk((s) => s.liveOverall);
   const exchange = useDesk((s) => s.exchange);
   useDesk((s) => s.liveMark);
-  useDesk((s) => s.liveElapsed);
   const next = liveNumbers(ctx, { session, overall, exchange });
   const hold = useRef(next);
   if (!sameSnap(hold.current, next)) hold.current = next;
@@ -167,8 +166,9 @@ function sameSnap(a: LiveNumbers, b: LiveNumbers) {
     a.range === b.range &&
     a.hasLive === b.hasLive &&
     a.occupied === b.occupied &&
-    a.lastMsg === b.lastMsg &&
-    Math.round(a.elapsedMin * 10) === Math.round(b.elapsedMin * 10)
+    a.tactic === b.tactic &&
+    a.range === b.range &&
+    a.hasLive === b.hasLive
   );
 }
 
@@ -177,6 +177,7 @@ export function usePreserveScroll() {}
 
 export function useDeskPaneScroll(pane: HTMLElement | null) {
   const path = useRouterState({ select: (s) => s.location.pathname });
+  const prevPath = useRef(path);
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     if ("scrollRestoration" in history) history.scrollRestoration = "manual";
@@ -184,7 +185,10 @@ export function useDeskPaneScroll(pane: HTMLElement | null) {
     const save = () => {
       saveDeskScroll(path);
     };
-    restoreDeskScroll(path);
+    if (prevPath.current !== path) {
+      restoreDeskScroll(path);
+      prevPath.current = path;
+    }
     const target: EventTarget = pane ?? window;
     target.addEventListener("scroll", save, { passive: true });
     return () => {

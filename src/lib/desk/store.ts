@@ -1185,7 +1185,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
       }
       const elapsed = Number(sess.elapsedMin ?? 0);
       const mark = Math.round(Number(sess.livePnl ?? sess.net ?? 0) * 1000) + Number(sess.livePos ?? 0) * 17;
-      if (Math.round(elapsed * 5) !== Math.round(Number(get().liveElapsed) * 5) || mark !== get().liveMark) {
+      if (Math.round(elapsed * 2) !== Math.round(Number(get().liveElapsed) * 2) || mark !== get().liveMark) {
+        pinDeskScroll();
         set({ liveElapsed: elapsed, liveMark: mark });
       }
       return;
