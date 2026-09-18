@@ -192,15 +192,15 @@ describe("VST engine", () => {
     const onlyNormal = strategiesForKinds(["normal"]);
     assert.ok(onlyNormal.every((s) => s.kind === "normal"));
     const ok = isPositive(
-      { pf: 1.6, mdd: 0.1, wr: 0.55, volumeFactor: 1.15, ddt: 20 },
+      { pf: 2.0, mdd: 0.1, wr: 0.55, volumeFactor: 1.15, ddt: 10 },
       DEFAULT_THRESHOLDS,
     );
     const vfFail = isPositive(
-      { pf: 1.6, mdd: 0.1, wr: 0.55, volumeFactor: 0.2, ddt: 20 },
+      { pf: 2.0, mdd: 0.1, wr: 0.55, volumeFactor: 0.2, ddt: 10 },
       DEFAULT_THRESHOLDS,
     );
     const ddtFail = isPositive(
-      { pf: 1.6, mdd: 0.1, wr: 0.55, volumeFactor: 1.15, ddt: 200 },
+      { pf: 2.0, mdd: 0.1, wr: 0.55, volumeFactor: 1.15, ddt: 200 },
       DEFAULT_THRESHOLDS,
     );
     assert.equal(ok, true);
@@ -1192,6 +1192,8 @@ describe("VST engine", () => {
     assert.equal(snap.tactic, "hybrid");
     assert.equal(snap.symbolCount, 50);
     assert.equal(snap.tacticConfig.tpRatio, 3);
+    assert.equal(snap.thresholds.minPf, 1.85);
+    assert.equal(snap.thresholds.maxDdt, 20);
     assert.equal(snap.hedgeMode, true);
     assert.equal(snap.marginMode, "cross");
     assert.equal(snap.useMaxLeverage, true);

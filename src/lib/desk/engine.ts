@@ -199,11 +199,11 @@ export const TACTIC_META: Record<TacticKind, { label: string; blurb: string }> =
 };
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
-  minPf: 1.5,
-  maxMdd: 0.14,
-  minWr: 0.52,
+  minPf: 1.85,
+  maxMdd: 0.12,
+  minWr: 0.55,
   minVf: 1.12,
-  maxDdt: 36,
+  maxDdt: 18,
 };
 
 export const DEFAULT_TACTIC_CONFIG: TacticConfig = {

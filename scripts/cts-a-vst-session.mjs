@@ -36,7 +36,7 @@ const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CONN = process.env.CTS_A_CONN ?? "bingx-vst-02";
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || CONN === "bingx-x01" ? "mainnet" : "testnet";
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
-const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? (NETWORK_PREF === "mainnet" ? 1.5 : 1.15));
+const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? 1.85);
 let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [] };
 const bookAvg = { pos: 0, ord: 0, n: 0 };
 let cachedOverall = null;
@@ -201,7 +201,7 @@ function writeSettingsPick(pick, extra = {}) {
     comboRange: "all",
     enabledKinds: ["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block"],
     strategyId: "normal",
-    thresholds: { minPf: 1.5, maxMdd: 0.14, minWr: 0.52, minVf: 1.12, maxDdt: 36 },
+    thresholds: { minPf: 1.85, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
     activeConnId: CONN,
     evalHours: [4, 8, 16],
     evalLastNs: [5, 10, 15],
@@ -483,7 +483,7 @@ async function ensureProtect(network, book, cfg) {
     const protectQty = (availUsdt = 0) => {
       let q = p.qty;
       if (availUsdt > 0 && px > 0) q = Math.min(q, (availUsdt * 0.99) / px);
-      q = snapQtyDown(q * 0.995, spec);
+      q = snapQtyDown(q, spec);
       if (!(q > 0)) q = snapQtyDown(p.qty, spec);
       return q;
     };

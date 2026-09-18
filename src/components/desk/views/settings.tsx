@@ -683,8 +683,8 @@ export function SettingsView() {
             <RangeKnob
               label="Min PF"
               value={th.minPf}
-              min={0.8}
-              max={2.4}
+              min={1.5}
+              max={3}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setTh({ minPf: n })}
@@ -723,9 +723,9 @@ export function SettingsView() {
             <RangeKnob
               label="Max DDT"
               value={th.maxDdt}
-              min={12}
-              max={120}
-              step={2}
+              min={8}
+              max={36}
+              step={1}
               format={(n) => `${n} bars`}
               onChange={(n) => setTh({ maxDdt: n })}
               ariaLabel="Maximal drawdown time"

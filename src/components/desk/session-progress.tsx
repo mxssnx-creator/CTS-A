@@ -464,8 +464,8 @@ export function SessionProgress({
           <input
             aria-label="Minimum profit factor"
             type="range"
-            min={0.8}
-            max={2.4}
+            min={1.5}
+            max={3}
             step={0.05}
             value={th.minPf}
             onChange={(e) => setTh({ minPf: Number(e.target.value) })}
@@ -490,9 +490,9 @@ export function SessionProgress({
           <input
             aria-label="Maximal drawdown time"
             type="range"
-            min={12}
-            max={120}
-            step={2}
+            min={8}
+            max={36}
+            step={1}
             value={th.maxDdt}
             onChange={(e) => setTh({ maxDdt: Number(e.target.value) })}
             className="h-11 sm:h-8"
