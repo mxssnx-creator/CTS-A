@@ -369,6 +369,8 @@ export interface ExchangeOrder {
   stopPrice?: number;
   status: string;
   type: string;
+  closePosition?: boolean;
+  reduceOnly?: boolean;
 }
 
 export interface ExchangeBook {

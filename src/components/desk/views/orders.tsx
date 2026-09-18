@@ -14,15 +14,16 @@ export function OrdersView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Exchange</p>
         <h1 className="text-2xl font-semibold tracking-tight">Orders</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Open BingX {live.network} orders for {live.venueLabel}. Counts are the live book, not paper.
+          Open BingX {live.network} control orders for {live.venueLabel}: one SL and one TP per position
+          ({live.livePos} × 2 = {live.liveSl + live.liveTp}).
         </p>
       </div>
       <LiveBookStrip />
       <Panel title={`Open orders · ${orders.length}`}>
         <div className="mb-3 grid grid-cols-2 gap-x-6 sm:grid-cols-4">
           <StatLine k="Orders" v={String(live.liveOrd)} />
-          <StatLine k="SL" v={String(live.liveSl)} />
-          <StatLine k="TP" v={String(live.liveTp)} />
+          <StatLine k="SL + TP" v={`${live.liveSl} + ${live.liveTp}`} />
+          <StatLine k="Expect" v={String(live.livePos * 2)} />
           <StatLine k="Positions" v={String(live.livePos)} />
         </div>
         <div className="overflow-x-auto">

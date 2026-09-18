@@ -407,8 +407,8 @@ async function ensureProtect(network, book, cfg) {
     cur[k].push(o);
     grouped.set(key, cur);
   }
-  lastBook.sl = (book.positions ?? []).filter((p) => hasSl.has(`${p.symbol}:${p.side}`)).length;
-  lastBook.tp = (book.positions ?? []).filter((p) => hasTp.has(`${p.symbol}:${p.side}`)).length;
+  lastBook.sl = (book.positions ?? []).filter((p) => (grouped.get(`${p.symbol}:${p.side}`)?.sl || []).some((o) => !o.closePosition)).length;
+  lastBook.tp = (book.positions ?? []).filter((p) => (grouped.get(`${p.symbol}:${p.side}`)?.tp || []).some((o) => !o.closePosition)).length;
   const occupied = new Set((book.positions ?? []).map((p) => `${p.symbol}:${p.side}`));
   const posQty = new Map((book.positions ?? []).map((p) => [`${p.symbol}:${p.side}`, p.qty]));
   const owned = (book.positions ?? []).filter((p) => {
@@ -417,11 +417,17 @@ async function ensureProtect(network, book, cfg) {
   });
   const missing = owned.filter((p) => {
     const key = `${p.symbol}:${p.side}`;
-    return !hasSl.has(key) || !hasTp.has(key);
+    const g = grouped.get(key) ?? { sl: [], tp: [] };
+    const slOk = (g.sl || []).some((o) => !o.closePosition);
+    const tpOk = (g.tp || []).some((o) => !o.closePosition);
+    return !slOk || !tpOk;
   });
+  const groupedClose = [...grouped.values()].some((g) =>
+    (g.sl || []).some((o) => o.closePosition) || (g.tp || []).some((o) => o.closePosition),
+  );
   const extras = [...grouped.entries()].some(([, g]) => (g.sl?.length ?? 0) > 1 || (g.tp?.length ?? 0) > 1);
   const stray = [...grouped.keys()].some((key) => !occupied.has(key) && (mirrored.has(`own:${key}`) || mirrored.has(`live:${key}`) || mirrored.has(`sl:${key}`) || mirrored.has(`tp:${key}`)));
-  if (!missing.length && !extras && !stray) return null;
+  if (!missing.length && !extras && !stray && !groupedClose) return null;
   const map = await fetchContractMap(network);
   for (const [key, g] of grouped) {
     if (!occupied.has(key) && (mirrored.has(`own:${key}`) || mirrored.has(`live:${key}`) || mirrored.has(`sl:${key}`) || mirrored.has(`tp:${key}`))) {
@@ -470,7 +476,38 @@ async function ensureProtect(network, book, cfg) {
       noteApiFail(r);
     }
   }
+  let ungrouped = 0;
+  for (const [key, g] of grouped) {
+    if (ungrouped >= 8) break;
+    if (!occupied.has(key)) continue;
+    for (const kind of ["sl", "tp"]) {
+      for (const o of g[kind] || []) {
+        if (!o.closePosition) continue;
+        const oid = String(o.id || "");
+        if (!oid || cancelFailed.has(oid)) continue;
+        const r = await withLiveBusy(() =>
+          cancelSwapOrder({
+            network,
+            connId: CONN,
+            symbol: o.venueSymbol || o.symbol,
+            orderId: oid,
+          }),
+        );
+        if (r.ok) {
+          ungrouped += 1;
+          if (kind === "sl") hasSl.delete(key);
+          else hasTp.delete(key);
+          mirrored.delete(`${kind}:${key}`);
+        } else {
+          cancelFailed.add(oid);
+          noteApiFail(r);
+        }
+        if (ungrouped >= 8) break;
+      }
+    }
+  }
   const notes = [];
+  if (ungrouped) notes.push(`ungroup ${ungrouped}`);
   let posts = 0;
   for (const p of book.positions ?? []) {
     if (posts >= 16) break;
@@ -487,26 +524,31 @@ async function ensureProtect(network, book, cfg) {
       if (!(q > 0)) q = snapQtyDown(p.qty, spec);
       return q;
     };
-    const placeProtect = async (type, qty) =>
-      withLiveBusy(() =>
-        placeSwapOrder({
-          network,
-          connId: CONN,
-          symbol: p.symbol,
-          side: p.side === "long" ? "SELL" : "BUY",
-          positionSide: p.side === "long" ? "LONG" : "SHORT",
-          quantity: qty,
-          type,
-          price: px,
-          stopPrice: type === "STOP_MARKET" ? prot.sl : prot.tp,
-          notional: Math.max(1, qty * px),
-          confirmLive: true,
-          slAtr,
-          tpRatio,
-          attachProtect: false,
-          closePosition: true,
-        }),
-      );
+    const placeProtect = async (type, qty) => {
+      const body = {
+        network,
+        connId: CONN,
+        symbol: p.symbol,
+        side: p.side === "long" ? "SELL" : "BUY",
+        positionSide: p.side === "long" ? "LONG" : "SHORT",
+        quantity: qty,
+        type,
+        price: px,
+        stopPrice: type === "STOP_MARKET" ? prot.sl : prot.tp,
+        notional: Math.max(1, qty * px),
+        confirmLive: true,
+        slAtr,
+        tpRatio,
+        attachProtect: false,
+        closePosition: false,
+        reduceOnly: true,
+      };
+      let r = await withLiveBusy(() => placeSwapOrder(body));
+      if (!r.ok && /closePosition|reduceOnly|quantity/i.test(String(r.error || ""))) {
+        r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: true, reduceOnly: true }));
+      }
+      return r;
+    };
     const attach = async (kind, type, tag) => {
       let qty = protectQty();
       if (!(qty > 0) && !(p.qty > 0)) return `${kind} skip ${p.symbol} qty`;
@@ -610,6 +652,8 @@ async function mirrorToExchange(e, network, cfg) {
       stopPrice: o.stopPrice,
       status: o.status,
       type: o.type,
+      closePosition: Boolean(o.closePosition),
+      reduceOnly: Boolean(o.reduceOnly),
     })),
   };
   bookAvg.n += 1;
@@ -683,7 +727,7 @@ async function mirrorToExchange(e, network, cfg) {
           confirmLive: true,
           slAtr: Number(cfg?.slAtr) || 1.05,
           tpRatio: Number(cfg?.tpRatio) || 2.5,
-          attachProtect: true,
+          attachProtect: false,
           equity: Number(book.equity) || 0,
         }),
       );

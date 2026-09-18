@@ -818,6 +818,8 @@ export async function fetchExchangeBook(input: {
             stopPrice: num(r.stopPrice ?? r.triggerPrice),
             status: String(r.status ?? "open"),
             type: String(r.type ?? "LIMIT"),
+            closePosition: r.closePosition === true || r.closePosition === "true",
+            reduceOnly: r.reduceOnly === true || r.reduceOnly === "true",
           });
         }
       }
