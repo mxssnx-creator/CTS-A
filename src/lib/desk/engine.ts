@@ -218,33 +218,33 @@ export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
   maxHoldTicks: 16,
 };
 
-export const BLOCK_COUNTS = [1, 2, 3, 4, 5, 6];
+export const BLOCK_COUNTS = [1, 2];
 
 export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   enabled: true,
-  maxMultiple: 6,
+  maxMultiple: 2,
   minMultiple: 1,
   addOnWin: true,
   flattenConflict: true,
   endStageOnly: false,
-  cadence: 8,
+  cadence: 6,
   overall: true,
   counts: [...BLOCK_COUNTS],
-  volumeRatio: 0.25,
-  maxVolumeMultiplier: 2,
-  pfRatio: 1.25,
-  pauseCountRatio: 1,
-  evalPosCount: 50,
+  volumeRatio: 1.25,
+  maxVolumeMultiplier: 2.25,
+  pfRatio: 1.45,
+  pauseCountRatio: 2,
+  evalPosCount: 12,
   activeLive: true,
   minActiveLevel: 0,
 };
 
 export function sharedBlockVolumeRatio(ratio: number, liveCount: number, extraCap = 1) {
-  const vr = Math.min(2, Math.max(0.05, ratio || 0.25));
+  const vr = Math.min(2.5, Math.max(0.05, ratio || 1.25));
   const extra = Math.max(0, extraCap);
   const n = Math.max(1, liveCount | 0);
-  if (n > 1 && extra > 0 && vr + 1e-12 >= extra) return extra / n;
-  return vr;
+  if (n > 2 && extra > 0 && vr + 1e-12 >= extra) return extra / n;
+  return extra > 0 ? Math.min(vr, extra) : vr;
 }
 
 export function blockVolumeIncrement(count: number, volumeRatio: number) {
@@ -252,8 +252,8 @@ export function blockVolumeIncrement(count: number, volumeRatio: number) {
   return Math.trunc(count) * volumeRatio;
 }
 
-export function blockMaxAdditionalRatio(maxStack: number, volumeRatio: number, maxMultiplier = 2) {
-  const cap = Math.min(2, Math.max(1, maxMultiplier || 2));
+export function blockMaxAdditionalRatio(maxStack: number, volumeRatio: number, maxMultiplier = 2.25) {
+  const cap = Math.min(3, Math.max(1, maxMultiplier || 2.25));
   return Math.min(cap - 1, blockVolumeIncrement(maxStack, volumeRatio));
 }
 
@@ -263,7 +263,7 @@ export function blockMinimumProfitFactor(defaultMinPf: number, blockPfRatio: num
   return 1 + Math.max(0, defaultMinPf - 1) * bounded * volumeIncrement;
 }
 
-export function blockStepQty(baseQty: number, count: number, volumeRatio: number, maxMultiplier = 2, liveCount = 6, minQty = 0) {
+export function blockStepQty(baseQty: number, count: number, volumeRatio: number, maxMultiplier = 2.25, liveCount = 2, minQty = 0) {
   const vr = sharedBlockVolumeRatio(volumeRatio, liveCount, Math.max(0, maxMultiplier - 1));
   const floor = Math.max(0, minQty) * 1.08;
   let ratio = vr;

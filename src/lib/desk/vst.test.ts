@@ -1013,8 +1013,10 @@ describe("VST engine", () => {
     assert.ok(blockStepQty(10, 2, 0.25, 2, 6) > 0);
     const liftedStep = blockStepQty(10, 1, 0.01, 2, 6, 5);
     assert.ok(liftedStep >= 5 * 1.08 - 1e-9);
-    const minPf = blockMinimumProfitFactor(1.1, 1.25, 0.25);
-    assert.ok(minPf > 1);
+    const minPf = blockMinimumProfitFactor(1.85, 1.45, 1.25);
+    assert.ok(minPf > 1.85);
+    const fat = blockStepQty(10, 1, 1.25, 2.25, 2);
+    assert.ok(fat >= 10 * 1.25 - 1e-9, `block step ${fat}`);
 
     const sized = initVstEngine(CFG, { warmup: 8, symbolCount: 8 });
     const parent = sized.positions.find((p) => p.qty > 0);

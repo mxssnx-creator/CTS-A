@@ -1710,8 +1710,8 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   lane.confirmedAdd += take;
   const n = Math.max(1, o.level || lane.pending || 1);
   const counts = liveBlockCounts({ ...DEFAULT_BLOCK_CONFIG, maxMultiple: Math.max(n, 1) });
-  const vr = sharedBlockVolumeRatio(0.25, counts.length, 1);
-  const target = lane.baseQty * blockMaxAdditionalRatio(n, vr, 2);
+  const vr = sharedBlockVolumeRatio(DEFAULT_BLOCK_CONFIG.volumeRatio, counts.length, Math.max(0, DEFAULT_BLOCK_CONFIG.maxVolumeMultiplier - 1));
+  const target = lane.baseQty * blockMaxAdditionalRatio(n, vr, DEFAULT_BLOCK_CONFIG.maxVolumeMultiplier);
   if (lane.confirmedAdd + 1e-12 >= target) lane.satisfied[n] = true;
   lane.pending = undefined;
   e.lastBlockAt = e.tick;
@@ -1728,7 +1728,7 @@ function recordBlockClose(e: VstEngine, p: LivePosition, pnl: number) {
   if (lane.pfRing[n].length > 75) lane.pfRing[n] = lane.pfRing[n].slice(-75);
   lane.parentPf.push(frac);
   if (lane.parentPf.length > 75) lane.parentPf = lane.parentPf.slice(-75);
-  const need = Math.max(5, Math.min(75, 50));
+  const need = Math.max(5, Math.min(75, 12));
   const ring = (lane.pfRing[n] ?? []).slice(-need);
   if (ring.length >= need) {
     const gp = ring.filter((x) => x > 0).reduce((s, x) => s + x, 0);
@@ -1754,7 +1754,7 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
   const gp = ring.filter((x) => x > 0).reduce((s, x) => s + x, 0);
   const gl = Math.abs(ring.filter((x) => x < 0).reduce((s, x) => s + x, 0));
   const pf = gl === 0 ? (gp > 0 ? 4 : 0) : gp / gl;
-  const vr = sharedBlockVolumeRatio(block.volumeRatio, liveBlockCounts(block).length, Math.max(0, (block.maxVolumeMultiplier || 2) - 1));
+  const vr = sharedBlockVolumeRatio(block.volumeRatio || 1.25, liveBlockCounts(block).length, Math.max(0, (block.maxVolumeMultiplier || 2.25) - 1));
   const inc = blockMaxAdditionalRatio(count, vr, block.maxVolumeMultiplier);
   const floor = Math.max(minPf, blockMinimumProfitFactor(minPf, block.pfRatio || 1.25, inc) || minPf);
   if (pf + 1e-9 < floor) {
@@ -1848,20 +1848,20 @@ export function adjustActiveBlocks(
 
   syncBlockParents(e, conn);
   const counts = liveBlockCounts(block);
-  const vr = sharedBlockVolumeRatio(block.volumeRatio || 0.25, counts.length, Math.max(0, (block.maxVolumeMultiplier || 2) - 1));
-  const minPf = 1.1;
+  const vr = sharedBlockVolumeRatio(block.volumeRatio || 1.25, counts.length, Math.max(0, (block.maxVolumeMultiplier || 2.25) - 1));
+  const minPf = 1.85;
 
   if (block.addOnWin && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
     const byKey = new Map<string, number>();
     for (const b of collectActiveOrderBlocks(e, conn)) byKey.set(`${b.symbol}:${b.side}`, b.multiple);
     let adds = 0;
     for (const p of e.positions) {
-      if (adds >= 3) break;
+      if (adds >= 2) break;
       if (!ownedByDesk(p, conn)) continue;
       if (p.qty <= 0) continue;
       const move = p.unrealized / Math.max(p.avgEntry * p.qty, 1e-9);
       if (block.addOnWin && move <= 0) continue;
-      if (block.activeLive !== false && move < 0.002) continue;
+      if (block.activeLive !== false && move < 0.004) continue;
       const k = blockLaneKey(p.symbol, p.side);
       const lane = e.blockLanes[k];
       if (!lane || !lane.active || lane.baseQty <= 0) continue;
@@ -1873,7 +1873,7 @@ export function adjustActiveBlocks(
           c >= minM &&
           c > (block.minActiveLevel || 0) &&
           !lane.satisfied[c] &&
-          lane.confirmedAdd + 1e-12 < lane.baseQty * blockMaxAdditionalRatio(c, vr, block.maxVolumeMultiplier || 2),
+          lane.confirmedAdd + 1e-12 < lane.baseQty * blockMaxAdditionalRatio(c, vr, block.maxVolumeMultiplier || 2.25),
       );
       if (!next) continue;
       if (!blockPfOk(lane, next, block, minPf)) continue;
@@ -1883,7 +1883,7 @@ export function adjustActiveBlocks(
           const profit = recent.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
           const loss = Math.abs(recent.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
           const pf = loss === 0 ? (profit > 0 ? 3 : 0) : profit / loss;
-          if (pf < 1.12) continue;
+          if (pf < 1.85) continue;
         }
       }
       if (next >= 4) {
@@ -1892,13 +1892,13 @@ export function adjustActiveBlocks(
           const profit = deep.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
           const loss = Math.abs(deep.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
           const pf = loss === 0 ? (profit > 0 ? 3 : 0) : profit / loss;
-          if (pf < 1.05) continue;
+          if (pf < 1.85) continue;
         }
       }
       const q = e.quotes[p.symbol];
       if (!q || finiteOr(q.vol, 0) < MIN_QUOTE_VOL) continue;
       if ((e.cooldown[cooldownKey(conn, p.symbol)] ?? 0) > e.tick) continue;
-      const qty = blockStepQty(lane.baseQty, next, block.volumeRatio || 0.25, block.maxVolumeMultiplier || 2, counts.length);
+      const qty = blockStepQty(lane.baseQty, next, block.volumeRatio || 1.25, block.maxVolumeMultiplier || 2.25, counts.length);
       if (!(qty > 0)) continue;
       const hi = pickRange(q, cfg, rangeType);
       const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);

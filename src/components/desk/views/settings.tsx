@@ -852,9 +852,9 @@ export function SettingsView() {
       <div id="block" className="scroll-mt-24">
         <Panel title="Block strategy · overall active orders">
           <p className="text-sm text-muted">
-            CTS-G Block: stack on a live parent only (symbol+side overall, independent of lanes). Counts 1–6
-            share a 2× volume cap at ratio {(blockCfg.volumeRatio ?? 0.25).toFixed(2)}. PF gate and last-N eval
-            ({blockCfg.evalPosCount ?? 50}) must pass before the next rung emits. Continuation needs a 0.20%
+            CTS-G Block: stack on a live parent only (symbol+side overall, independent of lanes). Counts 1–2
+            share a 2.25× volume cap at ratio {(blockCfg.volumeRatio ?? 1.25).toFixed(2)}. PF ≥ 1.85 and last-N eval
+            ({blockCfg.evalPosCount ?? 12}) must pass before the next rung emits. Continuation needs a 0.40%
             favorable move.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -912,7 +912,7 @@ export function SettingsView() {
               label="Max block multiple"
               value={blockCfg.maxMultiple}
               min={1}
-              max={12}
+              max={3}
               step={1}
               format={(n) => String(n)}
               onChange={(n) => setBlockCfg({ maxMultiple: n })}
@@ -922,7 +922,7 @@ export function SettingsView() {
               label="Min block multiple"
               value={blockCfg.minMultiple}
               min={1}
-              max={8}
+              max={2}
               step={1}
               format={(n) => String(n)}
               onChange={(n) => setBlockCfg({ minMultiple: n })}
@@ -930,9 +930,9 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Volume ratio"
-              value={blockCfg.volumeRatio ?? 0.25}
-              min={0.05}
-              max={1}
+              value={blockCfg.volumeRatio ?? 1.25}
+              min={1.25}
+              max={2.5}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ volumeRatio: n })}
@@ -940,8 +940,8 @@ export function SettingsView() {
             />
             <RangeKnob
               label="PF ratio"
-              value={blockCfg.pfRatio ?? 1.25}
-              min={0.5}
+              value={blockCfg.pfRatio ?? 1.45}
+              min={1.25}
               max={3}
               step={0.05}
               format={(n) => n.toFixed(2)}
@@ -950,10 +950,10 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Eval last N"
-              value={blockCfg.evalPosCount ?? 50}
-              min={5}
-              max={75}
-              step={5}
+              value={blockCfg.evalPosCount ?? 12}
+              min={8}
+              max={16}
+              step={1}
               format={(n) => String(n)}
               onChange={(n) => setBlockCfg({ evalPosCount: n })}
               ariaLabel="Block eval last N"

@@ -180,21 +180,24 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       const b = (raw as { blockConfig?: Partial<BlockConfig> }).blockConfig ?? d.blockConfig;
       return {
         enabled: asBool(b.enabled, d.blockConfig.enabled),
-        maxMultiple: Math.min(12, Math.max(1, Math.round(asNum(b.maxMultiple, d.blockConfig.maxMultiple)))),
-        minMultiple: Math.min(8, Math.max(1, Math.round(asNum(b.minMultiple, d.blockConfig.minMultiple)))),
+        maxMultiple: Math.min(3, Math.max(1, Math.round(asNum(b.maxMultiple, d.blockConfig.maxMultiple)))),
+        minMultiple: Math.min(2, Math.max(1, Math.round(asNum(b.minMultiple, d.blockConfig.minMultiple)))),
         addOnWin: asBool(b.addOnWin, d.blockConfig.addOnWin),
         flattenConflict: asBool(b.flattenConflict, d.blockConfig.flattenConflict),
         endStageOnly: asBool(b.endStageOnly, d.blockConfig.endStageOnly),
-        cadence: Math.min(40, Math.max(4, Math.round(asNum(b.cadence, d.blockConfig.cadence)))),
+        cadence: Math.min(16, Math.max(4, Math.round(asNum(b.cadence, d.blockConfig.cadence)))),
         overall: asBool(b.overall, d.blockConfig.overall ?? true),
-        counts: Array.isArray(b.counts)
-          ? [...new Set(b.counts.map((n) => Math.round(Number(n))).filter((n) => n >= 1 && n <= 6))].sort((a, c) => a - c)
-          : [...(d.blockConfig.counts ?? [1, 2, 3, 4, 5, 6])],
-        volumeRatio: Math.min(2, Math.max(0.05, asNum(b.volumeRatio, d.blockConfig.volumeRatio ?? 0.25))),
-        maxVolumeMultiplier: Math.min(2, Math.max(1, asNum(b.maxVolumeMultiplier, d.blockConfig.maxVolumeMultiplier ?? 2))),
-        pfRatio: Math.min(5, Math.max(0.5, asNum(b.pfRatio, d.blockConfig.pfRatio ?? 1.25))),
-        pauseCountRatio: Math.min(6, Math.max(0, Math.round(asNum(b.pauseCountRatio, d.blockConfig.pauseCountRatio ?? 1)))),
-        evalPosCount: Math.min(75, Math.max(5, Math.round(asNum(b.evalPosCount, d.blockConfig.evalPosCount ?? 50)))),
+        counts: (() => {
+          const rawCounts = Array.isArray(b.counts)
+            ? [...new Set(b.counts.map((n) => Math.round(Number(n))).filter((n) => n >= 1 && n <= 3))].sort((a, c) => a - c)
+            : [...(d.blockConfig.counts ?? [1, 2])];
+          return rawCounts.length ? rawCounts.slice(0, 2) : [1, 2];
+        })(),
+        volumeRatio: Math.min(2.5, Math.max(1.25, asNum(b.volumeRatio, d.blockConfig.volumeRatio ?? 1.25))),
+        maxVolumeMultiplier: Math.min(2.5, Math.max(2.25, asNum(b.maxVolumeMultiplier, d.blockConfig.maxVolumeMultiplier ?? 2.25))),
+        pfRatio: Math.min(5, Math.max(1.25, asNum(b.pfRatio, d.blockConfig.pfRatio ?? 1.45))),
+        pauseCountRatio: Math.min(6, Math.max(1, Math.round(asNum(b.pauseCountRatio, d.blockConfig.pauseCountRatio ?? 2)))),
+        evalPosCount: Math.min(16, Math.max(8, Math.round(asNum(b.evalPosCount, d.blockConfig.evalPosCount ?? 12)))),
         activeLive: asBool(b.activeLive, d.blockConfig.activeLive ?? true),
         minActiveLevel: Math.min(6, Math.max(0, Math.round(asNum(b.minActiveLevel, d.blockConfig.minActiveLevel ?? 0)))),
       };
