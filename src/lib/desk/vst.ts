@@ -1748,7 +1748,7 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
     lane.pauseRemaining[count] -= 1;
     return false;
   }
-  const need = Math.max(5, Math.min(75, Math.round(block.evalPosCount || 50)));
+  const need = Math.max(5, Math.min(75, Math.round(block.evalPosCount || 12)));
   const ring = (lane.pfRing[count] ?? []).slice(-need);
   if (ring.length < need) return true;
   const gp = ring.filter((x) => x > 0).reduce((s, x) => s + x, 0);
@@ -1758,7 +1758,11 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
   const inc = blockMaxAdditionalRatio(count, vr, block.maxVolumeMultiplier);
   const floor = Math.max(minPf, blockMinimumProfitFactor(minPf, block.pfRatio || 1.25, inc) || minPf);
   if (pf + 1e-9 < floor) {
-    lane.pauseRemaining[count] = Math.max(1, Math.round((block.pauseCountRatio || 1) * count));
+    lane.pauseRemaining[count] = Math.max(0, Math.round((block.pauseCountRatio ?? 2) * count));
+    if (lane.pauseRemaining[count] < 1) {
+      lane.heldFactor[count] = 1;
+      return true;
+    }
     lane.heldFactor[count] = count;
     return false;
   }
