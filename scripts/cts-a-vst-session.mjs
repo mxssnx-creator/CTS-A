@@ -35,6 +35,9 @@ const SETTINGS = process.env.CTS_A_SETTINGS ?? "/var/lib/cts-a/desk-settings.jso
 const OVERALL = process.env.CTS_A_OVERALL ?? "/var/lib/cts-a/overall-stats.json";
 const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CONN = process.env.CTS_A_CONN ?? "bingx-vst-02";
+const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || CONN === "bingx-x01" ? "mainnet" : "testnet";
+const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? (NETWORK_PREF === "mainnet" ? 16 : 30));
+const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? (NETWORK_PREF === "mainnet" ? 1.5 : 1.15));
 let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, positions: [], orders: [] };
 const bookAvg = { pos: 0, ord: 0, n: 0 };
 let cachedOverall = null;
@@ -199,7 +202,7 @@ function writeSettingsPick(pick, extra = {}) {
     comboRange: "all",
     enabledKinds: ["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block"],
     strategyId: "normal",
-    thresholds: { minPf: 1.35, maxMdd: 0.16, minWr: 0.48, minVf: 1.08, maxDdt: 40 },
+    thresholds: { minPf: 1.5, maxMdd: 0.14, minWr: 0.52, minVf: 1.12, maxDdt: 36 },
     activeConnId: CONN,
     evalHours: [4, 8, 16],
     evalLastNs: [5, 10, 15],
@@ -286,14 +289,17 @@ function quietMs(s) {
 
 async function pingVst() {
   const keys = keysForConn(CONN);
-  if (!keys.apiKey || !keys.secret) return { network: "testnet", pingOk: false, equity: 0, error: "no keys" };
-  const vst = await pingAccount({ ...keys, network: "testnet", connId: CONN });
-  if (vst.ok) return { network: "testnet", pingOk: true, equity: vst.equity ?? 0 };
-  const err = String(vst.error || "");
+  if (!keys.apiKey || !keys.secret) return { network: NETWORK_PREF, pingOk: false, equity: 0, error: "no keys" };
+  const first = await pingAccount({ ...keys, network: NETWORK_PREF, connId: CONN });
+  if (first.ok) return { network: NETWORK_PREF, pingOk: true, equity: first.equity ?? 0 };
+  const err = String(first.error || "");
   if (isRateLimited(err)) {
     apiQuietUntil = Math.max(apiQuietUntil || 0, Date.now() + quietMs(err));
   }
-  return { network: "testnet", pingOk: false, equity: 0, error: err };
+  if (NETWORK_PREF === "mainnet") return { network: "mainnet", pingOk: false, equity: 0, error: err };
+  const live = await pingAccount({ ...keys, network: "mainnet", connId: CONN });
+  if (live.ok) return { network: "mainnet", pingOk: true, equity: live.equity ?? 0 };
+  return { network: NETWORK_PREF, pingOk: false, equity: 0, error: err };
 }
 
 const mirrored = new Set();
@@ -306,8 +312,7 @@ let lastApiError = "";
 const cancelFailed = new Set();
 const skipUntil = new Map();
 const skippedFills = new Set();
-const LIVE_MAX_POS = 30;
-const LIVE_NOTIONAL = Math.min(10, MAX_LIVE_NOTIONAL);
+const LIVE_NOTIONAL = Math.min(NETWORK_PREF === "mainnet" ? 8 : 10, MAX_LIVE_NOTIONAL);
 
 function sizeNotional(equity) {
   const pct = Number(equity) > 0 ? Number(equity) * 0.001 : LIVE_NOTIONAL;
@@ -634,7 +639,9 @@ async function mirrorToExchange(e, network, cfg) {
 
   if (openN >= LIVE_MAX_POS || accountN >= LIVE_MAX_POS) return null;
   const n12 = cachedOverall?.lastN?.["12"];
-  if (n12 && n12.n >= 8 && Number(n12.pf) < 1.05) return "halt new · last12 PF";
+  if (n12 && n12.n >= 8 && Number(n12.pf) > 0 && Number(n12.pf) < LIVE_MIN_PF) return `halt new · last12 PF ${Number(n12.pf).toFixed(2)}`;
+  const winnerPf = Number(e.completeWinner?.pf);
+  if (Number.isFinite(winnerPf) && winnerPf > 0 && winnerPf < LIVE_MIN_PF) return `halt new · winner PF ${winnerPf.toFixed(2)}`;
 
   let placed = 0;
   let failed = 0;
@@ -1159,7 +1166,7 @@ async function main() {
     if (now - lastAdjust > 12 * 60 * 1000) {
       lastAdjust = now;
       const st = snapshot(engine, statusBase());
-      if (st.trades >= 20 && st.pf >= 1.15 && st.net > 0 && (st.wr >= 0.36 || st.pf >= 1.5) && st.mdd <= 0.2) {
+      if (st.trades >= 20 && st.pf >= LIVE_MIN_PF && st.net > 0 && (st.wr >= 0.4 || st.pf >= 1.8) && st.mdd <= 0.18) {
         locked = true;
         adjustments.push(`lock ${pick.tactic}/${pick.range} PF ${st.pf.toFixed(2)}`);
         writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: true });

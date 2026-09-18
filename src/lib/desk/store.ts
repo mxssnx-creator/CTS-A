@@ -1259,11 +1259,14 @@ export const useDesk = create<DeskStore>((set, get) => ({
       prevEx.positions.length === nextBook.positions.length &&
       prevEx.orders.length === nextBook.orders.length &&
       prevEx.equity === nextBook.equity;
-    const prevConn = get().connections;
+    const liveId = String((sess as { conn?: string } | null)?.conn || get().activeConnId || "bingx-vst-02");
+    const liveNet =
+      String((sess as { network?: string } | null)?.network || "") === "mainnet" || liveId === "bingx-x01" ? "mainnet" : "testnet";
     const nextPos = Number(sess?.livePos ?? nextBook?.positions.length ?? 0);
     const nextOrd = Number(sess?.liveOrd ?? nextBook?.orders.length ?? 0);
-    const conn = prevConn.find((c) => c.id === "bingx-vst-02");
-    const sameConn = conn && conn.positionCount === nextPos && conn.openOrderCount === nextOrd && conn.equity === (equity > 0 ? equity : conn.equity);
+    const prevConn = get().connections;
+    const conn = prevConn.find((c) => c.id === liveId) ?? prevConn.find((c) => c.id === "bingx-vst-02");
+    const sameConn = conn && conn.positionCount === nextPos && conn.openOrderCount === nextOrd && conn.equity === (equity > 0 ? equity : conn.equity) && conn.network === liveNet;
     pinDeskScroll();
     set({
       liveSession: sess,
@@ -1277,15 +1280,17 @@ export const useDesk = create<DeskStore>((set, get) => ({
             ? get().feed
             : { state: "live", venue: "bingx", latencyMs: book?.latencyMs ?? get().feed.latencyMs, at: Date.now(), count: get().feed.count, missing: get().feed.missing }
           : get().feed,
+      activeConnId: isDeskConn(liveId) ? liveId : get().activeConnId,
       connections: sameConn
         ? prevConn
         : prevConn.map((c) =>
-            c.id === "bingx-vst-02"
+            c.id === liveId
               ? {
                   ...c,
                   hasKeys: true,
                   armed: true,
-                  network: "testnet",
+                  testnet: liveNet !== "mainnet",
+                  network: liveNet,
                   status: sess?.pingOk || book?.ok ? "connected" : c.status,
                   lastPingMs: book?.ok ? book.latencyMs : c.lastPingMs,
                   equity: equity > 0 ? equity : c.equity,
@@ -1297,7 +1302,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
           ),
       ticketMsg:
         equity > 0
-          ? `BingX vst-02 · equity ${equity.toFixed(2)} · ${nextPos} pos · ${nextOrd} orders`
+          ? `BingX ${liveId} · ${liveNet} · equity ${equity.toFixed(2)} · ${nextPos} pos · ${nextOrd} orders`
           : get().ticketMsg,
       vst:
         e.phase === "running" && e.running
@@ -1334,7 +1339,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
           exchange:
             pingOk || equity > 0
               ? {
-                  connId: "bingx-vst-02",
+                  connId: String(sess.conn || "bingx-vst-02"),
                   ok: true,
                   equity: Number.isFinite(equity) ? equity : 0,
                   positions,

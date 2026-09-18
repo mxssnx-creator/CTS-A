@@ -199,11 +199,11 @@ export const TACTIC_META: Record<TacticKind, { label: string; blurb: string }> =
 };
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
-  minPf: 1.35,
-  maxMdd: 0.16,
-  minWr: 0.48,
-  minVf: 1.08,
-  maxDdt: 40,
+  minPf: 1.5,
+  maxMdd: 0.14,
+  minWr: 0.52,
+  minVf: 1.12,
+  maxDdt: 36,
 };
 
 export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
@@ -1602,6 +1602,28 @@ function demoConnections(): Connection[] {
       maxSymbols: 50,
       unlimitedOrders: true,
       lastPingMs: 61,
+    },
+    {
+      id: "bingx-x01",
+      venue: "bingx",
+      label: "BingX Live-01",
+      testnet: false,
+      network: "mainnet",
+      armed: false,
+      hasKeys: false,
+      status: "disconnected",
+      apiKeyMasked: "X01-•••EQ",
+      permissions: ["read", "trade"],
+      symbols: [...ids],
+      orderTypesEnabled: types,
+      rateLimitUsed: 0,
+      rateLimitMax: 100,
+      openOrderCount: 0,
+      positionCount: 0,
+      maxPositions: 100,
+      maxSymbols: 50,
+      unlimitedOrders: true,
+      lastPingMs: 0,
     },
   ];
 }

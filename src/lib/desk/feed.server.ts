@@ -68,9 +68,11 @@ export function resolveKeys(
 export function credentialStatus(): Record<string, boolean> {
   const a = keysForConn("bingx-vst-01");
   const b = keysForConn("bingx-vst-02");
+  const live = keysForConn("bingx-x01");
   return {
     "bingx-vst-01": Boolean(a.apiKey && a.secret),
     "bingx-vst-02": Boolean(b.apiKey && b.secret),
+    "bingx-x01": Boolean(live.apiKey && live.secret),
   };
 }
 

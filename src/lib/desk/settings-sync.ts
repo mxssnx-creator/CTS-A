@@ -159,7 +159,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     rangeType: RANGES.includes(raw.rangeType as RangeType) ? (raw.rangeType as RangeType) : d.rangeType,
     tactic: raw.tactic === "dca" ? "hybrid" : TACTICS.includes(raw.tactic as TacticKind) ? (raw.tactic as TacticKind) : d.tactic,
     thresholds: {
-      minPf: Math.max(1.05, asNum(th.minPf, d.thresholds.minPf)),
+      minPf: Math.max(1.5, asNum(th.minPf, d.thresholds.minPf)),
       maxMdd: Math.min(0.45, Math.max(0.02, asNum(th.maxMdd, d.thresholds.maxMdd))),
       minWr: Math.min(0.8, Math.max(0.35, asNum(th.minWr, d.thresholds.minWr))),
       minVf: Math.max(MIN_VOLUME_FACTOR, asNum(th.minVf, d.thresholds.minVf)),
@@ -213,7 +213,10 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       raw.comboRange === "all" || RANGES.includes(raw.comboRange as RangeType)
         ? (raw.comboRange as DeskSettingsSnap["comboRange"])
         : "all",
-    activeConnId: raw.activeConnId === "bingx-vst-02" ? "bingx-vst-02" : "bingx-vst-01",
+    activeConnId:
+      raw.activeConnId === "bingx-x01" || raw.activeConnId === "bingx-vst-02" || raw.activeConnId === "bingx-vst-01"
+        ? raw.activeConnId
+        : "bingx-vst-02",
     evalHours: Array.isArray(raw.evalHours)
       ? STAGE_HOURS.filter((h) => raw.evalHours!.includes(h))
       : [...STAGE_HOURS],

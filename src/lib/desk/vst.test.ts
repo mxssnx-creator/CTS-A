@@ -192,15 +192,15 @@ describe("VST engine", () => {
     const onlyNormal = strategiesForKinds(["normal"]);
     assert.ok(onlyNormal.every((s) => s.kind === "normal"));
     const ok = isPositive(
-      { pf: 1.4, mdd: 0.1, wr: 0.5, volumeFactor: 1.1, ddt: 20 },
+      { pf: 1.6, mdd: 0.1, wr: 0.55, volumeFactor: 1.15, ddt: 20 },
       DEFAULT_THRESHOLDS,
     );
     const vfFail = isPositive(
-      { pf: 1.4, mdd: 0.1, wr: 0.5, volumeFactor: 0.2, ddt: 20 },
+      { pf: 1.6, mdd: 0.1, wr: 0.55, volumeFactor: 0.2, ddt: 20 },
       DEFAULT_THRESHOLDS,
     );
     const ddtFail = isPositive(
-      { pf: 1.4, mdd: 0.1, wr: 0.5, volumeFactor: 1.1, ddt: 200 },
+      { pf: 1.6, mdd: 0.1, wr: 0.55, volumeFactor: 1.15, ddt: 200 },
       DEFAULT_THRESHOLDS,
     );
     assert.equal(ok, true);

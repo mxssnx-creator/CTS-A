@@ -66,10 +66,12 @@ export const VST_MAX_WORKING_ORDERS = 400;
 export const VST_MAX_QUEUE = 250;
 export const VST_MAX_BATCHES = 12;
 export const VST_CONN_IDS = ["bingx-vst-01", "bingx-vst-02"] as const;
+export const LIVE_CONN_ID = "bingx-x01";
+export const DESK_CONN_IDS = [...VST_CONN_IDS, LIVE_CONN_ID] as const;
 export const VST_DEFAULT_CONN = VST_CONN_IDS[1];
 
 export function isDeskConn(id: string | undefined | null): boolean {
-  return Boolean(id && (VST_CONN_IDS as readonly string[]).includes(id));
+  return Boolean(id && (DESK_CONN_IDS as readonly string[]).includes(id));
 }
 
 export function ownedByDesk<T extends { connId: string }>(row: T, connId?: string): boolean {
@@ -574,6 +576,27 @@ function mkConns(): Connection[] {
     maxSymbols: 50,
     unlimitedOrders: true,
     lastPingMs: 0
+  }, {
+    id: "bingx-x01",
+    venue: "bingx",
+    label: "BingX Live-01",
+    testnet: false,
+    network: "mainnet",
+    armed: false,
+    hasKeys: false,
+    status: "disconnected",
+    apiKeyMasked: "—",
+    permissions: ["read", "trade"],
+    symbols: [...ids],
+    orderTypesEnabled: types,
+    rateLimitUsed: 0,
+    rateLimitMax: VST_RATE_WINDOW,
+    openOrderCount: 0,
+    positionCount: 0,
+    maxPositions: VST_MAX_POSITIONS,
+    maxSymbols: VST_MAX_SYMBOLS,
+    unlimitedOrders: true,
+    lastPingMs: 0
   }];
 }
 function emptyStats() {
@@ -667,6 +690,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     tokens: {
       "bingx-vst-01": VST_RATE_BURST,
       "bingx-vst-02": VST_RATE_BURST,
+      "bingx-x01": VST_RATE_BURST,
     },
     stats: emptyStats(),
     ledger: emptyLedger(),
@@ -2061,6 +2085,7 @@ export function resetSession(e: VstEngine, cfg: TacticConfig, tactic: TacticKind
   e.tokens = {
     "bingx-vst-01": VST_RATE_BURST,
     "bingx-vst-02": VST_RATE_BURST,
+    "bingx-x01": VST_RATE_BURST,
   };
   e.lastMsg = "Reset · ladders rearmed, press Start";
 }
