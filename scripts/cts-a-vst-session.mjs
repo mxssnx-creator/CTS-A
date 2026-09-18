@@ -326,7 +326,7 @@ function apiQuiet() {
 }
 
 function isBenignApi(s) {
-  return /position not exist|order not exist|order filled|nothing to cancel|no need to cancel|min notional exceeds|TP Price|SL Price|offline currently|must be (greater|lower)/i.test(String(s || ""));
+  return /position not exist|order not exist|order filled|nothing to cancel|no need to cancel|min notional exceeds|TP Price|SL Price|offline currently|must be (greater|lower)|timeout/i.test(String(s || ""));
 }
 
 function noteApiFail(err) {
@@ -645,11 +645,7 @@ async function mirrorToExchange(e, network, cfg) {
     }
   }
 
-  if (openN >= liveMaxPos(book.equity) || accountN >= liveMaxPos(book.equity)) return null;
-  const n12 = cachedOverall?.lastN?.["12"];
-  if (n12 && n12.n >= 8 && Number(n12.pf) > 0 && Number(n12.pf) < LIVE_MIN_PF) return `halt new · last12 PF ${Number(n12.pf).toFixed(2)}`;
-  const winnerPf = Number(e.completeWinner?.pf);
-  if (Number.isFinite(winnerPf) && winnerPf > 0 && winnerPf < LIVE_MIN_PF) return `halt new · winner PF ${winnerPf.toFixed(2)}`;
+  if (openN >= liveMaxPos() || accountN >= liveMaxPos()) return null;
 
   let placed = 0;
   let failed = 0;
@@ -662,7 +658,7 @@ async function mirrorToExchange(e, network, cfg) {
       mirrored.add(f.id);
       continue;
     }
-    if (openN + placed >= liveMaxPos(book.equity) || accountN + placed >= liveMaxPos(book.equity)) break;
+    if (openN + placed >= liveMaxPos() || accountN + placed >= liveMaxPos()) break;
     if (apiQuiet()) break;
     let r;
     try {
@@ -904,7 +900,7 @@ async function main() {
       }
       if (!apiQuiet() && liveBusy === 0 && ping.pingOk && engine.tick % 2 === 0) {
         try {
-          const liveNote = await withTimeout(mirrorToExchange(engine, ping.network, pick.cfg), 9000, "live");
+          const liveNote = await withTimeout(mirrorToExchange(engine, ping.network, pick.cfg), 15000, "live");
           if (liveNote) adjustments.push(liveNote);
         } catch (err) {
           liveBusy = 0;
