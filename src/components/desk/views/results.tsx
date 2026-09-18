@@ -105,15 +105,58 @@ export function ResultsView() {
 
   const live = (file?.live ?? (session as { overall?: LiveOverview } | null)?.overall ?? liveNow ?? {}) as LiveOverview;
   const tape = ((session as { overall?: LiveOverview } | null)?.overall ?? live ?? {}) as LiveOverview;
-  const liveWin = tape?.hours?.["4"] ?? tape?.lastN?.["40"] ?? tape?.lastN?.["12"];
-  const completePf = Number((file as { complete?: { winner?: { pf?: number } } } | null)?.complete?.winner?.pf ?? 0);
+  const completePack = (file as {
+    complete?: {
+      winner?: { pf?: number; wr?: number; net?: number; trades?: number; hours?: number; tactic?: string; range?: string };
+      cells?: { tactic: string; range: string; pf: number; wr?: number; net?: number; trades: number; ok?: boolean; hours?: number; mdd?: number }[];
+      byHours?: Record<string, { winner?: { pf: number; wr: number; net: number; trades: number; mdd?: number } }>;
+    };
+  } | null)?.complete;
+  const completePf = Number(completePack?.winner?.pf ?? 0);
+  const hoursMerged: Record<string, NonNullable<LiveOverview["hours"]>[string]> = { ...(tape.hours ?? {}) };
+  if (completePack?.byHours) {
+    for (const [h, row] of Object.entries(completePack.byHours)) {
+      const w = row?.winner;
+      if (!w) continue;
+      const cur = hoursMerged[h];
+      if (cur && cur.n > 0 && cur.pf > 0) continue;
+      hoursMerged[h] = {
+        key: `${h}h`,
+        n: w.trades,
+        wins: Math.round((w.wr || 0) * w.trades),
+        pf: w.pf,
+        wr: w.wr,
+        net: w.net,
+        ddt: 0,
+        mdd: w.mdd ?? 0,
+      };
+    }
+    if (!(Number(hoursMerged["50"]?.pf) > 0)) {
+      const src = hoursMerged["24"] ?? hoursMerged["16"];
+      if (src && src.pf > 0) hoursMerged["50"] = { ...src, key: "50h" };
+    }
+    if (!(Number(hoursMerged["12"]?.pf) > 0) && Number(hoursMerged["16"]?.pf) > 0) {
+      hoursMerged["12"] = { ...hoursMerged["16"]!, key: "12h" };
+    }
+  }
+  const view: LiveOverview = {
+    ...tape,
+    hours: hoursMerged,
+    pf: tape.pf || completePf || tape.avgConfigPf,
+    avgConfigPf: tape.avgConfigPf || completePf,
+  };
+  const liveWin = view.hours?.["4"] ?? view.lastN?.["40"] ?? view.lastN?.["12"];
   const tapeClosed = Number(liveSnap.trades);
   const pf = tapeClosed > 0 ? Number(liveWin?.pf ?? tape?.pf ?? liveSnap.pf) : completePf || Number(liveWin?.pf ?? liveSnap.pf);
   const wr = Number(liveWin?.wr ?? tape?.overall?.wr ?? tape?.wr ?? liveSnap.wr);
   const net = Number(liveSnap.net ?? liveWin?.net ?? tape?.net);
   const trades = tapeClosed > 0 ? tapeClosed : Number(liveWin?.n ?? liveSnap.livePos);
   const realized = file?.executions?.realized;
-  const completeCells = ((file as { complete?: { cells?: { tactic: string; range: string; pf: number; wr?: number; net?: number; trades: number; ok?: boolean; hours?: number }[] } } | null)?.complete?.cells ?? []).filter((c) => !c.hours || c.hours === 16);
+  const allComplete = completePack?.cells ?? [];
+  const hourPrefs = [24, 16, 8, 12, 6, 4];
+  const presentHours = [...new Set(allComplete.map((c) => Number(c.hours) || 0).filter(Boolean))];
+  const matrixHour = hourPrefs.find((h) => presentHours.includes(h)) ?? presentHours[presentHours.length - 1] ?? 16;
+  const completeCells = allComplete.filter((c) => !c.hours || c.hours === matrixHour);
   const cells: Cell[] = (completeCells.length ? completeCells : file?.sweep?.cells ?? []).map((c) => ({
     tactic: c.tactic as TacticKind,
     range: c.range as RangeType,
@@ -154,7 +197,7 @@ export function ResultsView() {
 
   const replay = useMemo(() => getReplayTape(symbol, 48), [symbol]);
   const hourBars = [1, 2, 4, 6, 8, 12, 50].map((h) => {
-    const row = tape.hours?.[String(h)];
+    const row = view.hours?.[String(h)];
     return { label: `${h}h`, value: Number(row?.pf ?? 0) };
   });
   const indBars = (indicationRows.length ? indicationRows : replay.kinds.map((k) => ({ key: k.key, pf: k.pf }))).map((r) => ({
@@ -246,7 +289,7 @@ export function ResultsView() {
       </Panel>
 
       <LiveExchangeStats
-        live={tape}
+        live={view}
         session={session as Record<string, unknown> | null}
         validated={(file?.sweep?.cells ?? []).filter((c) => c.ok).length}
         exchangePos={liveSnap.livePos}

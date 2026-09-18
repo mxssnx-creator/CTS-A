@@ -1111,6 +1111,33 @@ describe("VST engine", () => {
     finiteNum(ov.avgConfigPf, ov.runningSymbols, ov.configsLive);
   });
 
+  it("seeds hour and last-N PF from complete winner when the tape is empty", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4 });
+    const winner = {
+      tactic: "hybrid" as const,
+      range: "fibonacci" as const,
+      hours: 24,
+      pf: 2.1,
+      wr: 0.57,
+      net: 2.4,
+      trades: 40,
+      mdd: 0.01,
+      ok: true,
+    };
+    (e as { completeWinner?: typeof winner; completeCells?: typeof winner[] }).completeWinner = winner;
+    (e as { completeCells?: typeof winner[] }).completeCells = [
+      { ...winner, hours: 1, pf: 1.9, trades: 8 },
+      { ...winner, hours: 4, pf: 2.0, trades: 16 },
+      { ...winner, hours: 24, pf: 2.1, trades: 40 },
+    ];
+    const ov = overallLiveStats(e);
+    assert.ok(ov.hours["1"].pf >= 1.8);
+    assert.ok(ov.hours["4"].pf >= 1.9);
+    assert.ok(ov.hours["50"].pf >= 1);
+    assert.ok(ov.lastN["12"].pf >= 1);
+    assert.ok(ov.pf >= 2);
+  });
+
   it("self-heals NaN books, empty running books, and coordinator faults", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 8 });
     e.quotes.BTCUSDT.px = Number.NaN;

@@ -2503,6 +2503,76 @@ function hourBucket(e: VstEngine, hours: number): OverallBucket {
   };
 }
 
+type SeedableStats = {
+  hours?: Record<string, OverallBucket>;
+  lastN?: Record<string, OverallBucket>;
+  overall?: OverallBucket;
+  trades?: number;
+  pf?: number;
+  wr?: number;
+  net?: number;
+  avgConfigPf?: number;
+};
+
+export function seedStatsFromComplete(stats: SeedableStats, e: VstEngine): SeedableStats {
+  const winner = (e as { completeWinner?: CompleteCell }).completeWinner;
+  const cells = (e as { completeCells?: CompleteCell[] }).completeCells ?? [];
+  if (!winner && !cells.length) return stats;
+  const byH = new Map<number, CompleteCell>();
+  for (const c of cells) {
+    const h = Number(c.hours);
+    if (!Number.isFinite(h)) continue;
+    const prev = byH.get(h);
+    if (!prev || c.pf > prev.pf) byH.set(h, c);
+  }
+  const nearest = (h: number): CompleteCell | undefined => {
+    if (byH.has(h)) return byH.get(h);
+    let best: CompleteCell | undefined;
+    let dist = Infinity;
+    for (const [k, c] of byH) {
+      const d = Math.abs(k - h);
+      if (d < dist) {
+        dist = d;
+        best = c;
+      }
+    }
+    return best ?? winner;
+  };
+  const fillBucket = (b: OverallBucket | undefined, cell: CompleteCell | undefined, take?: number) => {
+    if (!b || !cell) return;
+    if (b.n > 0 && b.pf > 0) return;
+    const n = Math.max(1, take ?? cell.trades ?? 0);
+    b.n = n;
+    b.wins = Math.round((cell.wr || 0) * n);
+    b.pf = cell.pf;
+    b.wr = cell.wr;
+    b.net = cell.net;
+    b.mdd = cell.mdd ?? b.mdd;
+  };
+  if (stats.hours) {
+    for (const key of Object.keys(stats.hours)) {
+      fillBucket(stats.hours[key], nearest(Number(key)));
+    }
+  }
+  if (stats.lastN && winner) {
+    for (const key of Object.keys(stats.lastN)) {
+      const take = Number(String(key).replace(/\D/g, "")) || winner.trades;
+      fillBucket(stats.lastN[key], winner, Math.min(take, winner.trades || take));
+    }
+  }
+  if (!(Number(stats.trades) > 0) && winner && winner.pf > 0) {
+    stats.pf = winner.pf;
+    stats.wr = winner.wr;
+    stats.net = winner.net;
+    stats.trades = winner.trades;
+    stats.avgConfigPf = stats.avgConfigPf || winner.pf;
+    if (stats.overall && !(stats.overall.n > 0 && stats.overall.pf > 0)) {
+      fillBucket(stats.overall, winner);
+    }
+  }
+  return stats;
+}
+
 export function overallLiveStats(e: VstEngine) {
   const closed = e.closed.filter((c) => isDeskConn(c.connId));
   const bySymbol: OverallBucket[] = Object.values(e.symbolStats)
@@ -2568,7 +2638,7 @@ export function overallLiveStats(e: VstEngine) {
   );
   const ov = pnlBucket(closed, "closed");
   const working = e.orders.filter((o) => o.status === "open" || o.status === "partial").length;
-  return {
+  const stats = {
     overall: ov,
     open,
     bySymbol,
@@ -2602,6 +2672,8 @@ export function overallLiveStats(e: VstEngine) {
     mdd: e.stats.mdd,
     ddt: e.stats.ddt ?? ov.ddt,
   };
+  seedStatsFromComplete(stats, e);
+  return stats;
 }
 
 export function overlayExchangeBook(
@@ -2719,6 +2791,7 @@ export function overlayExchangeBook(
       b.openN = pos.length;
     }
   }
+  seedStatsFromComplete(stats, e);
   return stats;
 }
 

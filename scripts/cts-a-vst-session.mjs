@@ -930,7 +930,7 @@ async function main() {
     try {
       const complete = await completeComputationsAsync(pick.cfg, {
         symbolCount: 8,
-        hours: [1, 2, 4, 6, 8, 16, 24],
+        hours: [1, 2, 4, 6, 8, 12, 16, 24],
         yieldFn: () => sleep(20),
         onCell: (cell, i, total) => {
           if (i === 1 || i === total || i % 5 === 0) {
@@ -966,6 +966,21 @@ async function main() {
       const w = complete.winner;
       engine.completeCells = complete.cells;
       engine.completeWinner = w;
+      cachedOverall = null;
+      cachedOverallTick = -1;
+      if (w && w.ok && w.pf >= 1) {
+        if (w.tactic !== pick.tactic || w.range !== pick.range) {
+          pick = { tactic: w.tactic, range: w.range, cfg: pick.cfg };
+          try {
+            healEngine(engine, pick.cfg, pick.tactic, pick.range);
+          } catch {
+            /* keep */
+          }
+          adjustments.push(`live lock ${w.tactic}/${w.range} ${w.hours}h PF ${w.pf.toFixed(2)}`);
+        }
+        locked = true;
+        writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: true });
+      }
       adjustments.push(
         w
           ? `complete ${complete.cells.length} cells · winner ${w.tactic}/${w.range} ${w.hours}h PF ${w.pf.toFixed(2)} · ${complete.elapsedMs}ms`
