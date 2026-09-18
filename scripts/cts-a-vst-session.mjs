@@ -767,8 +767,8 @@ async function main() {
     tickBusy = true;
     try {
       tickVst(engine, pick.cfg, pick.tactic, {
-        freezeIds: freeze,
-        skipWalk: Boolean(freeze && freeze.size),
+        freezeIds: lastBook.pos >= 12 ? freeze : undefined,
+        skipWalk: lastBook.pos >= 12,
         rangeType: pick.range,
         symbolCount: VST_MAX_SYMBOLS,
         orderType: "limit",
@@ -819,7 +819,7 @@ async function main() {
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
       }
-      if (!apiQuiet() && liveBusy === 0 && ping.pingOk && engine.tick % 4 === 0) {
+      if (!apiQuiet() && liveBusy === 0 && ping.pingOk && (engine.tick % 4 === 0 || lastBook.pos < 8)) {
         try {
           const liveNote = await withTimeout(mirrorToExchange(engine, ping.network, pick.cfg), 9000, "live");
           if (liveNote) adjustments.push(liveNote);
