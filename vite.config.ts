@@ -45,9 +45,22 @@ function liveJsonPlugin(): Plugin {
         const method = (req.method ?? "GET").toUpperCase();
         if (pathOnly === "/desk-settings.json" && method === "POST") {
           const chunks: Buffer[] = [];
-          req.on("data", (c) => chunks.push(Buffer.from(c)));
+          let size = 0;
+          req.on("data", (c) => {
+            size += c.length;
+            if (size > 65_536) {
+              req.destroy();
+              return;
+            }
+            chunks.push(Buffer.from(c));
+          });
           req.on("end", () => {
             try {
+              if (size > 65_536) {
+                res.statusCode = 413;
+                res.end(JSON.stringify({ ok: false, error: "too large" }));
+                return;
+              }
               const raw = Buffer.concat(chunks).toString("utf8");
               JSON.parse(raw);
               const dest = existsSync("/var/lib/cts-a") ? "/var/lib/cts-a/desk-settings.json" : "/tmp/cts-a-desk-settings.json";

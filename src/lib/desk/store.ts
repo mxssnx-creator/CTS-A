@@ -228,6 +228,7 @@ let tickStartedAt = 0;
 let pullStartedAt = 0;
 let bookPullStartedAt = 0;
 let deskPullStartedAt = 0;
+let lastLiveMarkAt = 0;
 let lastSeenTick = 0;
 let stallBeats = 0;
 let persistTimer = 0;
@@ -1104,7 +1105,6 @@ export const useDesk = create<DeskStore>((set, get) => ({
         ),
       });
       if (status[get().activeConnId] || status["bingx-vst-02"]) {
-        if (status["bingx-vst-02"]) get().armMainnet("bingx-vst-02", true);
         await get().connectActive();
       }
     } catch {
@@ -1162,7 +1162,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const sess = (live.session ?? null) as Record<string, unknown> | null;
     const incomingPos = Number(sess?.livePos ?? book?.positions?.length ?? 0);
     const curPos = Number(get().liveSession?.livePos ?? get().exchange?.positions.length ?? 0);
-    if (incomingPos === 0 && curPos > 0) return;
+    const sessAt = Number(sess?.at ?? get().liveSession?.at ?? 0);
+    if (incomingPos === 0 && curPos > 0 && Date.now() - sessAt < 8000) return;
     const ov = (live.overall ?? null) as Record<string, unknown> | null;
     const e = get().vst;
     const equity = Number(book?.ok && book.equity > 0 ? book.equity : sess?.equity ?? 0);
@@ -1186,10 +1187,6 @@ export const useDesk = create<DeskStore>((set, get) => ({
       if (Number.isFinite(mdd)) e.stats.mdd = mdd;
       const wins = Number(sess.wins);
       if (Number.isFinite(wins)) e.ledger.wins = wins;
-      const sl = Number(sess.liveSl);
-      const tp = Number(sess.liveTp);
-      if (Number.isFinite(sl)) e.ledger.slExits = sl;
-      if (Number.isFinite(tp)) e.ledger.tpExits = tp;
       e.running = true;
       e.phase = "running";
       e.lastMsg = String(sess.lastMsg ?? e.lastMsg);
@@ -1218,7 +1215,9 @@ export const useDesk = create<DeskStore>((set, get) => ({
       }
       const elapsed = Number(sess.elapsedMin ?? 0);
       const mark = Math.round(Number(sess.livePnl ?? sess.net ?? 0) * 1000) + Number(sess.livePos ?? 0) * 17;
+      if (Date.now() - lastLiveMarkAt < 4000) return;
       if (Math.round(elapsed * 2) !== Math.round(Number(get().liveElapsed) * 2) || mark !== get().liveMark) {
+        lastLiveMarkAt = Date.now();
         pinDeskScroll();
         set({ liveElapsed: elapsed, liveMark: mark });
       }

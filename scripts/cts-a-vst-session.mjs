@@ -3,7 +3,7 @@
  * CTS-A BingX VST-02 session: 50 symbols, max orders, best-first, 2h monitor.
  * Keys from env — never printed.
  */
-import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional } from "../src/lib/desk/engine.ts";
@@ -110,11 +110,7 @@ function snapshot(e, extra) {
     cachedOverall = overallLiveStats(e);
     cachedOverallTick = e.tick;
   }
-  const overall = overlayExchangeBook(
-    { ...cachedOverall, bySymbol: [...(cachedOverall.bySymbol ?? [])], playbooks: (cachedOverall.playbooks ?? []).map((p) => ({ ...p, active: { ...p.active }, steps: [...(p.steps ?? [])] })) },
-    lastBook,
-    e,
-  );
+  const overall = overlayExchangeBook(structuredClone(cachedOverall), lastBook, e);
   const last12 = overall.lastN?.["12"] ?? null;
   const winnerPf = Number(e.completeWinner?.pf);
   const rawLive = last12?.n ? last12.pf : Number.isFinite(winnerPf) && winnerPf > 0 ? winnerPf : e.stats.pf;
@@ -232,7 +228,13 @@ function writeStatus(s) {
   try {
     mkdirSync("/var/lib/cts-a", { recursive: true });
     const body = JSON.stringify(s);
-    writeFileSync(STATUS, body);
+    const tmp = `${STATUS}.${process.pid}.tmp`;
+    writeFileSync(tmp, body);
+    try {
+      renameSync(tmp, STATUS);
+    } catch {
+      writeFileSync(STATUS, body);
+    }
     const now = Date.now();
     if (now - lastOverallWrite > 45000) {
       lastOverallWrite = now;
@@ -260,22 +262,24 @@ function writeStatus(s) {
   }
 }
 
+function isRateLimited(s) {
+  return /100410|109418|frequency limit|disabled period|too many request|rate limit|over 20/i.test(String(s || ""));
+}
+
+function quietMs(s) {
+  return /109418|480000|over 20/i.test(String(s || "")) ? 480_000 : 120_000;
+}
+
 async function pingVst() {
   const keys = keysForConn(CONN);
   if (!keys.apiKey || !keys.secret) return { network: "testnet", pingOk: false, equity: 0, error: "no keys" };
   const vst = await pingAccount({ ...keys, network: "testnet", connId: CONN });
   if (vst.ok) return { network: "testnet", pingOk: true, equity: vst.equity ?? 0 };
   const err = String(vst.error || "");
-  if (/100410|frequency limit|disabled period/i.test(err)) {
-    apiQuietUntil = Math.max(apiQuietUntil || 0, Date.now() + 90_000);
-    return { network: "testnet", pingOk: false, equity: 0, error: err };
+  if (isRateLimited(err)) {
+    apiQuietUntil = Math.max(apiQuietUntil || 0, Date.now() + quietMs(err));
   }
-  if (Date.now() < apiQuietUntil) {
-    return { network: "testnet", pingOk: false, equity: 0, error: err };
-  }
-  const live = await pingAccount({ ...keys, network: "mainnet", connId: CONN });
-  if (live.ok) return { network: "mainnet", pingOk: true, equity: live.equity ?? 0 };
-  return { network: "testnet", pingOk: false, equity: 0, error: vst.error || live.error };
+  return { network: "testnet", pingOk: false, equity: 0, error: err };
 }
 
 const mirrored = new Set();
@@ -286,6 +290,8 @@ let emptyHold = 0;
 let apiQuietUntil = 0;
 let lastApiError = "";
 const cancelFailed = new Set();
+const skipUntil = new Map();
+const skippedFills = new Set();
 const LIVE_MAX_POS = 30;
 const LIVE_NOTIONAL = Math.min(10, MAX_LIVE_NOTIONAL);
 
@@ -301,8 +307,8 @@ function apiQuiet() {
 function noteApiFail(err) {
   const s = String(err?.error || err?.message || err || "");
   if (s) lastApiError = s.slice(0, 180);
-  if (/100410|frequency limit|disabled period/i.test(s)) {
-    apiQuietUntil = Math.max(apiQuietUntil, Date.now() + 90_000);
+  if (isRateLimited(s)) {
+    apiQuietUntil = Math.max(apiQuietUntil, Date.now() + quietMs(s));
     return true;
   }
   return false;
@@ -349,9 +355,9 @@ async function closeHit(network, hit) {
 }
 
 async function ensureProtect(network, book, cfg) {
+  if (apiQuiet()) return null;
   const slAtr = Number(cfg?.slAtr) || 1.05;
   const tpRatio = Number(cfg?.tpRatio) || 2.5;
-  const map = await fetchContractMap(network);
   const hasSl = new Set();
   const hasTp = new Set();
   const grouped = new Map();
@@ -375,6 +381,18 @@ async function ensureProtect(network, book, cfg) {
   lastBook.tp = hasTp.size;
   const occupied = new Set((book.positions ?? []).map((p) => `${p.symbol}:${p.side}`));
   const posQty = new Map((book.positions ?? []).map((p) => [`${p.symbol}:${p.side}`, p.qty]));
+  const owned = (book.positions ?? []).filter((p) => {
+    const key = `${p.symbol}:${p.side}`;
+    return mirrored.has(`own:${key}`) || mirrored.has(`live:${key}`);
+  });
+  const missing = owned.filter((p) => {
+    const key = `${p.symbol}:${p.side}`;
+    return !hasSl.has(key) || !hasTp.has(key);
+  });
+  const extras = [...grouped.entries()].some(([, g]) => (g.sl?.length ?? 0) > 1 || (g.tp?.length ?? 0) > 1);
+  const stray = [...grouped.keys()].some((key) => !occupied.has(key) && (mirrored.has(`own:${key}`) || mirrored.has(`live:${key}`) || mirrored.has(`sl:${key}`) || mirrored.has(`tp:${key}`)));
+  if (!missing.length && !extras && !stray) return null;
+  const map = await fetchContractMap(network);
   for (const [key, g] of grouped) {
     if (!occupied.has(key) && (mirrored.has(`own:${key}`) || mirrored.has(`live:${key}`) || mirrored.has(`sl:${key}`) || mirrored.has(`tp:${key}`))) {
       const stray = g.sl[0] || g.tp[0];
@@ -489,7 +507,8 @@ async function ensureProtect(network, book, cfg) {
 }
 
 async function mirrorToExchange(e, network, cfg) {
-  if (Date.now() - liveLast < 1200) return;
+  if (apiQuiet()) return null;
+  if (Date.now() - liveLast < 4000) return;
   liveLast = Date.now();
   const keys = keysForConn(CONN);
   if (!keys.apiKey || !keys.secret) return "live no keys";
@@ -512,7 +531,12 @@ async function mirrorToExchange(e, network, cfg) {
       else {
         emptyHold += 1;
         if (again && !again.ok) noteApiFail(again);
-        return emptyHold <= 1 || emptyHold % 20 === 0 ? "live book empty · held" : null;
+        if (emptyHold >= 3) {
+          lastBook = { pos: 0, ord: (again?.orders ?? book.orders ?? []).length, pnl: 0, ok: true, sl: 0, tp: 0, positions: [], orders: again?.orders ?? book.orders ?? [] };
+          emptyHold = 0;
+        } else {
+          return emptyHold <= 1 || emptyHold % 20 === 0 ? "live book empty · held" : null;
+        }
       }
     } catch (err) {
       noteApiFail(err);
@@ -592,13 +616,15 @@ async function mirrorToExchange(e, network, cfg) {
   let failed = 0;
   const notes = [];
   for (const f of e.fills.slice(0, 24)) {
-    if (mirrored.has(f.id)) continue;
+    if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
+    if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
     if (occupied.has(`${f.symbol}:${f.side}`)) {
       mirrored.add(f.id);
       continue;
     }
     if (openN + placed >= LIVE_MAX_POS || accountN + placed >= LIVE_MAX_POS) break;
+    if (apiQuiet()) break;
     let r;
     try {
       r = await withLiveBusy(() =>
@@ -620,13 +646,16 @@ async function mirrorToExchange(e, network, cfg) {
       );
     } catch (err) {
       noteApiFail(err);
+      skippedFills.add(f.id);
       return `live throw ${err instanceof Error ? err.message : "err"}`;
     }
     if (!r.ok) {
-      noteApiFail(r);
+      skippedFills.add(f.id);
+      skipUntil.set(f.symbol, Date.now() + (isRateLimited(r.error) ? 480_000 : 90_000));
+      const quiet = noteApiFail(r);
       failed += 1;
       notes.push(`skip ${f.symbol} ${String(r.error ?? "err").slice(0, 80)}`);
-      if (failed >= 2) break;
+      if (quiet || failed >= 2) break;
       continue;
     }
     mirrored.add(f.id);
@@ -635,7 +664,7 @@ async function mirrorToExchange(e, network, cfg) {
     occupied.add(`${f.symbol}:${f.side}`);
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
-    if (placed >= 3) break;
+    if (placed >= 2) break;
   }
   if (note) notes.unshift(note);
   return notes.length ? notes.slice(0, 4).join(" · ") : null;
@@ -796,12 +825,12 @@ async function main() {
       }
       const live = Date.now() - lastTape > 2500;
       if (live) {
-        lastTape = Date.now();
         try {
           const tape = await withTimeout(fetchBingxTape(ping.network), 8000, "tape");
           if (tape.ok) {
             const ids = applyTape(engine, tape.tickers);
             freeze = new Set(ids);
+            lastTape = Date.now();
           }
         } catch (err) {
           adjustments.push(`tape ${err instanceof Error ? err.message : "fail"}`);
@@ -1121,7 +1150,13 @@ process.on("unhandledRejection", (err) => {
 });
 process.on("SIGTERM", () => {
   try {
-    writeFileSync(STATUS, JSON.stringify({ phase: "stopped", lastMsg: "SIGTERM", at: Date.now() }));
+    let prev = {};
+    try {
+      prev = JSON.parse(readFileSync(STATUS, "utf8"));
+    } catch {
+      prev = {};
+    }
+    writeFileSync(STATUS, JSON.stringify({ ...prev, phase: "stopped", lastMsg: "SIGTERM", at: Date.now() }));
   } catch {
     /* ignore */
   }

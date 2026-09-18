@@ -210,6 +210,10 @@ export function isMinSizeError(msg: string | undefined): boolean {
   );
 }
 
+export function isRateLimitedMsg(msg: string | undefined): boolean {
+  return /100410|109418|frequency limit|disabled period|too many request|rate limit|over 20/i.test(String(msg || ""));
+}
+
 export function liveProtectPrices(
   entry: number,
   side: Side,
@@ -220,7 +224,9 @@ export function liveProtectPrices(
   const slPct = Math.min(MAX_LIVE_SL_PCT, Math.max(MIN_LIVE_SL_PCT, 0.005 * Math.max(0.4, slAtr)));
   const tpPct = slPct * Math.min(3, Math.max(0.25, tpRatio));
   const slRaw = side === "long" ? entry * (1 - slPct) : entry * (1 + slPct);
-  const tpRaw = side === "long" ? entry * (1 + tpPct) : entry * (1 - tpPct);
+  let tpRaw = side === "long" ? entry * (1 + tpPct) : entry * (1 - tpPct);
+  if (side === "long") tpRaw = Math.max(tpRaw, entry * 1.004);
+  else tpRaw = Math.min(tpRaw, entry * 0.996);
   return { sl: snapPx(slRaw, spec), tp: snapPx(tpRaw, spec), slPct, tpPct };
 }
 
@@ -499,6 +505,7 @@ export async function placeSwapOrder(input: {
   };
 
   let result = await post(qty);
+  if (isRateLimitedMsg(result.error)) return result;
   if (!result.ok && isMinSizeError(result.error) && !input.closePosition) {
     const bump = liftQtyToMin(qty, spec, Math.max(px, 1e-8), MIN_SIZE_RATIO * 1.25);
     if (bump.qty > qty && bump.notional <= cap * 1.5) {

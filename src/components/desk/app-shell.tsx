@@ -19,7 +19,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { DESK, LAST_N_OPTIONS, lastPrice, priceChange, RANGE_META, REPLAY_RANGES, replayBarsFor, TACTIC_META, WARMUP } from "@/lib/desk/engine";
 import { useDesk } from "@/lib/desk/store";
-import { useLiveSnapshot, useDeskPaneScroll, bindDeskScroll } from "@/lib/desk/live-ctx";
+import { useDeskPaneScroll, bindDeskScroll } from "@/lib/desk/live-ctx";
 import { universeSymbols, VST_TICK_MS } from "@/lib/desk/vst";
 import { cn, clsPnl, fmtPct, fmtPx, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -77,7 +77,6 @@ export function AppShell() {
   const paneRef = useRef<HTMLElement | null>(null);
   const [pane, setPane] = useState<HTMLElement | null>(null);
   useDeskPaneScroll(pane);
-  const liveSnap = useLiveSnapshot();
   const pullLiveDesk = useDesk((s) => s.pullLiveDesk);
   const [open, setOpen] = useState(false);
   const symbol = useDesk((s) => s.symbol);
@@ -104,12 +103,19 @@ export function AppShell() {
   const hydrateSettings = useDesk((s) => s.hydrateSettings);
   const pullRemoteSettings = useDesk((s) => s.pullRemoteSettings);
   const pullExchange = useDesk((s) => s.pullExchange);
+  const liveSession = useDesk((s) => s.liveSession);
   const quote = useDesk((s) => (s.liveSession ? undefined : s.vst.quotes[s.symbol]));
   const armed = useDesk((s) => s.connections.some((c) => c.armed));
   const symbolCount = useDesk((s) => s.symbolCount);
   const universe = universeSymbols(symbolCount);
   const px = quote?.px ?? lastPrice(symbol);
   const chg = quote?.chg ?? priceChange(symbol);
+  const hasLive = Boolean(liveSession);
+  const pingOk = Boolean((liveSession as { pingOk?: boolean } | null)?.pingOk);
+  const livePos = Number((liveSession as { livePos?: number } | null)?.livePos ?? 0);
+  const liveOrd = Number((liveSession as { liveOrd?: number } | null)?.liveOrd ?? 0);
+  const liveEq = Number((liveSession as { equity?: number } | null)?.equity ?? 0);
+  const path = useRouterState({ select: (s) => s.location.pathname });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -140,7 +146,7 @@ export function AppShell() {
   }, [pullRemoteSettings]);
 
   useEffect(() => {
-    if (!vstRunning || liveSnap.hasLive) return;
+    if (!vstRunning || hasLive) return;
     let dead = false;
     let timer = 0;
     const step = () => {
@@ -162,7 +168,7 @@ export function AppShell() {
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [vstRunning, tickEngine, liveSnap.hasLive]);
+  }, [vstRunning, tickEngine, hasLive]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -176,7 +182,7 @@ export function AppShell() {
   }, [watchdog]);
 
   useEffect(() => {
-    if (!liveTape || liveSnap.hasLive) return;
+    if (!liveTape || hasLive) return;
     let dead = false;
     let timer = 0;
     const loop = async () => {
@@ -197,18 +203,18 @@ export function AppShell() {
       dead = true;
       window.clearTimeout(timer);
     };
-  }, [liveTape, pullTape, liveSnap.hasLive]);
+  }, [liveTape, pullTape, hasLive]);
 
   useEffect(() => {
-    if (liveSnap.hasLive) return;
+    if (hasLive) return;
     const id = window.setInterval(() => {
       void pullExchange();
     }, 20000);
     return () => window.clearInterval(id);
-  }, [pullExchange, liveSnap.hasLive]);
+  }, [pullExchange, hasLive]);
 
   useEffect(() => {
-    if (!replayPlaying) return;
+    if (!replayPlaying || !path.startsWith("/replay")) return;
     const hours = REPLAY_RANGES.find((r) => r.id === replayRangeId)?.hours ?? 48;
     const max = Math.max(0, replayBarsFor(hours) - 1);
     const ms = replaySpeed === 4 ? 80 : replaySpeed === 2 ? 160 : 280;
@@ -221,7 +227,7 @@ export function AppShell() {
       useDesk.getState().setReplayIndex(Math.min(max, cur + 1));
     }, ms);
     return () => window.clearInterval(id);
-  }, [replayPlaying, replaySpeed, symbol, replayRangeId]);
+  }, [replayPlaying, replaySpeed, symbol, replayRangeId, path]);
 
   return (
     <div className="flex h-dvh overflow-hidden bg-bg text-fg">
@@ -238,12 +244,12 @@ export function AppShell() {
         </div>
         <div className="border-t border-white/10 px-4 py-3 text-xs text-nav-muted">
           <div className="flex items-center gap-2">
-            <span className={cn("size-1.5 rounded-full", liveSnap.pingOk || feed.state === "live" ? "bg-up" : armed ? "bg-down" : "bg-up")} />
-            {liveSnap.hasLive ? "BingX VST-02 live" : feed.state === "live" ? "BingX live tape" : `${connected} BingX sessions`}
+            <span className={cn("size-1.5 rounded-full", pingOk || feed.state === "live" ? "bg-up" : armed ? "bg-down" : "bg-up")} />
+            {hasLive ? "BingX VST-02 live" : feed.state === "live" ? "BingX live tape" : `${connected} BingX sessions`}
           </div>
           <div className="mt-1">
-            {liveSnap.hasLive
-              ? `${liveSnap.livePos} pos · ${liveSnap.liveOrd} ord · ${liveSnap.equity ? fmtUsd(liveSnap.equity, 0) : "—"}`
+            {hasLive
+              ? `${livePos} pos · ${liveOrd} ord · ${liveEq ? fmtUsd(liveEq, 0) : "—"}`
               : `${vstStats.positions}/100 pos · ${vstStats.openOrders} wrk`}
           </div>
         </div>
@@ -267,7 +273,7 @@ export function AppShell() {
           <div className="hidden items-center gap-2 text-sm md:flex">
             <Activity className="size-4" />
             <span className="font-medium">
-              {armed ? "MAINNET ARMED" : liveSnap.hasLive ? "BingX VST-02 live" : feed.state === "live" ? "Live tape" : vstRunning ? "VST live" : "VST paused"}
+              {armed ? "MAINNET ARMED" : hasLive ? "BingX VST-02 live" : feed.state === "live" ? "Live tape" : vstRunning ? "VST live" : "VST paused"}
             </span>
           </div>
           <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">

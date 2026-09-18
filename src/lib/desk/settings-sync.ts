@@ -164,7 +164,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       slAtr: Math.max(0.2, asNum(cfg.slAtr, d.tacticConfig.slAtr)),
       tpRatio: snapTpRatio(asNum(cfg.tpRatio, d.tacticConfig.tpRatio)),
       maxHoldBars: Math.min(8, Math.max(1, Math.round(asNum(cfg.maxHoldBars, d.tacticConfig.maxHoldBars ?? 3)))),
-      maxHoldTicks: Math.min(40, Math.max(4, Math.round(asNum(cfg.maxHoldTicks, d.tacticConfig.maxHoldTicks ?? 16)))),
+      maxHoldTicks: Math.min(20_000, Math.max(4, Math.round(asNum(cfg.maxHoldTicks, d.tacticConfig.maxHoldTicks ?? 16)))),
     },
     blockConfig: (() => {
       const b = (raw as { blockConfig?: Partial<BlockConfig> }).blockConfig ?? d.blockConfig;

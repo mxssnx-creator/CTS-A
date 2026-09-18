@@ -881,7 +881,9 @@ function processBatches(e: VstEngine) {
   e.queue = keep;
 }
 function walkQuotes(e: VstEngine, freeze?: Set<string>) {
+  const active = new Set(universeSymbols(e.symbolCount).map((s) => s.id));
   for (const q of Object.values(e.quotes)) {
+    if (active.size && !active.has(q.id)) continue;
     const frozen = freeze?.has(q.id);
     const scale = (frozen ? 0.18 : 1) / Math.sqrt(15);
     const n = rand(e.tick, q.id) - .5;
@@ -1501,7 +1503,7 @@ export function sanitizeBook(e: VstEngine): number {
       fixes += 1;
     }
     if (!Number.isFinite(q.axis) || q.axis <= 0) q.axis = q.px;
-    if (!Number.isFinite(q.vol) || q.vol < 0) q.vol = 1;
+    if (!Number.isFinite(q.vol) || q.vol < 0 || q.vol > 0.2) q.vol = MIN_QUOTE_VOL;
     if (!Number.isFinite(q.chg)) q.chg = 0;
   }
   const livePos = [];
@@ -2463,13 +2465,23 @@ export type PlaybookDetail = OverallBucket & {
 };
 
 function windowHours<T extends { tick: number; at?: number }>(rows: T[], nowTick: number, hours: number) {
-  const cutoff = Date.now() - hours * 3_600_000;
   const dated = rows.filter((c) => typeof c.at === "number" && c.at > 0);
-  if (dated.length >= Math.min(rows.length, 3) && dated.length > 0) {
+  let span = 0;
+  if (dated.length >= 3) {
+    let minAt = Infinity;
+    let maxAt = 0;
+    for (const c of dated) {
+      const t = Number(c.at);
+      if (t < minAt) minAt = t;
+      if (t > maxAt) maxAt = t;
+    }
+    span = maxAt - minAt;
+  }
+  if (span >= hours * 3_600_000 * 0.25) {
+    const cutoff = Date.now() - hours * 3_600_000;
     return rows.filter((c) => Number(c.at ?? 0) >= cutoff);
   }
-  const tph = nowTick > 400 ? 2400 : TICKS_PER_HOUR;
-  const minTick = nowTick - hours * tph;
+  const minTick = nowTick - hours * TICKS_PER_HOUR;
   return rows.filter((c) => c.tick >= minTick);
 }
 
