@@ -315,8 +315,21 @@ const skippedFills = new Set();
 const LIVE_NOTIONAL = Math.min(NETWORK_PREF === "mainnet" ? 8 : 10, MAX_LIVE_NOTIONAL);
 
 function sizeNotional(equity) {
-  const pct = Number(equity) > 0 ? Number(equity) * 0.001 : LIVE_NOTIONAL;
-  return Math.max(LIVE_NOTIONAL, Math.min(250, pct));
+  const eq = Math.max(0, Number(equity) || 0);
+  const pct = eq * 0.001;
+  if (NETWORK_PREF === "mainnet") {
+    const cap = Math.max(0.5, eq * 0.08);
+    return Math.min(cap, Math.max(pct, Math.min(1, cap)));
+  }
+  return Math.max(LIVE_NOTIONAL, Math.min(250, pct > 0 ? Math.max(LIVE_NOTIONAL, pct) : LIVE_NOTIONAL));
+}
+
+function liveMaxPos(equity) {
+  if (NETWORK_PREF !== "mainnet") return LIVE_MAX_POS;
+  const eq = Number(equity) || 0;
+  if (eq < 25) return Math.min(2, LIVE_MAX_POS);
+  if (eq < 80) return Math.min(4, LIVE_MAX_POS);
+  return LIVE_MAX_POS;
 }
 
 function apiQuiet() {
@@ -324,7 +337,7 @@ function apiQuiet() {
 }
 
 function isBenignApi(s) {
-  return /position not exist|order not exist|order filled|nothing to cancel|no need to cancel/i.test(String(s || ""));
+  return /position not exist|order not exist|order filled|nothing to cancel|no need to cancel|min notional exceeds/i.test(String(s || ""));
 }
 
 function noteApiFail(err) {
@@ -637,7 +650,7 @@ async function mirrorToExchange(e, network, cfg) {
     }
   }
 
-  if (openN >= LIVE_MAX_POS || accountN >= LIVE_MAX_POS) return null;
+  if (openN >= liveMaxPos(book.equity) || accountN >= liveMaxPos(book.equity)) return null;
   const n12 = cachedOverall?.lastN?.["12"];
   if (n12 && n12.n >= 8 && Number(n12.pf) > 0 && Number(n12.pf) < LIVE_MIN_PF) return `halt new · last12 PF ${Number(n12.pf).toFixed(2)}`;
   const winnerPf = Number(e.completeWinner?.pf);
@@ -654,7 +667,7 @@ async function mirrorToExchange(e, network, cfg) {
       mirrored.add(f.id);
       continue;
     }
-    if (openN + placed >= LIVE_MAX_POS || accountN + placed >= LIVE_MAX_POS) break;
+    if (openN + placed >= liveMaxPos(book.equity) || accountN + placed >= liveMaxPos(book.equity)) break;
     if (apiQuiet()) break;
     let r;
     try {
@@ -673,6 +686,7 @@ async function mirrorToExchange(e, network, cfg) {
           slAtr: Number(cfg?.slAtr) || 1.05,
           tpRatio: Number(cfg?.tpRatio) || 2.5,
           attachProtect: true,
+          equity: Number(book.equity) || 0,
         }),
       );
     } catch (err) {

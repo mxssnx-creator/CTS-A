@@ -531,6 +531,7 @@ export async function placeSwapOrder(input: {
   slAtr?: number;
   tpRatio?: number;
   attachProtect?: boolean;
+  equity?: number;
 }): Promise<LiveOrderResult> {
   if (!input.confirmLive) return { ok: false, error: "Live confirm required" };
   const { apiKey, secret } = resolveKeys(input.connId, input.apiKey, input.secret);
@@ -590,6 +591,9 @@ export async function placeSwapOrder(input: {
     usedNotional = floor.notional;
   }
   if (!(qty > 0) && !input.closePosition) return { ok: false, error: "Quantity below exchange minimum" };
+  if (!input.closePosition && input.equity && input.equity > 0 && usedNotional > input.equity * 0.12) {
+    return { ok: false, error: "min notional exceeds 12% equity" };
+  }
 
   if (!input.closePosition && input.type === "MARKET") {
     await ensureLiveAccountMode({ network: input.network, connId: input.connId, venueSymbol, spec });
