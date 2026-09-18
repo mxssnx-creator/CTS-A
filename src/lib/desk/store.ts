@@ -1299,6 +1299,10 @@ export const useDesk = create<DeskStore>((set, get) => ({
         equity > 0
           ? `BingX vst-02 · equity ${equity.toFixed(2)} · ${nextPos} pos · ${nextOrd} orders`
           : get().ticketMsg,
+      vst:
+        e.phase === "running" && e.running
+          ? get().vst
+          : { ...e, phase: "running" as const, running: true },
     });
   },
   pullLiveDesk: async () => {
@@ -1309,7 +1313,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     deskPulling = true;
     deskPullStartedAt = Date.now();
     try {
-      const ctrl = typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(2500) : undefined;
+      const ctrl = typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined;
       const [sess, overall] = await Promise.all([
         fetch("/live-session.json", { cache: "no-store", signal: ctrl })
           .then((r) => (r.ok ? r.json() : null))

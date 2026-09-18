@@ -53,7 +53,7 @@ export function SessionProgress({
 }: {
   book: { validated: number; candidates: number; totalCombos: number; positiveCombos: number };
 }) {
-  const phase = useDesk((s) => s.vst.phase);
+  const enginePhase = useDesk((s) => s.vst.phase);
   const running = useDesk((s) => s.vst.running);
   const tick = useDesk((s) => s.vst.tick);
   const st = useDesk((s) => s.vst.stats);
@@ -61,6 +61,7 @@ export function SessionProgress({
   const msg = useDesk((s) => s.vst.lastMsg);
   const liveElapsed = useDesk((s) => s.liveElapsed);
   const liveSnap = useLiveSnapshot();
+  const phase: EnginePhase = liveSnap.hasLive && liveSnap.pingOk ? "running" : enginePhase;
   const feed = useDesk((s) => s.feed);
   const connections = useDesk((s) => s.connections);
   const activeConnId = useDesk((s) => s.activeConnId);
