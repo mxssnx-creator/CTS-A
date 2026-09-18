@@ -168,7 +168,8 @@ function sameSnap(a: LiveNumbers, b: LiveNumbers) {
     a.occupied === b.occupied &&
     a.tactic === b.tactic &&
     a.range === b.range &&
-    a.hasLive === b.hasLive
+    a.hasLive === b.hasLive &&
+    a.lastMsg === b.lastMsg
   );
 }
 

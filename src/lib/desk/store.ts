@@ -37,8 +37,7 @@ import {
   clampLastN,
   combosFiltered,
   pickBestCombo,
-  replayBarsFor,
-  REPLAY_RANGES,
+  WARMUP,
   snapTpRatio,
   strategiesForKinds,
   type ReplayRangeId,
@@ -60,6 +59,7 @@ import {
   requeueFree,
   simulateHours,
   completeComputations,
+  completeComputationsAsync,
   syncConnections,
   tickVst,
   universeSymbols,
@@ -256,7 +256,12 @@ function queuePersist(snap: DeskSettingsSnap) {
   if (typeof window === "undefined") return;
   window.clearTimeout(persistTimer);
   persistTimer = window.setTimeout(() => {
-    void persistDeskSettings({ data: snap });
+    void persistDeskSettings({ data: snap }).catch(() => undefined);
+    void fetch("/desk-settings.json", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(snap),
+    }).catch(() => undefined);
   }, 280);
 }
 
@@ -290,7 +295,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   costStep: 10,
   rangeType: "atr",
   tactic: "hybrid",
-  replayIndex: replayBarsFor(48) - 1,
+  replayIndex: WARMUP,
   replayPlaying: false,
   replaySpeed: 1,
   replayRangeId: "2d" as ReplayRangeId,
@@ -442,16 +447,15 @@ export const useDesk = create<DeskStore>((set, get) => ({
     get().syncSettings();
   },
   setReplayRangeId: (replayRangeId) => {
-    const hours = REPLAY_RANGES.find((r) => r.id === replayRangeId)?.hours ?? 48;
-    const max = Math.max(0, replayBarsFor(hours) - 1);
-    set({ replayRangeId, replayIndex: max, replayPlaying: false });
+    set({ replayRangeId, replayIndex: WARMUP, replayPlaying: false });
+    get().syncSettings();
   },
   runReplaySim: (hours, withComplete = true) => {
     try {
       const h = hours ?? replayHoursFor(get().replayRangeId);
       const bundle = runReplaySimulation(h, get().tacticConfig, get().tactic, get().rangeType, {
-        symbolCount: Math.min(12, get().symbolCount || 8),
-        complete: withComplete,
+        symbolCount: Math.min(8, get().symbolCount || 8),
+        complete: false,
       });
       const e = get().vst;
       e.sim = bundle.report;
@@ -464,6 +468,35 @@ export const useDesk = create<DeskStore>((set, get) => ({
         vst: { ...e },
         ticketMsg: e.lastMsg,
       });
+      if (withComplete && typeof window !== "undefined") {
+        const hoursList = completeHoursFor(h, { cap: 48 });
+        void completeComputationsAsync(get().tacticConfig, {
+          symbolCount: Math.min(6, get().symbolCount || 6),
+          hours: hoursList,
+          yieldFn: () => new Promise((r) => window.setTimeout(r, 0)),
+          onCell: (cell, i, total) => {
+            if (i === 1 || i === total || i % 5 === 0) {
+              set({
+                ticketMsg: `Compute ${i}/${total} ${cell.tactic}/${cell.range} ${cell.hours}h PF ${cell.pf.toFixed(2)}`,
+              });
+            }
+          },
+        })
+          .then((complete) => {
+            const prev = get().replaySim;
+            const w = complete.winner;
+            set({
+              replayComplete: complete,
+              replaySim: prev ? { ...prev, complete } : prev,
+              ticketMsg: w
+                ? `Complete ${complete.cells.length} cells · ${w.tactic}/${w.range} ${w.hours}h PF ${w.pf.toFixed(2)}`
+                : "Complete compute empty",
+            });
+          })
+          .catch((err) => {
+            set({ ticketMsg: err instanceof Error ? err.message : "complete compute failed" });
+          });
+      }
       return bundle;
     } catch (err) {
       set({ ticketMsg: err instanceof Error ? err.message : "replay sim failed" });
@@ -1252,17 +1285,23 @@ export const useDesk = create<DeskStore>((set, get) => ({
     deskPullStartedAt = Date.now();
     try {
       const ctrl = typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(2500) : undefined;
-      const sess = await fetch("/live-session.json", { cache: "no-store", signal: ctrl })
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null);
+      const [sess, overall] = await Promise.all([
+        fetch("/live-session.json", { cache: "no-store", signal: ctrl })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        fetch("/overall-stats.json", { cache: "no-store", signal: ctrl })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+      ]);
       if (sess && typeof sess === "object") {
         const positions = Array.isArray(sess.bookPos) ? sess.bookPos : [];
         const orders = Array.isArray(sess.bookOrd) ? sess.bookOrd : [];
         const equity = Number(sess.equity ?? 0);
         const pingOk = Boolean(sess.pingOk || sess.liveOk);
+        const ov = overall && typeof overall === "object" ? overall : get().liveOverall;
         get().applyLiveDesk({
           session: sess,
-          overall: get().liveOverall,
+          overall: ov,
           exchange:
             pingOk || equity > 0
               ? {
@@ -1277,6 +1316,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
               : null,
           at: Date.now(),
         });
+        const complete = ov && typeof ov === "object" ? (ov as { complete?: CompleteComputeReport }).complete : null;
+        if (complete?.cells?.length && !get().replayComplete) set({ replayComplete: complete });
         return;
       }
       const live = await loadLiveDesk();

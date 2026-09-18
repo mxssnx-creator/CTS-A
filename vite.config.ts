@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, readdirSync } from "node:fs";
+import { createReadStream, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
@@ -34,6 +34,7 @@ function liveJsonPlugin(): Plugin {
   const files: Record<string, string[]> = {
     "/live-session.json": ["/var/lib/cts-a/vst-session.json", "/tmp/cts-a-vst-session.json"],
     "/overall-stats.json": ["/var/lib/cts-a/overall-stats.json", "/tmp/cts-a-overall-stats.json"],
+    "/desk-settings.json": ["/var/lib/cts-a/desk-settings.json", "/tmp/cts-a-desk-settings.json"],
   };
   return {
     name: "cts-a-live-json",
@@ -41,6 +42,27 @@ function liveJsonPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const pathOnly = (req.url ?? "").split("?", 1)[0] ?? "";
+        const method = (req.method ?? "GET").toUpperCase();
+        if (pathOnly === "/desk-settings.json" && method === "POST") {
+          const chunks: Buffer[] = [];
+          req.on("data", (c) => chunks.push(Buffer.from(c)));
+          req.on("end", () => {
+            try {
+              const raw = Buffer.concat(chunks).toString("utf8");
+              JSON.parse(raw);
+              const dest = existsSync("/var/lib/cts-a") ? "/var/lib/cts-a/desk-settings.json" : "/tmp/cts-a-desk-settings.json";
+              writeFileSync(dest, raw);
+              res.statusCode = 200;
+              res.setHeader("content-type", "application/json; charset=utf-8");
+              res.end(JSON.stringify({ ok: true }));
+            } catch (err) {
+              res.statusCode = 400;
+              res.setHeader("content-type", "application/json; charset=utf-8");
+              res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : "bad json" }));
+            }
+          });
+          return;
+        }
         const cands = files[pathOnly];
         if (!cands) {
           next();

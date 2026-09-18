@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pause, Play, RotateCcw } from "lucide-react";
 import {
   DESK,
@@ -139,9 +139,25 @@ export function ReplayView() {
     setBusy(withComplete ? "all" : "sim");
     window.setTimeout(() => {
       runReplaySim(simHours, withComplete);
-      setBusy(null);
+      setBusy(withComplete ? "all" : null);
+      if (!withComplete) setBusy(null);
     }, 30);
   };
+
+  useEffect(() => {
+    if (replaySim || busy) return;
+    const t = window.setTimeout(() => {
+      runReplaySim(Math.min(8, simHours), false);
+    }, 60);
+    return () => window.clearTimeout(t);
+    // first visit only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (busy !== "all") return;
+    if (replayComplete && String(ticketMsg ?? "").startsWith("Complete")) setBusy(null);
+  }, [busy, replayComplete, ticketMsg]);
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
@@ -632,7 +648,10 @@ export function ReplayView() {
       >
         <PriceChart data={chartData} replayIndex={Math.min(chartData.length - 1, Math.round((idx / max) * (chartData.length - 1)))} />
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button size="sm" variant={playing ? "secondary" : "primary"} onClick={() => setPlaying(!playing)}>
+          <Button size="sm" variant={playing ? "secondary" : "primary"} onClick={() => {
+            if (!playing && idx >= max) setReplayIndex(WARMUP);
+            setPlaying(!playing);
+          }}>
             {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
             {playing ? "Pause" : "Play"}
           </Button>

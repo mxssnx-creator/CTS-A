@@ -33,11 +33,12 @@ export function replayHoursFor(rangeId: ReplayRangeId): number {
   return Math.min(168, Math.max(8, h));
 }
 
-export function completeHoursFor(simHours: number): number[] {
+export function completeHoursFor(simHours: number, opts?: { cap?: number }): number[] {
+  const cap = opts?.cap ?? 120;
   const base = [8, 16, 24];
-  if (simHours >= 48 && !base.includes(48)) base.push(48);
-  if (simHours >= 96 && !base.includes(simHours > 120 ? 120 : simHours)) base.push(Math.min(120, simHours));
-  return [...new Set(base)].sort((a, b) => a - b);
+  if (simHours >= 48) base.push(48);
+  if (simHours >= 96 && cap >= 96) base.push(Math.min(120, simHours));
+  return [...new Set(base.filter((h) => h <= cap))].sort((a, b) => a - b);
 }
 
 export function runReplaySimulation(

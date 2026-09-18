@@ -171,6 +171,12 @@ export function SessionProgress({
       <p className="mt-2 text-xs text-muted">
         Stop / Reset / Rearm cancel only {activeConnId} orders and positions. Other exchange sessions stay.
       </p>
+      {liveSnap.hasLive && Array.isArray(liveSnap.session?.adjustments) && (liveSnap.session?.adjustments as string[]).length ? (
+        <p className="mt-2 font-mono text-[11px] text-muted">
+          {(liveSnap.session?.adjustments as string[]).slice(-3).join(" · ")}
+        </p>
+      ) : null}
+      {liveSnap.lastMsg ? <p className="mt-1 text-xs text-muted">{liveSnap.lastMsg}</p> : null}
 
       <div className="mt-4">
         <Meter

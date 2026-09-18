@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { DESK, LAST_N_OPTIONS, lastPrice, priceChange, RANGE_META, REPLAY_RANGES, replayBarsFor, TACTIC_META } from "@/lib/desk/engine";
+import { DESK, LAST_N_OPTIONS, lastPrice, priceChange, RANGE_META, REPLAY_RANGES, replayBarsFor, TACTIC_META, WARMUP } from "@/lib/desk/engine";
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, useDeskPaneScroll, bindDeskScroll } from "@/lib/desk/live-ctx";
 import { universeSymbols, VST_TICK_MS } from "@/lib/desk/vst";
@@ -215,7 +215,7 @@ export function AppShell() {
     const id = window.setInterval(() => {
       const cur = useDesk.getState().replayIndex;
       if (cur >= max) {
-        useDesk.getState().setReplayPlaying(false);
+        useDesk.getState().setReplayIndex(WARMUP);
         return;
       }
       useDesk.getState().setReplayIndex(Math.min(max, cur + 1));
