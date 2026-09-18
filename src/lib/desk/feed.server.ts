@@ -358,6 +358,11 @@ export async function resolveLiveQty(
   return { qty: lifted.qty, spec, notional: lifted.notional, lifted: lifted.lifted };
 }
 
+export function parseBingxJson(text: string): unknown {
+  const safe = text.replace(/([:\[,]\s*)(-?\d{16,})(\s*[,}\]])/g, '$1"$2"$3');
+  return JSON.parse(safe);
+}
+
 async function getJson(url: string, init?: RequestInit): Promise<{ json: unknown; ms: number; status: number }> {
   const t0 = Date.now();
   const res = await fetch(url, {
@@ -372,10 +377,13 @@ async function getJson(url: string, init?: RequestInit): Promise<{ json: unknown
   const text = await res.text();
   let json: unknown = null;
   try {
-    const safe = text.replace(/"(orderId|origClientOrderId|clientOrderId)"\s*:\s*(-?\d{16,})/g, '"$1":"$2"');
-    json = JSON.parse(safe);
+    json = parseBingxJson(text);
   } catch {
-    json = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
   }
   return { json, ms: Date.now() - t0, status: res.status };
 }
@@ -775,7 +783,7 @@ export async function fetchExchangeBook(input: {
           const symbol = deskIdFromVenue(venueSymbol) ?? venueSymbol.replace("-", "");
           orders.push({
             connId: input.connId,
-            id: String(r.orderId ?? r.id ?? ""),
+            id: String(r.orderId ?? r.orderID ?? r.id ?? `${symbol}:${r.type}:${r.positionSide}:${r.stopPrice}`),
             symbol,
             venueSymbol,
             side: asSide(String(r.positionSide ?? ""), String(r.side ?? "")),

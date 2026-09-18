@@ -8,6 +8,7 @@ import {
   fetchExchangeBook,
   isMinSizeError,
   liftQtyToMin,
+  parseBingxJson,
   parseAvailableUsdt,
   signQuery,
   snapQty,
@@ -43,6 +44,16 @@ describe("live feed", () => {
     const down = snapQtyDown(1.0, { symbol: "SOL-USDT", minQty: 0.01, step: 0.01, qtyPrec: 2, pxPrec: 3, minUsdt: 5 });
     assert.ok(down <= 1);
     assert.equal(parseAvailableUsdt("The order size must be less than the available amount of 108.88 USDT"), 108.88);
+  });
+
+  it("keeps BingX orderIds as distinct strings", () => {
+    const sl = "2100774590279671861";
+    const tp = "2100774590279671924";
+    const raw = `{"code":0,"data":{"orders":[{"orderId":${sl},"type":"STOP_MARKET"},{"orderId":${tp},"type":"TAKE_PROFIT_MARKET"}]}}`;
+    const parsed = parseBingxJson(raw) as { data: { orders: { orderId: string }[] } };
+    assert.equal(parsed.data.orders[0].orderId, sl);
+    assert.equal(parsed.data.orders[1].orderId, tp);
+    assert.notEqual(String(parsed.data.orders[0].orderId), String(parsed.data.orders[1].orderId));
   });
 
   it("signs with ASCII-sorted keys and no value encoding", () => {

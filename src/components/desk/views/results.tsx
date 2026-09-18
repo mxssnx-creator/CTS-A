@@ -316,8 +316,8 @@ export function ResultsView() {
               </tr>
             </thead>
             <tbody>
-              {filled.slice(0, 40).map((o) => (
-                <tr key={o.id} className="border-t border-border">
+              {filled.slice(0, 40).map((o, i) => (
+                <tr key={`${o.id}:${o.time}:${i}`} className="border-t border-border">
                   <td className="py-1 pr-3 font-mono text-xs tabular">
                     {o.time ? new Date(o.time).toISOString().slice(11, 19) : "—"}
                   </td>

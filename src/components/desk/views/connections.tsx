@@ -400,8 +400,8 @@ export function ConnectionsView() {
                 </tr>
               </thead>
               <tbody>
-                {orders.filter((o) => o.connId === connId).map((o) => (
-                  <tr key={o.id} className="border-t border-border">
+                {orders.filter((o) => o.connId === connId).map((o, i) => (
+                  <tr key={`${o.id}:${i}`} className="border-t border-border">
                     <td className="px-4 py-2 font-mono text-xs">{o.id.slice(-10)}</td>
                     <td className="px-2 py-2 uppercase">{o.venue}</td>
                     <td className="px-2 py-2 font-mono">{o.symbol}</td>

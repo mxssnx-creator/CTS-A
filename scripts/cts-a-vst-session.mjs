@@ -569,7 +569,7 @@ async function mirrorToExchange(e, network, cfg) {
     })),
     orders: (book.orders ?? []).slice(0, 80).map((o) => ({
       connId: CONN,
-      id: o.id,
+      id: String(o.id ?? ""),
       symbol: o.symbol,
       venueSymbol: o.venueSymbol,
       side: o.side,

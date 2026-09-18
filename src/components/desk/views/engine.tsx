@@ -190,8 +190,8 @@ export function EngineView() {
           </div>
           {sim.issues.length ? (
             <ul className="mt-3 list-disc px-4 text-sm text-down">
-              {sim.issues.map((i) => (
-                <li key={i}>{i}</li>
+              {sim.issues.map((msg, i) => (
+                <li key={`${i}:${msg}`}>{msg}</li>
               ))}
             </ul>
           ) : (
@@ -337,8 +337,8 @@ export function EngineView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {working.slice(0, 24).map((o) => (
-                    <tr key={o.id || `${o.symbol}:${o.price}`} className="border-t border-border">
+                  {working.slice(0, 24).map((o, i) => (
+                    <tr key={`${o.id}:${o.type}:${i}`} className="border-t border-border">
                       <td className="px-4 py-2 font-mono text-xs">{o.symbol.replace("USDT", "")}</td>
                       <td className="px-2 py-2 capitalize">{o.side}</td>
                       <td className="px-2 py-2 font-mono text-xs">{o.type}</td>

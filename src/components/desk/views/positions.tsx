@@ -120,8 +120,8 @@ export function PositionsView() {
                 <span className={clsPnl(p.pnl)}>{fmtUsd(p.pnl)}</span>
               </li>
             ))}
-            {exchange?.orders.slice(0, 8).map((o) => (
-              <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-muted">
+            {exchange?.orders.slice(0, 8).map((o, i) => (
+              <li key={`${o.id}:${o.type}:${i}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-muted">
                 <span className="font-mono text-xs">{o.symbol.replace("USDT", "")}</span>
                 <span>{o.type}</span>
                 <span className="capitalize">{o.side}</span>
