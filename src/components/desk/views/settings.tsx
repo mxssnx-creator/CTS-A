@@ -1235,6 +1235,22 @@ export function SettingsView() {
             </Button>
             <Button
               size="sm"
+              variant="primary"
+              className="h-11 sm:h-8"
+              onClick={() => {
+                const order = ["shared", "additive", "parallel"] as const;
+                const i = order.indexOf((blockCfg.volumeMode as (typeof order)[number]) || "parallel");
+                setBlockCfg({ volumeMode: order[(i + 1) % order.length] });
+              }}
+            >
+              {blockCfg.volumeMode === "additive"
+                ? "Vol · additive"
+                : blockCfg.volumeMode === "shared"
+                  ? "Vol · shared"
+                  : "Vol · shared+additive"}
+            </Button>
+            <Button
+              size="sm"
               variant={blockCfg.relAdditive !== false ? "primary" : "secondary"}
               className="h-11 sm:h-8"
               onClick={() => setBlockCfg({ relAdditive: !(blockCfg.relAdditive !== false) })}

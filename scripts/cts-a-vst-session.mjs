@@ -2195,6 +2195,7 @@ async function main() {
           Object.assign(BLOCK, remote.blockConfig, {
             enabled: STRAT.block,
             activeLive: true,
+            volumeMode: "parallel",
             minActiveLevel: Math.max(1, Math.round(remote.blockConfig.minActiveLevel || BLOCK.minActiveLevel || 1)),
           });
         engine.blockCfg = { ...BLOCK };

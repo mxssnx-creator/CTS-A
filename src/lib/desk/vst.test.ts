@@ -2500,7 +2500,7 @@ describe("VST engine", () => {
   });
 
   it("live Block stacks rungs 1-6 on open positions with playbook block", () => {
-    const e = initVstEngine(CFG, { warmup: 12, symbolCount: 8, arm: true });
+    const e = initVstEngine(CFG, { warmup: 12, symbolCount: 8, arm: true, block: { ...DEFAULT_BLOCK_CONFIG, enabled: false } });
     e.liveTape = true;
     e.strategyToggles = { normal: false, trailing: true, axis: true, block: true, dca: false };
     if (!e.positions.some((x) => x.qty > 0)) {
@@ -2528,6 +2528,8 @@ describe("VST engine", () => {
     );
     const rungs = [...e.queue, ...e.orders].filter((o) => /Block/i.test(o.note || ""));
     assert.ok(adj.added >= 1 || rungs.length >= 1, `added ${adj.added} rungs ${rungs.length}`);
+    const modes = new Set(rungs.map((o) => (/additive/i.test(o.note || "") ? "additive" : /shared/i.test(o.note || "") ? "shared" : "other")));
+    assert.ok(modes.has("shared") && modes.has("additive"), `modes ${[...modes].join(",")}`);
     for (const o of rungs) {
       assert.equal(o.playbook, "block");
       assert.equal(o.kind, "block");

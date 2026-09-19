@@ -2792,8 +2792,8 @@ function syncBlockParents(e: VstEngine, conn: string) {
       live.add(k);
       let lane = e.blockLanes[k];
       if (!lane) {
-        e.blockLanes[k] = emptyBlockLane(p.symbol, p.side, first, p.avgEntry);
-        continue;
+        lane = emptyBlockLane(p.symbol, p.side, first, p.avgEntry);
+        e.blockLanes[k] = lane;
       }
       if (!lane.active || lane.baseQty <= 0) {
         lane.active = true;
@@ -3002,7 +3002,7 @@ export function adjustActiveBlocks(
 
   if (block.stack !== false && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
     let adds = 0;
-    const addCap = Math.min(16, Math.max(counts.length * volModes.length, 4));
+    const addCap = Math.min(64, Math.max(counts.length * volModes.length * 4, 12));
     for (const p of e.positions) {
       if (adds >= addCap) break;
       if (!ownedByDesk(p, conn)) continue;
