@@ -847,6 +847,17 @@ export function SettingsView() {
               onCommit={applyLive}
               ariaLabel="Axis levels"
             />
+            <RangeKnob
+              label="Axis partial of base"
+              value={cfg.axisPartialRatio ?? 0.08}
+              min={0.04}
+              max={0.25}
+              step={0.01}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setCfg({ axisPartialRatio: n })}
+              onCommit={applyLive}
+              ariaLabel="Axis partial ratio of base qty"
+            />
           </div>
         </Panel>
       </div>
@@ -1339,20 +1350,20 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Volume ratio"
-              value={blockCfg.volumeRatio ?? 0.08}
-              min={0.05}
+              value={blockCfg.volumeRatio ?? 0.4}
+              min={0.1}
               max={2.5}
-              step={0.01}
+              step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ volumeRatio: n })}
               ariaLabel="Block volume ratio"
             />
             <RangeKnob
               label="Relation vol ratio"
-              value={blockCfg.relVolumeRatio ?? 0.08}
-              min={0.05}
+              value={blockCfg.relVolumeRatio ?? 0.4}
+              min={0.1}
               max={2}
-              step={0.01}
+              step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ relVolumeRatio: n })}
               ariaLabel="Relation additive volume ratio"

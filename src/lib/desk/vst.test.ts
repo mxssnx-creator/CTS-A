@@ -58,6 +58,7 @@ import {
   DEFAULT_BASE_PF,
   DEFAULT_AXIS_PF,
   DEFAULT_BLOCK_PF,
+  AXIS_PARTIAL_RATIO,
   UNIT_NOTIONAL,
   profitFactor,
   pfFromPnls,
@@ -1847,13 +1848,13 @@ describe("VST engine", () => {
 
   it("Block volume is always additive and independent of other lanes", () => {
     const base = 1.2;
-    const r = 0.08;
+    const r = 0.4;
     const a = blockStepQty(base, 1, r, 1.8, 2, 0, "additive");
     const b = blockStepQty(base, 2, r, 1.8, 2, 0, "additive");
     assert.ok(Math.abs(a - base * r) < 1e-9, `step1 ${a}`);
     assert.ok(Math.abs(b - base * r) < 1e-9, `step2 ${b}`);
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "parallel");
-    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.08);
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
     const q = additiveBlockQty(1.2, [1, 2, 3], 1, 3, 1);
     assert.ok(Math.abs(q.totalSteps - 3 * 1.2) < 1e-9, `steps ${q.totalSteps}`);
     assert.ok(Math.abs(q.relExtra - 3 * 1.2) < 1e-9, `rel ${q.relExtra}`);
@@ -1861,8 +1862,9 @@ describe("VST engine", () => {
   });
 
   it("auto-evals major/minor relations every 2h and adds volume additively", () => {
-    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.08);
-    assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.08);
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
+    assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.4);
+    assert.equal(AXIS_PARTIAL_RATIO, 0.08);
     assert.equal(DEFAULT_THRESHOLDS.minPf, 1.8);
     assert.equal(DEFAULT_THRESHOLDS.basePf, 1.1);
     assert.equal(DEFAULT_THRESHOLDS.axisPf, 1.5);
@@ -2623,14 +2625,39 @@ describe("VST engine", () => {
     assert.equal(liveShouldExecute(e, { symbol: "XRPUSDT", side: "long", playbook: "dca", tactic: "dca" }), false);
     e.strategyToggles.block = true;
     e.blockRelBest = {
-      "ind:trend": { key: "ind:trend", n: 6, pf: 2.1, net: 1, vol: 0.08, major: true },
-      "tac:trailing": { key: "tac:trailing", n: 6, pf: 1.9, net: 1, vol: 0.08, major: true },
-      "side:long": { key: "side:long", n: 6, pf: 1.85, net: 1, vol: 0.08, major: true },
+      "ind:trend": { key: "ind:trend", n: 6, pf: 2.1, net: 1, vol: 0.4, major: true },
+      "tac:trailing": { key: "tac:trailing", n: 6, pf: 1.9, net: 1, vol: 0.4, major: true },
+      "side:long": { key: "side:long", n: 6, pf: 1.85, net: 1, vol: 0.4, major: true },
     };
     const rel = { symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, kind: "trend", tactic: "trailing" as const, rangeType: "atr" as const, playbook: "normal" };
     assert.equal(matchingWinningRels(e, rel).length, 3);
-    assert.ok(Math.abs(winningRelVolume(e, rel) - 0.24) < 1e-9);
+    assert.ok(Math.abs(winningRelVolume(e, rel) - 1.2) < 1e-9);
     assert.equal(liveShouldExecute(e, rel), true);
+  });
+
+  it("axis extra rungs are 0.08 of the validated base qty", () => {
+    const cfg = { ...CFG, axisLevels: 4, axisPartialRatio: 0.08, trailingPct: 1.5 };
+    const e = initVstEngine(cfg, { warmup: 0, symbolCount: 6, arm: false });
+    e.lastTactic = "axis";
+    armUniverse(e, cfg, "axis");
+    const bySym = new Map();
+    for (const o of e.queue) {
+      if (o.level < 1) continue;
+      const arr = bySym.get(o.symbol) ?? [];
+      arr.push(o);
+      bySym.set(o.symbol, arr);
+    }
+    let checked = 0;
+    for (const rows of bySym.values()) {
+      const l1 = rows.find((o) => o.level === 1);
+      const extra = rows.filter((o) => o.level > 1);
+      if (!l1 || !extra.length) continue;
+      for (const o of extra) {
+        assert.ok(Math.abs(o.qty / l1.qty - 0.08) < 0.02, `partial ${o.qty} vs base ${l1.qty}`);
+        checked += 1;
+      }
+    }
+    assert.ok(checked >= 1, "need axis extra rungs");
   });
 
   it("live Block stacks rungs 1-6 on open positions with playbook block", () => {

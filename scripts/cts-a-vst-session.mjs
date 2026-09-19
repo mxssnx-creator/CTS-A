@@ -168,7 +168,7 @@ const BLOCK = {
   minMultiple: 1,
   overall: true,
   counts: [...LIVE_BLOCK_COUNTS],
-  volumeRatio: IS_X01 ? (X01_DEFAULTS.volumeRatio ?? 0.08) : 0.16,
+  volumeRatio: 0.4,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: 0,
@@ -183,7 +183,7 @@ const BLOCK = {
   evalHours: 2,
   autoEval: true,
   relAdditive: true,
-  relVolumeRatio: 0.08,
+  relVolumeRatio: 0.4,
   minRelPf: 1.05,
   evalLastNs: [...LIVE_BLOCK_COUNTS],
   liveLastN: 12,
@@ -1678,18 +1678,27 @@ function applyExecFromSettings(remote) {
   });
 }
 
+function migrateBlockVol(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return 0.4;
+  return x;
+}
+
 function applyPfGates(engine, remote) {
   const th = remote?.thresholds || {};
   const overall = Math.max(DEFAULT_MIN_PF, Number(th.minPf) || LIVE_MIN_PF);
   const base = Math.max(1, Number(th.basePf) || DEFAULT_BASE_PF);
   const axis = Math.max(1, Number(th.axisPf) || DEFAULT_AXIS_PF);
   const blockPf = Math.max(1, Number(th.blockPf) || DEFAULT_BLOCK_PF);
+  const bc = remote?.blockConfig || {};
   engine.minPf = overall;
   engine.basePf = base;
   engine.axisPf = axis;
   engine.blockPf = blockPf;
   engine.blockCfg = {
     ...(engine.blockCfg || BLOCK),
+    volumeRatio: migrateBlockVol(bc.volumeRatio ?? engine.blockCfg?.volumeRatio),
+    relVolumeRatio: migrateBlockVol(bc.relVolumeRatio ?? engine.blockCfg?.relVolumeRatio),
     minRelPf: blockPf,
     liveDisableMinPf: blockPf,
   };

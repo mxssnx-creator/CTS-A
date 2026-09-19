@@ -34,6 +34,7 @@ import {
   DEFAULT_BASE_PF,
   DEFAULT_AXIS_PF,
   DEFAULT_BLOCK_PF,
+  AXIS_PARTIAL_RATIO,
   DEFAULT_STRATEGY_TOGGLES,
   BLOCK_POS_COUNTS,
   DEFAULT_MAX_HOLD_TICKS,
@@ -66,6 +67,7 @@ const DEFAULT_CFG: TacticConfig = {
   dcaDrawdown: 0.8,
   axisSpacing: 0.7,
   axisLevels: 5,
+  axisPartialRatio: AXIS_PARTIAL_RATIO,
   slAtr: 1,
   tpRatio: 1,
   tpAtr: 1.0,
@@ -980,12 +982,14 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       const volMul = Math.min(1.4, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
       if (rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
       const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul;
-      const depth = axisTactic ? 1 : rank < 10 ? hi.levels.length : rank < 24 ? Math.min(3, hi.levels.length) : Math.min(2, hi.levels.length);
+      const axisPartial = Math.min(0.5, Math.max(0.02, cfg.axisPartialRatio ?? AXIS_PARTIAL_RATIO));
+      const depth = axisTactic ? Math.min(Math.max(2, cfg.axisLevels), hi.levels.length) : rank < 10 ? hi.levels.length : rank < 24 ? Math.min(3, hi.levels.length) : Math.min(2, hi.levels.length);
       hi.levels.slice(0, Math.max(1, depth)).forEach((offset, li) => {
         if (qn >= VST_MAX_QUEUE) return;
         const px = side === "long" ? q.axis - offset : q.axis + offset;
         if (px <= 0) return;
-        const qty = notional / px;
+        const baseQty = notional / px;
+        const qty = axisTactic && li > 0 ? baseQty * axisPartial : baseQty;
         const lv = axisTactic && !short ? axisProtect(px, side, q, hi.spacing, cfg) : protectLevels(px, side, sl0, tp0, (cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul, short);
         e.queue.push({
           id: nextId(e, "q"),

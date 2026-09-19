@@ -482,6 +482,8 @@ export const DEFAULT_MIN_PF = 1.8;
 export const DEFAULT_BASE_PF = 1.1;
 export const DEFAULT_AXIS_PF = 1.5;
 export const DEFAULT_BLOCK_PF = 1.6;
+export const DEFAULT_BLOCK_VOLUME_RATIO = 0.4;
+export const AXIS_PARTIAL_RATIO = 0.08;
 
 export const X01_DEFAULTS = {
   connId: "bingx-x01" as const,
@@ -491,7 +493,7 @@ export const X01_DEFAULTS = {
   slAtrMin: 0.8,
   tpRatioMin: 0.8,
   tpAtrMin: 0.8,
-  volumeRatio: 0.08,
+  volumeRatio: DEFAULT_BLOCK_VOLUME_RATIO,
   counts: [1, 2, 3, 4, 5, 6] as number[],
   maxMultiple: 6,
   sides: "both" as const,
@@ -516,6 +518,7 @@ export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
   dcaDrawdown: 0.8,
   axisSpacing: 0.7,
   axisLevels: 5,
+  axisPartialRatio: AXIS_PARTIAL_RATIO,
   slAtr: slAtrOf(1.0, 1),
   tpRatio: tpRatioOf(1),
   tpAtr: 1.0,
@@ -539,7 +542,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   cadence: 4,
   overall: true,
   counts: [...LIVE_BLOCK_COUNTS],
-  volumeRatio: 0.08,
+  volumeRatio: DEFAULT_BLOCK_VOLUME_RATIO,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: 0,
@@ -554,7 +557,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   evalHours: 2,
   autoEval: true,
   relAdditive: true,
-  relVolumeRatio: 0.08,
+  relVolumeRatio: DEFAULT_BLOCK_VOLUME_RATIO,
   minRelPf: DEFAULT_BLOCK_PF,
   evalLastNs: [1, 2, 3, 4, 5, 6],
   liveLastN: 12,
