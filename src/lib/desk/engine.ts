@@ -265,8 +265,8 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   cadence: 6,
   overall: true,
   counts: [...BLOCK_COUNTS],
-  volumeRatio: 1.25,
-  maxVolumeMultiplier: 2.25,
+  volumeRatio: 2.5,
+  maxVolumeMultiplier: 3.5,
   pfRatio: 1.45,
   pauseCountRatio: 2,
   evalPosCount: 6,
@@ -274,7 +274,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   minActiveLevel: 0,
   stack: true,
   windows: true,
-  volumeMode: "parallel",
+  volumeMode: "shared",
 };
 
 /** Additive: each count uses `ratio`. Shared (old): extra/n when n>2. */
@@ -300,7 +300,7 @@ export function blockMaxAdditionalRatio(
 ) {
   const inc = blockVolumeIncrement(maxStack, volumeRatio);
   if (mode !== "shared") return inc;
-  const cap = Math.min(3, Math.max(1, maxMultiplier || 2.25)) - 1;
+  const cap = Math.max(0, (maxMultiplier || 3.5) - 1);
   return Math.min(cap, inc);
 }
 

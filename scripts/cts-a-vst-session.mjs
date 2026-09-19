@@ -56,8 +56,8 @@ const BLOCK = {
   minMultiple: 1,
   overall: true,
   counts: [1, 2, 3, 4, 5, 6],
-  volumeRatio: 1.25,
-  maxVolumeMultiplier: 2.25,
+  volumeRatio: 2.5,
+  maxVolumeMultiplier: 3.5,
   pfRatio: 1.45,
   pauseCountRatio: 2,
   evalPosCount: 6,
@@ -65,7 +65,7 @@ const BLOCK = {
   minActiveLevel: 0,
   stack: true,
   windows: true,
-  volumeMode: "parallel",
+  volumeMode: "shared",
 };
 
 const GRID = [
