@@ -29,6 +29,7 @@ import type {
 } from "./types.ts";
 import {
   DEFAULT_BLOCK_CONFIG,
+  DEFAULT_THRESHOLDS,
   BLOCK_POS_COUNTS,
   DEFAULT_MAX_HOLD_TICKS,
   MIN_QUOTE_VOL,
@@ -41,6 +42,7 @@ import {
   snapSlAtr,
   profitFactor,
   pfFromPnls,
+  PF_NO_LOSS,
   allTpSlCombos,
   allShortTpSlCombos,
   cfgUsesShortRange,
@@ -715,6 +717,8 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.symbolEval = e.symbolEval ?? {};
   e.performingSymbols = e.performingSymbols ?? [];
   e.hourCoord = e.hourCoord ?? { hour: 0, performing: [], skipped: [], at: 0 };
+  e.minPf = e.minPf ?? DEFAULT_THRESHOLDS.minPf;
+  e.liveTape = e.liveTape ?? false;
   for (const lane of Object.values(e.blockLanes)) {
     lane.active = lane.active ?? true;
     lane.pauseRemaining = lane.pauseRemaining ?? {};
@@ -776,6 +780,8 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     symbolEval: {},
     performingSymbols: [],
     hourCoord: { hour: 0, performing: [], skipped: [], at: 0 },
+    minPf: DEFAULT_THRESHOLDS.minPf,
+    liveTape: false,
   };
   if (opts.arm !== false) armUniverse(engine, cfg, "hybrid");
   const warm = opts.arm === false ? 0 : (opts.warmup ?? 12);
@@ -2038,11 +2044,79 @@ export function symbolTapePf(e: VstEngine, symbol: string): number | null {
   return profitFactor(t.profit, t.loss);
 }
 
-/** Skip new entries on losing last-N windows or PF<1 symbols. Direction is a live indication, not a skip. */
+/** Systemwide entry floor: settings min PF, live-disable, and relation PF. */
+export function entryMinPf(e: VstEngine, block: BlockConfig = e.blockCfg ?? DEFAULT_BLOCK_CONFIG): number {
+  const a = Number(e.minPf);
+  const d = Number(block.liveDisableMinPf);
+  const th = Number.isFinite(a) && a > 0 ? a : DEFAULT_THRESHOLDS.minPf;
+  const xs = [th, d].filter((n) => Number.isFinite(n) && n > 0);
+  return Math.max(1.4, ...xs);
+}
+
+export function symbolLastNPf(e: VstEngine, symbol: string, n = 6): number | null {
+  const take = e.closed.filter((c) => c.symbol === symbol && isDeskConn(c.connId)).slice(0, Math.max(4, n));
+  if (take.length < 4) return null;
+  return pfFromPnls(take);
+}
+
+export function applyRealizedSymbolStats(
+  e: VstEngine,
+  rows: { key?: string; id?: string; n?: number; trades?: number; pf?: number; wr?: number; net?: number; wins?: number; profit?: number; loss?: number }[],
+) {
+  const floor = entryMinPf(e);
+  const disabled = { ...(e.liveDisabled ?? {}) };
+  for (const s of rows) {
+    const id = String(s.key || s.id || "");
+    if (!id) continue;
+    const n = Math.max(0, Math.round(Number(s.n ?? s.trades) || 0));
+    if (n < 1) continue;
+    const net = Number(s.net) || 0;
+    const pf = Number(s.pf);
+    let profit = Number(s.profit);
+    let loss = Number(s.loss);
+    if (!Number.isFinite(profit) || !Number.isFinite(loss)) {
+      if (!Number.isFinite(pf) || pf <= 0) {
+        profit = Math.max(0, net);
+        loss = Math.max(0, -net);
+      } else if (pf >= PF_NO_LOSS - 1e-9 || loss === 0) {
+        profit = Math.max(0, net);
+        loss = 0;
+      } else {
+        const gl = net >= 0 ? net / Math.max(1e-9, pf - 1) : -net / Math.max(1e-9, 1 - pf);
+        loss = Math.max(0, gl);
+        profit = Math.max(0, loss * pf);
+      }
+    }
+    const wins = Math.round(Number(s.wins) || Math.max(0, n * (Number(s.wr) || 0)));
+    const prev = e.symbolStats[id];
+    e.symbolStats[id] = {
+      id,
+      trades: n,
+      wins,
+      profit,
+      loss,
+      sl: prev?.sl ?? 0,
+      tp: prev?.tp ?? 0,
+    };
+    const tapePf = profitFactor(e.symbolStats[id]!.profit, e.symbolStats[id]!.loss);
+    if (n >= 4 && tapePf + 1e-9 < floor) disabled[`sym:${id}`] = { pf: tapePf, n, at: e.tick };
+    else delete disabled[`sym:${id}`];
+  }
+  e.liveDisabled = disabled;
+  return Object.keys(disabled).length;
+}
+
+/** Skip new entries below system min PF, losing last-N, or 100h non-performers. */
 export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (symbolBlockPaused(e, symbol, evalN)) return true;
+  const floor = entryMinPf(e);
   const tape = symbolTapePf(e, symbol);
   if (tape != null && tape + 1e-9 < 1) return true;
+  if (e.liveTape) {
+    if (tape != null && tape + 1e-9 < floor) return true;
+    const last = symbolLastNPf(e, symbol, evalN);
+    if (last != null && last + 1e-9 < floor) return true;
+  }
   if (e.liveDisabled?.[`sym:${symbol}`]) return true;
   const perf = e.performingSymbols;
   if (perf && perf.length > 0 && !perf.includes(symbol)) return true;
@@ -2057,7 +2131,7 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   const trend = e.closed.filter((c) => isDeskConn(c.connId) && c.indication === "trend").slice(0, 8);
   if (trend.length >= 3) {
     const pf = pfFromPnls(trend);
-    if (pf + 1e-9 < 1.4) {
+    if (pf + 1e-9 < floor) {
       try {
         if (classifyIndication(e, symbol) === "trend") return true;
       } catch {
@@ -2283,13 +2357,13 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
   e.lastRelEvalTick = e.tick;
   pruneBlockRelWindows(e);
   refreshIndicationSets(e, block);
-  refreshLiveDisable(e, block);
-  refreshSymbolHourEval(e, { hours: block.symbolEvalHours ?? SYMBOL_EVAL_HOURS, minPf: block.minRelPf ?? 1.4 });
+  if (e.liveTape) refreshLiveDisable(e, block);
+  refreshSymbolHourEval(e, { hours: block.symbolEvalHours ?? SYMBOL_EVAL_HOURS, minPf: entryMinPf(e, block) });
   return { picks: used, winners: used.length, factor: e.relVolumeFactor || 0, at: e.tick, candidates: uniq.length };
 }
 
 function refreshIndicationSets(e: VstEngine, block: BlockConfig) {
-  const minPf = block.liveDisableMinPf ?? 1.1;
+  const minPf = entryMinPf(e, block);
   const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, 40);
   const byIndRange = new Map<string, { pnl: number }[]>();
   const byIndTac = new Map<string, { pnl: number }[]>();
@@ -2347,12 +2421,11 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
     return e.liveHealth;
   }
   const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
-  const minPf = block.liveDisableMinPf ?? 1.1;
-  const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 8));
-  const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, n);
-  if (take.length < n) {
-    e.liveDisabled = {};
-    e.liveHealth = { n, at: e.tick, disabled: [], kept: [] };
+  const minPf = entryMinPf(e, block);
+  const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
+  const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, Math.max(n, minS));
+  if (take.length < minS) {
+    e.liveHealth = { n, at: e.tick, disabled: Object.keys(e.liveDisabled ?? {}), kept: e.liveHealth?.kept ?? [] };
     return e.liveHealth;
   }
   const groups = new Map<string, { pnl: number }[]>();
@@ -2381,15 +2454,16 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
     list.push({ key, pf: sc.pf, n: sc.n });
     byAxis.set(axis, list);
   }
-  const disabled: Record<string, { pf: number; n: number; at: number }> = {};
+  const disabled: Record<string, { pf: number; n: number; at: number }> = { ...(e.liveDisabled ?? {}) };
   const kept: string[] = [];
   for (const list of byAxis.values()) {
     list.sort((a, b) => b.pf - a.pf || b.n - a.n);
-    const best = list[0];
-    if (best) kept.push(best.key);
     for (const x of list) {
-      if (best && x.key === best.key) continue;
       if (x.pf + 1e-9 < minPf) disabled[x.key] = { pf: x.pf, n: x.n, at: e.tick };
+      else {
+        kept.push(x.key);
+        delete disabled[x.key];
+      }
     }
   }
   e.liveDisabled = disabled;
@@ -2785,6 +2859,7 @@ export function adjustActiveBlocks(
 
 export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { freezeIds?: Set<string>; skipWalk?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
   ensureEngine(e);
+  if (opts?.skipWalk) e.liveTape = true;
   const t0 = Date.now();
   const over = () => Date.now() - t0 > 90;
   if (opts?.symbolCount != null) e.symbolCount = clampSymbolCount(opts.symbolCount);
@@ -2823,7 +2898,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
       evalBlockRelations(e, block);
     });
   }
-  if (block.liveDisable !== false && e.tick % 30 === 0 && e.closed.length >= (block.liveLastN || 12) && !over()) {
+  if (block.liveDisable !== false && e.liveTape && e.tick % 30 === 0 && e.closed.length >= (block.liveLastN || 12) && !over()) {
     safeStage(e, "live-disable", () => {
       refreshLiveDisable(e, block);
     });

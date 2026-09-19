@@ -1197,9 +1197,9 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Live disable min PF"
-              value={blockCfg.liveDisableMinPf ?? 1.1}
-              min={0.5}
-              max={2}
+              value={blockCfg.liveDisableMinPf ?? 2}
+              min={1.4}
+              max={3}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ liveDisableMinPf: n })}

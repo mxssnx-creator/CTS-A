@@ -948,6 +948,8 @@ export interface VstEngine {
   symbolEval?: Record<string, SymbolHourRow>;
   performingSymbols?: string[];
   hourCoord?: HourCoord;
+  minPf?: number;
+  liveTape?: boolean;
 }
 
 export interface BlockLaneState {

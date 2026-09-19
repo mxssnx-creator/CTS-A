@@ -29,6 +29,7 @@ import {
   overlayExchangeBook,
   releaseVanished,
   skipLiveSymbol,
+  applyRealizedSymbolStats,
   sweepAllConfigs,
   sweepPlaybooks,
   completeComputationsAsync,
@@ -106,8 +107,8 @@ const BLOCK = {
   evalLastNs: [1, 2, 3, 4, 5, 6],
   liveLastN: 12,
   liveDisable: true,
-  liveDisableMinPf: 1.1,
-  liveDisableMinSamples: 8,
+  liveDisableMinPf: LIVE_MIN_PF,
+  liveDisableMinSamples: 4,
 };
 
 const LIVE_CFG = { trailingPct: 1.4, tpRatio: tpRatioOf(1), dcaCount: 1, slAtr: slAtrOf(1.0, 1), tpAtr: 1.0, slOfTp: 1, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
@@ -957,15 +958,30 @@ async function main() {
   const started = Date.now();
   const ends = started + HOURS * 3600 * 1000;
   let pick = pickFromSweep();
-  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: LIVE_SYMBOLS, orderType: "limit", arm: false });
+  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK });
   engine.running = true;
   engine.phase = "running";
   engine.activeConnId = CONN;
   engine.symbolCount = LIVE_SYMBOLS;
+  engine.minPf = LIVE_MIN_PF;
+  engine.liveTape = true;
+  engine.blockCfg = { ...BLOCK, liveDisableMinPf: LIVE_MIN_PF };
+  let seededLosers = 0;
+  try {
+    const prev = JSON.parse(readFileSync(OVERALL, "utf8"));
+    const rows = prev?.executions?.bySymbol;
+    if (Array.isArray(rows) && rows.length) {
+      applyRealizedSymbolStats(engine, rows);
+      seededLosers = rows.filter((r) => Number(r.n || r.trades) >= 4 && Number(r.pf) + 1e-9 < LIVE_MIN_PF).length;
+    }
+  } catch {
+    /* first run */
+  }
 
   let ping = await pingVst();
   applyExecFromSettings(readSettingsPick());
-  const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} sym`];
+  const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} sym · minPF ${LIVE_MIN_PF}`];
+  if (seededLosers) adjustments.push(`seed skip ${seededLosers} loser symbols`);
   if (ping.pingOk) adjustments.push(`BingX ${ping.network} ping ok · eq ${ping.equity.toFixed(2)}`);
   else adjustments.push(`BingX ping failed · ${ping.error ?? "auth"} · paper tape`);
   if (ping.pingOk) {
@@ -1141,6 +1157,10 @@ async function main() {
         try {
           const ex = await withTimeout(fetchLiveExecutions({ network: ping.network, connId: CONN, since: started }), 8000, "exec");
           if (ex.ok) {
+            if (Array.isArray(ex.bySymbol) && ex.bySymbol.length) {
+              applyRealizedSymbolStats(engine, ex.bySymbol);
+              engine.minPf = LIVE_MIN_PF;
+            }
             if (ex.realized?.n > 0 && Number(ex.realized.pf) > 0) {
               engine.ledger.trades = Math.max(engine.ledger.trades || 0, ex.realized.n);
               engine.ledger.wins = Math.max(engine.ledger.wins || 0, ex.realized.wins);

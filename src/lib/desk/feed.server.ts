@@ -1064,6 +1064,9 @@ export async function fetchLiveExecutions(input: {
     .map(([key, v]) => ({
       key,
       n: v.n,
+      wins: v.wins,
+      profit: v.profit,
+      loss: v.loss,
       pf: profitFactor(v.profit, v.loss),
       wr: v.n ? v.wins / v.n : 0,
       net: v.profit - v.loss,

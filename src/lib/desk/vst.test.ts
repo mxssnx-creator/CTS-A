@@ -1550,7 +1550,7 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.08);
     assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.08);
     assert.equal(DEFAULT_THRESHOLDS.minPf, 2);
-    assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 1.1);
+    assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 2);
     assert.equal(DEFAULT_BLOCK_CONFIG.liveLastN, 12);
     assert.equal(DEFAULT_BLOCK_CONFIG.minRelPf, 1.6);
     assert.equal(DEFAULT_TACTIC_CONFIG.slAtr, slAtrOf(1.0, 1));
@@ -1800,6 +1800,11 @@ describe("VST engine", () => {
     assert.equal(skipLiveSymbol(e, "SOLUSDT"), true);
     e.symbolStats.ETHUSDT = { id: "ETHUSDT", trades: 4, wins: 3, profit: 1.2, loss: 0.2, sl: 1, tp: 3 };
     assert.equal(skipLiveSymbol(e, "ETHUSDT"), false);
+    e.minPf = 2;
+    e.liveTape = true;
+    e.symbolStats.BNBUSDT = { id: "BNBUSDT", trades: 6, wins: 3, profit: 1.2, loss: 1.0, sl: 3, tp: 3 };
+    assert.ok(symbolTapePf(e, "BNBUSDT") < 2);
+    assert.equal(skipLiveSymbol(e, "BNBUSDT"), true);
   });
 
   it("auto-validates each symbol last 100h and selects only performing hour coords", () => {
