@@ -432,6 +432,7 @@ function snapshot(e, extra) {
     avgLivePos: bookAvg.n ? bookAvg.pos / bookAvg.n : lastBook.pos,
     avgLiveOrd: bookAvg.n ? bookAvg.ord / bookAvg.n : lastBook.ord,
     overall,
+    tape: lastPnl.slice(0, 800).map((r) => ({ t: Number(r.t) || 0, v: Number(r.v) || 0, symbol: r.symbol || "" })),
     livePf,
     last12,
     phase: e.phase,

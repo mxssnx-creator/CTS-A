@@ -107,6 +107,7 @@ interface DeskStore {
   lastN: (typeof LAST_N_OPTIONS)[number];
   lastNs: LastNConfig;
   lastNLinked: boolean;
+  overlayLastN: 12 | 40 | 120 | 650;
   costStep: number;
   rangeType: RangeType;
   tactic: TacticKind;
@@ -158,6 +159,7 @@ interface DeskStore {
   setLastNLinked: (on: boolean) => void;
   setLastNConfig: (partial: Partial<LastNConfig>) => void;
   applyLastNAll: (n: DeskStore["lastN"]) => void;
+  setOverlayLastN: (n: 12 | 40 | 120 | 650) => void;
   resetSettings: () => void;
   setCostStep: (n: number) => void;
   setRangeType: (r: RangeType) => void;
@@ -309,6 +311,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   lastN: DEFAULT_LAST_N,
   lastNs: { ...DEFAULT_LAST_N_CONFIG },
   lastNLinked: true,
+  overlayLastN: 40 as const,
   costStep: 10,
   rangeType: "atr",
   tactic: "hybrid",
@@ -426,6 +429,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     });
     get().syncSettings();
   },
+  setOverlayLastN: (overlayLastN) => set({ overlayLastN }),
   resetSettings: () => {
     set({
       lastN: DEFAULT_LAST_N,

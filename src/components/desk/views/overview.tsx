@@ -15,19 +15,21 @@ import {
 } from "@/lib/desk/engine";
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
-import { bookCounts, exchangeAsPositions, liveDeskBook, overallLiveStats, positionsAsTrades } from "@/lib/desk/vst";
+import { bookCounts, exchangeAsPositions, liveDeskBook, overallLiveStats, OVERVIEW_HOUR_NS, OVERVIEW_POS_NS, positionsAsTrades, tapeHourCurve, tapeWindowCurve, type LivePnlRow } from "@/lib/desk/vst";
 import { fmtNum, fmtPct, fmtSigned, fmtUsd, fmtEquity } from "@/lib/utils";
-import { EquityChart } from "../charts";
+import { EquityChart, MultiCurveChart } from "../charts";
 import { CostHeatmap } from "../heatmap";
 import { SessionProgress } from "../session-progress";
 import { LiveExchangeStats, type LiveOverview } from "../live-exchange-stats";
-import { Field, fmtMdd, fmtPf, fmtWr, Kpi, Panel, pfTone, Pill, StatLine } from "../widgets";
+import { Field, fmtMdd, fmtPf, fmtWr, Kpi, Panel, pfTone, Pill, Segmented, StatLine } from "../widgets";
 
 export function OverviewView() {
   usePreserveScroll();
   const symbol = useDesk((s) => s.symbol);
   const strategyId = useDesk((s) => s.strategyId);
   const lastNs = useDesk((s) => s.lastNs);
+  const overlayLastN = useDesk((s) => s.overlayLastN);
+  const setOverlayLastN = useDesk((s) => s.setOverlayLastN);
   const costStep = useDesk((s) => s.costStep);
   const rangeType = useDesk((s) => s.rangeType);
   const tactic = useDesk((s) => s.tactic);
@@ -56,7 +58,7 @@ export function OverviewView() {
     () => bookStats(lastNs.lanes, cfg, th, undefined, enabledKinds),
     [lastNs.lanes, cfg, th, enabledKinds],
   );
-  const [cells, setCells] = useState<ReturnType<typeof heatmapFor>>([]);
+  const [cells, setCells] = useState<ReturnType<typeof heatmapForDesk>>([]);
   useEffect(() => {
     const t = window.setTimeout(() => {
       try {
@@ -122,10 +124,49 @@ export function OverviewView() {
   const closedWr = Number(overall?.overall?.wr ?? overall?.wr ?? sessWr);
   const closedNet = Number(overall?.overall?.net ?? overall?.net ?? sessNet);
   const closedN = tapeN;
+  const tape = ((session?.tape as LivePnlRow[] | undefined) ?? []).filter((r) => Number.isFinite(Number(r.v)));
+  const overlayN = overlayLastN;
+  const overlayBucket = overall.lastN?.[String(overlayN)];
+  const overlayPf = Number(overlayBucket?.pf ?? closedPf);
+  const overlayWr = Number(overlayBucket?.wr ?? closedWr);
+  const overlayNet = Number(overlayBucket?.net ?? closedNet);
+  const overlayDdt = Number(overlayBucket?.ddt ?? overall.ddt ?? 0);
+  const overlayMdd = Number(overlayBucket?.mdd ?? overall.mdd ?? 0);
+  const posCurves = useMemo(() => {
+    if (!tape.length) return Object.fromEntries(OVERVIEW_POS_NS.map((n) => [String(n), []] as const));
+    return Object.fromEntries(OVERVIEW_POS_NS.map((n) => [String(n), tapeWindowCurve(tape, n)]));
+  }, [tape]);
+  const hourCurves = useMemo(() => {
+    if (!tape.length) return Object.fromEntries(OVERVIEW_HOUR_NS.map((h) => [String(h), []] as const));
+    return Object.fromEntries(OVERVIEW_HOUR_NS.map((h) => [String(h), tapeHourCurve(tape, h)]));
+  }, [tape]);
+  const overlayCurve = posCurves[String(overlayN)] ?? [];
+  const overlayVol = overlayCurve.length ? overlayCurve[overlayCurve.length - 1]!.vol : 0;
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
       <SessionProgress book={book} />
+
+      <Panel title="Overall last positions">
+        <p className="text-sm text-muted">
+          Overlay uses BingX realized closes (newest first). Header quote is {symbol} only.
+        </p>
+        <div className="mt-3">
+          <Segmented
+            value={String(overlayN)}
+            onChange={(v) => setOverlayLastN(Number(v) as 12 | 40 | 120 | 650)}
+            options={OVERVIEW_POS_NS.map((n) => ({ id: String(n), label: `N${n}` }))}
+          />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+          <Kpi label={`Last ${overlayN} PF`} value={fmtPf(overlayPf)} tone={pfTone(overlayPf)} hint={`${overlayBucket?.n ?? 0} closes`} />
+          <Kpi label="Win rate" value={fmtWr(overlayWr)} hint={`${overlayBucket?.wins ?? 0} wins`} />
+          <Kpi label="Net" value={fmtUsd(overlayNet)} tone={overlayNet >= 0 ? "up" : "down"} />
+          <Kpi label="DDT" value={fmtNum(overlayDdt, 0)} hint={`MDD ${fmtMdd(overlayMdd)}`} />
+          <Kpi label="Volume |PnL|" value={fmtUsd(overlayVol)} hint="realized abs" />
+          <Kpi label="Book" value={`${liveSnap.livePos} pos`} hint={`${liveSnap.liveOrd} ord`} tone="accent" />
+        </div>
+      </Panel>
 
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
@@ -133,7 +174,7 @@ export function OverviewView() {
           <h1 className="text-2xl font-semibold tracking-tight">Strategy desk</h1>
         </div>
         <p className="max-w-md text-sm text-muted">
-          Independent combinations across cost 3–30 for all symbols. Header quote is {symbol} only — listings and stats are the full book.
+          Independent combinations across cost 3–30 for all symbols. Listings and stats are the full book.
         </p>
       </div>
 
@@ -142,7 +183,7 @@ export function OverviewView() {
         <Kpi label="Win rate" value={fmtWr(sessWr)} hint={`${liveSnap.livePos} open`} />
         <Kpi label="Net" value={fmtUsd(sessNet)} tone={sessNet >= 0 ? "up" : "down"} />
         <Kpi label="Closed PF" value={fmtPf(closedPf)} tone={closedPf >= th.minPf ? "up" : closedPf < 1 ? "down" : "accent"} hint={`${closedN} tape closes`} />
-        <Kpi label="Volume factor" value={fmtNum(vol.vf, 2)} tone={vol.vf >= th.minVf && vol.confirm === "confirm" ? "up" : vol.confirm === "diverge" ? "down" : "neutral"} hint={`Min ${th.minVf.toFixed(2)}`} />
+        <Kpi label="Overlay PF" value={fmtPf(overlayPf)} tone={pfTone(overlayPf)} hint={`last ${overlayN}`} />
         <Kpi label="Exchange pos" value={String(liveSnap.livePos)} tone="accent" hint={`${liveSnap.liveOrd} orders`} />
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
@@ -185,6 +226,95 @@ export function OverviewView() {
         avgLivePos={Number(session?.avgLivePos ?? overall.avgPositions ?? liveSnap.livePos)}
         avgLiveOrd={Number(session?.avgLiveOrd ?? overall.avgOrders ?? liveSnap.liveOrd)}
       />
+
+      <Panel title="Windows · PF / DDT / volume / drawdown">
+        <p className="text-sm text-muted">
+          Last 12 / 40 / 120 / 650 closes and last 2 / 6 / 12 / 45 hours from BingX realized PnL. Curves: equity, |PnL| volume, rolling PF, drawdown.
+        </p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-widest text-subtle">
+                <th className="py-1 pr-2">Window</th>
+                <th className="py-1 pr-2">N</th>
+                <th className="py-1 pr-2">PF</th>
+                <th className="py-1 pr-2">WR</th>
+                <th className="py-1 pr-2">DDT</th>
+                <th className="py-1 pr-2">MDD</th>
+                <th className="py-1 pr-2">Volume</th>
+                <th className="py-1">Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {OVERVIEW_POS_NS.map((n) => {
+                const b = overall.lastN?.[String(n)];
+                const c = posCurves[String(n)] ?? [];
+                const vol = c.length ? c[c.length - 1]!.vol : 0;
+                const on = n === overlayN;
+                return (
+                  <tr
+                    key={`n${n}`}
+                    className={`cursor-pointer border-t border-border ${on ? "bg-primary-soft" : ""}`}
+                    onClick={() => setOverlayLastN(n)}
+                  >
+                    <td className="py-1 pr-2 font-medium">Last {n}</td>
+                    <td className="py-1 pr-2 font-mono tabular">{b?.n ?? c.length}</td>
+                    <td className={`py-1 pr-2 font-mono tabular ${(b?.pf ?? 0) >= 1 ? "text-up" : b?.n ? "text-down" : ""}`}>{fmtPf(b?.pf ?? 0)}</td>
+                    <td className="py-1 pr-2 font-mono tabular">{fmtWr(b?.wr ?? 0)}</td>
+                    <td className="py-1 pr-2 font-mono tabular">{fmtNum(b?.ddt ?? 0, 0)}</td>
+                    <td className="py-1 pr-2 font-mono tabular">{fmtMdd(b?.mdd ?? 0)}</td>
+                    <td className="py-1 pr-2 font-mono tabular">{fmtUsd(vol)}</td>
+                    <td className={`py-1 font-mono tabular ${(b?.net ?? 0) >= 0 ? "text-up" : "text-down"}`}>{fmtUsd(b?.net ?? 0)}</td>
+                  </tr>
+                );
+              })}
+              {OVERVIEW_HOUR_NS.map((h) => {
+                const b = overall.hours?.[String(h)];
+                const c = hourCurves[String(h)] ?? [];
+                const vol = c.length ? c[c.length - 1]!.vol : 0;
+                return (
+                  <tr key={`h${h}`} className="border-t border-border">
+                    <td className="py-1 pr-2 font-medium">{h}h</td>
+                    <td className="py-1 pr-2 font-mono tabular">{b?.n ?? c.length}</td>
+                    <td className={`py-1 pr-2 font-mono tabular ${(b?.pf ?? 0) >= 1 ? "text-up" : b?.n ? "text-down" : ""}`}>{fmtPf(b?.pf ?? 0)}</td>
+                    <td className="py-1 pr-2 font-mono tabular">{fmtWr(b?.wr ?? 0)}</td>
+                    <td className="py-1 pr-2 font-mono tabular">{fmtNum(b?.ddt ?? 0, 0)}</td>
+                    <td className="py-1 pr-2 font-mono tabular">{fmtMdd(b?.mdd ?? 0)}</td>
+                    <td className="py-1 pr-2 font-mono tabular">{fmtUsd(vol)}</td>
+                    <td className={`py-1 font-mono tabular ${(b?.net ?? 0) >= 0 ? "text-up" : "text-down"}`}>{fmtUsd(b?.net ?? 0)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div>
+            <div className="mb-1 text-xs font-medium uppercase tracking-widest text-subtle">Last {overlayN} · equity / volume / PF / DD</div>
+            <MultiCurveChart data={overlayCurve} />
+          </div>
+          <div>
+            <div className="mb-1 text-xs font-medium uppercase tracking-widest text-subtle">Last 6h · equity / volume / PF / DD</div>
+            <MultiCurveChart data={hourCurves["6"] ?? []} />
+          </div>
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {OVERVIEW_POS_NS.map((n) => (
+            <div key={`c${n}`}>
+              <div className="mb-1 text-xs font-medium uppercase tracking-widest text-subtle">N{n}</div>
+              <MultiCurveChart data={posCurves[String(n)] ?? []} />
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {OVERVIEW_HOUR_NS.map((h) => (
+            <div key={`ch${h}`}>
+              <div className="mb-1 text-xs font-medium uppercase tracking-widest text-subtle">{h}h</div>
+              <MultiCurveChart data={hourCurves[String(h)] ?? []} />
+            </div>
+          ))}
+        </div>
+      </Panel>
 
       <Panel title={`Overall tape · ${overall.symbols ?? 50} symbols`}>
         <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
@@ -239,7 +369,7 @@ export function OverviewView() {
             <StatLine k="Ping" v={liveSnap.pingOk ? `${liveSnap.latencyMs || "ok"}` : "connecting"} />
           </div>
           {exchange?.positions?.length ? (
-            <div className="mt-3 overflow-x-auto">
+            <div className="mt-3 max-h-72 overflow-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-widest text-subtle">
@@ -250,7 +380,7 @@ export function OverviewView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {exchange.positions.slice(0, 8).map((p) => (
+                  {exchange.positions.map((p) => (
                     <tr key={`${p.symbol}:${p.side}`} className="border-t border-border">
                       <td className="py-1 pr-2 font-medium">{p.symbol}</td>
                       <td className="py-1 pr-2">{p.side}</td>
@@ -272,10 +402,10 @@ export function OverviewView() {
       ) : null}
 
       <div className="grid gap-2 sm:grid-cols-3">
-        <Panel title={`Last ${lastNs.last} pos`}>
-          <StatLine k="Count" v={String(lastSlice.n)} />
-          <StatLine k="PF" v={fmtPf(lastSlice.pf)} tone={pfTone(lastSlice.pf)} />
-          <StatLine k="Net" v={fmtUsd(lastSlice.net)} tone={lastSlice.net >= 0 ? "up" : "down"} />
+        <Panel title={`Last ${overlayN} overlay`}>
+          <StatLine k="Count" v={String(overlayBucket?.n ?? overlayCurve.length)} />
+          <StatLine k="PF" v={fmtPf(overlayPf)} tone={pfTone(overlayPf)} />
+          <StatLine k="Net" v={fmtUsd(overlayNet)} tone={overlayNet >= 0 ? "up" : "down"} />
         </Panel>
         <Panel title={`Ongoing · N${lastNs.ongoing}`}>
           <StatLine k="Open" v={String(openSlice.n)} />
@@ -292,7 +422,7 @@ export function OverviewView() {
       <div className="grid gap-4 xl:grid-cols-5">
         <Panel
           className="xl:col-span-3"
-          title={`Equity · ${stName} · ${symbol}`}
+          title={`Equity · last ${overlayN} closes`}
           action={
             <select
               aria-label="Strategy"
@@ -310,7 +440,7 @@ export function OverviewView() {
             </select>
           }
         >
-          <EquityChart data={eq} />
+          <EquityChart data={overlayCurve.length ? overlayCurve.map((p) => ({ i: p.i, eq: p.eq })) : eq} />
         </Panel>
         <Panel className="xl:col-span-2" title={`Last ${lastNs.picks} evals`}>
           <StatLine k="PF" v={fmtPf(last.pf)} tone={pfTone(last.pf)} />

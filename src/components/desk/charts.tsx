@@ -124,6 +124,49 @@ export function OccupancyChart({ data }: { data: { i: number; pos: number; ord: 
   );
 }
 
+export function MultiCurveChart({
+  data,
+  title,
+}: {
+  data: { i: number; eq?: number; dd?: number; pf?: number; vol?: number }[];
+  title?: string;
+}) {
+  if (!data.length) {
+    return <p className="px-4 py-8 text-sm text-muted">{title ?? "No window yet."}</p>;
+  }
+  return (
+    <div className="h-56 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id="ovEq" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-primary)" stopOpacity={0.28} />
+              <stop offset="100%" stopColor="var(--color-primary)" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid stroke="var(--color-border)" vertical={false} />
+          <XAxis dataKey="i" tick={TICK} axisLine={false} tickLine={false} minTickGap={24} />
+          <YAxis yAxisId="eq" width={48} tick={TICK} axisLine={false} tickLine={false} tickFormatter={(v) => fmtNum(v, 2)} />
+          <YAxis yAxisId="pf" orientation="right" width={40} tick={TICK} axisLine={false} tickLine={false} tickFormatter={(v) => fmtNum(v, 2)} />
+          <Tooltip
+            contentStyle={TIP}
+            formatter={(v: number, name: string) => {
+              if (name === "dd") return [fmtPct(v, 1), "Drawdown"];
+              if (name === "pf") return [fmtNum(v, 2), "PF"];
+              if (name === "vol") return [fmtUsd(v), "Volume"];
+              return [fmtUsd(v), "Equity"];
+            }}
+          />
+          <Area yAxisId="eq" type="monotone" dataKey="eq" stroke="var(--color-primary)" fill="url(#ovEq)" strokeWidth={1.6} dot={false} isAnimationActive={false} />
+          <Bar yAxisId="eq" dataKey="vol" fill="var(--color-info)" fillOpacity={0.18} maxBarSize={6} isAnimationActive={false} />
+          <Line yAxisId="pf" type="monotone" dataKey="pf" stroke="var(--color-up)" strokeWidth={1.4} dot={false} isAnimationActive={false} />
+          <Line yAxisId="pf" type="monotone" dataKey="dd" stroke="var(--color-down)" strokeWidth={1.2} dot={false} isAnimationActive={false} />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 export function DualEquityChart({
   data,
   xLabel,

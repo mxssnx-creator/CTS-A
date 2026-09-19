@@ -99,6 +99,7 @@ import {
   symbolTapePf,
   overlayExchangeBook,
   overlayLiveExecutions,
+  tapeWindowCurve,
   noteBlockPosClose,
   blockPosPaused,
   symbolBlockPaused,
@@ -2314,6 +2315,12 @@ describe("VST engine", () => {
     assert.ok(ov.lastN["5"] && ov.lastN["5"].n === 5);
     assert.ok(ov.lastN["10"] && ov.lastN["10"].n === 10);
     assert.ok(ov.lastN["15"] && ov.lastN["15"].n === 15);
+    assert.ok(ov.lastN["650"] && ov.lastN["650"].n === 20);
+    assert.ok(ov.hours["45"] && ov.hours["45"].n >= 12);
+    const curve = tapeWindowCurve(pnl, 12);
+    assert.equal(curve.length, 12);
+    assert.ok(Math.abs(curve[11]!.pf - ov.lastN["12"].pf) < 1e-9);
+    assert.ok(curve[11]!.vol > 0);
     assert.ok(ov.hours["1"].n >= 12);
     assert.ok((ov.hours["1"].symbols ?? 0) >= 1);
   });

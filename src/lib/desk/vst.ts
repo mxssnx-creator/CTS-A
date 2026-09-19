@@ -3690,11 +3690,57 @@ function pnlBucket(rows: { pnl: number }[], key = "all"): OverallBucket {
   };
 }
 
-export const LIVE_POS_NS = [5, 10, 12, 15, 40, 120] as const;
-export const LIVE_HOUR_NS = [1, 2, 4, 6, 8, 12, 50] as const;
+export const LIVE_POS_NS = [5, 10, 12, 15, 40, 120, 650] as const;
+export const LIVE_HOUR_NS = [1, 2, 4, 6, 8, 12, 45, 50] as const;
+export const OVERVIEW_POS_NS = [12, 40, 120, 650] as const;
+export const OVERVIEW_HOUR_NS = [2, 6, 12, 45] as const;
 export const LIVE_POS_LABELS: Record<string, string> = Object.fromEntries(LIVE_POS_NS.map((n) => [`n${n}`, `Last ${n}`]));
 
 export type LivePnlRow = { t: number; v: number; symbol?: string };
+export type WindowPoint = { i: number; eq: number; dd: number; pf: number; vol: number; net: number };
+
+function finitePnl(pnl: LivePnlRow[]) {
+  return pnl.filter((r) => Number.isFinite(Number(r.v)) && Number.isFinite(Number(r.t)));
+}
+
+/** Chronological equity / rolling PF / drawdown / |pnl| volume for the newest `n` closes. */
+export function tapeWindowCurve(pnl: LivePnlRow[], n: number): WindowPoint[] {
+  const newest = finitePnl(pnl)
+    .sort((a, b) => Number(b.t) - Number(a.t))
+    .slice(0, Math.max(1, Math.round(n)));
+  const chrono = [...newest].reverse();
+  let eq = 0;
+  let peak = 0;
+  let gp = 0;
+  let gl = 0;
+  let vol = 0;
+  const out: WindowPoint[] = [];
+  for (let i = 0; i < chrono.length; i++) {
+    const v = Number(chrono[i]!.v) || 0;
+    eq += v;
+    vol += Math.abs(v);
+    if (v > 0) gp += v;
+    else if (v < 0) gl -= v;
+    if (eq > peak) peak = eq;
+    const dd = peak > 0 ? Math.min(1, Math.max(0, (peak - eq) / Math.max(peak, 1e-9))) : 0;
+    out.push({ i: i + 1, eq, dd, pf: profitFactor(gp, gl), vol, net: eq });
+  }
+  return out;
+}
+
+export function tapeHourCurve(pnl: LivePnlRow[], hours: number, now = Date.now()): WindowPoint[] {
+  const since = now - Math.max(0.1, hours) * 3_600_000;
+  return tapeWindowCurve(
+    finitePnl(pnl).filter((r) => Number(r.t) >= since),
+    10_000,
+  );
+}
+
+export function overlayWindowCurves(pnl: LivePnlRow[], now = Date.now()) {
+  const pos = Object.fromEntries(OVERVIEW_POS_NS.map((n) => [String(n), tapeWindowCurve(pnl, n)]));
+  const hours = Object.fromEntries(OVERVIEW_HOUR_NS.map((h) => [String(h), tapeHourCurve(pnl, h, now)]));
+  return { pos, hours };
+}
 
 /** Overlay BingX realized PnL onto last-N and hour windows (paper closed is ignored). */
 export function overlayLiveExecutions(
