@@ -59,6 +59,7 @@ import {
   sanitizeDeskSettings,
   settingsDiffer,
 } from "./settings-sync.ts";
+import { BUILTIN_PRESETS, allPresets, findPreset, presetIdOf, sanitizeUserPresets } from "./presets.ts";
 import {
   auditEngine,
   adjustActiveBlocks,
@@ -1886,6 +1887,18 @@ describe("VST engine", () => {
     assert.equal(collected.rev, 4);
     assert.equal(settingsDiffer(base, collected), true);
     assert.equal(settingsDiffer(base, sanitizeDeskSettings(base)), false);
+    const presets = allPresets([]);
+    assert.ok(presets.length >= 5);
+    assert.ok(findPreset("x01-live", [])?.patch.tactic === "trailing");
+    assert.ok(findPreset("vst-paper", [])?.patch.activeConnId === "bingx-vst-02");
+    const saved = sanitizeUserPresets([{ id: "user-a", label: "Mine", blurb: "x", builtin: false, patch: { tactic: "axis" } }, { id: "" }]);
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0]?.label, "Mine");
+    const withUser = sanitizeDeskSettings({ ...base, activePresetId: "x01-live", userPresets: saved });
+    assert.equal(withUser.activePresetId, "x01-live");
+    assert.equal(withUser.userPresets.length, 1);
+    assert.ok(presetIdOf("My Setup").startsWith("user-"));
+    assert.equal(BUILTIN_PRESETS.every((p) => p.builtin), true);
   });
 });
 

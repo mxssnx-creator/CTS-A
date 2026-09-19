@@ -93,6 +93,7 @@ import {
   writeLocalSettings,
   type DeskSettingsSnap,
 } from "./settings-sync";
+import { BUILTIN_PRESETS, findPreset, presetIdOf, type SettingsPreset } from "./presets";
 
 const vault: Record<string, { apiKey: string; secret: string }> = {};
 
@@ -141,6 +142,8 @@ interface DeskStore {
   useMaxLeverage: boolean;
   leverage: number;
   minSizeRatio: number;
+  activePresetId: string;
+  userPresets: import("./presets").SettingsPreset[];
   exchange: ExchangeBook | null;
   settingsRev: number;
   settingsAt: number;
@@ -218,6 +221,9 @@ interface DeskStore {
   hydrateSettings: () => Promise<void>;
   pullRemoteSettings: () => Promise<void>;
   applySettingsSnap: (snap: DeskSettingsSnap, source: "local" | "server") => void;
+  applyPreset: (id: string) => void;
+  savePreset: (label: string) => string;
+  deletePreset: (id: string) => void;
   setSymbolCount: (n: number) => void;
   setOrderType: (t: OrderTypeId) => void;
   toggleKind: (k: StrategyKind) => void;
@@ -336,6 +342,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
   useMaxLeverage: true,
   leverage: 125,
   minSizeRatio: 1.08,
+  activePresetId: "",
+  userPresets: [] as SettingsPreset[],
   exchange: null,
   liveSession: null,
   liveOverall: null,
@@ -442,6 +450,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       useMaxLeverage: true,
       leverage: 125,
       minSizeRatio: 1.08,
+      activePresetId: "",
     });
     get().applyLiveConfig();
   },
@@ -1412,6 +1421,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
         useMaxLeverage: snap.useMaxLeverage,
         leverage: snap.leverage,
         minSizeRatio: snap.minSizeRatio,
+        activePresetId: snap.activePresetId || get().activePresetId,
+        userPresets: snap.userPresets?.length ? snap.userPresets : get().userPresets,
         settingsRev: snap.rev,
         settingsAt: snap.at,
         settingsSource: source,
@@ -1473,6 +1484,36 @@ export const useDesk = create<DeskStore>((set, get) => ({
       ...(get().liveSession ? {} : { vst: snapshotVst(e) }),
       connections: alignConnOrders(trimConnSymbols(get().connections, snap.symbolCount), snap.orderType),
     });
+  },
+  applyPreset: (id) => {
+    const p = findPreset(id, get().userPresets);
+    if (!p) return;
+    const cur = collectDeskSettings(get());
+    const merged = sanitizeDeskSettings({ ...cur, ...p.patch, activePresetId: id, userPresets: get().userPresets });
+    get().applySettingsSnap(merged, "local");
+    get().applyLiveConfig();
+  },
+  savePreset: (label) => {
+    const name = label.trim().slice(0, 40) || "Saved";
+    const id = presetIdOf(name);
+    const snap = collectDeskSettings(get());
+    const preset: SettingsPreset = {
+      id,
+      label: name,
+      blurb: `${snap.tactic}/${snap.rangeType} · ${snap.symbolCount} sym`,
+      builtin: false,
+      patch: snap,
+    };
+    const userPresets = [...get().userPresets.filter((x) => x.id !== id), preset].slice(-24);
+    set({ userPresets, activePresetId: id });
+    get().syncSettings();
+    return id;
+  },
+  deletePreset: (id) => {
+    if (BUILTIN_PRESETS.some((p) => p.id === id)) return;
+    const userPresets = get().userPresets.filter((p) => p.id !== id);
+    set({ userPresets, activePresetId: get().activePresetId === id ? "" : get().activePresetId });
+    get().syncSettings();
   },
   setSymbolCount: (n) => {
     const symbolCount = clampSymbolCount(n);

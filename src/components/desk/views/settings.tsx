@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   BASE_EQUITY,
@@ -54,6 +54,7 @@ import { Field, fmtPf, fmtWr, LastNChips, Panel, Pill, Segmented, StatLine } fro
 import { LiveBookStrip } from "../live-book-strip";
 import { SystemPanel } from "../system-panel";
 import { usePreserveScroll } from "@/lib/desk/live-ctx";
+import { allPresets } from "@/lib/desk/presets";
 
 const chip =
   "h-11 min-w-16 px-3 text-xs font-medium transition-colors duration-150 sm:h-8";
@@ -63,6 +64,7 @@ const chipOff = "bg-surface-muted text-muted hover:text-fg";
 const COST_SNAPS = [3, 6, 10, 15, 20, 25, 30] as const;
 
 const SECTIONS = [
+  { id: "presets", label: "Presets" },
   { id: "system", label: "System" },
   { id: "last-n", label: "Last N pos" },
   { id: "stages", label: "Stages" },
@@ -227,6 +229,12 @@ export function SettingsView() {
   const exchange = useDesk((s) => s.exchange);
   const activeConnId = useDesk((s) => s.activeConnId);
   const venueTypes = orderTypesForVenue(connections[0]?.venue ?? "bingx", connections[0]?.orderTypesEnabled);
+  const activePresetId = useDesk((s) => s.activePresetId);
+  const userPresets = useDesk((s) => s.userPresets);
+  const applyPreset = useDesk((s) => s.applyPreset);
+  const savePreset = useDesk((s) => s.savePreset);
+  const deletePreset = useDesk((s) => s.deletePreset);
+  const [presetName, setPresetName] = useState("");
 
   const playbooks = DESK.strategies.filter((s) => strategyMatchesKinds(s, enabledKinds));
   const active = STRATEGIES.find((s) => s.id === strategyId) ?? STRATEGIES[0]!;
@@ -350,6 +358,54 @@ export function SettingsView() {
           </a>
         ))}
       </nav>
+
+      <div id="presets" className="scroll-mt-24">
+        <Panel title="Setting presets">
+        <p className="mb-3 text-sm text-muted">
+          Built-in options plus your saved snapshots. Apply loads the full desk (tactics, Block, gates, universe) and syncs live.
+        </p>
+        <div className="flex flex-wrap gap-1">
+          {allPresets(userPresets).map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className={`${chip} ${activePresetId === p.id ? chipOn : chipOff}`}
+              onClick={() => applyPreset(p.id)}
+              title={p.blurb}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            aria-label="Preset name"
+            value={presetName}
+            onChange={(e) => setPresetName(e.target.value)}
+            placeholder="Name this setup"
+            className="h-11 min-w-40 flex-1 bg-surface-muted px-3 text-sm sm:h-8"
+          />
+          <Button
+            size="sm"
+            className="h-11 sm:h-8"
+            onClick={() => {
+              savePreset(presetName);
+              setPresetName("");
+            }}
+          >
+            Save as preset
+          </Button>
+          {userPresets.some((p) => p.id === activePresetId) ? (
+            <Button size="sm" variant="secondary" className="h-11 sm:h-8" onClick={() => deletePreset(activePresetId)}>
+              Delete saved
+            </Button>
+          ) : null}
+        </div>
+        <p className="mt-2 text-xs text-subtle">
+          {allPresets(userPresets).find((p) => p.id === activePresetId)?.blurb || "No preset selected — current live values stay as-is until you apply or save."}
+        </p>
+        </Panel>
+      </div>
 
       <div id="system" className="scroll-mt-24">
         <SystemPanel

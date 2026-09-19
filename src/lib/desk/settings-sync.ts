@@ -25,6 +25,7 @@ import type {
   TacticKind,
   Thresholds,
 } from "./types";
+import { sanitizeUserPresets } from "./presets.ts";
 
 export const SETTINGS_STORAGE_KEY = "cts-a-desk-settings";
 export const SETTINGS_VERSION = 1;
@@ -73,6 +74,8 @@ export interface DeskSettingsSnap {
   useMaxLeverage: boolean;
   leverage: number;
   minSizeRatio: number;
+  activePresetId: string;
+  userPresets: import("./presets.ts").SettingsPreset[];
 }
 
 function asNum(n: unknown, fallback: number) {
@@ -125,6 +128,8 @@ export function defaultDeskSettings(): DeskSettingsSnap {
     useMaxLeverage: true,
     leverage: 125,
     minSizeRatio: 1.08,
+    activePresetId: "",
+    userPresets: [],
   };
 }
 
@@ -253,6 +258,8 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     useMaxLeverage: asBool((raw as { useMaxLeverage?: boolean }).useMaxLeverage, true),
     leverage: Math.min(150, Math.max(1, Math.round(asNum((raw as { leverage?: number }).leverage, 125)))),
     minSizeRatio: Math.min(2, Math.max(1, asNum((raw as { minSizeRatio?: number }).minSizeRatio, 1.08))),
+    activePresetId: typeof (raw as { activePresetId?: string }).activePresetId === "string" ? String((raw as { activePresetId?: string }).activePresetId).slice(0, 48) : "",
+    userPresets: sanitizeUserPresets((raw as { userPresets?: unknown }).userPresets),
   };
   if (!snap.evalHours.length) snap.evalHours = [...STAGE_HOURS];
   if (!snap.evalLastNs.length) snap.evalLastNs = [...LANE_EVAL_NS];
@@ -288,6 +295,8 @@ export function collectDeskSettings(s: {
   useMaxLeverage?: boolean;
   leverage?: number;
   minSizeRatio?: number;
+  activePresetId?: string;
+  userPresets?: import("./presets.ts").SettingsPreset[];
 }): DeskSettingsSnap {
   return sanitizeDeskSettings({
     v: SETTINGS_VERSION,
@@ -319,6 +328,8 @@ export function collectDeskSettings(s: {
     useMaxLeverage: s.useMaxLeverage,
     leverage: s.leverage,
     minSizeRatio: s.minSizeRatio,
+    activePresetId: s.activePresetId,
+    userPresets: s.userPresets,
   });
 }
 
