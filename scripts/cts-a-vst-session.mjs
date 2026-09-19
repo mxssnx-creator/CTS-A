@@ -611,7 +611,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         tpRatio,
         attachProtect: false,
         closePosition: false,
-        reduceOnly: true,
+        reduceOnly: false,
       };
       let r = await withLiveBusy(() => placeSwapOrder(body));
       if (!r.ok) {
@@ -722,7 +722,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         tpRatio: cell.tpRatio,
         attachProtect: false,
         closePosition: false,
-        reduceOnly: true,
+        reduceOnly: false,
       };
       let r = await withLiveBusy(() => placeSwapOrder(body));
       posts += 1;
