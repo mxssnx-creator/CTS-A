@@ -1,4 +1,6 @@
 import { createHmac } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import {
   BINGX_SYMBOL,
   deskIdFromVenue,
@@ -165,6 +167,12 @@ export async function fetchContractMap(network: "mainnet" | "testnet"): Promise<
       /* next host */
     }
   }
+  loadLeverageCaps();
+  for (const v of levQueryCache.values()) {
+    if (!v.row.symbol || !(v.row.max > 0)) continue;
+    const spec = map.get(v.row.symbol);
+    if (spec) spec.maxLeverage = Math.max(spec.maxLeverage || 0, v.row.max);
+  }
   contractCache = { at: Date.now(), network, map };
   return map;
 }
@@ -232,6 +240,7 @@ export function configureLiveExecution(p: Partial<LiveExecConfig>) {
   };
 }
 
+/** BingX max if known, else 125 only as a last-resort floor — never a target. */
 export function maxLeverageOf(spec?: ContractSpec | null): number {
   const n = Math.round(Number(spec?.maxLeverage) || 0);
   return n > 0 ? n : 125;
@@ -247,7 +256,64 @@ export type SymbolLeverage = {
 };
 
 const levQueryCache = new Map<string, { at: number; row: SymbolLeverage }>();
-const LEV_QUERY_TTL = 15 * 60_000;
+const LEV_QUERY_TTL = 6 * 60 * 60_000;
+const LEV_CAPS_FILE = process.env.CTS_A_LEV_CAPS || "/var/lib/cts-a/leverage-caps.json";
+let levCapsLoaded = false;
+let lastLevSave = 0;
+
+function levCapKey(network: string, connId: string | undefined, venue: string) {
+  return `${network}:${connId ?? ""}:${venue}`;
+}
+
+function stampSpecMax(venue: string, max: number) {
+  if (!(max > 0) || !contractCache?.map.has(venue)) return;
+  const spec = contractCache.map.get(venue);
+  if (spec) spec.maxLeverage = Math.max(spec.maxLeverage || 0, max);
+}
+
+export function loadLeverageCaps(): number {
+  if (levCapsLoaded) return levQueryCache.size;
+  levCapsLoaded = true;
+  try {
+    const raw = JSON.parse(readFileSync(LEV_CAPS_FILE, "utf8")) as { at?: number; caps?: Record<string, SymbolLeverage> };
+    const caps = raw.caps && typeof raw.caps === "object" ? raw.caps : {};
+    for (const [k, v] of Object.entries(caps)) {
+      if (!v || !(Number(v.max) > 0)) continue;
+      const row: SymbolLeverage = {
+        symbol: String(v.symbol || k.split(":").pop() || ""),
+        long: Math.max(0, Math.round(Number(v.long) || 0)),
+        short: Math.max(0, Math.round(Number(v.short) || 0)),
+        maxLong: Math.max(0, Math.round(Number(v.maxLong) || 0)),
+        maxShort: Math.max(0, Math.round(Number(v.maxShort) || 0)),
+        max: Math.max(0, Math.round(Number(v.max) || 0)),
+      };
+      levQueryCache.set(k, { at: Number(raw.at) || Date.now(), row });
+      if (row.symbol) stampSpecMax(row.symbol, row.max);
+    }
+  } catch {
+    /* first run / no persist */
+  }
+  return levQueryCache.size;
+}
+
+function saveLeverageCaps() {
+  if (Date.now() - lastLevSave < 4000) return;
+  lastLevSave = Date.now();
+  try {
+    const caps: Record<string, SymbolLeverage> = {};
+    for (const [k, v] of levQueryCache) caps[k] = v.row;
+    mkdirSync(dirname(LEV_CAPS_FILE), { recursive: true });
+    writeFileSync(LEV_CAPS_FILE, JSON.stringify({ at: Date.now(), caps }));
+  } catch {
+    /* preview */
+  }
+}
+
+export function cachedMaxLeverage(network: string, connId: string | undefined, venue: string, spec?: ContractSpec | null): number {
+  loadLeverageCaps();
+  const hit = levQueryCache.get(levCapKey(network, connId, venue));
+  return pickMaxLeverage(spec, hit?.row ?? null);
+}
 
 export function pickMaxLeverage(
   spec?: ContractSpec | null,
@@ -315,7 +381,11 @@ export async function ensureLiveAccountMode(input: {
   connId?: string;
   venueSymbol?: string;
   spec?: ContractSpec | null;
+  force?: boolean;
+  currentLong?: number;
+  currentShort?: number;
 }): Promise<string | null> {
+  loadLeverageCaps();
   const notes: string[] = [];
   const key = `${input.network}:${input.connId ?? ""}:${liveExec.hedgeMode}`;
   if (hedgeArmed !== key) {
@@ -341,13 +411,18 @@ export async function ensureLiveAccountMode(input: {
   const lev = pickMaxLeverage(input.spec, q);
   const sides = liveExec.hedgeMode ? (["LONG", "SHORT"] as const) : (["BOTH"] as const);
   for (const side of sides) {
-    const cur = side === "SHORT" ? (q?.short ?? 0) : side === "LONG" ? (q?.long ?? 0) : Math.min(q?.long ?? 0, q?.short ?? 0);
+    const cur =
+      side === "SHORT"
+        ? (input.currentShort ?? q?.short ?? 0)
+        : side === "LONG"
+          ? (input.currentLong ?? q?.long ?? 0)
+          : Math.min(input.currentLong ?? q?.long ?? 0, input.currentShort ?? q?.short ?? 0);
     const lk = `${venue}:${side}:${lev}`;
     if (cur >= lev && lev > 0) {
       levArmed.add(lk);
       continue;
     }
-    if (levArmed.has(lk)) continue;
+    if (!input.force && levArmed.has(lk)) continue;
     const r = await signedTrade(input.network, input.connId, "/openApi/swap/v2/trade/leverage", {
       symbol: venue,
       side,
@@ -360,31 +435,51 @@ export async function ensureLiveAccountMode(input: {
         if (side === "LONG" || side === "BOTH") q.long = lev;
       }
     }
-    notes.push(r.ok ? `lev ${side} ${cur || 0}→${lev}x` : `lev ${r.error}`);
+    if (r.error && /100410|frequency limit/i.test(r.error)) notes.push(`lev ${r.error}`);
+    else notes.push(r.ok ? `lev ${side} ${cur || 0}→${lev}x` : `lev ${r.error}`);
+    if (r.error && /100410|frequency limit/i.test(r.error)) break;
   }
-  return notes.length ? notes.slice(0, 3).join(" · ") : null;
+  return notes.length ? notes.slice(0, 4).join(" · ") : null;
 }
 
 export async function armMaxLeverage(
-  input: { network: "mainnet" | "testnet"; connId?: string; symbols: string[] },
-): Promise<{ n: number; max: number; raised: number; notes: string[] }> {
+  input: {
+    network: "mainnet" | "testnet";
+    connId?: string;
+    symbols: string[];
+    current?: Record<string, number>;
+  },
+): Promise<{ n: number; max: number; raised: number; notes: string[]; paused?: boolean }> {
+  loadLeverageCaps();
   const map = await fetchContractMap(input.network);
   const notes: string[] = [];
   let n = 0;
   let max = 0;
   let raised = 0;
-  const conc = 6;
+  let paused = false;
+  const conc = 2;
   for (let i = 0; i < input.symbols.length; i += conc) {
+    if (paused) break;
     const chunk = input.symbols.slice(i, i + conc);
     const out = await Promise.all(
       chunk.map(async (id) => {
         const venue = BINGX_SYMBOL[id] ?? (id.includes("-") ? id : `${id.replace(/USDT$/i, "")}-USDT`);
-        const spec = map.get(venue) ?? { symbol: venue, minQty: 0, step: 1, qtyPrec: 0, pxPrec: 4, minUsdt: 2, maxLeverage: 125 };
-        const msg = await ensureLiveAccountMode({ network: input.network, connId: input.connId, venueSymbol: venue, spec });
-        const q = await querySymbolLeverage(input.network, input.connId, venue);
-        const cap = pickMaxLeverage(spec, q);
-        const from = Math.min(q?.long || cap, q?.short || cap);
-        return { msg, cap, raised: Boolean(msg && /→/.test(msg)), from };
+        const spec = map.get(venue) ?? { symbol: venue, minQty: 0, step: 1, qtyPrec: 0, pxPrec: 4, minUsdt: 2 };
+        const curLong = Number(input.current?.[`${id}:long`] ?? input.current?.[`${deskIdFromVenue(venue)}:long`] ?? 0);
+        const curShort = Number(input.current?.[`${id}:short`] ?? input.current?.[`${deskIdFromVenue(venue)}:short`] ?? 0);
+        const capHint = cachedMaxLeverage(input.network, input.connId, venue, spec);
+        const force = (curLong > 0 && curLong < capHint) || (curShort > 0 && curShort < capHint);
+        const msg = await ensureLiveAccountMode({
+          network: input.network,
+          connId: input.connId,
+          venueSymbol: venue,
+          spec,
+          force,
+          currentLong: curLong || undefined,
+          currentShort: curShort || undefined,
+        });
+        const cap = cachedMaxLeverage(input.network, input.connId, venue, spec);
+        return { msg, cap, raised: Boolean(msg && /→/.test(msg)), paused: Boolean(msg && /100410|frequency limit/i.test(msg)) };
       }),
     );
     for (const row of out) {
@@ -392,9 +487,12 @@ export async function armMaxLeverage(
       max = Math.max(max, row.cap);
       if (row.raised) raised += 1;
       if (row.msg) notes.push(row.msg);
+      if (row.paused) paused = true;
     }
+    if (i + conc < input.symbols.length) await new Promise((r) => setTimeout(r, 280));
   }
-  return { n, max, raised, notes: notes.slice(0, 8) };
+  saveLeverageCaps();
+  return { n, max, raised, notes: notes.slice(0, 8), paused };
 }
 
 export function liftQtyToMin(
@@ -961,9 +1059,10 @@ export async function querySymbolLeverage(
   venueSymbol: string,
   opts?: { fresh?: boolean },
 ): Promise<SymbolLeverage | null> {
+  loadLeverageCaps();
   const venue = venueSymbol;
   if (!venue) return null;
-  const ck = `${network}:${connId ?? ""}:${venue}`;
+  const ck = levCapKey(network, connId, venue);
   const hit = levQueryCache.get(ck);
   if (!opts?.fresh && hit && Date.now() - hit.at < LEV_QUERY_TTL) return hit.row;
   const res = await signedJson(network, connId ?? "", "/openApi/swap/v2/trade/leverage", { symbol: venue });
@@ -979,10 +1078,8 @@ export async function querySymbolLeverage(
   };
   row.max = pickMaxLeverage(null, row);
   levQueryCache.set(ck, { at: Date.now(), row });
-  if (row.max > 0 && contractCache?.map.has(venue)) {
-    const spec = contractCache.map.get(venue);
-    if (spec) spec.maxLeverage = row.max;
-  }
+  stampSpecMax(venue, row.max);
+  saveLeverageCaps();
   return row;
 }
 

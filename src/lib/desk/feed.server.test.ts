@@ -3,11 +3,13 @@ import { describe, it } from "node:test";
 import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, deskClientPrefix, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders } from "./feed.ts";
 import {
   buildCanonical,
+  configureLiveExecution,
   exchangeMinNotional,
   fetchBingxTape,
   fetchExchangeBook,
   isMinSizeError,
   liftQtyToMin,
+  liveExecutionConfig,
   maxLeverageOf,
   parseBingxJson,
   parseAvailableUsdt,
@@ -51,6 +53,10 @@ describe("live feed", () => {
     assert.equal(pickMaxLeverage(null, { maxLongLeverage: 75, maxShortLeverage: 50 }), 75);
     assert.equal(pickMaxLeverage(null, null), 125);
     assert.equal(parsePositionLeverage({ leverage: "125" }), 125);
+    configureLiveExecution({ useMaxLeverage: false, leverage: 20 });
+    const exec = liveExecutionConfig();
+    assert.equal(exec.useMaxLeverage, true);
+    assert.equal(exec.leverage, 0);
     assert.equal(parsePositionLeverage({ positionLeverage: 75 }), 75);
     assert.equal(isMinSizeError("insufficient margin"), false);
     const down = snapQtyDown(1.0, { symbol: "SOL-USDT", minQty: 0.01, step: 0.01, qtyPrec: 2, pxPrec: 3, minUsdt: 5 });

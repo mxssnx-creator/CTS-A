@@ -1564,8 +1564,8 @@ export function SettingsView() {
             <Field label="Leverage">
               <Segmented
                 value="max"
-                onChange={() => setLiveExec({ useMaxLeverage: true })}
-                options={[{ id: "max", label: "Max / contract" }]}
+                onChange={() => setLiveExec({ useMaxLeverage: true, leverage: 0 })}
+                options={[{ id: "max", label: "Always max" }]}
               />
             </Field>
             <Field label="Min size ratio">
@@ -1582,7 +1582,7 @@ export function SettingsView() {
             </Field>
           </div>
           <p className="mt-3 text-sm text-muted">
-            Entries always lift to the exchange min quantity / min USDT. Cross + hedge and each contract’s max leverage are applied on every live BingX order.
+            Entries always lift to the exchange min quantity / min USDT. Cross + hedge. Every live BingX symbol is set to that contract’s maximum leverage (BTC 500x, others to their own cap) — never a 125x default.
           </p>
         </Panel>
       </div>

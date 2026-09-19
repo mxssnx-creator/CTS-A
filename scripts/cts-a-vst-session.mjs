@@ -4,7 +4,7 @@
  * Keys from env — never printed.
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h } from "../src/lib/desk/feed.server.ts";
+import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
 import {
@@ -100,11 +100,18 @@ function pickCompleteLock(complete) {
 }
 let lastLevBump = 0;
 let lastFlattenAt = 0;
+let lastLevWalk = 0;
+let levWalkI = 0;
+const levUniverse = [];
 
 async function raiseOwnedLeverage(network, positions) {
-  const ids = [...new Set((positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side)).map((p) => p.symbol).filter(Boolean))];
+  const owned = (positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
+  const ids = [...new Set(owned.map((p) => p.symbol).filter(Boolean))];
   if (!ids.length) return null;
-  const armed = await armMaxLeverage({ network, connId: CONN, symbols: ids });
+  const current = {};
+  for (const p of owned) current[`${p.symbol}:${p.side}`] = Number(p.leverage) || 0;
+  const armed = await armMaxLeverage({ network, connId: CONN, symbols: ids, current });
+  if (armed.paused) noteApiFail({ error: "100410 frequency limit" });
   if (armed.raised) return `lev raise ${armed.raised}/${armed.n} · peak ${armed.max}x`;
   return `lev hold ${armed.n} · peak ${armed.max}x`;
 }
@@ -1312,7 +1319,7 @@ function intenseCheck(e, pick) {
 
 function applyExecFromSettings(remote) {
   if (!remote || typeof remote !== "object") {
-    configureLiveExecution({ hedgeMode: true, marginMode: "cross", useMaxLeverage: true, leverage: 125, minSizeRatio: 1.08 });
+    configureLiveExecution({ hedgeMode: true, marginMode: "cross", useMaxLeverage: true, leverage: 0, minSizeRatio: 1.08 });
     return;
   }
   configureLiveExecution({
@@ -1381,19 +1388,15 @@ async function main() {
   if (ping.pingOk) adjustments.push(`BingX ${ping.network} ping ok · eq ${ping.equity.toFixed(2)}`);
   else adjustments.push(`BingX ping failed · ${ping.error ?? "auth"} · paper tape`);
   if (ping.pingOk) {
+    loadLeverageCaps();
     try {
       const mode = await ensureLiveAccountMode({ network: ping.network, connId: CONN });
       if (mode) adjustments.push(mode);
     } catch (err) {
       adjustments.push(`mode ${err instanceof Error ? err.message : "fail"}`);
     }
-    try {
-      const ids = universeSymbols(LIVE_SYMBOLS).map((s) => s.id);
-      const armed = await withTimeout(armMaxLeverage({ network: ping.network, connId: CONN, symbols: ids }), 90000, "lev");
-      adjustments.push(`max lev ${armed.n} symbols · peak ${armed.max}x · raised ${armed.raised ?? 0}`);
-    } catch (err) {
-      adjustments.push(`lev ${err instanceof Error ? err.message : "fail"}`);
-    }
+    adjustments.push("max lev always · BingX cap per symbol");
+    levUniverse.splice(0, levUniverse.length, ...universeSymbols(LIVE_SYMBOLS).map((s) => s.id));
     try {
       const dead = await pruneUnlisted(ping.network);
       if (dead) adjustments.push(`unlisted ${dead} contracts skipped`);
@@ -1584,13 +1587,25 @@ async function main() {
           adjustments.push(`live ${err instanceof Error ? err.message : "fail"}`);
         }
       }
-      if (!apiQuiet() && ping.pingOk && Date.now() - lastLevBump > 180_000) {
+      if (!apiQuiet() && ping.pingOk && (lastLevBump === 0 || Date.now() - lastLevBump > 180_000) && lastBook.pos > 0) {
         lastLevBump = Date.now();
         try {
-          const note = await withTimeout(raiseOwnedLeverage(ping.network, lastBook.positions), 20000, "lev-open");
+          const note = await withTimeout(raiseOwnedLeverage(ping.network, lastBook.positions), 25000, "lev-open");
           if (note) adjustments.push(note);
         } catch (err) {
           adjustments.push(`lev ${err instanceof Error ? err.message : "fail"}`);
+        }
+      }
+      if (!apiQuiet() && ping.pingOk && levUniverse.length && Date.now() - lastLevWalk > 2500) {
+        lastLevWalk = Date.now();
+        const id = levUniverse[levWalkI % levUniverse.length];
+        levWalkI += 1;
+        try {
+          const armed = await withTimeout(armMaxLeverage({ network: ping.network, connId: CONN, symbols: [id] }), 8000, "lev-walk");
+          if (armed.paused) noteApiFail({ error: "100410 frequency limit" });
+          if (armed.raised) adjustments.push(`lev ${id} ${armed.max}x`);
+        } catch {
+          /* next symbol */
         }
       }
       if (!apiQuiet() && ping.pingOk && engine.tick % 40 === 0) {
