@@ -2307,8 +2307,28 @@ describe("VST engine", () => {
     overlayLiveExecutions(ov, pnl, now);
     assert.equal(ov.lastN["12"].n, 12);
     assert.ok(ov.lastN["12"].pf > 1);
+    const last12 = pnl.slice(0, 12);
+    const gp = last12.filter((r) => r.v > 0).reduce((s, r) => s + r.v, 0);
+    const gl = Math.abs(last12.filter((r) => r.v < 0).reduce((s, r) => s + r.v, 0));
+    assert.ok(Math.abs(ov.lastN["12"].pf - gp / gl) < 1e-9, `last12 pf ${ov.lastN["12"].pf} vs ${gp / gl}`);
+    assert.ok(ov.lastN["5"] && ov.lastN["5"].n === 5);
+    assert.ok(ov.lastN["10"] && ov.lastN["10"].n === 10);
+    assert.ok(ov.lastN["15"] && ov.lastN["15"].n === 15);
     assert.ok(ov.hours["1"].n >= 12);
     assert.ok((ov.hours["1"].symbols ?? 0) >= 1);
+  });
+
+  it("Block last-N PF is rolling last N, not a stale completed window", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    const cfg = { ...DEFAULT_BLOCK_CONFIG, pauseCountRatio: 1, keepAdjusted: false };
+    for (let i = 0; i < 6; i++) noteBlockPosClose(e, "BTCUSDT", "long", -1, cfg);
+    assert.equal(e.blockWindows[6].lastPf, 0);
+    noteBlockPosClose(e, "ETHUSDT", "short", 3, cfg);
+    noteBlockPosClose(e, "ETHUSDT", "short", 3, cfg);
+    const last = e.blockWindows[6];
+    assert.equal(last.closed, 8);
+    assert.ok(last.lastPf > 0.9, `rolling pf ${last.lastPf}`);
+    assert.ok(last.lastNet > -6, `rolling net ${last.lastNet}`);
   });
 
   it("live-tape disable uses realized symbol PF not paper last-N", () => {

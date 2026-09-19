@@ -2005,14 +2005,16 @@ function tickBlockWindow(w: BlockPosWindow, symbol: string, side: Side, pnl: num
     w.pauseLeft -= 1;
     w.adjusted += 1;
   }
-  if (w.closed % w.n !== 0) return w;
   const last = w.ring.slice(-w.n);
-  const net = last.reduce((s, x) => s + x.pnl, 0);
-  const gp = last.filter((x) => x.pnl > 0).reduce((s, x) => s + x.pnl, 0);
-  const gl = Math.abs(last.filter((x) => x.pnl < 0).reduce((s, x) => s + x.pnl, 0));
-  w.lastNet = net;
-  w.lastAvg = net / w.n;
-  w.lastPf = profitFactor(gp, gl);
+  if (last.length) {
+    const net = last.reduce((s, x) => s + x.pnl, 0);
+    const gp = last.filter((x) => x.pnl > 0).reduce((s, x) => s + x.pnl, 0);
+    const gl = Math.abs(last.filter((x) => x.pnl < 0).reduce((s, x) => s + x.pnl, 0));
+    w.lastNet = net;
+    w.lastAvg = net / last.length;
+    w.lastPf = profitFactor(gp, gl);
+  }
+  if (w.closed % w.n !== 0) return w;
   w.windows += 1;
   w.losers = [...new Set(last.filter((x) => x.pnl < 0).map((x) => x.symbol))];
   if (w.lastAvg < 0 || w.lastPf < 1) {
@@ -3688,7 +3690,7 @@ function pnlBucket(rows: { pnl: number }[], key = "all"): OverallBucket {
   };
 }
 
-export const LIVE_POS_NS = [12, 40, 120] as const;
+export const LIVE_POS_NS = [5, 10, 12, 15, 40, 120] as const;
 export const LIVE_HOUR_NS = [1, 2, 4, 6, 8, 12, 50] as const;
 
 export type LivePnlRow = { t: number; v: number; symbol?: string };
