@@ -47,7 +47,7 @@ const DEFAULT_CFG: TacticConfig = {
   dcaDrawdown: 0.8,
   axisSpacing: 0.7,
   axisLevels: 5,
-  slAtr: 0.7,
+  slAtr: 0.5,
   tpRatio: 2.2,
   maxHoldBars: 3,
   maxHoldTicks: 16,
@@ -715,7 +715,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     tpRatio: snapTpRatio(cfg.tpRatio ?? TP_SL_RATIO),
     costStep: 10,
     lastTactic: "hybrid",
-    lastRange: "atr",
+    lastRange: "fibonacci",
     lastBlockAt: 0,
     blockLanes: {},
     blockWindows: {},
@@ -1068,9 +1068,9 @@ export function kindFromIndication(id: IndicationId, playbook: string, tactic: T
 }
 
 const IND_RANGE_PREF: Record<IndicationId, RangeType[]> = {
-  trend: ["atr", "fibonacci", "volume"],
+  trend: ["fibonacci", "atr", "volume"],
   break: ["volume", "atr", "fibonacci"],
-  active: ["fibonacci", "volume", "geometric"],
+  active: ["atr", "fibonacci", "volume"],
   direction: ["atr", "fibonacci", "linear"],
 };
 
@@ -1983,7 +1983,7 @@ const MINOR_REL = new Set(["cfg", "sub", "combo"]);
 export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BLOCK_CONFIG) {
   const ns = (block.evalLastNs?.length ? block.evalLastNs : [1, 2, 3, 4, 5, 6])
     .map((n) => Math.max(1, Math.min(6, Math.round(n))));
-  const minPf = block.minRelPf ?? 2;
+  const minPf = block.minRelPf ?? 1.6;
   const vr = Math.min(2, Math.max(0.05, block.relVolumeRatio ?? block.volumeRatio ?? 0.4));
   const maps = e.blockRelWindows ?? {};
   const candidates: { key: string; n: number; pf: number; net: number; closed: number }[] = [];

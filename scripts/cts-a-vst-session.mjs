@@ -71,7 +71,7 @@ const BLOCK = {
   autoEval: true,
   relAdditive: true,
   relVolumeRatio: 0.08,
-  minRelPf: 2,
+  minRelPf: 1.6,
   evalLastNs: [1, 2, 3, 4, 5, 6],
   liveLastN: 12,
   liveDisable: true,
@@ -83,27 +83,27 @@ const GRID = [
   {
     tactic: "hybrid",
     range: "fibonacci",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.6, dcaCount: 1, slAtr: 1.1, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "hybrid",
     range: "atr",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.6, dcaCount: 1, slAtr: 1.1, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "hybrid",
     range: "volume",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.6, dcaCount: 1, slAtr: 1.1, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "trailing",
     range: "fibonacci",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.6, dcaCount: 1, slAtr: 1.1, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "axis",
     range: "atr",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.6, dcaCount: 1, axisLevels: 5, slAtr: 1.1, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, axisLevels: 5, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
 ];
 

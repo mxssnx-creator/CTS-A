@@ -373,6 +373,15 @@ describe("VST engine", () => {
     assert.ok(engine.closed.some((c) => c.playbook === "axis" || c.tactic === "axis"));
   });
 
+  it("30d hybrid fibonacci stays positive on 8 symbols", () => {
+    const { report } = simulateHours(720, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci" });
+    finiteNum(report.pf, report.net);
+    assert.ok(report.trades >= 20, `trades ${report.trades}`);
+    assert.ok(report.pf >= 1, `30d PF ${report.pf}`);
+    assert.ok(report.net > 0);
+    assert.equal(report.nanCount, 0);
+  });
+
   it("combo breakdown has varied PF and MDD", () => {
     const rows = combosFiltered({
       symbol: "BTCUSDT",
@@ -1421,6 +1430,9 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_THRESHOLDS.minPf, 2);
     assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 1.1);
     assert.equal(DEFAULT_BLOCK_CONFIG.liveLastN, 12);
+    assert.equal(DEFAULT_BLOCK_CONFIG.minRelPf, 1.6);
+    assert.equal(DEFAULT_TACTIC_CONFIG.slAtr, 0.5);
+    assert.equal(DEFAULT_TACTIC_CONFIG.tpRatio, 2.2);
     assert.equal(DEFAULT_BLOCK_CONFIG.evalHours, 2);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2]);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.evalLastNs, [1, 2, 3, 4, 5, 6]);

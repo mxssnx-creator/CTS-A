@@ -209,7 +209,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         autoEval: asBool(b.autoEval, d.blockConfig.autoEval ?? true),
         relAdditive: asBool(b.relAdditive, d.blockConfig.relAdditive ?? true),
         relVolumeRatio: Math.min(2, Math.max(0.05, asNum(b.relVolumeRatio, d.blockConfig.relVolumeRatio ?? 0.08))),
-        minRelPf: Math.min(5, Math.max(1, asNum(b.minRelPf, d.blockConfig.minRelPf ?? 2))),
+        minRelPf: Math.min(5, Math.max(1, asNum(b.minRelPf, d.blockConfig.minRelPf ?? 1.6))),
         evalLastNs: Array.isArray(b.evalLastNs)
           ? [...new Set(b.evalLastNs.map((n) => Math.round(Number(n))).filter((n) => n >= 1 && n <= 6))].sort((a, c) => a - c)
           : [...(d.blockConfig.evalLastNs ?? [1, 2, 3, 4, 5, 6])],
