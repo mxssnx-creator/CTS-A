@@ -2263,9 +2263,9 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   const floor = entryMinPf(e);
   const st = e.symbolStats?.[symbol];
   const tape = symbolTapePf(e, symbol);
-  if (tape != null && tape + 1e-9 < 1) return true;
-  if (st && st.trades >= 6 && st.profit + 1e-12 <= st.loss) return true;
   const thin = Boolean(e.liveTape && (e.liveOpenN ?? 99) < 80);
+  if (!thin && tape != null && tape + 1e-9 < 1) return true;
+  if (!thin && st && st.trades >= 6 && st.profit + 1e-12 <= st.loss) return true;
   if (!thin && e.liveDisabled?.[`sym:${symbol}`]) return true;
   if (e.liveTape && !thin) {
     let liveN = 0;
@@ -4801,7 +4801,7 @@ export function liveShouldExecute(
   const play = String(rel.playbook || "");
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca) return t.dca;
-  if (rel.kind === "short" || play === "short") return t.block || t.trailing;
+  if (rel.kind === "short" || play === "short" || /short/i.test(note)) return t.block || t.trailing || t.axis;
   if (t.block && winningRelLive(e, rel)) return true;
   const isBlockFill = play === "block" || /^Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   const isBlock = isBlockFill || positionBlockAdjusted(e, rel.symbol, rel.side);

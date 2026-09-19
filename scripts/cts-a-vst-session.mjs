@@ -194,7 +194,7 @@ const BLOCK = {
 
 const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false };
 
-const LIVE_CFG = { trailingPct: 1.4, tpRatio: tpRatioOf(1), dcaCount: 1, slAtr: slAtrOf(1.0, 1), tpAtr: 1.0, slOfTp: 1, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
+const LIVE_CFG = { trailingPct: 1.4, tpRatio: tpRatioOf(1), dcaCount: 1, slAtr: slAtrOf(1.0, 1), tpAtr: 0.2, slOfTp: 0.5, shortRange: true, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
 const BASE_GRID = LIVE_TACTICS.flatMap((tactic) =>
   RANGE_TYPES.map((range) => ({
     tactic,
@@ -209,7 +209,7 @@ const SHORT_GRID = allShortTpSlCombos().flatMap((s) =>
     cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, ...s, dcaCount: 1, maxHoldTicks: 16 },
   })),
 );
-let GRID = [...SHORT_GRID, ...BASE_GRID];
+let GRID = [...SHORT_GRID];
 let currentPick = GRID[0];
 const DISABLED_FILE = process.env.CTS_A_DISABLED ?? "/var/lib/cts-a/live-disabled.json";
 
@@ -1390,8 +1390,21 @@ async function mirrorToExchange(e, network, cfg) {
   let placed = 0;
   let failed = 0;
   const fillJobs = [];
-  for (const f of e.fills) {
-    if (fillJobs.length >= 8) break;
+  const queueIntents = (e.queue ?? [])
+    .filter((o) => o && (o.kind === "short" || o.playbook === "short" || /Block|short/i.test(String(o.note || ""))))
+    .map((o) => ({
+      id: `q:${o.id}`,
+      orderId: o.id,
+      symbol: o.symbol,
+      side: o.side,
+      px: Number(o.price) || Number(e.quotes?.[o.symbol]?.px) || 0,
+      kind: "entry",
+      playbook: o.playbook,
+      note: o.note,
+      _fromQueue: true,
+    }));
+  for (const f of [...e.fills, ...queueIntents]) {
+    if (fillJobs.length >= 20) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
     if (e.lastTactic === "dca" || /dca/i.test(String(f.playbook || f.note || ""))) {
@@ -1501,6 +1514,10 @@ function intenseCheck(e, pick) {
     return "heal nan";
   }
   const book = bookCounts(e);
+  if (e.running && lastBook.pos < liveMaxPos() && book.orders.queued < 12) {
+    requeueFree(e, pick.cfg, pick.tactic, pick.range, CONN);
+    return lastBook.pos > 0 ? "rearm short" : "rearm empty book";
+  }
   if (lastBook.pos > 0) return null;
   if (e.running && book.orders.live + book.orders.queued === 0 && e.positions.length === 0) {
     requeueFree(e, pick.cfg, pick.tactic, pick.range, CONN);
@@ -1717,8 +1734,9 @@ async function main() {
     tickBusy = true;
     try {
       engine.liveOpenN = lastBook.pos || 0;
-      engine.strategyToggles = { ...STRAT };
+      engine.strategyToggles = { ...STRAT, dca: false };
       engine.blockCfg = { ...BLOCK, enabled: STRAT.block };
+      pick.cfg = { ...pick.cfg, shortRange: true, dcaCount: 1 };
       tickVst(engine, pick.cfg, pick.tactic, {
         freezeIds: lastBook.pos >= liveMaxPos() ? freeze : undefined,
         skipWalk: lastBook.pos >= liveMaxPos(),
