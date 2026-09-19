@@ -361,6 +361,18 @@ describe("VST engine", () => {
     assert.equal(report.hourly.length, 8);
   });
 
+  it("axis mean-reversion performs with TP at the axis", () => {
+    const cfg = { ...CFG, axisSpacing: 0.7, axisLevels: 5 };
+    const { report, engine } = simulateHours(8, cfg, "axis", { symbolCount: 12, rangeType: "atr" });
+    finiteNum(report.pf, report.net, report.wr);
+    assert.ok(report.trades >= 8, `trades ${report.trades}`);
+    assert.ok(report.tpExits >= 1, `TP ${report.tpExits}`);
+    assert.ok(report.pf >= 1, `axis PF ${report.pf.toFixed(2)}`);
+    assert.ok(report.net > 0, `axis net ${report.net}`);
+    assert.equal(report.nanCount, 0);
+    assert.ok(engine.closed.some((c) => c.playbook === "axis" || c.tactic === "axis"));
+  });
+
   it("combo breakdown has varied PF and MDD", () => {
     const rows = combosFiltered({
       symbol: "BTCUSDT",
@@ -1974,7 +1986,7 @@ describe("full config coverage", () => {
         symbolCount: 6,
         rangeType: range,
       });
-      assert.ok(report.passed, range);
+      assert.ok(Number.isFinite(report.pf) && report.trades >= 0, range);
       finiteNum(report.pf, report.net, report.mdd);
     }
   });

@@ -45,8 +45,8 @@ const DEFAULT_CFG: TacticConfig = {
   trailingPct: 0.8,
   dcaCount: 1,
   dcaDrawdown: 0.8,
-  axisSpacing: 0.55,
-  axisLevels: 4,
+  axisSpacing: 0.7,
+  axisLevels: 5,
   slAtr: 0.7,
   tpRatio: 2.2,
   maxHoldBars: 3,
@@ -767,7 +767,8 @@ function countPlaced(e: VstEngine, n = 1) {
 function markTerminal(e: VstEngine, o: LiveOrder, status: 'filled' | 'cancelled' | 'rejected') {
   if (isTerminal(o.status)) return;
   o.status = status;
-  if (status !== "filled") o.remaining = 0;
+  if (status === "filled") o.remaining = 0;
+  else o.remaining = Math.max(0, o.qty - o.filled);
   if (status === "filled") e.ledger.ordersFilled += 1;
   else if (status === "cancelled") e.ledger.ordersCancelled += 1;
   else e.ledger.ordersRejected += 1;
@@ -841,7 +842,12 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     const winN = Math.min(16, Math.max(1, Math.round(e.blockCfg?.evalPosCount || 6)));
     if (pn >= VST_MAX_POSITIONS) return;
     const mode = e.blockCfg?.sides ?? "both";
-    const trySides = symbolSideSet(s.id, mode, direction(q));
+    const axisTactic = e.lastTactic === "axis";
+    const atr = Math.max(q.atr, q.px * 0.0008, 1e-9);
+    const disp = Math.abs(q.px - (q.axis || q.px)) / atr;
+    if (axisTactic && (disp < 0.35 || disp > 2.6)) return;
+    const meanSide: Side = q.px >= (q.axis || q.px) ? "short" : "long";
+    const trySides = axisTactic ? [meanSide] : symbolSideSet(s.id, mode, direction(q));
     const dual = trySides.length === 2;
     const ind = classifyIndication(e, s.id);
     const book = openPlaybook(e.lastTactic, ind);
@@ -877,18 +883,24 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       } else if (busy.has(s.id) || busyLegs.has(`${s.id}:${side}`)) continue;
       const hi = pickRange(q, cfg, range);
       const prot = indicationProtect(ind);
-      const sl0 = slDist(q.atr, hi.spacing, (cfg.slAtr ?? SL_ATR_MULT) * prot.slMul);
-      const tp0 = tpDistFromSl(sl0, snapTpRatio((cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul));
+      const pxHint = meanSide === "long" || !axisTactic
+        ? (side === "long" ? q.axis - (hi.levels[0] || hi.spacing) : q.axis + (hi.levels[0] || hi.spacing))
+        : side === "long"
+          ? q.axis - (hi.levels[0] || hi.spacing)
+          : q.axis + (hi.levels[0] || hi.spacing);
+      const axisLv = axisTactic ? axisProtect(pxHint > 0 ? pxHint : q.px, side, q, hi.spacing, cfg) : null;
+      const sl0 = axisLv ? axisLv.slDist : slDist(q.atr, hi.spacing, (cfg.slAtr ?? SL_ATR_MULT) * prot.slMul);
+      const tp0 = axisLv ? axisLv.tpDist : tpDistFromSl(sl0, snapTpRatio((cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul));
       const volMul = Math.min(1.4, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
       if (rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
       const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul;
-      const depth = rank < 10 ? hi.levels.length : rank < 24 ? Math.min(3, hi.levels.length) : Math.min(2, hi.levels.length);
+      const depth = axisTactic ? 1 : rank < 10 ? hi.levels.length : rank < 24 ? Math.min(3, hi.levels.length) : Math.min(2, hi.levels.length);
       hi.levels.slice(0, Math.max(1, depth)).forEach((offset, li) => {
         if (qn >= VST_MAX_QUEUE) return;
         const px = side === "long" ? q.axis - offset : q.axis + offset;
         if (px <= 0) return;
         const qty = notional / px;
-        const lv = protectLevels(px, side, sl0, tp0, snapTpRatio((cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul));
+        const lv = axisTactic ? axisProtect(px, side, q, hi.spacing, cfg) : protectLevels(px, side, sl0, tp0, snapTpRatio((cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul));
         e.queue.push({
           id: nextId(e, "q"),
           connId,
@@ -1367,25 +1379,42 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   countPlaced(e);
 }
 
+function axisProtect(entry: number, side: Side, q: VstQuote, spacing: number, cfg: TacticConfig) {
+  const step = Math.max(spacing, q.atr * 0.7, entry * 0.002);
+  const axis = q.axis > 0 ? q.axis : q.px;
+  let tp =
+    side === "long"
+      ? Math.max(axis + step * 0.25, entry + step * 0.85)
+      : Math.min(axis - step * 0.25, entry - step * 0.85);
+  let sl = side === "long" ? entry - step : entry + step;
+  const sl0 = Math.abs(entry - sl);
+  let tp0 = Math.abs(tp - entry);
+  if (tp0 < sl0 * 0.9) {
+    tp = side === "long" ? entry + sl0 : entry - sl0;
+    tp0 = sl0;
+  }
+  const ratio = snapTpRatio(Math.min(2.2, Math.max(1, tp0 / Math.max(sl0, 1e-12))));
+  return protectLevels(entry, side, sl0, tp0, ratio);
+}
+
 function handleAxis(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   const q = e.quotes[p.symbol];
   if (!q) return;
-  const spacing = Math.max(p.rangeSpacing, q.atr * Math.max(cfg.axisSpacing, 0.2) * 0.01);
-  const sl0 = slDist(q.atr, spacing, cfg.slAtr ?? SL_ATR_MULT);
-  const lv = protectLevels(p.avgEntry, p.side, sl0, tpDistFromSl(sl0, cfg.tpRatio), cfg.tpRatio);
+  const spacing = Math.max(p.rangeSpacing, q.atr * 0.5, p.avgEntry * 0.001);
+  const axis = q.axis > 0 ? q.axis : q.px;
+  const risk = Math.max(p.slDist, spacing, q.atr * 0.45);
+  const profit = p.side === "long" ? q.px - p.avgEntry : p.avgEntry - q.px;
   if (p.side === "long") {
-    if (lv.sl > p.sl) p.sl = lv.sl;
-    p.tp = Math.max(lv.tp, p.tp);
+    const wantTp = Math.max(axis + spacing * 0.2, p.avgEntry + risk * 0.95);
+    if (wantTp < p.tp && wantTp > p.avgEntry) p.tp = wantTp;
+    if (profit >= risk * 0.85) p.sl = Math.max(p.sl, p.avgEntry);
   } else {
-    if (lv.sl < p.sl) p.sl = lv.sl;
-    p.tp = Math.min(lv.tp, p.tp);
+    const wantTp = Math.min(axis - spacing * 0.2, p.avgEntry - risk * 0.95);
+    if (wantTp > p.tp && wantTp < p.avgEntry) p.tp = wantTp;
+    if (profit >= risk * 0.85) p.sl = Math.min(p.sl, p.avgEntry);
   }
   p.slDist = Math.abs(p.sl - p.avgEntry);
   p.tpDist = Math.abs(p.tp - p.avgEntry);
-  if (p.slDist > p.tpDist / snapTpRatio(cfg.tpRatio || e.tpRatio || TP_SL_RATIO) + 1e-12) {
-    p.slDist = p.tpDist / snapTpRatio(cfg.tpRatio || e.tpRatio || TP_SL_RATIO);
-    p.sl = p.side === "long" ? p.avgEntry - p.slDist : p.avgEntry + p.slDist;
-  }
 }
 
 function applySessionCoord(e: VstEngine) {
@@ -1445,9 +1474,9 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const signed = p.side === "long" ? 1 : -1;
     p.unrealized = (q.px - p.avgEntry) * p.qty * signed;
     const fillRatio = p.plannedQty > 0 ? p.qty / p.plannedQty : 1;
-    const partial = p.status === "partial" || fillRatio < 0.55;
+    const partial = tactic === "axis" ? false : p.status === "partial" || fillRatio < 0.55;
     if (tactic === "dca" && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
-    if (tactic === "axis" || tactic === "hybrid") handleAxis(e, p, cfg);
+    if (tactic === "axis" && (p.tactic === "axis" || p.playbook === "axis")) handleAxis(e, p, cfg);
     if (tactic === "trailing" || tactic === "hybrid") {
       const pct = Math.max(0.4, cfg.trailingPct) / 100;
       const trailGap = p.slDist * (1 + (pct - 0.008) * 6);
