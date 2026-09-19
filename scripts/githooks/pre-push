@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Block push if workspace is behind the remote server. Pull first.
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+KEY="${CTS_SSH_KEY:-/root/.ssh/id_cts_a}"
+if [[ ! -r "$KEY" && -r /tmp/cts-ssh/id_kex ]]; then KEY=/tmp/cts-ssh/id_kex; fi
+export GIT_SSH_COMMAND="ssh -i ${KEY} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+git fetch origin
+behind=$(git rev-list --count HEAD..origin/main || echo 0)
+if [[ "$behind" -gt 0 ]]; then
+  echo "Workspace is $behind commit(s) behind origin/main. Run scripts/cts-sync.sh pull first." >&2
+  exit 1
+fi
+exit 0
