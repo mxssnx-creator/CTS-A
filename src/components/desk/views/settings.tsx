@@ -809,8 +809,8 @@ export function SettingsView() {
               label="Trailing"
               value={cfg.trailingPct}
               min={0.8}
-              max={2.0}
-              step={0.1}
+              max={1.4}
+              step={0.6}
               format={(n) => `${n.toFixed(1)}%`}
               onChange={(n) => setCfg({ trailingPct: n })}
               onCommit={applyLive}

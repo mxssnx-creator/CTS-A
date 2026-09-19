@@ -37,6 +37,7 @@ import {
   pickBestCombo,
   POSITION_COST_PCT,
   TRAIL_PCTS,
+  DISABLED_TRAIL_PCTS,
   TRAIL_POS_RATIOS,
   trailStopFromPeak,
   trailGiveback,
@@ -158,7 +159,7 @@ describe("VST engine", () => {
 
   it("trailingPct changes trail lock versus a wider trail", () => {
     const tight = { ...CFG, trailingPct: 0.8, tpRatio: 1.333, slAtr: 0.75, maxHoldTicks: 20000 };
-    const wide = { ...CFG, trailingPct: 2.0, tpRatio: 1.333, slAtr: 0.75, maxHoldTicks: 20000 };
+    const wide = { ...CFG, trailingPct: 1.4, tpRatio: 1.333, slAtr: 0.75, maxHoldTicks: 20000 };
     const a = simulateHours(6, tight, "trailing", { symbolCount: 8, orderType: "limit", rangeType: "atr" }).report;
     const b = simulateHours(6, wide, "trailing", { symbolCount: 8, orderType: "limit", rangeType: "atr" }).report;
     finiteNum(a.pf, b.pf, a.net, b.net, a.trades, b.trades);
@@ -168,21 +169,22 @@ describe("VST engine", () => {
   });
 
   it("trails stop from peak with tighter giveback as profit extends", () => {
-    assert.equal(TRAIL_PCTS.length, 6);
+    assert.equal(TRAIL_PCTS.length, 2);
+    assert.ok(!DISABLED_TRAIL_PCTS.some((t) => TRAIL_PCTS.includes(t as (typeof TRAIL_PCTS)[number])));
     assert.equal(TRAIL_POS_RATIOS.length, 6);
-    assert.ok(trailGiveback(0.1, 1.2) > trailGiveback(1, 1.2));
-    assert.ok(trailGiveback(0.5, 2.0) > trailGiveback(0.5, 0.8));
-    const early = trailStopFromPeak({ side: "long", entry: 100, peak: 101, tp: 104, sl: 98, trailPct: 1.2 });
-    const mid = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 1.2 });
-    const late = trailStopFromPeak({ side: "long", entry: 100, peak: 104, tp: 104, sl: 98, trailPct: 1.2 });
+    assert.ok(trailGiveback(0.1, 1.4) > trailGiveback(1, 1.4));
+    assert.ok(trailGiveback(0.5, 1.4) > trailGiveback(0.5, 0.8));
+    const early = trailStopFromPeak({ side: "long", entry: 100, peak: 101, tp: 104, sl: 98, trailPct: 1.4 });
+    const mid = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 1.4 });
+    const late = trailStopFromPeak({ side: "long", entry: 100, peak: 104, tp: 104, sl: 98, trailPct: 1.4 });
     assert.ok(early >= 98 && early < 101, `early ${early}`);
     assert.ok(mid > early, `mid ${mid} vs early ${early}`);
     assert.ok(late > mid, `late ${late} vs mid ${mid}`);
     assert.ok(late < 104);
     const tight = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 0.8 });
-    const wide = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 2.0 });
+    const wide = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 1.4 });
     assert.ok(tight > wide, `tight ${tight} vs wide ${wide}`);
-    const short = trailStopFromPeak({ side: "short", entry: 100, peak: 98, tp: 96, sl: 102, trailPct: 1.2 });
+    const short = trailStopFromPeak({ side: "short", entry: 100, peak: 98, tp: 96, sl: 102, trailPct: 1.4 });
     assert.ok(short <= 102 && short > 98, `short ${short}`);
   });
 
@@ -1212,7 +1214,7 @@ describe("VST engine", () => {
   it("block on vs off: adds rungs when enabled and stays inert when disabled", () => {
     const off = { ...DEFAULT_BLOCK_CONFIG, enabled: false };
     const on = { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false, cadence: 4, addOnWin: false, flattenConflict: false, sides: "both" as const, windows: false, liveDisable: false };
-    const cfg = { ...CFG, trailingPct: 2.0, maxHoldTicks: 20000 };
+    const cfg = { ...CFG, trailingPct: 1.4, maxHoldTicks: 20000 };
     const a = simulateHours(12, cfg, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: on });
     const b = simulateHours(12, cfg, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: off });
     assert.equal(a.report.nanCount, 0);

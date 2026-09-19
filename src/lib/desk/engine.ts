@@ -65,7 +65,9 @@ export function pfFromPnls(rows: { pnl: number }[] | undefined | null): number {
 /** Hard floor — volume factor cannot be gated below this. */
 export const MIN_VOLUME_FACTOR = 1.05;
 export const MIN_QUOTE_VOL = 0.006;
-export const TRAIL_PCTS = [0.8, 1.0, 1.2, 1.4, 1.7, 2.0] as const;
+/** Live BingX: 2.0/1.7/1.2/1.0 lost (UNI, LTC, NEAR, JUP, CRV, ONDO). Keep 0.8 and 1.4. */
+export const TRAIL_PCTS = [0.8, 1.4] as const;
+export const DISABLED_TRAIL_PCTS = [1.0, 1.2, 1.7, 2.0] as const;
 /** Giveback of peak profit through the positive (0→TP) range. Tightens as price extends. */
 export const TRAIL_POS_RATIOS = [0.82, 0.68, 0.54, 0.42, 0.30, 0.20] as const;
 
@@ -91,7 +93,7 @@ export function trailGiveback(progress: number, trailPct: number): number {
   const t = x - i;
   const base = TRAIL_POS_RATIOS[i]! * (1 - t) + TRAIL_POS_RATIOS[i + 1]! * t;
   const pct = snapTrailPct(trailPct);
-  const scale = 0.7 + ((pct - 0.8) / 1.2) * 0.7;
+  const scale = 0.78 + ((pct - 0.8) / 0.6) * 0.44;
   return Math.min(0.9, Math.max(0.12, base * scale));
 }
 
@@ -222,7 +224,7 @@ export function allProtectCells(): ProtectCell[] {
 }
 
 export function pickProtectCell(symbol: string, cells: ProtectCell[]): ProtectCell {
-  if (!cells.length) return { slAtr: slAtrOf(1, 0.75), tpRatio: tpRatioOf(0.75), trailPct: 1.2, tpAtr: 1, slOfTp: 0.75 };
+  if (!cells.length) return { slAtr: slAtrOf(1, 0.75), tpRatio: tpRatioOf(0.75), trailPct: 1.4, tpAtr: 1, slOfTp: 0.75 };
   let h = 2166136261;
   for (let i = 0; i < symbol.length; i++) h = Math.imul(h ^ symbol.charCodeAt(i), 16777619);
   return cells[Math.abs(h) % cells.length]!;

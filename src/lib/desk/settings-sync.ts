@@ -182,7 +182,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         asNum(cfg.tpAtr, hasPair ? 0.8 : asNum(cfg.slAtr, d.tacticConfig.slAtr) / Math.max(0.5, slOfTp)),
       );
       return {
-      trailingPct: Math.min(2.0, Math.max(0.8, asNum(cfg.trailingPct, d.tacticConfig.trailingPct))),
+      trailingPct: Number([0.8, 1.4].reduce((b, t) => (Math.abs(t - asNum(cfg.trailingPct, 1.4)) < Math.abs(b - asNum(cfg.trailingPct, 1.4)) ? t : b), 1.4)),
       dcaCount: 1,
       dcaDrawdown: Math.max(0.3, asNum(cfg.dcaDrawdown, d.tacticConfig.dcaDrawdown)),
       axisSpacing: Math.max(0.2, asNum(cfg.axisSpacing, d.tacticConfig.axisSpacing)),
