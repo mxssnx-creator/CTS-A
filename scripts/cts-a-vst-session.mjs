@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -53,10 +53,12 @@ const LIVE_MIN_PF = Math.max(DEFAULT_MIN_PF, Number(process.env.CTS_A_LIVE_MIN_P
 const LIVE_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? X01_DEFAULTS.symbolCount : VST_MAX_SYMBOLS)));
 const UNI = new Set(universeSymbols(LIVE_SYMBOLS).map((s) => s.id));
 const PREFERRED_RANGES = new Set(["fibonacci", "geometric", "atr"]);
+const mirrored = new Set();
 function isDeskSymbol(sym) {
   const s = String(sym || "");
+  if (!s) return false;
   if (UNI.has(s)) return true;
-  return IS_X01 && Boolean(s);
+  return mirrored.has(`own:${s}:long`) || mirrored.has(`own:${s}:short`) || mirrored.has(`live:${s}:long`) || mirrored.has(`live:${s}:short`);
 }
 function pickCompleteLock(complete) {
   const cells = (complete?.cells || []).filter((c) => c?.ok && Number(c.hours) >= 8 && Number(c.trades || 0) >= 8 && Number(c.pf) >= 1.4);
@@ -388,7 +390,78 @@ function isRateLimited(s) {
 }
 
 function quietMs(s) {
-  return /109418|480000|over 20/i.test(String(s || "")) ? 480_000 : 120_000;
+  const msg = String(s || "");
+  const m = msg.match(/unblocked after\s+(\d{10,})/i);
+  if (m) {
+    let ts = Number(m[1]);
+    if (Number.isFinite(ts) && ts > 0) {
+      if (ts < 1e12) ts *= 1000;
+      const wait = ts - Date.now() + 2000;
+      if (wait > 2000) return Math.min(480_000, wait);
+    }
+  }
+  return /109418|480000|over 20/i.test(msg) ? 480_000 : 180_000;
+}
+
+function protectKind(t) {
+  const u = String(t || "").toUpperCase();
+  if (u.includes("STOP") && !u.includes("TAKE_PROFIT") && !u.includes("TRAILING")) return "sl";
+  if (u.includes("TAKE_PROFIT") || u.includes("TRAILING")) return "tp";
+  return "";
+}
+
+function countProtect(positions, orders) {
+  const sl = new Set();
+  const tp = new Set();
+  for (const o of orders ?? []) {
+    const k = `${o.symbol}:${o.side}`;
+    const kind = protectKind(o.type);
+    if (kind === "sl") sl.add(k);
+    else if (kind === "tp") tp.add(k);
+  }
+  let nSl = 0;
+  let nTp = 0;
+  for (const p of positions ?? []) {
+    const k = `${p.symbol}:${p.side}`;
+    if (sl.has(k)) nSl += 1;
+    if (tp.has(k)) nTp += 1;
+  }
+  return { sl: nSl, tp: nTp };
+}
+
+function deskExecRows(rows) {
+  return (Array.isArray(rows) ? rows : []).filter((r) => UNI.has(String(r.key || r.id || "")));
+}
+
+function foldExec(rows) {
+  let n = 0;
+  let wins = 0;
+  let profit = 0;
+  let loss = 0;
+  for (const r of rows) {
+    n += Math.max(0, Number(r.n ?? r.trades) || 0);
+    wins += Math.max(0, Number(r.wins) || 0);
+    const p = Number(r.profit);
+    const l = Number(r.loss);
+    if (Number.isFinite(p) && Number.isFinite(l)) {
+      profit += Math.max(0, p);
+      loss += Math.max(0, l);
+    } else {
+      const net = Number(r.net) || 0;
+      if (net >= 0) profit += net;
+      else loss += -net;
+    }
+  }
+  const pf = profitFactor(profit, loss);
+  return {
+    n,
+    wins,
+    pf: Number.isFinite(pf) ? pf : 0,
+    wr: n ? wins / n : 0,
+    net: profit - loss,
+    ddt: 0,
+    mdd: 0,
+  };
 }
 
 async function pingVst() {
@@ -406,7 +479,6 @@ async function pingVst() {
   return { network: NETWORK_PREF, pingOk: false, equity: 0, error: err };
 }
 
-const mirrored = new Set();
 let liveBusy = 0;
 let liveLast = 0;
 let claimed = false;
@@ -538,8 +610,8 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     cur[k].push(o);
     grouped.set(key, cur);
   }
-  lastBook.sl = (book.positions ?? []).filter((p) => isDeskSymbol(p.symbol) && hasSl.has(`${p.symbol}:${p.side}`)).length;
-  lastBook.tp = (book.positions ?? []).filter((p) => isDeskSymbol(p.symbol) && hasTp.has(`${p.symbol}:${p.side}`)).length;
+  lastBook.sl = countProtect(book.positions ?? [], book.orders ?? []).sl;
+  lastBook.tp = countProtect(book.positions ?? [], book.orders ?? []).tp;
   const occupied = new Set((book.positions ?? []).filter((p) => isDeskSymbol(p.symbol)).map((p) => `${p.symbol}:${p.side}`));
   const posQty = new Map((book.positions ?? []).filter((p) => isDeskSymbol(p.symbol)).map((p) => [`${p.symbol}:${p.side}`, p.qty]));
   const owned = (book.positions ?? []).filter((p) => {
@@ -744,7 +816,8 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
 
   const trailT0 = Date.now();
   let trailed = 0;
-  if (posts < 48 && !apiQuiet()) {
+  const protectGapNow = Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0));
+  if (posts < 48 && !apiQuiet() && protectGapNow === 0) {
     const mode = network === "mainnet" ? "main" : "vst";
     const trailNeed = [];
     for (const p of posByVol) {
@@ -833,15 +906,17 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     }
   }
   lastTrail = { n: trailed, ms: Date.now() - trailT0, at: Date.now() };
-  lastBook.sl = (book.positions ?? []).filter((p) => isDeskSymbol(p.symbol) && hasSl.has(`${p.symbol}:${p.side}`)).length;
-  lastBook.tp = (book.positions ?? []).filter((p) => isDeskSymbol(p.symbol) && hasTp.has(`${p.symbol}:${p.side}`)).length;
+  const prot = countProtect(lastBook.positions ?? book.positions ?? [], lastBook.orders ?? book.orders ?? []);
+  lastBook.sl = prot.sl;
+  lastBook.tp = prot.tp;
   if (notes.length) return notes.filter(Boolean).slice(0, 4).join(" · ");
   return null;
 }
 
 async function mirrorToExchange(e, network, cfg) {
   if (apiQuiet()) return null;
-  if (Date.now() - liveLast < 200) return;
+  const gapNow = Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0));
+  if (Date.now() - liveLast < (gapNow > 0 ? 250 : 700)) return;
   liveLast = Date.now();
   const keys = keysForConn(CONN);
   if (!keys.apiKey || !keys.secret) return "live no keys";
@@ -870,13 +945,14 @@ async function mirrorToExchange(e, network, cfg) {
   emptyHold = 0;
   const deskPos = (book.positions ?? []).filter((p) => isDeskSymbol(p.symbol));
   const deskOrd = (book.orders ?? []).filter((o) => isDeskSymbol(o.symbol));
+  const prot = countProtect(deskPos, deskOrd);
   lastBook = {
     pos: deskPos.length,
     ord: deskOrd.length,
     pnl: deskPos.reduce((s, p) => s + (p.pnl || 0), 0),
     ok: true,
-    sl: lastBook.sl,
-    tp: lastBook.tp,
+    sl: prot.sl,
+    tp: prot.tp,
     equity: Number(book.equity) || lastBook.equity || 0,
     latencyMs: Number(book.latencyMs) || 0,
     positions: deskPos.map((p) => ({
@@ -1091,13 +1167,15 @@ async function main() {
   let seededLosers = 0;
   try {
     const prev = JSON.parse(readFileSync(OVERALL, "utf8"));
-    const rows = prev?.executions?.bySymbol;
-    if (Array.isArray(rows) && rows.length) {
+    const rows = deskExecRows(prev?.executions?.bySymbol);
+    if (rows.length) {
       applyRealizedSymbolStats(engine, rows);
       seededLosers = rows.filter((r) => Number(r.n || r.trades) >= 2 && Number(r.pf) + 1e-9 < LIVE_MIN_PF).length;
+      const folded = foldExec(rows);
+      if (folded.n > 0) lastExec = { ...lastExec, ...folded };
     }
     const rz = prev?.executions?.realized;
-    if (rz && Number(rz.n) > 0) {
+    if (lastExec.n < 2 && rz && Number(rz.n) > 0) {
       lastExec = {
         n: Number(rz.n) || 0,
         wins: Number(rz.wins) || 0,
@@ -1107,6 +1185,8 @@ async function main() {
         ddt: Number(rz.ddt) || 0,
         mdd: Number(rz.mdd) || 0,
       };
+    }
+    if (lastExec.n > 0) {
       engine.stats.trades = lastExec.n;
       engine.stats.pf = lastExec.pf;
       engine.stats.wr = lastExec.wr;
@@ -1197,8 +1277,10 @@ async function main() {
     try {
       const ex0 = await withTimeout(fetchLiveExecutions({ network: ping.network, connId: CONN, since: started - 3 * 86400000 }), 8000, "exec0");
       if (ex0.ok && ex0.realized?.n > 0) {
-        lastExec = { ...lastExec, ...ex0.realized };
-        applyRealizedSymbolStats(engine, ex0.bySymbol || []);
+        const rows = deskExecRows(ex0.bySymbol);
+        const folded = rows.length ? foldExec(rows) : null;
+        lastExec = folded && folded.n > 0 ? { ...lastExec, ...folded, ddt: ex0.realized.ddt, mdd: ex0.realized.mdd } : { ...lastExec, ...ex0.realized };
+        applyRealizedSymbolStats(engine, rows);
         engine.minPf = LIVE_MIN_PF;
         engine.stats.trades = lastExec.n;
         engine.stats.pf = lastExec.pf;
@@ -1325,20 +1407,22 @@ async function main() {
           const ex = await withTimeout(fetchLiveExecutions({ network: ping.network, connId: CONN, since: started - 3 * 86400000 }), 8000, "exec");
           if (ex.ok) {
             if (ex.realized?.n > 0) {
-              lastExec = { ...lastExec, ...ex.realized };
-              engine.ledger.trades = Math.max(engine.ledger.trades || 0, ex.realized.n);
-              engine.ledger.wins = Math.max(engine.ledger.wins || 0, ex.realized.wins);
+              const rows = deskExecRows(ex.bySymbol);
+              const folded = rows.length ? foldExec(rows) : null;
+              lastExec = folded && folded.n > 0 ? { ...lastExec, ...folded, ddt: ex.realized.ddt, mdd: ex.realized.mdd } : { ...lastExec, ...ex.realized };
+              engine.ledger.trades = Math.max(engine.ledger.trades || 0, lastExec.n);
+              engine.ledger.wins = Math.max(engine.ledger.wins || 0, lastExec.wins);
               engine.stats.trades = engine.ledger.trades;
-              engine.stats.pf = Number(ex.realized.pf) || 0;
-              engine.stats.wr = ex.realized.wr || engine.stats.wr;
-              if (Number.isFinite(ex.realized.net)) engine.stats.net = ex.realized.net;
-              engine.stats.mdd = ex.realized.mdd || engine.stats.mdd;
-              if (Number.isFinite(ex.realized.net) && ex.realized.net > 0) {
-                engine.ledger.profit = Math.max(engine.ledger.profit || 0, ex.realized.net);
+              engine.stats.pf = Number(lastExec.pf) || 0;
+              engine.stats.wr = lastExec.wr || engine.stats.wr;
+              if (Number.isFinite(lastExec.net)) engine.stats.net = lastExec.net;
+              engine.stats.mdd = lastExec.mdd || engine.stats.mdd;
+              if (Number.isFinite(lastExec.net) && lastExec.net > 0) {
+                engine.ledger.profit = Math.max(engine.ledger.profit || 0, lastExec.net);
               }
             }
             if (Array.isArray(ex.bySymbol) && ex.bySymbol.length) {
-              applyRealizedSymbolStats(engine, ex.bySymbol);
+              applyRealizedSymbolStats(engine, deskExecRows(ex.bySymbol));
               engine.minPf = LIVE_MIN_PF;
             }
             let prev = {};
@@ -1491,7 +1575,7 @@ async function main() {
   const ioTimer = setInterval(() => {
     if (hostPhase !== "running") return;
     void ioCycle();
-  }, 400);
+  }, 700);
   void ioCycle();
 
   let lastSettingsAt = Date.now();
