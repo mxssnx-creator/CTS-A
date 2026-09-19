@@ -1129,6 +1129,24 @@ export function openPlaybook(tactic: TacticKind, indication: IndicationId): stri
   return "normal";
 }
 
+/** When Normal is off, live fills are short/Block — not general Normal lanes. */
+export function liveExecPlaybook(
+  e: VstEngine,
+  tactic: TacticKind,
+  indication: IndicationId,
+  hinted?: string,
+): string {
+  if (hinted && hinted !== "normal") return hinted;
+  if (tactic === "dca") return "dca";
+  if (tactic === "axis") return "axis";
+  const tog = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  if (!tog.normal) {
+    if (tog.block && (e.blockCfg?.activeLive || e.blockCfg?.enabled)) return "block";
+    return "short";
+  }
+  return hinted || openPlaybook(tactic, indication);
+}
+
 export function tacticForIndication(id: IndicationId): TacticKind {
   if (id === "direction") return "axis";
   if (id === "break" || id === "active") return "hybrid";
@@ -2156,7 +2174,7 @@ export function ingestLivePnls(
     const side: Side = r.side === "short" || r.side === "long" ? r.side : hint?.side === "short" || hint?.side === "long" ? hint.side : last?.side === "short" ? "short" : "long";
     const indication = hint?.indication ?? classifyIndication(e, symbol);
     const tactic = hint?.tactic ?? tacticForIndication(indication);
-    const playbook = hint?.playbook ?? openPlaybook(tactic, indication);
+    const playbook = liveExecPlaybook(e, tactic, indication, hint?.playbook);
     const kind = hint?.kind ?? kindFromIndication(indication, playbook, tactic);
     const rangeType = hint?.rangeType ?? pickIndicationRange(e, indication, e.lastRange);
     e.closed.unshift({
@@ -2191,6 +2209,14 @@ export function ingestLivePnls(
   if (n) {
     e.liveTape = true;
     refreshLiveDisable(e, block);
+  }
+  for (const c of e.closed) {
+    if (!String(c.id || "").startsWith("x:")) continue;
+    const pb = liveExecPlaybook(e, c.tactic ?? e.lastTactic, c.indication ?? "trend", c.playbook);
+    c.playbook = pb;
+    if ((pb === "block" || pb === "short") && (c.kind === "trend" || c.kind === "normal" || !c.kind)) {
+      c.kind = pb === "short" ? "short" : "block";
+    }
   }
   return n;
 }
@@ -4038,7 +4064,9 @@ export function overlayExchangeBook(
     const enginePos = e.positions.find((x) => x.symbol === p.symbol && x.side === p.side);
     const indication = enginePos?.indication ?? classifyIndication(e, p.symbol);
     const tactic = enginePos?.tactic ?? tacticForIndication(indication);
-    const playbook = enginePos?.playbook ?? openPlaybook(tactic, indication);
+    const playbook = enginePos?.playbook && enginePos.playbook !== "normal"
+      ? enginePos.playbook
+      : liveExecPlaybook(e, tactic, indication, enginePos?.playbook);
     return {
       indication,
       kind: enginePos?.kind ?? kindFromIndication(indication, playbook, tactic),

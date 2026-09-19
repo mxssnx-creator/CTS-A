@@ -107,6 +107,7 @@ import {
   isDeskConn,
   classifyIndication,
   openPlaybook,
+  liveExecPlaybook,
   tacticForIndication,
   ingestLivePnls,
   evalBlockRelations,
@@ -1203,6 +1204,13 @@ describe("VST engine", () => {
     assert.equal(openPlaybook("trailing", "trend"), "normal");
     assert.equal(openPlaybook("hybrid", "break"), "normal");
     assert.equal(openPlaybook("dca", "active"), "dca");
+    const ePb = initVstEngine(CFG, { warmup: 0, symbolCount: 2, arm: false });
+    ePb.strategyToggles = { normal: false, trailing: true, axis: true, block: true, dca: false };
+    ePb.blockCfg = { ...DEFAULT_BLOCK_CONFIG, activeLive: true, enabled: true };
+    assert.equal(liveExecPlaybook(ePb, "trailing", "trend"), "block");
+    assert.equal(liveExecPlaybook(ePb, "axis", "direction"), "axis");
+    ePb.strategyToggles.block = false;
+    assert.equal(liveExecPlaybook(ePb, "trailing", "trend"), "short");
     assert.equal(tacticForIndication("direction"), "axis");
     assert.equal(tacticForIndication("trend"), "trailing");
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });

@@ -793,7 +793,10 @@ function mergeLivePositions(e, book) {
       cur.avgEntry = entry;
       cur.mark = mark;
       cur.unrealized = Number(p.pnl) || cur.unrealized || 0;
-      if (!cur.playbook) cur.playbook = "short";
+      if (!cur.playbook || cur.playbook === "normal") {
+        cur.playbook = e.strategyToggles?.normal === false && e.strategyToggles?.block ? "block" : "short";
+        if (cur.kind === "trend" || cur.kind === "normal") cur.kind = "short";
+      }
       if (!cur.kind) cur.kind = "short";
       e.liveLegHint = e.liveLegHint || {};
       e.liveLegHint[p.symbol] = { side: p.side, indication: cur.indication, tactic: cur.tactic, playbook: cur.playbook, kind: cur.kind, rangeType: cur.controllingRange };
