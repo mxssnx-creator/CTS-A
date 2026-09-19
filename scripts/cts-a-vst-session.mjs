@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, X01_DEFAULTS } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, X01_DEFAULTS, LIVE_BLOCK_COUNTS } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -53,17 +53,18 @@ const BLOCK = {
   cadence: 6,
   flattenConflict: false,
   addOnWin: true,
-  maxMultiple: 2,
+  maxMultiple: IS_X01 ? (X01_DEFAULTS.maxMultiple ?? 2) : 8,
   minMultiple: 1,
   overall: true,
-  counts: [1, 2],
-  volumeRatio: 0.08,
+  counts: IS_X01 ? [...(X01_DEFAULTS.counts ?? [1, 2])] : [...LIVE_BLOCK_COUNTS],
+  volumeRatio: IS_X01 ? (X01_DEFAULTS.volumeRatio ?? 0.08) : 0.08,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
-  pauseCountRatio: 2,
-  evalPosCount: 6,
+  pauseCountRatio: IS_X01 ? 2 : 0,
+  evalPosCount: IS_X01 ? 6 : 8,
   activeLive: true,
   minActiveLevel: 0,
+  keepAdjusted: !IS_X01,
   stack: true,
   windows: true,
   volumeMode: "additive",
@@ -73,7 +74,7 @@ const BLOCK = {
   relAdditive: true,
   relVolumeRatio: 0.08,
   minRelPf: IS_X01 ? X01_DEFAULTS.minPf : 1.6,
-  evalLastNs: [1, 2, 3, 4, 5, 6],
+  evalLastNs: IS_X01 ? [1, 2, 3, 4, 5, 6] : [1, 2, 4, 8],
   liveLastN: 12,
   liveDisable: true,
   liveDisableMinPf: 1.1,
@@ -81,6 +82,11 @@ const BLOCK = {
 };
 
 const GRID = [
+  {
+    tactic: "trailing",
+    range: "geometric",
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
+  },
   {
     tactic: "hybrid",
     range: "fibonacci",

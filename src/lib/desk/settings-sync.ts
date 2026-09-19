@@ -197,11 +197,11 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         volumeRatio: Math.min(5, Math.max(0.05, asNum(b.volumeRatio, d.blockConfig.volumeRatio ?? 0.08))),
         maxVolumeMultiplier: Math.min(5, Math.max(1.2, asNum(b.maxVolumeMultiplier, d.blockConfig.maxVolumeMultiplier ?? 1.8))),
         pfRatio: Math.min(5, Math.max(1.25, asNum(b.pfRatio, d.blockConfig.pfRatio ?? 1.45))),
-        pauseCountRatio: Math.min(6, Math.max(0, Math.round(asNum(b.pauseCountRatio, d.blockConfig.pauseCountRatio ?? 2)))),
+        pauseCountRatio: Math.min(6, Math.max(0, Math.round(asNum(b.pauseCountRatio, d.blockConfig.pauseCountRatio ?? 0)))),
         evalPosCount: Math.min(16, Math.max(1, Math.round(asNum(b.evalPosCount, d.blockConfig.evalPosCount ?? 6)))),
         activeLive: asBool(b.activeLive, d.blockConfig.activeLive ?? true),
         minActiveLevel: Math.min(16, Math.max(0, Math.round(asNum(b.minActiveLevel, d.blockConfig.minActiveLevel ?? 0)))),
-        keepAdjusted: asBool((b as { keepAdjusted?: boolean }).keepAdjusted, d.blockConfig.keepAdjusted ?? false),
+        keepAdjusted: asBool((b as { keepAdjusted?: boolean }).keepAdjusted, d.blockConfig.keepAdjusted ?? true),
         stack: asBool((b as { stack?: boolean }).stack, d.blockConfig.stack ?? true),
         windows: asBool((b as { windows?: boolean }).windows, d.blockConfig.windows ?? true),
         volumeMode: b.volumeMode === "additive" || b.volumeMode === "parallel" || b.volumeMode === "shared" ? b.volumeMode : d.blockConfig.volumeMode,
@@ -213,7 +213,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         minRelPf: Math.min(5, Math.max(1, asNum(b.minRelPf, d.blockConfig.minRelPf ?? 1.6))),
         evalLastNs: Array.isArray(b.evalLastNs)
           ? [...new Set(b.evalLastNs.map((n) => Math.round(Number(n))).filter((n) => n >= 1 && n <= 8))].sort((a, c) => a - c)
-          : [...(d.blockConfig.evalLastNs ?? [1, 2, 3, 4, 5, 6])],
+          : [...(d.blockConfig.evalLastNs ?? [1, 2, 4, 8])],
         liveLastN: Math.min(40, Math.max(4, Math.round(asNum(b.liveLastN, d.blockConfig.liveLastN ?? 12)))),
         liveDisable: asBool(b.liveDisable, d.blockConfig.liveDisable ?? true),
         liveDisableMinPf: Math.min(3, Math.max(0.5, asNum(b.liveDisableMinPf, d.blockConfig.liveDisableMinPf ?? 1.1))),

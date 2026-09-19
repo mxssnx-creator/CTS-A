@@ -15,6 +15,7 @@ import { Route as DeskSplatRouteImport } from './routes/_desk/$'
 import { Route as DeskCombinationsRouteImport } from './routes/_desk/combinations'
 import { Route as DeskConnectionsRouteImport } from './routes/_desk/connections'
 import { Route as DeskEngineRouteImport } from './routes/_desk/engine'
+import { Route as DeskHeatmapRouteImport } from './routes/_desk/heatmap'
 import { Route as DeskLanesRouteImport } from './routes/_desk/lanes'
 import { Route as DeskOrdersRouteImport } from './routes/_desk/orders'
 import { Route as DeskPerformanceRouteImport } from './routes/_desk/performance'
@@ -54,6 +55,11 @@ const DeskConnectionsRoute = DeskConnectionsRouteImport.update({
 const DeskEngineRoute = DeskEngineRouteImport.update({
   id: '/engine',
   path: '/engine',
+  getParentRoute: () => DeskRoute,
+} as any)
+const DeskHeatmapRoute = DeskHeatmapRouteImport.update({
+  id: '/heatmap',
+  path: '/heatmap',
   getParentRoute: () => DeskRoute,
 } as any)
 const DeskLanesRoute = DeskLanesRouteImport.update({
@@ -118,6 +124,7 @@ export interface FileRoutesByFullPath {
   '/combinations': typeof DeskCombinationsRoute
   '/connections': typeof DeskConnectionsRoute
   '/engine': typeof DeskEngineRoute
+  '/heatmap': typeof DeskHeatmapRoute
   '/lanes': typeof DeskLanesRoute
   '/orders': typeof DeskOrdersRoute
   '/performance': typeof DeskPerformanceRoute
@@ -135,6 +142,7 @@ export interface FileRoutesByTo {
   '/combinations': typeof DeskCombinationsRoute
   '/connections': typeof DeskConnectionsRoute
   '/engine': typeof DeskEngineRoute
+  '/heatmap': typeof DeskHeatmapRoute
   '/lanes': typeof DeskLanesRoute
   '/orders': typeof DeskOrdersRoute
   '/performance': typeof DeskPerformanceRoute
@@ -155,6 +163,7 @@ export interface FileRoutesById {
   '/_desk/combinations': typeof DeskCombinationsRoute
   '/_desk/connections': typeof DeskConnectionsRoute
   '/_desk/engine': typeof DeskEngineRoute
+  '/_desk/heatmap': typeof DeskHeatmapRoute
   '/_desk/lanes': typeof DeskLanesRoute
   '/_desk/orders': typeof DeskOrdersRoute
   '/_desk/performance': typeof DeskPerformanceRoute
@@ -176,6 +185,7 @@ export interface FileRouteTypes {
     | '/combinations'
     | '/connections'
     | '/engine'
+    | '/heatmap'
     | '/lanes'
     | '/orders'
     | '/performance'
@@ -193,6 +203,7 @@ export interface FileRouteTypes {
     | '/combinations'
     | '/connections'
     | '/engine'
+    | '/heatmap'
     | '/lanes'
     | '/orders'
     | '/performance'
@@ -212,6 +223,7 @@ export interface FileRouteTypes {
     | '/_desk/combinations'
     | '/_desk/connections'
     | '/_desk/engine'
+    | '/_desk/heatmap'
     | '/_desk/lanes'
     | '/_desk/orders'
     | '/_desk/performance'
@@ -272,6 +284,13 @@ declare module '@tanstack/react-router' {
       path: '/engine'
       fullPath: '/engine'
       preLoaderRoute: typeof DeskEngineRouteImport
+      parentRoute: typeof DeskRoute
+    }
+    '/_desk/heatmap': {
+      id: '/_desk/heatmap'
+      path: '/heatmap'
+      fullPath: '/heatmap'
+      preLoaderRoute: typeof DeskHeatmapRouteImport
       parentRoute: typeof DeskRoute
     }
     '/_desk/lanes': {
@@ -359,6 +378,7 @@ interface DeskRouteChildren {
   DeskCombinationsRoute: typeof DeskCombinationsRoute
   DeskConnectionsRoute: typeof DeskConnectionsRoute
   DeskEngineRoute: typeof DeskEngineRoute
+  DeskHeatmapRoute: typeof DeskHeatmapRoute
   DeskLanesRoute: typeof DeskLanesRoute
   DeskOrdersRoute: typeof DeskOrdersRoute
   DeskPerformanceRoute: typeof DeskPerformanceRoute
@@ -378,6 +398,7 @@ const DeskRouteChildren: DeskRouteChildren = {
   DeskCombinationsRoute: DeskCombinationsRoute,
   DeskConnectionsRoute: DeskConnectionsRoute,
   DeskEngineRoute: DeskEngineRoute,
+  DeskHeatmapRoute: DeskHeatmapRoute,
   DeskLanesRoute: DeskLanesRoute,
   DeskOrdersRoute: DeskOrdersRoute,
   DeskPerformanceRoute: DeskPerformanceRoute,

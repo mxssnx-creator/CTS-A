@@ -1397,7 +1397,7 @@ describe("VST engine", () => {
 
   it("Block relations pause independently per indication, strategy, tactic, range, side", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
-    const block = { ...DEFAULT_BLOCK_CONFIG, windows: true, evalPosCount: 6 };
+    const block = { ...DEFAULT_BLOCK_CONFIG, windows: true, evalPosCount: 6, pauseCountRatio: 1, keepAdjusted: false };
     for (let i = 0; i < 6; i++) {
       noteBlockPosClose(e, "BTCUSDT", "long", -1, block, {
         indication: "trend",
@@ -1457,8 +1457,12 @@ describe("VST engine", () => {
     assert.equal(X01_DEFAULTS.slAtrMin, 0.4);
     assert.equal(X01_DEFAULTS.tpRatioMin, 0.6);
     assert.equal(DEFAULT_BLOCK_CONFIG.evalHours, 2);
-    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2]);
-    assert.deepEqual(DEFAULT_BLOCK_CONFIG.evalLastNs, [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2, 4, 8]);
+    assert.deepEqual(DEFAULT_BLOCK_CONFIG.evalLastNs, [1, 2, 4, 8]);
+    assert.equal(DEFAULT_BLOCK_CONFIG.maxMultiple, 8);
+    assert.equal(DEFAULT_BLOCK_CONFIG.evalPosCount, 8);
+    assert.equal(DEFAULT_BLOCK_CONFIG.pauseCountRatio, 0);
+    assert.equal(DEFAULT_BLOCK_CONFIG.keepAdjusted, true);
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     const block = { ...DEFAULT_BLOCK_CONFIG };
     for (let i = 0; i < 6; i++) {

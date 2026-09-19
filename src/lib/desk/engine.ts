@@ -240,7 +240,12 @@ export const X01_DEFAULTS = {
   symbolCount: 50,
   slAtrMin: 0.4,
   tpRatioMin: 0.6,
+  volumeRatio: 0.08,
+  counts: [1, 2] as number[],
+  maxMultiple: 2,
 };
+
+export const LIVE_BLOCK_COUNTS = [1, 2, 4, 8] as const;
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
   minPf: 2,
@@ -268,22 +273,22 @@ export const BLOCK_COUNTS = [...BLOCK_STACK_COUNTS];
 
 export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   enabled: true,
-  maxMultiple: 2,
+  maxMultiple: 8,
   minMultiple: 1,
   addOnWin: true,
   flattenConflict: false,
   endStageOnly: false,
   cadence: 6,
   overall: true,
-  counts: [...BLOCK_COUNTS],
+  counts: [...LIVE_BLOCK_COUNTS],
   volumeRatio: 0.08,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
-  pauseCountRatio: 2,
-  evalPosCount: 6,
+  pauseCountRatio: 0,
+  evalPosCount: 8,
   activeLive: true,
   minActiveLevel: 0,
-  keepAdjusted: false,
+  keepAdjusted: true,
   stack: true,
   windows: true,
   volumeMode: "additive",
@@ -293,7 +298,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   relAdditive: true,
   relVolumeRatio: 0.08,
   minRelPf: 1.6,
-  evalLastNs: [1, 2, 3, 4, 5, 6],
+  evalLastNs: [1, 2, 4, 8],
   liveLastN: 12,
   liveDisable: true,
   liveDisableMinPf: 1.1,
