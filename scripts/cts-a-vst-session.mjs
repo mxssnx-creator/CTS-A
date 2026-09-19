@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, snapPx } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -64,6 +64,7 @@ function pickCompleteLock(complete) {
 let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0 };
 let lastTrail = { n: 0, ms: 0, at: 0 };
 const lastPostedSl = new Map();
+const lastPeakPx = new Map();
 const bookAvg = { pos: 0, ord: 0, n: 0 };
 let cachedOverall = null;
 let cachedOverallTick = -1;
@@ -619,14 +620,18 @@ async function ensureProtect(network, book, cfg, vanished = new Set()) {
       const spec = map.get(p.venueSymbol);
       const cell = protectFor(p.symbol);
       const atEntry = liveProtectPrices(entry, p.side, cell.slAtr, cell.tpRatio, spec, mode);
-      const slDist = Math.abs(atEntry.sl - entry);
-      const tpDist = Math.abs(atEntry.tp - entry);
-      if (profit + 1e-12 < Math.min(slDist, tpDist) * 0.4) continue;
-      const pct = Math.max(0.35, Math.min(1.4, Number(cell.trailPct) || Number(cfg?.trailingPct) || 0.8)) / 100;
-      const trailGap = Math.min(tpDist * 0.42, Math.max(mark * pct, slDist * 0.28));
-      let next = p.side === "long" ? mark - trailGap : mark + trailGap;
-      if (p.side === "long") next = Math.min(next, mark - slDist * 0.25);
-      else next = Math.max(next, mark + slDist * 0.25);
+      const peak = p.side === "long"
+        ? Math.max(mark, Number(lastPeakPx.get(key) || mark))
+        : Math.min(mark, Number(lastPeakPx.get(key) || mark));
+      lastPeakPx.set(key, peak);
+      let next = trailStopFromPeak({
+        side: p.side,
+        entry,
+        peak,
+        tp: atEntry.tp,
+        sl: atEntry.sl,
+        trailPct: Number(cell.trailPct) || Number(cfg?.trailingPct) || 0.8,
+      });
       next = snapPx(next, spec);
       const slOrd = (grouped.get(key)?.sl || [])[0];
       const cur = Number(lastPostedSl.get(key) || slOrd?.stopPrice || 0);

@@ -65,7 +65,64 @@ export function pfFromPnls(rows: { pnl: number }[] | undefined | null): number {
 /** Hard floor — volume factor cannot be gated below this. */
 export const MIN_VOLUME_FACTOR = 1.05;
 export const MIN_QUOTE_VOL = 0.006;
-export const TRAIL_PCTS = [0.4, 0.6, 0.8, 1.1, 1.4] as const;
+export const TRAIL_PCTS = [0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.2, 1.4, 1.7, 2.0, 2.4] as const;
+/** Giveback of peak profit through the positive (0→TP) range. Tightens as price extends. */
+export const TRAIL_POS_RATIOS = [0.82, 0.68, 0.54, 0.42, 0.30, 0.20] as const;
+
+export function snapTrailPct(n: number): number {
+  if (!Number.isFinite(n)) return 0.8;
+  let best = TRAIL_PCTS[0]!;
+  let dist = Infinity;
+  for (const t of TRAIL_PCTS) {
+    const d = Math.abs(t - n);
+    if (d < dist) {
+      dist = d;
+      best = t;
+    }
+  }
+  return best;
+}
+
+export function trailGiveback(progress: number, trailPct: number): number {
+  const p = Math.min(1.25, Math.max(0, Number(progress) || 0));
+  const n = TRAIL_POS_RATIOS.length;
+  const x = p * (n - 1);
+  const i = Math.min(n - 2, Math.max(0, Math.floor(x)));
+  const t = x - i;
+  const base = TRAIL_POS_RATIOS[i]! * (1 - t) + TRAIL_POS_RATIOS[i + 1]! * t;
+  const pct = snapTrailPct(trailPct);
+  const scale = 0.62 + ((pct - 0.3) / 2.1) * 0.85;
+  return Math.min(0.9, Math.max(0.12, base * scale));
+}
+
+export function trailStopFromPeak(input: {
+  side: "long" | "short";
+  entry: number;
+  peak: number;
+  tp: number;
+  sl: number;
+  trailPct: number;
+}): number {
+  const { side, entry, peak, tp, sl, trailPct } = input;
+  if (!(entry > 0) || !(peak > 0) || !(tp > 0)) return sl;
+  const signed = side === "long" ? 1 : -1;
+  const peakProfit = signed * (peak - entry);
+  const tpDist = Math.abs(tp - entry);
+  if (peakProfit <= 1e-12 || !(tpDist > 0)) return sl;
+  const give = trailGiveback(peakProfit / tpDist, trailPct);
+  const gap = Math.max(peakProfit * give, tpDist * 0.08);
+  let next = peak - signed * gap;
+  if (side === "long") {
+    next = Math.max(next, sl);
+    next = Math.min(next, peak * 0.9995, tp - tpDist * 0.12);
+    if (!(next < peak)) next = peak * 0.9995;
+  } else {
+    next = Math.min(next, sl);
+    next = Math.max(next, peak * 1.0005, tp + tpDist * 0.12);
+    if (!(next > peak)) next = peak * 1.0005;
+  }
+  return Number.isFinite(next) && next > 0 ? next : sl;
+}
 /** Take-profit ATR multiples: 0.3 … 1.6 step 0.1. */
 export const TP_ATR_MIN = 0.3;
 export const TP_ATR_MAX = 1.6;

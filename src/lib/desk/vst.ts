@@ -40,6 +40,7 @@ import {
   profitFactor,
   pfFromPnls,
   allTpSlCombos,
+  trailStopFromPeak,
   symbolIndications,
   symbolSideSet,
   STAGE_HOURS,
@@ -1175,6 +1176,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       kind: o.kind ?? kindFromIndication(o.indication ?? classifyIndication(e, o.symbol), playbookOf(e, o), e.lastTactic),
       playbook: o.playbook ?? playbookOf(e, o),
       blockLevel: /^Block/i.test(o.note || "") ? Math.max(1, o.level || 1) : undefined,
+      peakPx: px,
     };
     e.positions.push(pos);
   } else if (!pos.legs.some((l) => l.orderId === o.id)) {
@@ -1514,24 +1516,20 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     if (tactic === "dca" && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (tactic === "axis" && (p.tactic === "axis" || p.playbook === "axis")) handleAxis(e, p, cfg);
     if (tactic === "trailing" || tactic === "hybrid") {
-      const tpRoom = Math.max(p.tpDist, Math.abs(p.tp - p.avgEntry), 1e-12);
-      const sl0 = Math.max(p.slDist, 1e-12);
-      const pct = Math.max(0.35, Math.min(1.4, cfg.trailingPct)) / 100;
-      const trailGap = Math.min(tpRoom * 0.42, Math.max(q.px * pct, sl0 * 0.28));
-      const armed = signed * (q.px - p.avgEntry) >= Math.min(sl0, tpRoom) * 0.4;
-      if (armed) {
-        if (p.side === "long") {
-          const next = q.px - trailGap;
-          if (next > p.sl) p.sl = next;
-        } else {
-          const next = q.px + trailGap;
-          if (next < p.sl) p.sl = next;
-        }
-        const r = snapTpRatio(e.tpRatio || cfg.tpRatio || TP_SL_RATIO);
-        const cap = tpRoom / Math.max(r, 0.5);
-        if (Math.abs(p.sl - p.avgEntry) > cap + 1e-12) p.sl = p.side === "long" ? p.avgEntry - cap : p.avgEntry + cap;
-        if (p.side === "long") p.sl = Math.min(p.sl, p.tp - tpRoom * 0.28);
-        else p.sl = Math.max(p.sl, p.tp + tpRoom * 0.28);
+      const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
+      p.peakPx = p.peakPx && p.peakPx > 0
+        ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
+        : fav;
+      const next = trailStopFromPeak({
+        side: p.side,
+        entry: p.avgEntry,
+        peak: p.peakPx,
+        tp: p.tp,
+        sl: p.sl,
+        trailPct: cfg.trailingPct,
+      });
+      if (p.side === "long" ? next > p.sl : next < p.sl) {
+        p.sl = next;
         p.slDist = Math.abs(p.sl - p.avgEntry);
       }
     }

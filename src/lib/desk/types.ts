@@ -588,6 +588,7 @@ export interface LivePosition {
   playbook?: string;
   blockLevel?: number;
   blockQty?: number;
+  peakPx?: number;
 }
 
 export interface Fill {

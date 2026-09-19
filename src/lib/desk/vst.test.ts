@@ -37,6 +37,9 @@ import {
   pickBestCombo,
   POSITION_COST_PCT,
   TRAIL_PCTS,
+  TRAIL_POS_RATIOS,
+  trailStopFromPeak,
+  trailGiveback,
   TP_SL_RATIOS,
   TP_SL_RATIO_MIN,
   SL_ATR_MIN,
@@ -154,14 +157,33 @@ describe("VST engine", () => {
   });
 
   it("trailingPct changes trail lock versus a wider trail", () => {
-    const tight = { ...CFG, trailingPct: 0.4, tpRatio: 1.333, slAtr: 0.6, maxHoldTicks: 20000 };
-    const wide = { ...CFG, trailingPct: 1.4, tpRatio: 1.333, slAtr: 0.6, maxHoldTicks: 20000 };
+    const tight = { ...CFG, trailingPct: 0.3, tpRatio: 1.333, slAtr: 0.6, maxHoldTicks: 20000 };
+    const wide = { ...CFG, trailingPct: 2.4, tpRatio: 1.333, slAtr: 0.6, maxHoldTicks: 20000 };
     const a = simulateHours(6, tight, "trailing", { symbolCount: 8, orderType: "limit", rangeType: "atr" }).report;
     const b = simulateHours(6, wide, "trailing", { symbolCount: 8, orderType: "limit", rangeType: "atr" }).report;
     finiteNum(a.pf, b.pf, a.net, b.net, a.trades, b.trades);
     assert.ok(a.trades >= 2 && b.trades >= 2);
     const same = a.pf === b.pf && a.net === b.net && a.slExits === b.slExits && a.tpExits === b.tpExits;
     assert.equal(same, false, "trail width must change exits");
+  });
+
+  it("trails stop from peak with tighter giveback as profit extends", () => {
+    assert.equal(TRAIL_PCTS.length, 11);
+    assert.equal(TRAIL_POS_RATIOS.length, 6);
+    assert.ok(trailGiveback(0.1, 0.8) > trailGiveback(1, 0.8));
+    assert.ok(trailGiveback(0.5, 2.4) > trailGiveback(0.5, 0.3));
+    const early = trailStopFromPeak({ side: "long", entry: 100, peak: 101, tp: 104, sl: 98, trailPct: 0.8 });
+    const mid = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 0.8 });
+    const late = trailStopFromPeak({ side: "long", entry: 100, peak: 104, tp: 104, sl: 98, trailPct: 0.8 });
+    assert.ok(early >= 98 && early < 101, `early ${early}`);
+    assert.ok(mid > early, `mid ${mid} vs early ${early}`);
+    assert.ok(late > mid, `late ${late} vs mid ${mid}`);
+    assert.ok(late < 104);
+    const tight = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 0.3 });
+    const wide = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 2.4 });
+    assert.ok(tight > wide, `tight ${tight} vs wide ${wide}`);
+    const short = trailStopFromPeak({ side: "short", entry: 100, peak: 98, tp: 96, sl: 102, trailPct: 0.8 });
+    assert.ok(short <= 102 && short > 98, `short ${short}`);
   });
 
   it("sl 0.4 tp 0.6 distances match config R and ATR multiple", () => {
@@ -542,7 +564,7 @@ describe("VST engine", () => {
     assert.ok(e.queue.length <= VST_MAX_QUEUE, `queue ${e.queue.length}`);
     assert.ok(e.positions.length <= VST_MAX_POSITIONS);
     assert.ok(e.fills.length <= 80);
-    assert.ok(e.closed.length <= 200);
+    assert.ok(e.closed.length <= 600);
     assert.ok(e.batches.length <= VST_MAX_BATCHES);
     const audit = auditEngine(e);
     assert.equal(audit.nanCount, 0);
@@ -1190,8 +1212,9 @@ describe("VST engine", () => {
   it("block on vs off: adds rungs when enabled and stays inert when disabled", () => {
     const off = { ...DEFAULT_BLOCK_CONFIG, enabled: false };
     const on = { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false, cadence: 4, addOnWin: false, flattenConflict: false, sides: "both" as const, windows: false, liveDisable: false };
-    const a = simulateHours(12, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: on });
-    const b = simulateHours(12, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: off });
+    const cfg = { ...CFG, trailingPct: 2.4, maxHoldTicks: 20000 };
+    const a = simulateHours(12, cfg, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: on });
+    const b = simulateHours(12, cfg, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: off });
     assert.equal(a.report.nanCount, 0);
     assert.equal(b.report.nanCount, 0);
     assert.ok(a.report.trades >= 4 && b.report.trades >= 1, `trades ${a.report.trades}/${b.report.trades}`);

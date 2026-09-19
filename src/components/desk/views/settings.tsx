@@ -808,8 +808,8 @@ export function SettingsView() {
             <RangeKnob
               label="Trailing"
               value={cfg.trailingPct}
-              min={0.4}
-              max={1.4}
+              min={0.3}
+              max={2.4}
               step={0.1}
               format={(n) => `${n.toFixed(1)}%`}
               onChange={(n) => setCfg({ trailingPct: n })}
