@@ -259,6 +259,8 @@ export interface BlockConfig {
   evalPosCount: number;
   activeLive: boolean;
   minActiveLevel: number;
+  /** Keep extra volume on until the relation PF is positive again. */
+  keepAdjusted?: boolean;
   /** Old type: Block # rungs 1–2 (optimal). */
   stack: boolean;
   /** New type: last-N pos windows 1–16; a losing window adjusts the next N. */

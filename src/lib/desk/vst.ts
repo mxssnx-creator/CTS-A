@@ -1825,7 +1825,7 @@ function emptyBlockWindow(n: number): BlockPosWindow {
   };
 }
 
-function tickBlockWindow(w: BlockPosWindow, symbol: string, side: Side, pnl: number) {
+function tickBlockWindow(w: BlockPosWindow, symbol: string, side: Side, pnl: number, pauseRatio = 1, keep = false) {
   w.ring.push({ symbol, side, pnl });
   if (w.ring.length > w.n * 2) w.ring = w.ring.slice(-w.n * 2);
   w.closed += 1;
@@ -1845,7 +1845,8 @@ function tickBlockWindow(w: BlockPosWindow, symbol: string, side: Side, pnl: num
   w.losers = [...new Set(last.filter((x) => x.pnl < 0).map((x) => x.symbol))];
   if (w.lastAvg < 0 || w.lastPf < 1) {
     w.lossWindows += 1;
-    w.pauseLeft = w.n;
+    if (!keep) w.pauseLeft = Math.max(0, Math.round(pauseRatio * w.n));
+    else w.adjusted += 1;
   }
   return w;
 }
@@ -1893,15 +1894,17 @@ export function noteBlockPosClose(
   e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
   e.blockRelWindows = e.blockRelWindows ?? {};
   const ns = evalBlockNs(block);
+  const pauseRatio = Math.max(0, block.pauseCountRatio ?? 1);
+  const keep = block.keepAdjusted === true;
   for (const n of ns) {
-    e.blockWindows[n] = tickBlockWindow(e.blockWindows[n] ?? emptyBlockWindow(n), symbol, side, pnl);
+    e.blockWindows[n] = tickBlockWindow(e.blockWindows[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
     const by = (e.blockWindowsBySymbol[symbol] ??= {});
-    by[n] = tickBlockWindow(by[n] ?? emptyBlockWindow(n), symbol, side, pnl);
+    by[n] = tickBlockWindow(by[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
   }
   const keys = blockRelationKeys({ symbol, side, ...rel });
   for (const key of keys) {
     const map = (e.blockRelWindows[key] ??= {});
-    for (const n of ns) map[n] = tickBlockWindow(map[n] ?? emptyBlockWindow(n), symbol, side, pnl);
+    for (const n of ns) map[n] = tickBlockWindow(map[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
   }
 }
 
@@ -1982,7 +1985,7 @@ const MINOR_REL = new Set(["cfg", "sub", "combo"]);
 
 export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BLOCK_CONFIG) {
   const ns = (block.evalLastNs?.length ? block.evalLastNs : [1, 2, 3, 4, 5, 6])
-    .map((n) => Math.max(1, Math.min(6, Math.round(n))));
+    .map((n) => Math.max(1, Math.min(8, Math.round(n))));
   const minPf = block.minRelPf ?? 1.6;
   const vr = Math.min(2, Math.max(0.05, block.relVolumeRatio ?? block.volumeRatio ?? 0.4));
   const maps = e.blockRelWindows ?? {};
@@ -2016,7 +2019,7 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
   const uniq = picks.filter((p) => (seen.has(p.key) ? false : (seen.add(p.key), true))).sort((a, b) => b.pf - a.pf || b.net - a.net);
   const used = uniq.slice(0, 8);
   e.blockRelBest = Object.fromEntries(used.map((p) => [p.key, p]));
-  e.relVolumeFactor = block.relAdditive === false ? 0 : used.length ? vr : 0;
+  e.relVolumeFactor = block.relAdditive === false ? 0 : used.length * vr;
   e.lastRelEvalTick = e.tick;
   pruneBlockRelWindows(e);
   refreshIndicationSets(e, block);
@@ -2307,9 +2310,13 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
   const gl = Math.abs(ring.filter((x) => x < 0).reduce((s, x) => s + x, 0));
   const pf = gl === 0 ? (gp > 0 ? 4 : 0) : gp / gl;
   const vr = block.volumeRatio || 0.4;
-  const inc = vr;
+  const inc = vr * Math.max(1, count);
   const floor = Math.max(minPf, blockMinimumProfitFactor(minPf, block.pfRatio || 1.25, inc) || minPf);
   if (pf + 1e-9 < floor) {
+    if (block.keepAdjusted) {
+      lane.heldFactor[count] = count;
+      return true;
+    }
     lane.pauseRemaining[count] = Math.max(0, Math.round((block.pauseCountRatio ?? 2) * count));
     if (lane.pauseRemaining[count] < 1) {
       lane.heldFactor[count] = 1;
@@ -2413,7 +2420,7 @@ export function adjustActiveBlocks(
 
   if (block.stack !== false && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
     let adds = 0;
-    const addCap = Math.min(8, Math.max(4, volModes.length * 2));
+    const addCap = Math.min(16, Math.max(counts.length * volModes.length, 4));
     for (const p of e.positions) {
       if (adds >= addCap) break;
       if (!ownedByDesk(p, conn)) continue;
@@ -2442,7 +2449,7 @@ export function adjustActiveBlocks(
         );
         let modeAdds = 0;
         for (const next of counts) {
-          if (adds >= addCap || modeAdds >= 2) break;
+          if (adds >= addCap || modeAdds >= counts.length) break;
           if (next < minM || next > maxM) continue;
           if (next <= (block.minActiveLevel || 0)) continue;
           if (lane.satisfied[next] || liveLevels.has(next) || lane.pending === next) continue;
@@ -2452,7 +2459,7 @@ export function adjustActiveBlocks(
           const extra =
             block.relAdditive === false || !((e.relVolumeFactor || 0) > 0)
               ? 0
-              : (block.relVolumeRatio ?? vr) * lane.baseQty;
+              : (e.relVolumeFactor || 0) * lane.baseQty;
           const qty = step + extra;
           if (!(qty > 0)) continue;
           const hi = pickRange(q, cfg, rangeType);

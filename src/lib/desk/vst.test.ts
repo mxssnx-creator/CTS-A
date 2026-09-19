@@ -13,6 +13,8 @@ import {
   blockMinimumProfitFactor,
   blockStepQty,
   sharedBlockVolumeRatio,
+  additiveBlockQty,
+  BLOCK_POS_COUNTS,
   DESK,
   activityRelations,
   buildLanes,
@@ -1206,14 +1208,15 @@ describe("VST engine", () => {
 
   it("last-N pos windows: loss in last 6 adjusts the next 6", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
-    for (let i = 0; i < 6; i++) noteBlockPosClose(e, "BTCUSDT", "long", -1);
+    const cfg = { ...DEFAULT_BLOCK_CONFIG, pauseCountRatio: 1, keepAdjusted: false };
+    for (let i = 0; i < 6; i++) noteBlockPosClose(e, "BTCUSDT", "long", -1, cfg);
     const w6 = e.blockWindows[6];
     assert.equal(w6.windows, 1);
     assert.equal(w6.lossWindows, 1);
     assert.equal(w6.pauseLeft, 6);
     assert.ok(blockPosPaused(e, 6));
     assert.ok(symbolBlockPaused(e, "BTCUSDT", 6));
-    for (let i = 0; i < 6; i++) noteBlockPosClose(e, "ETHUSDT", "short", 1);
+    for (let i = 0; i < 6; i++) noteBlockPosClose(e, "ETHUSDT", "short", 1, cfg);
     assert.equal(e.blockWindows[6].pauseLeft, 0);
     assert.equal(e.blockWindows[6].adjusted, 6);
     assert.equal(blockPosPaused(e, 6), false);
@@ -1226,7 +1229,7 @@ describe("VST engine", () => {
 
   it("old stack 1-2 and new windows 1-6 stay independent", () => {
     const stackOnly = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: false, maxMultiple: 2, counts: [1, 2], endStageOnly: false };
-    const winOnly = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: false, windows: true, evalPosCount: 6, endStageOnly: false };
+    const winOnly = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: false, windows: true, evalPosCount: 6, endStageOnly: false, pauseCountRatio: 1, keepAdjusted: false };
     const both = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: true, maxMultiple: 2, counts: [1, 2], evalPosCount: 6, endStageOnly: false };
     const a = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: stackOnly });
     const b = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: winOnly });
@@ -1243,7 +1246,7 @@ describe("VST engine", () => {
 
   it("windows 1-6 skip next N of a losing symbol while other symbols still arm", () => {
     const e = initVstEngine(CFG, { warmup: 4, symbolCount: 6, arm: false });
-    e.blockCfg = { ...DEFAULT_BLOCK_CONFIG, stack: false, windows: true, evalPosCount: 6 };
+    e.blockCfg = { ...DEFAULT_BLOCK_CONFIG, stack: false, windows: true, evalPosCount: 6, pauseCountRatio: 1, keepAdjusted: false };
     for (let i = 0; i < 6; i++) noteBlockPosClose(e, "BTCUSDT", "long", -0.4, e.blockCfg);
     assert.ok(symbolBlockPaused(e, "BTCUSDT", 6));
     armUniverse(e, CFG, "hybrid", "fibonacci");
@@ -1428,6 +1431,10 @@ describe("VST engine", () => {
     assert.ok(Math.abs(b - base * r) < 1e-9, `step2 ${b}`);
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "additive");
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.08);
+    const q = additiveBlockQty(1.2, [1, 2, 3], 1, 3, 1);
+    assert.ok(Math.abs(q.totalSteps - 3 * 1.2) < 1e-9, `steps ${q.totalSteps}`);
+    assert.ok(Math.abs(q.relExtra - 3 * 1.2) < 1e-9, `rel ${q.relExtra}`);
+    assert.ok(Math.abs(q.total - 7.2) < 1e-9, `total ${q.total}`);
   });
 
   it("auto-evals major/minor relations every 2h and adds volume additively", () => {
@@ -1544,18 +1551,51 @@ describe("VST engine", () => {
     assert.ok(winOnly.engine.blockWindows[6].closed >= 0);
   });
 
-  it("all Block counts 1-6 run independently", () => {
-    assert.equal(DEFAULT_BLOCK_CONFIG.counts.length, 2);
-    assert.equal(DEFAULT_BLOCK_CONFIG.maxMultiple, 2);
-    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2]);
-    assert.equal(DEFAULT_BLOCK_CONFIG.evalPosCount, 6);
-    const r = simulateHours(12, CFG, "hybrid", {
-      symbolCount: 8,
-      rangeType: "fibonacci",
-      block: { ...DEFAULT_BLOCK_CONFIG, stack: true, windows: true, volumeMode: "parallel", endStageOnly: false },
-    });
-    assert.ok(r.report.passed);
-    finiteNum(r.report.pf);
+  it("all Block counts 1-8 additive pause/keep volume are independent", () => {
+    assert.deepEqual([...BLOCK_POS_COUNTS], [1, 2, 3, 4, 5, 6, 7, 8]);
+    for (const vr of [0.4, 0.8]) {
+      const q = additiveBlockQty(1.2, BLOCK_POS_COUNTS, vr, 3, vr);
+      assert.equal(q.n, 8);
+      assert.ok(Math.abs(q.step - 1.2 * vr) < 1e-9, `step ${q.step}`);
+      assert.ok(Math.abs(q.totalSteps - 8 * 1.2 * vr) < 1e-9, `steps ${q.totalSteps}`);
+      assert.ok(Math.abs(q.relExtra - 3 * vr * 1.2) < 1e-9, `rel ${q.relExtra}`);
+      for (const s of q.steps) {
+        assert.ok(Math.abs(s.step - 1.2 * vr) < 1e-9);
+        assert.ok(Math.abs(s.cap - s.n * vr * 1.2) < 1e-9);
+      }
+    }
+    for (const pause of [0, 1, 2]) {
+      const e = initVstEngine(CFG, { warmup: 0, symbolCount: 2, arm: false });
+      const block = { ...DEFAULT_BLOCK_CONFIG, pauseCountRatio: pause, keepAdjusted: false, evalPosCount: 1, windows: true };
+      noteBlockPosClose(e, "BTCUSDT", "long", -1, block);
+      assert.equal(e.blockWindows[1].pauseLeft, pause, `pause ${pause} left ${e.blockWindows[1].pauseLeft}`);
+    }
+    const keepE = initVstEngine(CFG, { warmup: 0, symbolCount: 2, arm: false });
+    noteBlockPosClose(keepE, "BTCUSDT", "long", -1, { ...DEFAULT_BLOCK_CONFIG, pauseCountRatio: 2, keepAdjusted: true, evalPosCount: 1, windows: true });
+    assert.equal(keepE.blockWindows[1].pauseLeft, 0);
+    assert.ok(keepE.blockWindows[1].adjusted >= 1);
+    for (const vr of [0.4, 0.8]) {
+      for (const keep of [false, true]) {
+        const r = simulateHours(8, CFG, "hybrid", {
+          symbolCount: 8,
+          rangeType: "fibonacci",
+          block: {
+            ...DEFAULT_BLOCK_CONFIG,
+            counts: [...BLOCK_POS_COUNTS],
+            maxMultiple: 8,
+            volumeRatio: vr,
+            relVolumeRatio: vr,
+            pauseCountRatio: 1,
+            keepAdjusted: keep,
+            volumeMode: "additive",
+            evalPosCount: 8,
+            evalLastNs: [1, 2, 3, 4, 5, 6, 7, 8],
+          },
+        });
+        assert.ok(r.report.passed, `vr ${vr} keep ${keep}`);
+        finiteNum(r.report.pf, r.report.net);
+      }
+    }
   });
 
   it("shared and additive Block volume run in parallel independently", () => {

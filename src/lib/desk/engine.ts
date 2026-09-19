@@ -262,7 +262,7 @@ export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
   maxHoldTicks: 16,
 };
 
-export const BLOCK_POS_COUNTS = [1, 2, 3, 4, 5, 6] as const;
+export const BLOCK_POS_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 export const BLOCK_STACK_COUNTS = [1, 2] as const;
 export const BLOCK_COUNTS = [...BLOCK_STACK_COUNTS];
 
@@ -283,6 +283,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   evalPosCount: 6,
   activeLive: true,
   minActiveLevel: 0,
+  keepAdjusted: false,
   stack: true,
   windows: true,
   volumeMode: "additive",
@@ -307,6 +308,22 @@ export function sharedBlockVolumeRatio(ratio: number, liveCount = 1, extraCap = 
   const n = Math.max(1, liveCount | 0);
   if (n > 2 && extra > 0 && vr + 1e-12 >= extra) return extra / n;
   return extra > 0 ? Math.min(vr, extra) : vr;
+}
+
+export function additiveBlockQty(
+  baseQty: number,
+  counts: readonly number[],
+  volumeRatio: number,
+  relWinners = 0,
+  relVolumeRatio = 0,
+) {
+  const vr = Math.max(0, volumeRatio);
+  const live = [...new Set(counts.map((n) => Math.round(n)).filter((n) => n >= 1 && n <= 8))].sort((a, b) => a - b);
+  const step = baseQty * vr;
+  const steps = live.map((n) => ({ n, step, cap: n * vr * baseQty }));
+  const totalSteps = live.length * step;
+  const relExtra = Math.max(0, relWinners) * Math.max(0, relVolumeRatio) * baseQty;
+  return { step, steps, totalSteps, relExtra, total: totalSteps + relExtra, n: live.length };
 }
 
 export function blockVolumeIncrement(count: number, volumeRatio: number) {
