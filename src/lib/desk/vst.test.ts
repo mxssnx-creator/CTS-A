@@ -122,6 +122,8 @@ import {
   refreshLiveDisable,
   liveRelationDisabled,
   liveShouldExecute,
+  winningRelVolume,
+  matchingWinningRels,
   blockRelationKeys,
   blockRelPaused,
   blockComboPaused,
@@ -2482,6 +2484,16 @@ describe("VST engine", () => {
     e.strategyToggles.block = true;
     e.strategyToggles.dca = false;
     assert.equal(liveShouldExecute(e, { symbol: "XRPUSDT", side: "long", playbook: "dca", tactic: "dca" }), false);
+    e.strategyToggles.block = true;
+    e.blockRelBest = {
+      "ind:trend": { key: "ind:trend", n: 6, pf: 2.1, net: 1, vol: 0.08, major: true },
+      "tac:trailing": { key: "tac:trailing", n: 6, pf: 1.9, net: 1, vol: 0.08, major: true },
+      "side:long": { key: "side:long", n: 6, pf: 1.85, net: 1, vol: 0.08, major: true },
+    };
+    const rel = { symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, kind: "trend", tactic: "trailing" as const, rangeType: "atr" as const, playbook: "normal" };
+    assert.equal(matchingWinningRels(e, rel).length, 3);
+    assert.ok(Math.abs(winningRelVolume(e, rel) - 0.24) < 1e-9);
+    assert.equal(liveShouldExecute(e, rel), true);
   });
 });
 

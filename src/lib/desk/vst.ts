@@ -3019,9 +3019,17 @@ export function adjustActiveBlocks(
           if (!blockPfOk(lane, next, block, minPf)) continue;
           const step = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, mode);
           const extra =
-            block.relAdditive === false || !((e.relVolumeFactor || 0) > 0)
+            block.relAdditive === false
               ? 0
-              : (e.relVolumeFactor || 0) * lane.baseQty;
+              : winningRelVolume(e, {
+                  symbol: p.symbol,
+                  side: p.side,
+                  indication: p.indication,
+                  kind: p.kind,
+                  tactic: p.tactic ?? tactic,
+                  rangeType: p.controllingRange ?? rangeType,
+                  playbook: p.playbook,
+                }) * lane.baseQty;
           const qty = step + extra;
           if (!(qty > 0)) continue;
           const hi = pickRange(q, cfg, rangeType);
@@ -4704,6 +4712,61 @@ export function positionsAsTrades(pos: Position[]): import("./types.ts").Trade[]
   }));
 }
 
+export function matchingWinningRels(
+  e: VstEngine,
+  rel: {
+    symbol: string;
+    side: Side;
+    indication?: IndicationId;
+    kind?: string;
+    tactic?: TacticKind;
+    rangeType?: RangeType;
+    playbook?: string;
+  },
+) {
+  const best = e.blockRelBest ?? {};
+  if (!Object.keys(best).length) return [];
+  const keys = blockRelationKeys({
+    symbol: rel.symbol,
+    side: rel.side,
+    indication: rel.indication,
+    kind: rel.kind as StrategyKind | undefined,
+    tactic: rel.tactic,
+    rangeType: rel.rangeType,
+    playbook: rel.playbook,
+  });
+  const out: { key: string; n: number; pf: number; net: number; vol: number; major: boolean }[] = [];
+  const seen = new Set<string>();
+  for (const k of keys) {
+    const p = best[k];
+    if (!p || seen.has(p.key)) continue;
+    seen.add(p.key);
+    out.push(p);
+  }
+  return out;
+}
+
+/** Additive extra from each matching winning relation (independent). */
+export function winningRelVolume(
+  e: VstEngine,
+  rel: Parameters<typeof matchingWinningRels>[1],
+): number {
+  const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  if (t.block === false) return 0;
+  const block = e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
+  if (block.relAdditive === false) return 0;
+  return matchingWinningRels(e, rel).reduce((s, p) => s + Math.max(0, Number(p.vol) || 0), 0);
+}
+
+export function winningRelLive(
+  e: VstEngine,
+  rel: Parameters<typeof matchingWinningRels>[1],
+): boolean {
+  const hits = matchingWinningRels(e, rel);
+  if (!hits.length) return false;
+  return hits.some((p) => p.major && !String(p.key).startsWith("side:"));
+}
+
 export function positionBlockAdjusted(e: VstEngine, symbol: string, side: Side): boolean {
   const pos = e.positions.find((p) => p.symbol === symbol && p.side === side && ownedByDesk(p));
   if (pos && (pos.blockLevel ?? 0) >= 1) return true;
@@ -4726,6 +4789,8 @@ export function liveShouldExecute(
     kind?: string;
     note?: string;
     blockLevel?: number;
+    indication?: IndicationId;
+    rangeType?: RangeType;
   },
 ): boolean {
   const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
@@ -4733,6 +4798,7 @@ export function liveShouldExecute(
   const play = String(rel.playbook || "");
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca) return t.dca;
+  if (t.block && winningRelLive(e, rel)) return true;
   const isBlockFill = play === "block" || /^Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   const isBlock = isBlockFill || positionBlockAdjusted(e, rel.symbol, rel.side);
   if (isBlock) {

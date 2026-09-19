@@ -31,6 +31,7 @@ import {
   skipLiveSymbol,
   liveRelationDisabled,
   liveShouldExecute,
+  winningRelVolume,
   classifyIndication,
   tacticForIndication,
   openPlaybook,
@@ -734,14 +735,15 @@ function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
   return Math.max(eq * 0.002, 1);
 }
-function liveNotional(e, f, equity) {
+function liveNotional(e, f, equity, rel) {
   const base = sizeNotional(equity);
-  let mul = 1 + Math.max(0, Number(e?.relVolumeFactor) || 0);
-  if (/Block/i.test(String(f?.note || f?.playbook || "")) || f?.playbook === "block") {
-    mul += Math.max(0.08, Number(BLOCK.volumeRatio) || 0.08) * Math.max(1, Number(f.level) || 1);
+  const win = winningRelVolume(e, rel || { symbol: f.symbol, side: f.side });
+  let mul = 1 + win;
+  if (/Block/i.test(String(f?.note || rel?.playbook || rel?.note || "")) || rel?.playbook === "block") {
+    mul += Math.max(0.08, Number(BLOCK.volumeRatio) || 0.08) * Math.max(1, Number(f.level || rel?.blockLevel) || 1);
   }
   if (cfgUsesShortRange(currentPick?.cfg)) mul *= 0.85;
-  return base * Math.min(2.2, mul);
+  return base * Math.min(2.4, mul);
 }
 
 function liveMaxPos() {
@@ -1465,28 +1467,24 @@ async function mirrorToExchange(e, network, cfg) {
       const ind = classifyIndication(e, f.symbol);
       const kind = order?.kind ?? pos?.kind ?? kindFromIndication(ind, openPlaybook(e.lastTactic, ind), e.lastTactic);
       const playbook = order?.playbook ?? pos?.playbook;
-      if (
-        !liveShouldExecute(e, {
-          symbol: f.symbol,
-          side: f.side,
-          tactic: order?.tactic ?? e.lastTactic,
-          playbook,
-          kind,
-          note: order?.note,
-          blockLevel: order?.level ?? pos?.blockLevel,
-        }) ||
-        liveRelationDisabled(e, {
-          symbol: f.symbol,
-          side: f.side,
-          indication: ind,
-          kind,
-          tactic: e.lastTactic,
-          rangeType: e.lastRange,
-        })
-      ) {
+      const rangeType = order?.rangeType ?? pos?.controllingRange ?? e.lastRange;
+      const indication = order?.indication ?? pos?.indication ?? ind;
+      const rel = {
+        symbol: f.symbol,
+        side: f.side,
+        tactic: order?.tactic ?? e.lastTactic,
+        playbook,
+        kind,
+        note: order?.note,
+        blockLevel: order?.level ?? pos?.blockLevel,
+        indication,
+        rangeType,
+      };
+      if (!liveShouldExecute(e, rel) || liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType })) {
         skippedFills.add(f.id);
         continue;
       }
+      f._rel = rel;
     }
     if (!isUniverseSymbol(f.symbol)) {
       mirrored.add(f.id);
@@ -1512,7 +1510,7 @@ async function mirrorToExchange(e, network, cfg) {
           quantity: 0,
           type: "MARKET",
           price: f.px,
-          notional: liveNotional(e, f, book.equity),
+          notional: liveNotional(e, f, book.equity, f._rel),
           confirmLive: true,
           slAtr: protectFor(f.symbol).slAtr,
           tpRatio: protectFor(f.symbol).tpRatio,
