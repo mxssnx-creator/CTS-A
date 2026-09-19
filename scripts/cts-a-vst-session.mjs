@@ -194,7 +194,7 @@ const BLOCK = {
 
 const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false };
 
-const LIVE_CFG = { trailingPct: 1.4, tpRatio: tpRatioOf(1), dcaCount: 1, slAtr: slAtrOf(1.0, 1), tpAtr: 0.2, slOfTp: 0.5, shortRange: true, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
+const LIVE_CFG = { trailingPct: 1.4, tpRatio: 1, dcaCount: 1, slAtr: 0.3, tpAtr: 0.3, slOfTp: 1, shortRange: true, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
 const BASE_GRID = LIVE_TACTICS.flatMap((tactic) =>
   RANGE_TYPES.map((range) => ({
     tactic,
@@ -202,7 +202,9 @@ const BASE_GRID = LIVE_TACTICS.flatMap((tactic) =>
     cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, dcaCount: 1 },
   })),
 );
-const SHORT_GRID = allShortTpSlCombos().flatMap((s) =>
+const SHORT_GRID = allShortTpSlCombos()
+  .filter((s) => s.tpAtr + 1e-9 >= 0.3 && s.slOfTp + 1e-9 >= 1)
+  .flatMap((s) =>
   LIVE_TACTICS.map((tactic) => ({
     tactic,
     range: "atr",

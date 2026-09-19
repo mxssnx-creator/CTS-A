@@ -1336,7 +1336,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     return;
   }
   const signed = p.side === "long" ? 1 : -1;
-  const fee = (p.avgEntry + exit) * p.qty * 0.0005;
+  const fee = (p.avgEntry + exit) * p.qty * 0.00025;
   let pnl = (exit - p.avgEntry) * p.qty * signed - fee;
   const risk = Math.max(p.slDist * p.qty, positionNotional(e.stats.equity || 1e4, e.costStep || 10) * 0.25, 1e-9);
   if (Math.abs(pnl) > risk * 8) pnl = Math.sign(pnl) * risk * 8;
@@ -1399,9 +1399,9 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     at: Date.now(),
     tactic: p.tactic ?? e.lastTactic,
     rangeType: p.controllingRange ?? e.lastRange,
-    kind: p.kind,
+    kind: (p.blockLevel ?? 0) >= 1 ? "block" : p.kind,
     indication: p.indication,
-    playbook: p.playbook ?? "normal",
+    playbook: (p.blockLevel ?? 0) >= 1 ? "block" : (p.playbook ?? "normal"),
     level: p.blockLevel ?? Math.max(1, p.legs.length),
     blockQty: p.blockQty,
   });
@@ -1580,6 +1580,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const partial = ownTactic === "axis" ? false : p.status === "partial" || fillRatio < 0.55;
     if (ownTactic === "dca" && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid") handleAxis(e, p, cfg);
+    clampRatio(p, e.tpRatio);
     if (e.tick === p.openedTick || e.tick - p.openedTick < Math.max(1, opts?.minHold ?? 1)) {
       keep.push(p);
       continue;
@@ -1628,6 +1629,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       if (p.side === "long" ? next > p.sl : next < p.sl) {
         p.sl = next;
         p.slDist = Math.abs(p.sl - p.avgEntry);
+        clampRatio(p, e.tpRatio);
       }
     }
     keep.push(p);

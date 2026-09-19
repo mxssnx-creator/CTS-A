@@ -112,8 +112,9 @@ export function trailStopFromPeak(input: {
   const peakProfit = signed * (peak - entry);
   const tpDist = Math.abs(tp - entry);
   if (peakProfit <= 1e-12 || !(tpDist > 0)) return sl;
+  if (peakProfit < tpDist * 0.4) return sl;
   const give = trailGiveback(peakProfit / tpDist, trailPct);
-  const minGap = tpDist * 0.2;
+  const minGap = tpDist * 0.32;
   const gap = Math.max(peakProfit * give, minGap);
   let next = peak - signed * gap;
   if (side === "long") {
@@ -526,10 +527,10 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   enabled: true,
   maxMultiple: 6,
   minMultiple: 1,
-  addOnWin: true,
+  addOnWin: false,
   flattenConflict: false,
   endStageOnly: false,
-  cadence: 6,
+  cadence: 4,
   overall: true,
   counts: [...LIVE_BLOCK_COUNTS],
   volumeRatio: 0.08,
