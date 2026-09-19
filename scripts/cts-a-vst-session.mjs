@@ -1895,7 +1895,13 @@ async function main() {
     try {
       engine.liveOpenN = lastBook.pos || 0;
       engine.strategyToggles = { ...STRAT, dca: false };
-      engine.blockCfg = { ...BLOCK, enabled: STRAT.block };
+      engine.blockCfg = {
+        ...BLOCK,
+        ...(engine.blockCfg || {}),
+        enabled: STRAT.block,
+        minRelPf: engine.blockPf || DEFAULT_BLOCK_PF,
+        liveDisableMinPf: engine.blockPf || DEFAULT_BLOCK_PF,
+      };
       pick.cfg = { ...pick.cfg, shortRange: true, dcaCount: 1 };
       mergeLivePositions(engine, lastBook);
       tickVst(engine, pick.cfg, pick.tactic, {
