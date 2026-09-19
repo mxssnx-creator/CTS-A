@@ -59,6 +59,7 @@ import {
   haltEngine,
   healEngine,
   initVstEngine,
+  releaseVanished,
   isDeskConn,
   classifyIndication,
   playbookOf,
@@ -1064,6 +1065,39 @@ describe("VST engine", () => {
     assert.equal(offCloses, 0);
     assert.ok(a.engine.lastBlockAt > 0 || blockCloses > 0 || a.engine.queue.some((o) => /^Block #/.test(o.note)) || a.engine.positions.some((p) => p.playbook === "block"));
     assert.equal(b.engine.lastBlockAt ?? 0, 0);
+  });
+
+  it("releases vanished legs so processing continues after a manual close", () => {
+    const e = initVstEngine(CFG, { warmup: 8, symbolCount: 6 });
+    for (let i = 0; i < 40 && e.positions.length < 1; i++) tickVst(e, CFG, "hybrid", { rangeType: "atr" });
+    if (e.positions.length < 1) {
+      e.positions.push({
+        id: "p-manual",
+        connId: e.activeConnId,
+        symbol: "BTCUSDT",
+        side: "long",
+        qty: 0.01,
+        avgEntry: 64000,
+        sl: 63000,
+        tp: 66000,
+        slDist: 1000,
+        tpDist: 2000,
+        unrealized: 0,
+        realized: 0,
+        openedTick: e.tick,
+        legs: [],
+      } as never);
+    }
+    const before = e.positions.length;
+    assert.ok(before >= 1);
+    const drop = e.positions[0];
+    const kept = new Set(e.positions.slice(1).map((p) => `${p.symbol}:${p.side}`));
+    const n = releaseVanished(e, kept, e.activeConnId);
+    assert.equal(n, 1);
+    assert.equal(e.positions.length, before - 1);
+    assert.ok(!e.positions.some((p) => p.symbol === drop.symbol && p.side === drop.side));
+    tickVst(e, CFG, "hybrid", { rangeType: "atr" });
+    assert.ok(e.tick >= 1);
   });
 
   it("playbook tagging and indications stay independent", () => {

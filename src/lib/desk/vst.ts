@@ -2033,6 +2033,28 @@ export function resetBook(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, r
   armUniverse(e, cfg, tactic, rangeType);
   e.lastMsg = "Desk book rearmed · foreign exchange orders untouched";
 }
+
+/** Drop paper legs that vanished on the live book (manual close / SL fill) so we keep arming. */
+export function releaseVanished(e: VstEngine, occupied: Set<string>, connId?: string) {
+  const conn = connId && isDeskConn(connId) ? connId : e.activeConnId;
+  const keep = [];
+  let n = 0;
+  for (const p of e.positions) {
+    if (!ownedByDesk(p, conn) || occupied.has(`${p.symbol}:${p.side}`)) {
+      keep.push(p);
+      continue;
+    }
+    cancelLane(e, p);
+    e.cooldown[cooldownKey(p.connId, p.symbol)] = e.tick;
+    n += 1;
+  }
+  if (n) {
+    e.positions = keep;
+    e.lastMsg = `Released ${n} vanished legs · keep processing`;
+  }
+  return n;
+}
+
 export function haltEngine(e: VstEngine, connId?: string) {
   e.running = false;
   e.phase = "stopped";

@@ -23,6 +23,7 @@ import {
   adjustActiveBlocks,
   overallLiveStats,
   overlayExchangeBook,
+  releaseVanished,
   sweepAllConfigs,
   sweepPlaybooks,
   completeComputationsAsync,
@@ -384,7 +385,7 @@ async function closeHit(network, hit) {
   );
 }
 
-async function ensureProtect(network, book, cfg) {
+async function ensureProtect(network, book, cfg, vanished = new Set()) {
   if (apiQuiet()) return null;
   const slAtr = Number(cfg?.slAtr) || 1.05;
   const tpRatio = Number(cfg?.tpRatio) || 2.5;
@@ -420,30 +421,43 @@ async function ensureProtect(network, book, cfg) {
     return !hasSl.has(key) || !hasTp.has(key);
   });
   const extras = [...grouped.entries()].some(([, g]) => (g.sl?.length ?? 0) > 1 || (g.tp?.length ?? 0) > 1);
-  const stray = [...grouped.keys()].some((key) => !occupied.has(key) && (mirrored.has(`own:${key}`) || mirrored.has(`live:${key}`) || mirrored.has(`sl:${key}`) || mirrored.has(`tp:${key}`)));
+  const gone = (key) =>
+    !occupied.has(key) &&
+    (vanished.has(key) || mirrored.has(`own:${key}`) || mirrored.has(`live:${key}`) || mirrored.has(`sl:${key}`) || mirrored.has(`tp:${key}`));
+  const stray = [...grouped.keys()].some(gone);
   if (!missing.length && !extras && !stray) return null;
   const map = await fetchContractMap(network);
+  const notes = [];
+  let strayN = 0;
   for (const [key, g] of grouped) {
-    if (!occupied.has(key) && (mirrored.has(`own:${key}`) || mirrored.has(`live:${key}`) || mirrored.has(`sl:${key}`) || mirrored.has(`tp:${key}`))) {
-      const stray = g.sl[0] || g.tp[0];
-      if (stray?.id && !cancelFailed.has(String(stray.id))) {
-        const r = await withLiveBusy(() =>
-          cancelSwapOrder({
-            network,
-            connId: CONN,
-            symbol: stray.venueSymbol || stray.symbol,
-            orderId: String(stray.id),
-          }),
-        );
-        if (r.ok) {
-          mirrored.delete(`sl:${key}`);
-          mirrored.delete(`tp:${key}`);
-          return `cancel stray ${stray.symbol}`;
-        }
-        cancelFailed.add(String(stray.id));
+    if (!gone(key) || strayN >= 12) continue;
+    for (const o of [...(g.sl || []), ...(g.tp || [])]) {
+      if (strayN >= 12) break;
+      const oid = String(o?.id || "");
+      if (!oid || cancelFailed.has(oid)) continue;
+      const r = await withLiveBusy(() =>
+        cancelSwapOrder({
+          network,
+          connId: CONN,
+          symbol: o.venueSymbol || o.symbol,
+          orderId: oid,
+        }),
+      );
+      if (r.ok) {
+        strayN += 1;
+        mirrored.delete(`sl:${key}`);
+        mirrored.delete(`tp:${key}`);
+        mirrored.delete(`own:${key}`);
+        mirrored.delete(`live:${key}`);
+      } else {
+        cancelFailed.add(oid);
         noteApiFail(r);
       }
     }
+  }
+  if (strayN) notes.push(`stray ${strayN}`);
+  for (const [key, g] of grouped) {
+    if (!occupied.has(key)) continue;
     const want = posQty.get(key) ?? 0;
     for (const kind of ["sl", "tp"]) {
       const list = g[kind];
@@ -464,13 +478,13 @@ async function ensureProtect(network, book, cfg) {
       );
       if (r.ok) {
         trimHits.set(tk, (trimHits.get(tk) || 0) + 1);
-        return `trim ${kind} ${extra.symbol}`;
+        notes.push(`trim ${kind} ${extra.symbol}`);
+      } else {
+        cancelFailed.add(extraId);
+        noteApiFail(r);
       }
-      cancelFailed.add(extraId);
-      noteApiFail(r);
     }
   }
-  const notes = [];
   let posts = 0;
   for (const p of book.positions ?? []) {
     if (posts >= 16) break;
@@ -566,23 +580,12 @@ async function mirrorToExchange(e, network, cfg) {
   noteApiOk();
   if ((book.positions?.length ?? 0) === 0 && lastBook.pos > 0) {
     try {
-      await sleep(400);
+      await sleep(250);
       const again = await fetchExchangeBook({ network, connId: CONN });
       if (again?.ok && (again.positions?.length ?? 0) > 0) book = again;
-      else {
-        emptyHold += 1;
-        if (again && !again.ok) noteApiFail(again);
-        if (emptyHold >= 3) {
-          lastBook = { pos: 0, ord: (again?.orders ?? book.orders ?? []).length, pnl: 0, ok: true, sl: 0, tp: 0, positions: [], orders: again?.orders ?? book.orders ?? [] };
-          emptyHold = 0;
-        } else {
-          return emptyHold <= 1 || emptyHold % 20 === 0 ? "live book empty · held" : null;
-        }
-      }
+      else if (again && !again.ok) noteApiFail(again);
     } catch (err) {
       noteApiFail(err);
-      emptyHold += 1;
-      return emptyHold <= 1 ? `live book retry ${err instanceof Error ? err.message : "fail"}` : null;
     }
   }
   emptyHold = 0;
@@ -622,6 +625,29 @@ async function mirrorToExchange(e, network, cfg) {
   bookAvg.n += 1;
   bookAvg.pos += lastBook.pos;
   bookAvg.ord += lastBook.ord;
+  const occupied = new Set((book.positions ?? []).map((p) => `${p.symbol}:${p.side}`));
+  const vanished = new Set();
+  for (const p of e.positions || []) {
+    const k = `${p.symbol}:${p.side}`;
+    if (!occupied.has(k)) vanished.add(k);
+  }
+  const dropped = releaseVanished(e, occupied, CONN);
+  const forget = (key) => {
+    mirrored.delete(`own:${key}`);
+    mirrored.delete(`live:${key}`);
+    mirrored.delete(`sl:${key}`);
+    mirrored.delete(`tp:${key}`);
+    mirrored.delete(`seed:${key}`);
+    skipUntil.delete(String(key).split(":")[0]);
+  };
+  for (const k of vanished) forget(k);
+  for (const tag of [...mirrored]) {
+    if (typeof tag !== "string") continue;
+    if (tag.startsWith("own:") || tag.startsWith("live:") || tag.startsWith("sl:") || tag.startsWith("tp:") || tag.startsWith("seed:")) {
+      const rest = tag.slice(tag.indexOf(":") + 1);
+      if (!occupied.has(rest)) forget(rest);
+    }
+  }
   let n = 0;
   for (const p of book.positions ?? []) {
     const k = `${p.symbol}:${p.side}`;
@@ -633,17 +659,14 @@ async function mirrorToExchange(e, network, cfg) {
   }
   if (n) claimed = true;
   const notes = [];
+  if (dropped) notes.push(`manual ${dropped}`);
   if (n) notes.push(`claim ${n}`);
-  const guard = await ensureProtect(network, book, cfg);
-  if (guard) {
-    notes.push(guard);
-    return notes.join(" · ");
-  }
-  if (lastBook.sl < lastBook.pos || lastBook.tp < lastBook.pos) {
+  const guard = await ensureProtect(network, book, cfg, vanished);
+  if (guard) notes.push(guard);
+  if (lastBook.pos > 0 && (lastBook.sl < lastBook.pos || lastBook.tp < lastBook.pos)) {
     notes.push(`wait protect ${lastBook.pos - Math.min(lastBook.sl, lastBook.tp)}`);
     return notes.join(" · ");
   }
-  const occupied = new Set(book.positions.map((p) => `${p.symbol}:${p.side}`));
   const paperOpen = new Set((e.positions || []).map((p) => `${p.symbol}:${p.side}`));
   for (const k of paperOpen) mirrored.delete(`seed:${k}`);
   const ours = book.positions.filter((p) => {
@@ -652,13 +675,6 @@ async function mirrorToExchange(e, network, cfg) {
   });
   const openN = ours.length;
   const accountN = book.positions.length;
-
-  for (const k of [...mirrored]) {
-    if (typeof k === "string" && k.startsWith("own:")) {
-      const rest = k.slice(4);
-      if (![...occupied].includes(rest)) mirrored.delete(k);
-    }
-  }
 
   if (openN >= liveMaxPos() || accountN >= liveMaxPos()) return notes.length ? notes.join(" · ") : null;
 
