@@ -1658,7 +1658,7 @@ function blockLaneKey(symbol: string, side: Side, mode: "shared" | "additive" = 
 
 function blockVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
   const m = block?.volumeMode;
-  if (m === "parallel" || m === "both") return ["shared", "additive"];
+  if (m === "parallel") return ["shared", "additive"];
   if (m === "additive") return ["additive"];
   return ["shared"];
 }
