@@ -105,32 +105,32 @@ const GRID = [
   {
     tactic: "trailing",
     range: "geometric",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.4, tpRatio: 1.6, dcaCount: 1, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "hybrid",
     range: "fibonacci",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.4, tpRatio: 1.6, dcaCount: 1, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "hybrid",
     range: "atr",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.4, tpRatio: 1.6, dcaCount: 1, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "hybrid",
     range: "volume",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.7, tpRatio: 1.6, dcaCount: 1, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "trailing",
     range: "fibonacci",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.4, tpRatio: 2.0, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "axis",
     range: "atr",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.2, dcaCount: 1, axisLevels: 5, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.4, tpRatio: 1.6, dcaCount: 1, axisLevels: 5, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
 ];
 
@@ -139,13 +139,26 @@ function loadProtectCells() {
   try {
     const raw = JSON.parse(readFileSync(PROTECT_FILE, "utf8"));
     const cells = Array.isArray(raw?.cells) ? raw.cells : Array.isArray(raw) ? raw : [];
-    const ok = cells.filter((c) => Number(c.tpRatio) >= 0.6 && Number(c.slAtr) >= 0.4 && (c.pf == null || Number(c.pf) >= (IS_X01 ? X01_DEFAULTS.minPf : 2)));
-    if (ok.length) return ok.map((c) => ({ slAtr: Number(c.slAtr), tpRatio: Number(c.tpRatio), trailPct: Number(c.trailPct) || 0.8 }));
+    const minSl = IS_X01 ? 0.7 : 0.5;
+    const minTp = IS_X01 ? 1.6 : 1.0;
+    const minPf = IS_X01 ? X01_DEFAULTS.minPf : 2;
+    const ok = cells
+      .filter((c) => Number(c.tpRatio) >= minTp && Number(c.slAtr) >= minSl && (c.pf == null || Number(c.pf) >= minPf))
+      .sort((a, b) => Number(b.pf || 0) - Number(a.pf || 0))
+      .slice(0, IS_X01 ? 6 : 24);
+    if (ok.length) return ok.map((c) => ({ slAtr: Number(c.slAtr), tpRatio: Number(c.tpRatio), trailPct: Number(c.trailPct) || (IS_X01 ? 1.4 : 0.8) }));
   } catch {}
+  if (IS_X01) {
+    return [
+      { slAtr: 0.9, tpRatio: 1.6, trailPct: 1.4 },
+      { slAtr: 0.7, tpRatio: 1.6, trailPct: 1.4 },
+      { slAtr: 0.9, tpRatio: 2.0, trailPct: 1.7 },
+    ];
+  }
   const out = [];
-  for (const slAtr of SL_ATR_RATIOS) {
-    for (const tpRatio of TP_SL_RATIOS) {
-      for (const trailPct of [0.8, 1.4, 2.0]) out.push({ slAtr, tpRatio, trailPct });
+  for (const slAtr of SL_ATR_RATIOS.filter((n) => n >= 0.7)) {
+    for (const tpRatio of TP_SL_RATIOS.filter((n) => n >= 1.6)) {
+      for (const trailPct of [1.4, 1.7, 0.8]) out.push({ slAtr, tpRatio, trailPct });
     }
   }
   return out;

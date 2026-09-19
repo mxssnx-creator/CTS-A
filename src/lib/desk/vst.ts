@@ -1957,6 +1957,26 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (symbolBlockPaused(e, symbol, evalN)) return true;
   if (symbolTapePf(e, symbol) + 1e-9 < 1) return true;
   if (e.liveDisabled?.[`sym:${symbol}`]) return true;
+  if (e.liveDisabled?.[`ind:trend`]) {
+    try {
+      if (classifyIndication(e, symbol) === "trend") return true;
+    } catch {
+      /* quotes may be thin */
+    }
+  }
+  const trend = e.closed.filter((c) => isDeskConn(c.connId) && c.indication === "trend").slice(0, 8);
+  if (trend.length >= 3) {
+    const gp = trend.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
+    const gl = Math.abs(trend.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
+    const pf = gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl;
+    if (pf + 1e-9 < 1.4) {
+      try {
+        if (classifyIndication(e, symbol) === "trend") return true;
+      } catch {
+        /* keep */
+      }
+    }
+  }
   return false;
 }
 
