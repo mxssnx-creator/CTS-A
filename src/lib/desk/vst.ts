@@ -811,6 +811,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     if (!q || !(q.px > 0)) return;
     if (busy.has(s.id)) return;
     if ((e.cooldown[cooldownKey(connId, s.id)] ?? 0) > e.tick) return;
+    const winN = Math.min(16, Math.max(1, Math.round(e.blockCfg?.evalPosCount || 16)));
+    if (e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     if (pn >= VST_MAX_POSITIONS) return;
     const side = direction(q);
     const hi = pickRange(q, cfg, rangeType);
@@ -1195,7 +1197,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     level: p.blockLevel ?? (p.playbook === "block" ? Math.max(1, p.legs.length) : Math.max(1, p.legs.length)),
   });
   recordBlockClose(e, p, pnl);
-  noteBlockPosClose(e, p.symbol, p.side, pnl);
+  noteBlockPosClose(e, p.symbol, p.side, pnl, e.blockCfg);
   if (e.closed.length > 600) e.closed.length = 600;
   e.fills.unshift({
     id: nextId(e, "f"),
@@ -1706,8 +1708,11 @@ export function blockPosPaused(e: VstEngine, n = 16) {
 }
 
 /** This symbol's last-N average was a loss; next N of that symbol are adjusted. */
-export function symbolBlockPaused(e: VstEngine, symbol: string, n = 16) {
-  return (e.blockWindowsBySymbol?.[symbol]?.[n]?.pauseLeft || 0) > 0;
+export function symbolBlockPaused(e: VstEngine, symbol: string, n?: number) {
+  const map = e.blockWindowsBySymbol?.[symbol];
+  if (!map) return false;
+  if (n != null) return (map[n]?.pauseLeft || 0) > 0;
+  return Object.values(map).some((w) => (w.pauseLeft || 0) > 0);
 }
 
 export function symbolTapePf(e: VstEngine, symbol: string) {
@@ -2089,7 +2094,8 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   safeStage(e, "match", () => matchOrders(e));
   safeStage(e, "positions", () => managePositions(e, tactic, cfg, { minHold: opts?.skipWalk ? 80 : 1, liveTape: Boolean(opts?.skipWalk) }));
   if (e.tick % 8 === 0 && !over()) safeStage(e, "coord", () => applySessionCoord(e));
-  const block = opts?.block ?? DEFAULT_BLOCK_CONFIG;
+  const block = opts?.block ?? e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
+  e.blockCfg = block;
   const cadence = Math.max(4, Math.round(block.cadence || 8));
   const endTick = 16 * TICKS_PER_HOUR;
   const blockDue =

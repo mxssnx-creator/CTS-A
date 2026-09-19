@@ -274,11 +274,11 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   minActiveLevel: 0,
   stack: true,
   windows: true,
-  volumeMode: "additive",
+  volumeMode: "shared",
 };
 
 /** Additive: each count uses `ratio`. Shared (old): extra/n when n>2. */
-export function sharedBlockVolumeRatio(ratio: number, liveCount = 1, extraCap = 1, mode: "additive" | "shared" = "additive") {
+export function sharedBlockVolumeRatio(ratio: number, liveCount = 1, extraCap = 1, mode: "additive" | "shared" = "shared") {
   const vr = Math.min(5, Math.max(0.05, ratio || 1));
   if (mode !== "shared") return vr;
   const extra = Math.max(0, extraCap);
@@ -296,7 +296,7 @@ export function blockMaxAdditionalRatio(
   maxStack: number,
   volumeRatio: number,
   maxMultiplier = 2.25,
-  mode: "additive" | "shared" = "additive",
+  mode: "additive" | "shared" = "shared",
 ) {
   const inc = blockVolumeIncrement(maxStack, volumeRatio);
   if (mode !== "shared") return inc;
@@ -317,7 +317,7 @@ export function blockStepQty(
   maxMultiplier = 2.25,
   liveCount = 2,
   minQty = 0,
-  mode: "additive" | "shared" = "additive",
+  mode: "additive" | "shared" = "shared",
 ) {
   if (!(baseQty > 0) || !(count > 0)) return 0;
   const floor = Math.max(0, minQty) * 1.08;

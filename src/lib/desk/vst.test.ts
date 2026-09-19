@@ -59,6 +59,7 @@ import {
   haltEngine,
   healEngine,
   initVstEngine,
+  armUniverse,
   releaseVanished,
   skipLiveSymbol,
   symbolTapePf,
@@ -1014,14 +1015,14 @@ describe("VST engine", () => {
     const ladder = e.queue.filter((o) => !/^Block/i.test(o.note)).length + e.orders.filter((o) => !/^Block/i.test(o.note)).length;
     assert.ok(ladder >= 0);
 
-    assert.equal(sharedBlockVolumeRatio(1, 4, 1), 1);
-    assert.equal(sharedBlockVolumeRatio(1, 4, 1, "shared"), 0.25);
-    assert.equal(blockMaxAdditionalRatio(3, 1), 3);
-    assert.equal(blockMaxAdditionalRatio(6, 0.25, 2, "shared"), 1);
-    assert.equal(blockStepQty(1.2, 1, 1), 1.2);
-    assert.equal(blockStepQty(1.2, 2, 1), 1.2);
-    assert.equal(blockStepQty(1.2, 3, 1), 1.2);
-    assert.ok(Math.abs(blockStepQty(1.2, 1, 1) * 3 - 3.6) < 1e-9);
+    assert.equal(sharedBlockVolumeRatio(1, 4, 1), 0.25);
+    assert.equal(sharedBlockVolumeRatio(1, 4, 1, "additive"), 1);
+    assert.equal(blockMaxAdditionalRatio(6, 0.25, 2), 1);
+    assert.equal(blockMaxAdditionalRatio(3, 1, 2.25, "additive"), 3);
+    assert.equal(blockStepQty(1.2, 1, 1, 2.25, 2, 0, "additive"), 1.2);
+    assert.equal(blockStepQty(1.2, 2, 1, 2.25, 2, 0, "additive"), 1.2);
+    assert.equal(blockStepQty(1.2, 3, 1, 2.25, 3, 0, "additive"), 1.2);
+    assert.ok(Math.abs(blockStepQty(1.2, 1, 1, 2.25, 3, 0, "additive") * 3 - 3.6) < 1e-9);
     assert.ok(blockStepQty(10, 1, 0.25, 2, 6) > 0);
     assert.ok(blockStepQty(10, 2, 0.25, 2, 6) > 0);
     const liftedStep = blockStepQty(10, 1, 0.01, 2, 6, 5);
@@ -1147,6 +1148,29 @@ describe("VST engine", () => {
     const e2 = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     for (let i = 0; i < 16; i++) noteBlockPosClose(e2, "BTCUSDT", "long", -0.5, stackOnly);
     assert.equal(blockPosPaused(e2, 16), false);
+  });
+
+  it("windows 1-16 skip next N of a losing symbol while other symbols still arm", () => {
+    const e = initVstEngine(CFG, { warmup: 4, symbolCount: 6, arm: false });
+    e.blockCfg = { ...DEFAULT_BLOCK_CONFIG, stack: false, windows: true, evalPosCount: 16 };
+    for (let i = 0; i < 16; i++) noteBlockPosClose(e, "BTCUSDT", "long", -0.4, e.blockCfg);
+    assert.ok(symbolBlockPaused(e, "BTCUSDT", 16));
+    armUniverse(e, CFG, "hybrid", "fibonacci");
+    const btc = [...e.queue, ...e.orders].filter((o) => o.symbol === "BTCUSDT");
+    const other = [...e.queue, ...e.orders].filter((o) => o.symbol !== "BTCUSDT");
+    assert.equal(btc.length, 0);
+    assert.ok(other.length > 0, "other symbols should still arm");
+  });
+
+  it("windows shared vs additive run with stack 1-2 additionally", () => {
+    const base = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: true, counts: [1, 2], maxMultiple: 2, evalPosCount: 16, volumeRatio: 1.25, endStageOnly: false };
+    const shared = simulateHours(24, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...base, volumeMode: "shared" } });
+    const additive = simulateHours(24, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...base, volumeMode: "additive" } });
+    const winOnly = simulateHours(24, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...base, stack: false, volumeMode: "shared" } });
+    assert.ok(shared.report.passed && additive.report.passed && winOnly.report.passed);
+    finiteNum(shared.report.pf, additive.report.pf, winOnly.report.pf);
+    assert.ok(shared.engine.blockWindows[16]);
+    assert.ok(winOnly.engine.blockWindows[16].closed >= 0);
   });
 
   it("skips direction indication and PF<1 symbols for live entries", () => {
