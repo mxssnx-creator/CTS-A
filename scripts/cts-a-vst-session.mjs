@@ -194,7 +194,7 @@ const BLOCK = {
 
 const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false };
 
-const LIVE_CFG = { trailingPct: 1.4, tpRatio: 1 / 1.5, dcaCount: 1, slAtr: 0.525, tpAtr: 0.35, slOfTp: 1.5, shortRange: true, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
+const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 1.5, dcaCount: 1, slAtr: 0.525, tpAtr: 0.35, slOfTp: 1.5, shortRange: true, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
 const LIVE_SHORT_TACTICS = ["trailing", "hybrid"];
 const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   ["atr", "fibonacci"].map((range) => ({
@@ -204,7 +204,7 @@ const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   })),
 );
 const SHORT_GRID = allShortTpSlCombos()
-  .filter((s) => s.tpAtr + 1e-9 >= 0.3 && s.slOfTp + 1e-9 >= 1)
+  .filter((s) => s.tpAtr + 1e-9 >= 0.35 && s.slOfTp + 1e-9 >= 1.5)
   .flatMap((s) =>
   LIVE_SHORT_TACTICS.map((tactic) => ({
     tactic,
@@ -232,7 +232,7 @@ function loadProtectCells() {
       Number(c.tpAtr) >= 0.8 &&
       Number(c.slOfTp) >= 1 &&
       Number(c.slOfTp) <= 1.25 &&
-      Number(c.trailPct) >= 0.8 &&
+      Number(c.trailPct) >= 1.5 &&
       allowedTrail.has(Number(c.trailPct)) &&
       (c.pf == null || Number(c.pf) >= minPf),
     );
@@ -240,7 +240,7 @@ function loadProtectCells() {
       return ok.map((c) => ({
         slAtr: Number(c.slAtr),
         tpRatio: Number(c.tpRatio),
-        trailPct: Number(c.trailPct) || 1.4,
+        trailPct: Number(c.trailPct) || 1.5,
         tpAtr: Number(c.tpAtr),
         slOfTp: Number(c.slOfTp),
       }));
@@ -257,7 +257,7 @@ function shortProtectCells() {
   return allShortTpSlCombos().map((c) => ({
     slAtr: c.slAtr,
     tpRatio: c.tpRatio,
-    trailPct: Number(currentPick?.cfg?.trailingPct) || 1.4,
+    trailPct: Number(currentPick?.cfg?.trailingPct) || 1.5,
     tpAtr: c.tpAtr,
     slOfTp: c.slOfTp,
   }));
@@ -270,7 +270,7 @@ function gridLive(e) {
     if (dis[`tac:${g.tactic}`]) return false;
     if (!g.cfg?.shortRange && dis[`rng:${g.range}`]) return false;
     if (g.cfg?.shortRange && Number(g.cfg.slOfTp) + 1e-9 < 1.5 && dis[`tac:${g.tactic}`]) return false;
-    if (g.cfg?.shortRange && Number(g.cfg.tpAtr) + 1e-9 < 0.35 && Number(g.cfg.slOfTp) + 1e-9 < 1.5) return false;
+    if (g.cfg?.shortRange && (Number(g.cfg.tpAtr) + 1e-9 < 0.35 || Number(g.cfg.slOfTp) + 1e-9 < 1.5)) return false;
     return true;
   });
   if (filtered.length) return filtered;
@@ -1211,7 +1211,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         peak,
         tp: atEntry.tp,
         sl: atEntry.sl,
-        trailPct: Number(cell.trailPct) || Number(cfg?.trailingPct) || 1.4,
+        trailPct: Number(cell.trailPct) || Number(cfg?.trailingPct) || 1.5,
       });
       next = snapPx(next, spec);
       const slOrd = (grouped.get(key)?.sl || [])[0];

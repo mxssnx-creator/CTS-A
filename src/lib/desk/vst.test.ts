@@ -210,27 +210,25 @@ describe("VST engine", () => {
   });
 
   it("trails stop from peak with tighter giveback as profit extends", () => {
-    assert.equal(TRAIL_PCTS.length, 2);
+    assert.equal(TRAIL_PCTS.length, 1);
+    assert.equal(TRAIL_PCTS[0], 1.5);
+    assert.ok(DISABLED_TRAIL_PCTS.includes(1.4));
     assert.ok(!DISABLED_TRAIL_PCTS.some((t) => TRAIL_PCTS.includes(t as (typeof TRAIL_PCTS)[number])));
     assert.equal(TRAIL_POS_RATIOS.length, 6);
-    assert.ok(trailGiveback(0.1, 1.4) > trailGiveback(1, 1.4));
-    assert.ok(trailGiveback(0.5, 1.5) > trailGiveback(0.5, 1.4));
-    const early = trailStopFromPeak({ side: "long", entry: 100, peak: 101, tp: 104, sl: 98, trailPct: 1.4 });
-    const mid = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 1.4 });
-    const late = trailStopFromPeak({ side: "long", entry: 100, peak: 104, tp: 104, sl: 98, trailPct: 1.4 });
+    assert.ok(trailGiveback(0.1, 1.5) > trailGiveback(1, 1.5));
+    const early = trailStopFromPeak({ side: "long", entry: 100, peak: 101, tp: 104, sl: 98, trailPct: 1.5 });
+    const mid = trailStopFromPeak({ side: "long", entry: 100, peak: 102.4, tp: 104, sl: 98, trailPct: 1.5 });
+    const late = trailStopFromPeak({ side: "long", entry: 100, peak: 104, tp: 104, sl: 98, trailPct: 1.5 });
     assert.ok(early >= 98 && early < 101, `early ${early}`);
     assert.ok(mid > early, `mid ${mid} vs early ${early}`);
     assert.ok(late > mid, `late ${late} vs mid ${mid}`);
     assert.ok(late < 104);
-    const tight = trailStopFromPeak({ side: "long", entry: 100, peak: 103.2, tp: 104, sl: 98, trailPct: 1.4 });
-    const wide = trailStopFromPeak({ side: "long", entry: 100, peak: 103.2, tp: 104, sl: 98, trailPct: 1.5 });
-    assert.ok(tight >= wide - 1e-9, `tight ${tight} vs wide ${wide}`);
-    const short = trailStopFromPeak({ side: "short", entry: 100, peak: 98, tp: 96, sl: 102, trailPct: 1.4 });
-    assert.ok(short <= 102 && short > 98, `short ${short}`);
+    const short = trailStopFromPeak({ side: "short", entry: 100, peak: 97.6, tp: 96, sl: 102, trailPct: 1.5 });
+    assert.ok(short <= 102 && short > 97.6, `short ${short}`);
     let peak = 101;
     let sl = 98;
-    for (const nxt of [101.5, 102, 103, 103.5]) {
-      const s = trailStopFromPeak({ side: "long", entry: 100, peak: nxt, tp: 104, sl, trailPct: 1.4 });
+    for (const nxt of [101.5, 102.4, 103, 103.5]) {
+      const s = trailStopFromPeak({ side: "long", entry: 100, peak: nxt, tp: 104, sl, trailPct: 1.5 });
       assert.ok(s >= sl - 1e-12, `ratchet ${nxt} ${s} < ${sl}`);
       sl = s;
       peak = nxt;
@@ -243,7 +241,7 @@ describe("VST engine", () => {
     finiteNum(r.pf, r.net, r.wr, r.trades);
     assert.ok(r.trades >= 4, `trades ${r.trades}`);
     finiteNum(r.pf, r.net);
-    assert.equal(DEFAULT_TACTIC_CONFIG.trailingPct, 1.4);
+    assert.equal(DEFAULT_TACTIC_CONFIG.trailingPct, 1.5);
     assert.equal(DEFAULT_TACTIC_CONFIG.slOfTp, 1);
     assert.equal(DEFAULT_TACTIC_CONFIG.tpAtr, 1);
     assert.ok(DEFAULT_TACTIC_CONFIG.slAtr >= 0.8);

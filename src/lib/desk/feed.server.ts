@@ -538,9 +538,17 @@ export function liveProtectPrices(
   const tick = spec?.pxPrec != null ? Math.pow(10, -Math.max(0, spec.pxPrec)) : px * 1e-4;
   const minSlPct = mode === "vst" ? MIN_LIVE_SL_PCT_VST : MIN_LIVE_SL_PCT;
   const maxSlPct = mode === "vst" ? MAX_LIVE_SL_PCT_VST : MAX_LIVE_SL_PCT;
-  const slPct = Math.min(maxSlPct, Math.max(minSlPct, Math.max(0.2, slAtr) * 0.01));
-  const r = Math.min(3, Math.max(1, tpRatio));
-  const tpPct = Math.min(0.06, Math.max(minSlPct, slPct * r));
+  const slPct0 = Math.min(maxSlPct, Math.max(minSlPct, Math.max(0.2, slAtr) * 0.01));
+  const r = Math.min(3, Math.max(0.4, Number(tpRatio) || 1));
+  const minTpPct = mode === "vst" ? MIN_LIVE_SL_PCT_VST : 0.006;
+  let slPct = slPct0;
+  let tpPct = slPct * r;
+  if (tpPct < minTpPct) {
+    tpPct = minTpPct;
+    slPct = Math.max(slPct, r > 0 ? tpPct / r : slPct);
+  }
+  slPct = Math.min(maxSlPct, Math.max(minSlPct, slPct));
+  tpPct = Math.min(0.06, Math.max(minTpPct, tpPct));
   const minSl = Math.max(px * slPct, tick * 3);
   const minTp = Math.max(px * tpPct, tick * 4);
   let slRaw = side === "long" ? px * (1 - slPct) : px * (1 + slPct);

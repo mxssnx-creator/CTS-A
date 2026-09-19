@@ -11,7 +11,7 @@ export interface SettingsPreset {
 
 const LIVE_CFG = {
   ...DEFAULT_TACTIC_CONFIG,
-  trailingPct: 1.4,
+  trailingPct: 1.5,
   slAtr: 0.9,
   tpRatio: 1.6,
   dcaCount: 1,
@@ -101,7 +101,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       symbolCount: 25,
       tactic: "trailing",
       rangeType: "geometric",
-      tacticConfig: { ...LIVE_CFG, slAtr: 1.1, tpRatio: 1.6, trailingPct: 1.4 },
+      tacticConfig: { ...LIVE_CFG, slAtr: 1.1, tpRatio: 1.6, trailingPct: 1.5 },
       blockConfig: { ...BLOCK_LIVE, counts: [1, 2], maxMultiple: 2, evalLastNs: [1, 2, 3], sides: "one" },
       thresholds: { ...DEFAULT_THRESHOLDS, minPf: X01_DEFAULTS.minPf },
     },
@@ -197,7 +197,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       costStep: 10,
       strategyId: "normal",
       tacticConfig: {
-        trailingPct: 1.4,
+        trailingPct: 1.5,
         dcaCount: 1,
         dcaDrawdown: 0.8,
         axisSpacing: 0.7,

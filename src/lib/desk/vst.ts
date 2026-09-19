@@ -58,7 +58,7 @@ import {
 } from "./engine.ts";
 
 const DEFAULT_CFG: TacticConfig = {
-  trailingPct: 1.4,
+  trailingPct: 1.5,
   dcaCount: 1,
   dcaDrawdown: 0.8,
   axisSpacing: 0.7,
@@ -4471,7 +4471,7 @@ export function sweepShortRange(
       for (const block of [true, false]) {
         const cfg = {
           ...base,
-          trailingPct: 1.4,
+          trailingPct: 1.5,
           slAtr: prot.slAtr,
           tpRatio: prot.tpRatio,
           tpAtr: prot.tpAtr,

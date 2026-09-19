@@ -67,13 +67,13 @@ export function pfFromPnls(rows: { pnl: number }[] | undefined | null): number {
 export const MIN_VOLUME_FACTOR = 1.05;
 export const MIN_QUOTE_VOL = 0.006;
 /** Live: 0.8 too short; 1.0/1.2/1.7/2.0 lost. Keep 1.4 proven +, 1.5 slightly wider. */
-export const TRAIL_PCTS = [1.4, 1.5] as const;
-export const DISABLED_TRAIL_PCTS = [0.8, 1.0, 1.2, 1.7, 2.0] as const;
-/** Giveback of peak profit through the positive (0→TP) range. Tightens as price extends. */
-export const TRAIL_POS_RATIOS = [0.86, 0.72, 0.58, 0.46, 0.36, 0.28] as const;
+export const TRAIL_PCTS = [1.5] as const;
+export const DISABLED_TRAIL_PCTS = [0.8, 1.0, 1.2, 1.4, 1.7, 2.0] as const;
+/** Giveback of peak profit through the positive (0→TP) range. Tight 1.4 disabled. */
+export const TRAIL_POS_RATIOS = [0.9, 0.78, 0.66, 0.54, 0.44, 0.36] as const;
 
 export function snapTrailPct(n: number): number {
-  if (!Number.isFinite(n)) return 1.4;
+  if (!Number.isFinite(n)) return 1.5;
   let best: (typeof TRAIL_PCTS)[number] = TRAIL_PCTS[0]!;
   let dist = Infinity;
   for (const t of TRAIL_PCTS) {
@@ -94,8 +94,8 @@ export function trailGiveback(progress: number, trailPct: number): number {
   const t = x - i;
   const base = TRAIL_POS_RATIOS[i]! * (1 - t) + TRAIL_POS_RATIOS[i + 1]! * t;
   const pct = snapTrailPct(trailPct);
-  const scale = 0.92 + ((pct - 1.4) / 0.1) * 0.12;
-  return Math.min(0.9, Math.max(0.22, base * scale));
+  const scale = 0.92 + ((pct - 1.5) / 0.1) * 0.12;
+  return Math.min(0.92, Math.max(0.28, base * scale));
 }
 
 export function trailStopFromPeak(input: {
@@ -112,18 +112,18 @@ export function trailStopFromPeak(input: {
   const peakProfit = signed * (peak - entry);
   const tpDist = Math.abs(tp - entry);
   if (peakProfit <= 1e-12 || !(tpDist > 0)) return sl;
-  if (peakProfit < tpDist * 0.4) return sl;
+  if (peakProfit < tpDist * 0.55) return sl;
   const give = trailGiveback(peakProfit / tpDist, trailPct);
-  const minGap = tpDist * 0.32;
+  const minGap = tpDist * 0.45;
   const gap = Math.max(peakProfit * give, minGap);
   let next = peak - signed * gap;
   if (side === "long") {
     next = Math.max(next, sl);
-    next = Math.min(next, peak * 0.9995, tp - tpDist * 0.12);
+    next = Math.min(next, peak * 0.9995, tp - tpDist * 0.18);
     if (!(next < peak)) next = peak * 0.9995;
   } else {
     next = Math.min(next, sl);
-    next = Math.max(next, peak * 1.0005, tp + tpDist * 0.12);
+    next = Math.max(next, peak * 1.0005, tp + tpDist * 0.18);
     if (!(next > peak)) next = peak * 1.0005;
   }
   return Number.isFinite(next) && next > 0 ? next : sl;
@@ -286,7 +286,7 @@ export function allProtectCells(): ProtectCell[] {
 }
 
 export function pickProtectCell(symbol: string, cells: ProtectCell[]): ProtectCell {
-  if (!cells.length) return { slAtr: slAtrOf(1, 1), tpRatio: tpRatioOf(1), trailPct: 1.4, tpAtr: 1, slOfTp: 1 };
+  if (!cells.length) return { slAtr: slAtrOf(1, 1), tpRatio: tpRatioOf(1), trailPct: 1.5, tpAtr: 1, slOfTp: 1 };
   let h = 2166136261;
   for (let i = 0; i < symbol.length; i++) h = Math.imul(h ^ symbol.charCodeAt(i), 16777619);
   return cells[Math.abs(h) % cells.length]!;
@@ -505,7 +505,7 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 };
 
 export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
-  trailingPct: 1.4,
+  trailingPct: 1.5,
   dcaCount: 1,
   dcaDrawdown: 0.8,
   axisSpacing: 0.7,

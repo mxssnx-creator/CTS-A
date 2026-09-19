@@ -194,7 +194,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         const slOfTp = snapShortSlOfTp(asNum(cfg.slOfTp, 1));
         const tpAtr = snapShortTpAtr(asNum(cfg.tpAtr, 0.3));
         return {
-          trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.4)),
+          trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.5)),
           dcaCount: 1,
           dcaDrawdown: Math.max(0.3, asNum(cfg.dcaDrawdown, d.tacticConfig.dcaDrawdown)),
           axisSpacing: Math.max(0.2, asNum(cfg.axisSpacing, d.tacticConfig.axisSpacing)),
@@ -213,7 +213,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         asNum(cfg.tpAtr, hasPair ? 1 : asNum(cfg.slAtr, d.tacticConfig.slAtr) / Math.max(0.5, slOfTp)),
       );
       return {
-      trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.4)),
+      trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.5)),
       dcaCount: 1,
       dcaDrawdown: Math.max(0.3, asNum(cfg.dcaDrawdown, d.tacticConfig.dcaDrawdown)),
       axisSpacing: Math.max(0.2, asNum(cfg.axisSpacing, d.tacticConfig.axisSpacing)),
