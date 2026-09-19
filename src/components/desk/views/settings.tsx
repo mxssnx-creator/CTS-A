@@ -1000,7 +1000,7 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Live disable min PF"
-              value={blockCfg.liveDisableMinPf ?? 1}
+              value={blockCfg.liveDisableMinPf ?? 2}
               min={0.5}
               max={2}
               step={0.05}
@@ -1020,7 +1020,7 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Min relation PF"
-              value={blockCfg.minRelPf ?? 1.25}
+              value={blockCfg.minRelPf ?? 2}
               min={1}
               max={3}
               step={0.05}

@@ -160,7 +160,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     rangeType: RANGES.includes(raw.rangeType as RangeType) ? (raw.rangeType as RangeType) : d.rangeType,
     tactic: raw.tactic === "dca" ? "hybrid" : TACTICS.includes(raw.tactic as TacticKind) ? (raw.tactic as TacticKind) : d.tactic,
     thresholds: {
-      minPf: Math.max(1.85, asNum(th.minPf, d.thresholds.minPf)),
+      minPf: Math.max(2, asNum(th.minPf, d.thresholds.minPf)),
       maxMdd: Math.min(0.45, Math.max(0.02, asNum(th.maxMdd, d.thresholds.maxMdd))),
       minWr: Math.min(0.8, Math.max(0.35, asNum(th.minWr, d.thresholds.minWr))),
       minVf: Math.max(MIN_VOLUME_FACTOR, asNum(th.minVf, d.thresholds.minVf)),
@@ -209,13 +209,13 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         autoEval: asBool(b.autoEval, d.blockConfig.autoEval ?? true),
         relAdditive: asBool(b.relAdditive, d.blockConfig.relAdditive ?? true),
         relVolumeRatio: Math.min(2, Math.max(0.05, asNum(b.relVolumeRatio, d.blockConfig.relVolumeRatio ?? 0.4))),
-        minRelPf: Math.min(5, Math.max(1, asNum(b.minRelPf, d.blockConfig.minRelPf ?? 1.25))),
+        minRelPf: Math.min(5, Math.max(1, asNum(b.minRelPf, d.blockConfig.minRelPf ?? 2))),
         evalLastNs: Array.isArray(b.evalLastNs)
           ? [...new Set(b.evalLastNs.map((n) => Math.round(Number(n))).filter((n) => n >= 1 && n <= 6))].sort((a, c) => a - c)
           : [...(d.blockConfig.evalLastNs ?? [1, 2, 3, 4, 5, 6])],
         liveLastN: Math.min(40, Math.max(4, Math.round(asNum(b.liveLastN, d.blockConfig.liveLastN ?? 12)))),
         liveDisable: asBool(b.liveDisable, d.blockConfig.liveDisable ?? true),
-        liveDisableMinPf: Math.min(3, Math.max(0.5, asNum(b.liveDisableMinPf, d.blockConfig.liveDisableMinPf ?? 1))),
+        liveDisableMinPf: Math.min(3, Math.max(0.5, asNum(b.liveDisableMinPf, d.blockConfig.liveDisableMinPf ?? 2))),
         liveDisableMinSamples: Math.min(12, Math.max(3, Math.round(asNum(b.liveDisableMinSamples, d.blockConfig.liveDisableMinSamples ?? 4)))),
       };
     })(),

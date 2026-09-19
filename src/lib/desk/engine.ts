@@ -234,7 +234,7 @@ export const TACTIC_META: Record<TacticKind, { label: string; blurb: string }> =
 };
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
-  minPf: 1.85,
+  minPf: 2,
   maxMdd: 0.12,
   minWr: 0.55,
   minVf: 1.12,
@@ -281,11 +281,11 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   autoEval: true,
   relAdditive: true,
   relVolumeRatio: 0.4,
-  minRelPf: 1.25,
+  minRelPf: 2,
   evalLastNs: [1, 2, 3, 4, 5, 6],
   liveLastN: 12,
   liveDisable: true,
-  liveDisableMinPf: 1,
+  liveDisableMinPf: 2,
   liveDisableMinSamples: 4,
 };
 

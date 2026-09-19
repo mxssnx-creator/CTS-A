@@ -38,7 +38,7 @@ const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CONN = process.env.CTS_A_X01 === "1" ? "bingx-x01" : "bingx-vst-02";
 const NETWORK_PREF = CONN === "bingx-x01" ? "mainnet" : "testnet";
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
-const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? 1.85);
+const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? 2);
 let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [] };
 const bookAvg = { pos: 0, ord: 0, n: 0 };
 let cachedOverall = null;
@@ -71,11 +71,11 @@ const BLOCK = {
   autoEval: true,
   relAdditive: true,
   relVolumeRatio: 0.4,
-  minRelPf: 1.25,
+  minRelPf: 2,
   evalLastNs: [1, 2, 3, 4, 5, 6],
   liveLastN: 12,
   liveDisable: true,
-  liveDisableMinPf: 1,
+  liveDisableMinPf: 2,
   liveDisableMinSamples: 4,
 };
 
@@ -238,7 +238,7 @@ function writeSettingsPick(pick, extra = {}) {
     comboRange: "all",
     enabledKinds: ["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block"],
     strategyId: "normal",
-    thresholds: { minPf: 1.85, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
+    thresholds: { minPf: 2, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
     activeConnId: CONN,
     evalHours: [4, 8, 16],
     evalLastNs: [5, 10, 15],

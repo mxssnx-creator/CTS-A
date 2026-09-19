@@ -1918,7 +1918,7 @@ const MINOR_REL = new Set(["cfg", "sub", "combo"]);
 export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BLOCK_CONFIG) {
   const ns = (block.evalLastNs?.length ? block.evalLastNs : [1, 2, 3, 4, 5, 6])
     .map((n) => Math.max(1, Math.min(6, Math.round(n))));
-  const minPf = block.minRelPf ?? 1.25;
+  const minPf = block.minRelPf ?? 2;
   const vr = Math.min(2, Math.max(0.05, block.relVolumeRatio ?? block.volumeRatio ?? 0.4));
   const maps = e.blockRelWindows ?? {};
   const candidates: { key: string; n: number; pf: number; net: number; closed: number }[] = [];
@@ -1975,7 +1975,7 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
     return e.liveHealth;
   }
   const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
-  const minPf = block.liveDisableMinPf ?? 1;
+  const minPf = block.liveDisableMinPf ?? 2;
   const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
   const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, n);
   const groups = new Map<string, { pnl: number }[]>();
@@ -2297,7 +2297,7 @@ export function adjustActiveBlocks(
   syncBlockParents(e, conn);
   const counts = liveBlockCounts(block);
   const vr = block.volumeRatio || 0.4;
-  const minPf = 1.85;
+  const minPf = 2;
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
   const overall = block.overall !== false;
   const overallPause = !overall && block.windows !== false && blockPosPaused(e, evalN);
