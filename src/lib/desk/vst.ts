@@ -995,7 +995,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       const volMul = Math.min(1.4, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
       if (rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
       const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul;
-      const axisPartial = Math.min(0.5, Math.max(0.02, cfg.axisPartialRatio ?? AXIS_PARTIAL_RATIO));
+      const axisPartial = Math.min(1, Math.max(0.02, cfg.axisPartialRatio ?? AXIS_PARTIAL_RATIO));
       const depth = axisTactic ? Math.min(Math.max(2, cfg.axisLevels), hi.levels.length) : rank < 10 ? hi.levels.length : rank < 24 ? Math.min(3, hi.levels.length) : Math.min(2, hi.levels.length);
       hi.levels.slice(0, Math.max(1, depth)).forEach((offset, li) => {
         if (qn >= VST_MAX_QUEUE) return;

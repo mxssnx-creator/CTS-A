@@ -851,8 +851,8 @@ export function SettingsView() {
               label="Axis partial of base"
               value={cfg.axisPartialRatio ?? 0.08}
               min={0.04}
-              max={0.25}
-              step={0.01}
+              max={1}
+              step={0.02}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setCfg({ axisPartialRatio: n })}
               onCommit={applyLive}

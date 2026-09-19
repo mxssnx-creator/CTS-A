@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Axis 72h × 50 — partial 0.08 vs full size 1.0</title>
+  <style>
+    body { font: 14px/1.45 ui-sans-serif, system-ui; background: #f4f7fb; color: #161616; margin: 24px; }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    .muted { color: #6f6f6f; margin-bottom: 16px; }
+    table { border-collapse: collapse; width: 100%; background: #fff; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid #e0e0e0; text-align: left; }
+    th { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #6f6f6f; }
+    .ok { color: #198038; font-weight: 600; }
+    .fail { color: #da1e28; font-weight: 600; }
+    .num { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <h1>Axis 3-day × 50 symbols</h1>
+  <p class="muted">Trail 1.5 · 5 levels · Block 0.4 when on · Axis PF gate 1.5. Extra rungs at 0.08 of base beat full size on average (1.66 vs 1.54). Full size without Block is below 1. Keep 0.08 default; 1.0 is selectable.</p>
+  <table>
+    <thead>
+      <tr><th>PF</th><th>Set</th><th>Range</th><th>Block</th><th>WR</th><th>N</th><th>Net</th><th>MDD</th><th>DDT</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num ok">3.782</td><td>full 1.0 +block</td><td>geometric</td><td>Y</td><td class="num">47.8%</td><td class="num">186</td><td class="num">+301.8</td><td class="num">0.9%</td><td class="num">55</td></tr>
+      <tr><td class="num ok">2.978</td><td>partial 0.08 +block</td><td>fibonacci</td><td>Y</td><td class="num">47.8%</td><td class="num">182</td><td class="num">+241.0</td><td class="num">1.1%</td><td class="num">67</td></tr>
+      <tr><td class="num ok">2.487</td><td>partial 0.08 +block</td><td>geometric</td><td>Y</td><td class="num">46.9%</td><td class="num">177</td><td class="num">+240.2</td><td class="num">1.5%</td><td class="num">52</td></tr>
+      <tr><td class="num ok">2.054</td><td>full 1.0 +block</td><td>fibonacci</td><td>Y</td><td class="num">47.2%</td><td class="num">199</td><td class="num">+218.9</td><td class="num">1.4%</td><td class="num">73</td></tr>
+      <tr><td class="num">1.315</td><td>partial 0.08 +block</td><td>atr</td><td>Y</td><td class="num">46.0%</td><td class="num">211</td><td class="num">+69.5</td><td class="num">2.3%</td><td class="num">69</td></tr>
+      <tr><td class="num">1.091</td><td>partial 0.08</td><td>atr</td><td>N</td><td class="num">49.7%</td><td class="num">187</td><td class="num">+6.5</td><td class="num">0.1%</td><td class="num">58</td></tr>
+      <tr><td class="num">1.048</td><td>partial 0.08</td><td>fibonacci</td><td>N</td><td class="num">48.3%</td><td class="num">176</td><td class="num">+6.0</td><td class="num">0.1%</td><td class="num">51</td></tr>
+      <tr><td class="num">1.031</td><td>partial 0.08</td><td>geometric</td><td>N</td><td class="num">49.7%</td><td class="num">161</td><td class="num">+6.0</td><td class="num">0.1%</td><td class="num">84</td></tr>
+      <tr><td class="num">0.998</td><td>full 1.0</td><td>geometric</td><td>N</td><td class="num">50.3%</td><td class="num">167</td><td class="num">+5.5</td><td class="num">0.1%</td><td class="num">90</td></tr>
+      <tr><td class="num fail">0.873</td><td>full 1.0</td><td>atr</td><td>N</td><td class="num">53.3%</td><td class="num">169</td><td class="num">+3.7</td><td class="num">0.1%</td><td class="num">77</td></tr>
+      <tr><td class="num fail">0.846</td><td>full 1.0</td><td>fibonacci</td><td>N</td><td class="num">50.3%</td><td class="num">167</td><td class="num">+3.4</td><td class="num">0.1%</td><td class="num">83</td></tr>
+      <tr><td class="num fail">0.666</td><td>full 1.0 +block</td><td>atr</td><td>Y</td><td class="num">48.3%</td><td class="num">209</td><td class="num">−18.6</td><td class="num">3.3%</td><td class="num">113</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>
