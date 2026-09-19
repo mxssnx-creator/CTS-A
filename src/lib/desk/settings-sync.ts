@@ -255,7 +255,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         : "running",
     hedgeMode: asBool((raw as { hedgeMode?: boolean }).hedgeMode, true),
     marginMode: (raw as { marginMode?: string }).marginMode === "isolated" ? "isolated" : "cross",
-    useMaxLeverage: asBool((raw as { useMaxLeverage?: boolean }).useMaxLeverage, true),
+    useMaxLeverage: true,
     leverage: Math.min(150, Math.max(1, Math.round(asNum((raw as { leverage?: number }).leverage, 125)))),
     minSizeRatio: Math.min(2, Math.max(1, asNum((raw as { minSizeRatio?: number }).minSizeRatio, 1.08))),
     activePresetId: typeof (raw as { activePresetId?: string }).activePresetId === "string" ? String((raw as { activePresetId?: string }).activePresetId).slice(0, 48) : "",

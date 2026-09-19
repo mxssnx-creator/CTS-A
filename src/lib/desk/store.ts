@@ -992,7 +992,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     set({
       hedgeMode: p.hedgeMode ?? get().hedgeMode,
       marginMode: p.marginMode ?? get().marginMode,
-      useMaxLeverage: p.useMaxLeverage ?? get().useMaxLeverage,
+      useMaxLeverage: true,
       leverage: p.leverage != null ? Math.min(150, Math.max(1, Math.round(p.leverage))) : get().leverage,
       minSizeRatio: p.minSizeRatio != null ? Math.min(2, Math.max(1, p.minSizeRatio)) : get().minSizeRatio,
     });

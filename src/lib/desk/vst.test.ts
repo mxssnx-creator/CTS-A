@@ -1872,6 +1872,7 @@ describe("VST engine", () => {
     assert.equal(snap.hedgeMode, true);
     assert.equal(snap.marginMode, "cross");
     assert.equal(snap.useMaxLeverage, true);
+    assert.equal(sanitizeDeskSettings({ useMaxLeverage: false } as never).useMaxLeverage, true);
     assert.ok(snap.minSizeRatio >= 1);
     assert.ok(snap.lastN <= 50);
     assert.deepEqual(snap.enabledKinds, ["normal"]);

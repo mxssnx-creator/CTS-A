@@ -1431,24 +1431,21 @@ export function SettingsView() {
             </Field>
             <Field label="Leverage">
               <Segmented
-                value={useMaxLeverage ? "max" : "fixed"}
-                onChange={(v) => setLiveExec({ useMaxLeverage: v === "max" })}
-                options={[
-                  { id: "max", label: "Max" },
-                  { id: "fixed", label: "Fixed" },
-                ]}
+                value="max"
+                onChange={() => setLiveExec({ useMaxLeverage: true })}
+                options={[{ id: "max", label: "Max / contract" }]}
               />
             </Field>
-            <Field label={useMaxLeverage ? "Max per contract" : "Fixed leverage"}>
+            <Field label="Max per contract">
               <input
                 aria-label="Leverage"
                 type="number"
                 min={1}
                 max={150}
-                disabled={useMaxLeverage}
+                disabled
                 className="h-10 border border-border bg-surface px-3 text-sm"
                 value={leverage}
-                onChange={(e) => setLiveExec({ leverage: Number(e.target.value) })}
+                readOnly
               />
             </Field>
             <Field label="Min size ratio">

@@ -215,7 +215,7 @@ export function configureLiveExecution(p: Partial<LiveExecConfig>) {
   liveExec = {
     hedgeMode: p.hedgeMode ?? liveExec.hedgeMode,
     marginMode: p.marginMode === "isolated" ? "isolated" : p.marginMode === "cross" ? "cross" : liveExec.marginMode,
-    useMaxLeverage: p.useMaxLeverage ?? liveExec.useMaxLeverage,
+    useMaxLeverage: true,
     leverage: Math.min(150, Math.max(1, Math.round(Number(p.leverage ?? liveExec.leverage) || liveExec.leverage))),
     minSizeRatio: Math.min(2, Math.max(1, Number(p.minSizeRatio ?? liveExec.minSizeRatio) || liveExec.minSizeRatio)),
   };
@@ -290,7 +290,7 @@ export async function ensureLiveAccountMode(input: {
     notes.push(r.ok ? `${marginWant.toLowerCase()} ${venue}` : `margin ${r.error}`);
   }
   const maxLev = Math.max(1, input.spec?.maxLeverage ?? 125);
-  const lev = liveExec.useMaxLeverage !== false ? maxLev : Math.min(maxLev, liveExec.leverage);
+  const lev = maxLev;
   const sides = liveExec.hedgeMode ? (["LONG", "SHORT"] as const) : (["BOTH"] as const);
   for (const side of sides) {
     const lk = `${venue}:${side}:${lev}`;
