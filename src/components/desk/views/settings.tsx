@@ -756,7 +756,7 @@ export function SettingsView() {
             <RangeKnob
               label="TP / SL ratio"
               value={cfg.tpRatio}
-              min={1}
+              min={0.6}
               max={3}
               step={0.2}
               format={(n) => `${n.toFixed(2)}R`}
@@ -811,9 +811,9 @@ export function SettingsView() {
             <RangeKnob
               label={`Stop ATR · TP/SL ${cfg.tpRatio.toFixed(2)}R`}
               value={cfg.slAtr}
-              min={0.5}
+              min={0.4}
               max={2}
-              step={0.05}
+              step={0.1}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setCfg({ slAtr: n })}
               onCommit={applyLive}
@@ -1334,7 +1334,7 @@ export function SettingsView() {
             <StatLine k="Rate" v={`${VST_RATE_PER_SEC}/s burst ${VST_RATE_BURST}`} />
             <StatLine k="Rate window" v={String(VST_RATE_WINDOW)} />
             <StatLine k="Tick" v={`${VST_TICK_MS} ms · ${TICKS_PER_HOUR}/h`} />
-            <StatLine k="TP / SL" v={`${cfg.tpRatio.toFixed(2)}R · 0.25–3.00`} />
+            <StatLine k="TP / SL" v={`${cfg.tpRatio.toFixed(2)}R · 0.60–3.00`} />
             <StatLine k="Live notional cap" v={fmtUsd(MAX_LIVE_NOTIONAL, 0)} />
             <StatLine k="Min size ratio" v={`${minSizeRatio.toFixed(2)}×`} />
             <StatLine k="Margin" v={marginMode} />

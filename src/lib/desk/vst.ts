@@ -2405,7 +2405,7 @@ export function adjustActiveBlocks(
   syncBlockParents(e, conn);
   const counts = liveBlockCounts(block);
   const vr = block.volumeRatio || 0.4;
-  const minPf = 2;
+  const minPf = block.minRelPf ?? 1.6;
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
   const overall = block.overall !== false;
   const overallPause = !overall && block.windows !== false && blockPosPaused(e, evalN);

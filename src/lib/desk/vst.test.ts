@@ -36,6 +36,12 @@ import {
   POSITION_COST_PCT,
   TRAIL_PCTS,
   TP_SL_RATIOS,
+  TP_SL_RATIO_MIN,
+  SL_ATR_MIN,
+  SL_ATR_RATIOS,
+  snapTpRatio,
+  snapSlAtr,
+  X01_DEFAULTS,
   UNIT_NOTIONAL,
   processAllIndications,
   STRATEGIES,
@@ -1433,6 +1439,16 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.minRelPf, 1.6);
     assert.equal(DEFAULT_TACTIC_CONFIG.slAtr, 0.5);
     assert.equal(DEFAULT_TACTIC_CONFIG.tpRatio, 2.2);
+    assert.equal(TP_SL_RATIO_MIN, 0.6);
+    assert.equal(SL_ATR_MIN, 0.4);
+    assert.ok(TP_SL_RATIOS.includes(0.6) && TP_SL_RATIOS.includes(1));
+    assert.ok(SL_ATR_RATIOS.includes(0.4) && SL_ATR_RATIOS.includes(0.5));
+    assert.equal(snapTpRatio(0.5), 0.6);
+    assert.equal(snapSlAtr(0.35), 0.4);
+    assert.equal(X01_DEFAULTS.minPf, 1.4);
+    assert.equal(X01_DEFAULTS.symbolCount, 50);
+    assert.equal(X01_DEFAULTS.slAtrMin, 0.4);
+    assert.equal(X01_DEFAULTS.tpRatioMin, 0.6);
     assert.equal(DEFAULT_BLOCK_CONFIG.evalHours, 2);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2]);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.evalLastNs, [1, 2, 3, 4, 5, 6]);
@@ -1748,7 +1764,8 @@ describe("VST engine", () => {
     assert.equal(snap.tactic, "hybrid");
     assert.equal(snap.symbolCount, 50);
     assert.equal(snap.tacticConfig.tpRatio, 3);
-    assert.equal(snap.thresholds.minPf, 2);
+    assert.equal(snap.thresholds.minPf, 1.4);
+    assert.equal(snap.tacticConfig.slAtr, 0.4);
     assert.equal(snap.thresholds.maxDdt, 20);
     assert.equal(snap.hedgeMode, true);
     assert.equal(snap.marginMode, "cross");

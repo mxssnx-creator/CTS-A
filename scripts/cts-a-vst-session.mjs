@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, X01_DEFAULTS } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -36,9 +36,10 @@ const SETTINGS = process.env.CTS_A_SETTINGS ?? "/var/lib/cts-a/desk-settings.jso
 const OVERALL = process.env.CTS_A_OVERALL ?? "/var/lib/cts-a/overall-stats.json";
 const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CONN = (process.env.CTS_A_CONN || (process.env.CTS_A_X01 === "1" ? "bingx-x01" : "bingx-vst-02")).trim();
-const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || CONN === "bingx-x01" ? "mainnet" : "testnet";
+const IS_X01 = CONN === "bingx-x01";
+const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
-const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? 2);
+const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? (IS_X01 ? X01_DEFAULTS.minPf : 2));
 let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [] };
 const bookAvg = { pos: 0, ord: 0, n: 0 };
 let cachedOverall = null;
@@ -71,7 +72,7 @@ const BLOCK = {
   autoEval: true,
   relAdditive: true,
   relVolumeRatio: 0.08,
-  minRelPf: 1.6,
+  minRelPf: IS_X01 ? X01_DEFAULTS.minPf : 1.6,
   evalLastNs: [1, 2, 3, 4, 5, 6],
   liveLastN: 12,
   liveDisable: true,
@@ -112,7 +113,7 @@ function loadProtectCells() {
   try {
     const raw = JSON.parse(readFileSync(PROTECT_FILE, "utf8"));
     const cells = Array.isArray(raw?.cells) ? raw.cells : Array.isArray(raw) ? raw : [];
-    const ok = cells.filter((c) => Number(c.tpRatio) >= 1 && Number(c.slAtr) >= 0.5 && (c.pf == null || Number(c.pf) >= 2));
+    const ok = cells.filter((c) => Number(c.tpRatio) >= 0.6 && Number(c.slAtr) >= 0.4 && (c.pf == null || Number(c.pf) >= (IS_X01 ? X01_DEFAULTS.minPf : 2)));
     if (ok.length) return ok.map((c) => ({ slAtr: Number(c.slAtr), tpRatio: Number(c.tpRatio), trailPct: Number(c.trailPct) || 0.8 }));
   } catch {}
   const out = [];

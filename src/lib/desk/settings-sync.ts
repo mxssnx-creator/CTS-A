@@ -160,7 +160,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     rangeType: RANGES.includes(raw.rangeType as RangeType) ? (raw.rangeType as RangeType) : d.rangeType,
     tactic: raw.tactic === "dca" ? "hybrid" : TACTICS.includes(raw.tactic as TacticKind) ? (raw.tactic as TacticKind) : d.tactic,
     thresholds: {
-      minPf: Math.max(2, asNum(th.minPf, d.thresholds.minPf)),
+      minPf: Math.min(5, Math.max(1.4, asNum(th.minPf, d.thresholds.minPf))),
       maxMdd: Math.min(0.45, Math.max(0.02, asNum(th.maxMdd, d.thresholds.maxMdd))),
       minWr: Math.min(0.8, Math.max(0.35, asNum(th.minWr, d.thresholds.minWr))),
       minVf: Math.max(MIN_VOLUME_FACTOR, asNum(th.minVf, d.thresholds.minVf)),
