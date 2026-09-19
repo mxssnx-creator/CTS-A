@@ -928,7 +928,6 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     const dual = trySides.length === 2;
     const book = cfgUsesShortRange(cfg) ? "short" : openPlaybook(e.lastTactic, ind);
     const kind = cfgUsesShortRange(cfg) ? "short" : kindFromIndication(ind, book, e.lastTactic);
-    if (kind === "normal") return;
     const range = pickIndicationRange(e, ind, rangeType ?? e.lastRange ?? "atr");
     if (!dual && e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     for (const side of trySides) {
@@ -2317,7 +2316,6 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   try {
     const ind = classifyIndication(e, symbol);
     const kind = kindFromIndication(ind, openPlaybook(e.lastTactic, ind), e.lastTactic);
-    if (kind === "normal") return true;
     if (!thin && e.liveDisabled?.[`kind:${kind}`]) return true;
     if (!thin && e.liveDisabled?.[`ind:${ind}`]) return true;
   } catch {
@@ -2620,9 +2618,7 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
   const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
   const minPf = entryMinPf(e, block);
   const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
-  const disabled: Record<string, { pf: number; n: number; at: number }> = {
-    "kind:normal": { pf: 0, n: 99, at: e.tick },
-  };
+  const disabled: Record<string, { pf: number; n: number; at: number }> = {};
   const kept: string[] = [];
   if (e.liveTape) {
     for (const [id, t] of Object.entries(e.symbolStats ?? {})) {
@@ -2678,7 +2674,9 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
     }
   }
   e.liveDisabled = disabled;
-  e.liveDisabled["kind:normal"] = { pf: 0, n: 99, at: e.tick };
+  if ((e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).normal === false) {
+    e.liveDisabled["kind:normal"] = { pf: 0, n: 99, at: e.tick };
+  }
   e.liveHealth = { n, at: e.tick, disabled: Object.keys(e.liveDisabled), kept: [...new Set(kept)].filter((k) => k !== "kind:normal") };
   return e.liveHealth;
 }
@@ -2695,20 +2693,17 @@ export function liveRelationDisabled(
     playbook?: string;
   },
 ) {
-  if (e.liveTape && (e.liveOpenN ?? 99) < 8) {
-    if (rel.kind === "normal") return true;
-    return false;
-  }
+  if (e.liveTape && (e.liveOpenN ?? 99) < 8) return false;
   const d = e.liveDisabled;
   if (!d || !Object.keys(d).length) return false;
   const keys = [
     `sym:${rel.symbol}`,
     `side:${rel.side}`,
     rel.indication ? `ind:${rel.indication}` : "",
-    rel.kind ? `kind:${rel.kind}` : "",
+    rel.kind && rel.kind !== "normal" ? `kind:${rel.kind}` : "",
     rel.tactic ? `tac:${rel.tactic}` : "",
     rel.rangeType ? `rng:${rel.rangeType}` : "",
-    rel.playbook && rel.playbook !== "block" ? `book:${rel.playbook}` : "",
+    rel.playbook && rel.playbook !== "block" && rel.playbook !== "normal" ? `book:${rel.playbook}` : "",
     rel.indication && rel.kind && rel.tactic && rel.rangeType
       ? `combo:${rel.indication}:${rel.kind}:${rel.tactic}:${rel.rangeType}:${rel.side}`
       : "",
@@ -3899,6 +3894,10 @@ export function overallLiveStats(e: VstEngine) {
     queued: e.queue.filter((o) => isBlockOrder(o)).length,
     overall: e.blockCfg?.overall !== false,
   };
+  const activePos =
+    (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).normal === false
+      ? e.positions.filter((p) => (p.kind ?? "") !== "normal")
+      : e.positions;
   const stats = {
     overall: ov,
     open,
@@ -3915,17 +3914,17 @@ export function overallLiveStats(e: VstEngine) {
     hours,
     bestSymbols: rankedPf.slice(0, 6),
     worstSymbols: [...rankedPf].reverse().slice(0, 6),
-    runningSymbols: new Set(e.positions.map((p) => p.symbol)).size,
-    avgPositions: e.positions.length,
+    runningSymbols: new Set(activePos.map((p) => p.symbol)).size,
+    avgPositions: activePos.length,
     avgOrders: working,
     maxPositions: e.ledger.maxPositions,
     maxOrders: e.ledger.maxOrders,
     configsLive: liveBuckets.length,
-    configsActive: e.positions.length,
+    configsActive: activePos.length,
     avgConfigPf: ov.pf,
     symbols: e.symbolCount,
-    occupied: new Set(e.positions.map((p) => p.symbol)).size,
-    slots: e.positions.length,
+    occupied: new Set(activePos.map((p) => p.symbol)).size,
+    slots: activePos.length,
     trades: closed.length,
     pf: ov.pf,
     wr: ov.wr,

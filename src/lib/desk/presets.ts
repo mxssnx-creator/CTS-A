@@ -1,4 +1,4 @@
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_THRESHOLDS, DEFAULT_STRATEGY_TOGGLES, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, X01_DEFAULTS } from "./engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_THRESHOLDS, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, X01_DEFAULTS } from "./engine.ts";
 import type { DeskSettingsSnap } from "./settings-sync.ts";
 
 export interface SettingsPreset {
@@ -164,7 +164,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
         autoEval: true,
       },
       thresholds: { ...DEFAULT_THRESHOLDS, minPf: 1.8, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
-      enabledKinds: [...LIVE_ENABLED_KINDS],
+      enabledKinds: [...DEFAULT_ENABLED_KINDS],
       liveTape: true,
       comboOnlyPositive: true,
       comboTactic: "all",
