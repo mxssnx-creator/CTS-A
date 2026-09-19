@@ -1296,17 +1296,28 @@ function matchOrders(e: VstEngine) {
     }
     const q = e.quotes[o.symbol];
     if (!q || !(q.px > 0)) continue;
-    const market = o.type === "market" || o.type === "ioc" || o.type === "fok";
+    const taker = o.type === "market" || o.type === "ioc" || o.type === "fok";
     const vol = finiteOr(q.vol, 0);
-    if (!market && vol < MIN_QUOTE_VOL * 0.35) continue;
-    if (!(market || o.side === "long" && q.lo <= o.price || o.side === "short" && q.hi >= o.price)) continue;
+    if (!taker && vol < MIN_QUOTE_VOL * 0.35) continue;
+    if (!(taker || o.side === "long" && q.lo <= o.price || o.side === "short" && q.hi >= o.price)) continue;
     const vf = Math.min(1.55, Math.max(0.32, vol / 0.014));
-    const frac = market ? 1 : Math.min(1, (0.38 + rand(e.tick, o.id) * 0.55) * vf);
+    const ready = Math.min(1, (0.38 + rand(e.tick, o.id) * 0.55) * vf);
+    let frac: number;
+    if (o.type === "market") frac = 1;
+    else if (o.type === "fok") {
+      if (ready < 0.98) {
+        markTerminal(e, o, "cancelled");
+        continue;
+      }
+      frac = 1;
+    } else {
+      frac = ready;
+    }
     const qty = Math.min(o.remaining, o.qty * frac);
     if (qty <= 0) continue;
-    const px = market ? q.px : o.side === "long" ? Math.min(o.price, q.px) : Math.max(o.price, q.px);
+    const px = taker && o.type !== "ioc" ? q.px : o.side === "long" ? Math.min(o.price || q.px, q.px) : Math.max(o.price || q.px, q.px);
     applyFill(e, o, qty, px, o.filled > 0 ? "partial" : "entry");
-    if ((o.type === "ioc" || o.type === "fok") && o.status === "partial") markTerminal(e, o, "cancelled");
+    if (o.type === "ioc" && o.status === "partial") markTerminal(e, o, "cancelled");
   }
 }
 function cancelLane(e: VstEngine, p: LivePosition) {
@@ -1408,7 +1419,9 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     px: exit,
     pnl,
     kind: reason,
-    tick: e.tick
+    tick: e.tick,
+    remaining: 0,
+    planned: p.plannedQty,
   });
   if (e.fills.length > VST_FILL_KEEP) e.fills.length = VST_FILL_KEEP;
   cancelLane(e, p);
@@ -1650,8 +1663,48 @@ export function syncLivePartials(
     if (!pos) continue;
     const qty = Number(p.qty);
     if (!Number.isFinite(qty) || qty <= 0) continue;
-    if (Math.abs(qty - pos.qty) > 1e-12) {
-      pos.qty = qty;
+    const px = Number(p.mark) > 0 ? Number(p.mark) : Number(p.entry) > 0 ? Number(p.entry) : pos.mark || pos.avgEntry;
+    const dQty = qty - pos.qty;
+    if (Math.abs(dQty) > 1e-12) {
+      if (dQty > 0) {
+        if (qty > pos.plannedQty) pos.plannedQty = qty;
+        pos.qty = qty;
+        pos.legs.push({ orderId: "live", qty: dQty, px });
+        e.fills.unshift({
+          id: nextId(e, "f"),
+          orderId: pos.id,
+          connId: pos.connId,
+          symbol: pos.symbol,
+          side: pos.side,
+          qty: dQty,
+          px,
+          pnl: 0,
+          kind: pos.legs.length <= 1 ? "entry" : "partial",
+          tick: e.tick,
+          remaining: Math.max(0, pos.plannedQty - pos.qty),
+          planned: pos.plannedQty,
+        });
+      } else {
+        const take = Math.abs(dQty);
+        const signed = pos.side === "long" ? 1 : -1;
+        const pnl = Number.isFinite(px) && px > 0 ? (px - pos.avgEntry) * take * signed : 0;
+        pos.qty = qty;
+        e.fills.unshift({
+          id: nextId(e, "f"),
+          orderId: pos.id,
+          connId: pos.connId,
+          symbol: pos.symbol,
+          side: pos.side,
+          qty: take,
+          px,
+          pnl: Number.isFinite(pnl) ? pnl : 0,
+          kind: "partial",
+          tick: e.tick,
+          remaining: pos.qty,
+          planned: pos.plannedQty,
+        });
+      }
+      if (e.fills.length > VST_FILL_KEEP) e.fills.length = VST_FILL_KEEP;
       n += 1;
     }
     if (Number(p.entry) > 0) pos.avgEntry = Number(p.entry);
@@ -2326,7 +2379,7 @@ export function validateSymbols100h(
     block: opts?.block,
   });
   const scored = refreshSymbolHourEval(r.engine, { hours, minPf: opts?.minPf ?? 1.4 });
-  return { hours, report: r.report, engine: r.engine, ...scored };
+  return { report: r.report, engine: r.engine, ...scored, hours };
 }
 
 export function blockWindowSnapshot(e: VstEngine, n = 6) {

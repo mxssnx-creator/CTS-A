@@ -122,6 +122,7 @@ import {
   tickVst,
   TP_SL_RATIO,
   VST_DEFAULT_CONN,
+  VST_FILL_KEEP,
   VST_MAX_BATCHES,
   VST_MAX_POSITIONS,
   VST_MAX_QUEUE,
@@ -131,6 +132,7 @@ import {
   universeSymbols,
   rankUniverse,
   vol1hOf,
+  syncLivePartials,
 } from "./vst.ts";
 import { applyLiveTape, LIVE_IDS } from "./feed.ts";
 
@@ -705,6 +707,74 @@ describe("VST engine", () => {
     assert.ok(live.length > 96, `kept ${live.length} of ${before}`);
     const part = live.find((o) => o.status === "partial");
     if (part) assert.ok(Math.abs(part.filled + part.remaining - part.qty) < 1e-9);
+  });
+
+  it("records independent live partials and remaining on the fill tape", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 8, arm: false });
+    e.positions = [stubPos("ETHUSDT", "long")];
+    e.positions[0].qty = 10;
+    e.positions[0].plannedQty = 10;
+    e.fills = [];
+    const n = syncLivePartials(e, {
+      positions: [{ symbol: "ETHUSDT", side: "long", qty: 4, entry: 1, mark: 1.01 }],
+    });
+    assert.equal(n, 1);
+    assert.equal(e.positions[0].qty, 4);
+    assert.equal(e.positions[0].status, "partial");
+    const cut = e.fills[0];
+    assert.equal(cut.kind, "partial");
+    assert.equal(cut.qty, 6);
+    assert.equal(cut.remaining, 4);
+    assert.equal(cut.planned, 10);
+    const n2 = syncLivePartials(e, {
+      positions: [{ symbol: "ETHUSDT", side: "long", qty: 7, entry: 1, mark: 1.02 }],
+    });
+    assert.equal(n2, 1);
+    assert.equal(e.positions[0].qty, 7);
+    assert.equal(e.fills[0].qty, 3);
+    assert.equal(e.fills[0].remaining, 3);
+    assert.ok(e.fills.length <= VST_FILL_KEEP);
+  });
+
+  it("cancels independent IOC remainder after a partial fill", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 8, arm: false, orderType: "limit" });
+    e.queue = [];
+    e.orders = [];
+    e.positions = [];
+    e.fills = [];
+    const q = e.quotes.BTCUSDT;
+    q.vol = 0.004;
+    q.lo = q.px * 0.99;
+    q.hi = q.px * 1.01;
+    e.orders.push({
+      id: "ioc1",
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long",
+      type: "ioc",
+      qty: 10,
+      filled: 0,
+      remaining: 10,
+      price: q.px,
+      status: "open",
+      rangeType: "atr",
+      level: 1,
+      sl: q.px * 0.99,
+      tp: q.px * 1.03,
+      slDist: q.px * 0.01,
+      tpDist: q.px * 0.03,
+      batchId: "b",
+      note: "ioc",
+    });
+    tickVst(e, CFG, "axis", { skipWalk: true, freezeIds: new Set(["BTCUSDT"]) });
+    const working = e.orders.find((o) => o.id === "ioc1");
+    assert.ok(!working || working.status === "cancelled" || working.status === "filled");
+    const fill = e.fills.find((f) => f.orderId === "ioc1");
+    assert.ok(fill, "ioc produced a fill");
+    if (fill && fill.remaining && fill.remaining > 1e-9) {
+      assert.equal(working?.status ?? "cancelled", "cancelled");
+    }
+    if (fill) assert.ok(Math.abs((fill.qty ?? 0) + (fill.remaining ?? 0) - (fill.planned ?? fill.qty)) < 1e-6 || fill.planned == null);
   });
 
   it("scales live fills with quote volume", () => {
@@ -1831,14 +1901,14 @@ describe("VST engine", () => {
   it("skips PF<1 symbols but not direction indication", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     e.symbolStats.SOLUSDT = { id: "SOLUSDT", trades: 4, wins: 0, profit: 0.1, loss: 0.8, sl: 4, tp: 0 };
-    assert.ok(symbolTapePf(e, "SOLUSDT") < 1);
+    assert.ok((symbolTapePf(e, "SOLUSDT") ?? 0) < 1);
     assert.equal(skipLiveSymbol(e, "SOLUSDT"), true);
     e.symbolStats.ETHUSDT = { id: "ETHUSDT", trades: 4, wins: 3, profit: 1.2, loss: 0.2, sl: 1, tp: 3 };
     assert.equal(skipLiveSymbol(e, "ETHUSDT"), false);
     e.minPf = 2;
     e.liveTape = true;
     e.symbolStats.BNBUSDT = { id: "BNBUSDT", trades: 6, wins: 3, profit: 1.2, loss: 1.0, sl: 3, tp: 3 };
-    assert.ok(symbolTapePf(e, "BNBUSDT") < 2);
+    assert.ok((symbolTapePf(e, "BNBUSDT") ?? 0) < 2);
     assert.equal(skipLiveSymbol(e, "BNBUSDT"), true);
   });
 

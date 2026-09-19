@@ -833,6 +833,58 @@ function asSide(positionSide: string | undefined, side?: string): Side {
   return (side ?? "").toUpperCase() === "SELL" ? "short" : "long";
 }
 
+export function parseOpenOrderRow(r: Record<string, unknown>, connId: string): ExchangeOrder | null {
+  const venueSymbol = String(r.symbol ?? "");
+  if (!venueSymbol) return null;
+  const symbol = deskIdFromVenue(venueSymbol) ?? venueSymbol.replace("-", "");
+  const orig = num(r.origQty ?? r.quantity ?? r.qty);
+  const filled = num(r.executedQty ?? r.filledQty ?? r.cumQty ?? r.filled);
+  const remaining = orig > 0 ? Math.max(0, orig - filled) : Math.max(0, orig);
+  const rawStatus = String(r.status ?? "open");
+  const status = filled > 1e-12 && remaining > 1e-12 ? "partial" : rawStatus;
+  return {
+    connId,
+    id: String(r.orderId ?? r.orderID ?? r.id ?? `${symbol}:${r.type}:${r.positionSide}:${r.stopPrice}`),
+    symbol,
+    venueSymbol,
+    side: asSide(String(r.positionSide ?? ""), String(r.side ?? "")),
+    qty: orig > 0 ? orig : remaining + filled,
+    filled,
+    remaining,
+    price: num(r.price ?? r.avgPrice),
+    stopPrice: num(r.stopPrice ?? r.triggerPrice),
+    status,
+    type: String(r.type ?? "LIMIT"),
+    closePosition: r.closePosition === true || r.closePosition === "true",
+    reduceOnly: r.reduceOnly === true || r.reduceOnly === "true",
+  };
+}
+
+async function signedJson(
+  network: "mainnet" | "testnet",
+  connId: string,
+  path: string,
+): Promise<{ ok: boolean; data?: unknown; ms: number; error?: string }> {
+  const { apiKey, secret } = resolveKeys(connId, undefined, undefined);
+  if (!apiKey || !secret) return { ok: false, ms: 0, error: "API key and secret required" };
+  let last = "request failed";
+  let ms = 0;
+  for (const host of HOSTS[network]) {
+    try {
+      const params = { recvWindow: 5000, timestamp: Date.now() };
+      const url = signedUrl(host, path, secret, params);
+      const out = await getJson(url, { headers: { "X-BX-APIKEY": apiKey } });
+      ms = out.ms;
+      const body = out.json as { code?: number; msg?: string; data?: unknown };
+      if (body?.code === 0) return { ok: true, data: body.data, ms };
+      last = String(body?.msg || `BingX ${body?.code ?? out.status}`);
+    } catch (err) {
+      last = err instanceof Error ? err.message : "request failed";
+    }
+  }
+  return { ok: false, ms, error: last };
+}
+
 export async function fetchExchangeBook(input: {
   apiKey?: string;
   secret?: string;
@@ -850,92 +902,57 @@ export async function fetchExchangeBook(input: {
   };
   const { apiKey, secret } = resolveKeys(input.connId, input.apiKey, input.secret);
   if (!apiKey || !secret) return { ...empty, error: "API key and secret required" };
-  const ping = await pingAccount({ apiKey, secret, network: input.network, connId: input.connId });
-  if (!ping.ok) return { ...empty, latencyMs: ping.latencyMs, error: ping.error ?? "ping failed" };
 
-  const params = { recvWindow: 5000, timestamp: Date.now() };
+  const [ping, posRes, ordRes] = await Promise.all([
+    pingAccount({ apiKey, secret, network: input.network, connId: input.connId }),
+    signedJson(input.network, input.connId, "/openApi/swap/v2/user/positions"),
+    signedJson(input.network, input.connId, "/openApi/swap/v2/trade/openOrders"),
+  ]);
+  const ms = Math.max(ping.latencyMs || 0, posRes.ms || 0, ordRes.ms || 0);
+
   let positions: ExchangePosition[] = [];
-  let orders: ExchangeOrder[] = [];
-  let ms = ping.latencyMs;
-  let posErr = "";
-  let ordErr = "";
-  for (const host of HOSTS[input.network]) {
-    try {
-      const posUrl = signedUrl(host, "/openApi/swap/v2/user/positions", secret, params);
-      const posOut = await getJson(posUrl, { headers: { "X-BX-APIKEY": apiKey } });
-      ms = posOut.ms;
-      const posBody = posOut.json as { code?: number; msg?: string; data?: unknown };
-      if (posBody?.code !== 0) {
-        posErr = String(posBody?.msg || `BingX pos ${posBody?.code ?? posOut.status}`);
-        continue;
-      }
-      posErr = "";
-      const raw = Array.isArray(posBody.data)
-        ? posBody.data
-        : Array.isArray((posBody.data as { positions?: unknown[] } | null)?.positions)
-          ? ((posBody.data as { positions: unknown[] }).positions)
-          : [];
-      positions = [];
-      for (const row of raw) {
-        const r = row as Record<string, unknown>;
-        const venueSymbol = String(r.symbol ?? "");
-        const qty = Math.abs(
-          num(r.positionAmt ?? r.availableAmt ?? r.positionQty ?? r.holdVol ?? r.volume ?? r.availablePos ?? r.size ?? r.positionVolume),
-        );
-        if (!(qty > 0) || !venueSymbol) continue;
-        const symbol = deskIdFromVenue(venueSymbol) ?? venueSymbol.replace("-", "");
-        positions.push({
-          connId: input.connId,
-          symbol,
-          venueSymbol,
-          side: asSide(String(r.positionSide ?? r.onlyOnePositionSide ?? ""), String(r.side ?? "")),
-          qty,
-          entry: num(r.avgPrice ?? r.entryPrice),
-          mark: num(r.markPrice ?? r.avgPrice),
-          pnl: num(r.unrealizedProfit ?? r.unrealisedPnl ?? r.pnl),
-        });
-      }
-      const ordParams = { recvWindow: 5000, timestamp: Date.now() };
-      const ordUrl = signedUrl(host, "/openApi/swap/v2/trade/openOrders", secret, ordParams);
-      const ordOut = await getJson(ordUrl, { headers: { "X-BX-APIKEY": apiKey } });
-      ms = ordOut.ms;
-      const ordBody = ordOut.json as { code?: number; msg?: string; data?: unknown };
-      if (ordBody?.code !== 0) {
-        ordErr = String(ordBody?.msg || `BingX ord ${ordBody?.code ?? ordOut.status}`);
-      } else {
-        ordErr = "";
-        const data = ordBody.data as { orders?: unknown[] } | unknown[] | null;
-        const rawOrd = Array.isArray(data) ? data : Array.isArray(data?.orders) ? data.orders : [];
-        orders = [];
-        for (const row of rawOrd) {
-          const r = row as Record<string, unknown>;
-          const venueSymbol = String(r.symbol ?? "");
-          const qty = num(r.origQty ?? r.quantity ?? r.qty);
-          if (!venueSymbol) continue;
-          const symbol = deskIdFromVenue(venueSymbol) ?? venueSymbol.replace("-", "");
-          orders.push({
-            connId: input.connId,
-            id: String(r.orderId ?? r.orderID ?? r.id ?? `${symbol}:${r.type}:${r.positionSide}:${r.stopPrice}`),
-            symbol,
-            venueSymbol,
-            side: asSide(String(r.positionSide ?? ""), String(r.side ?? "")),
-            qty,
-            price: num(r.price ?? r.avgPrice),
-            stopPrice: num(r.stopPrice ?? r.triggerPrice),
-            status: String(r.status ?? "open"),
-            type: String(r.type ?? "LIMIT"),
-            closePosition: r.closePosition === true || r.closePosition === "true",
-            reduceOnly: r.reduceOnly === true || r.reduceOnly === "true",
-          });
-        }
-      }
-      break;
-    } catch (err) {
-      posErr = err instanceof Error ? err.message : "book fetch fail";
+  if (posRes.ok) {
+    const raw = Array.isArray(posRes.data)
+      ? posRes.data
+      : Array.isArray((posRes.data as { positions?: unknown[] } | null)?.positions)
+        ? ((posRes.data as { positions: unknown[] }).positions)
+        : [];
+    for (const row of raw) {
+      const r = row as Record<string, unknown>;
+      const venueSymbol = String(r.symbol ?? "");
+      const qty = Math.abs(
+        num(r.positionAmt ?? r.availableAmt ?? r.positionQty ?? r.holdVol ?? r.volume ?? r.availablePos ?? r.size ?? r.positionVolume),
+      );
+      if (!(qty > 0) || !venueSymbol) continue;
+      const symbol = deskIdFromVenue(venueSymbol) ?? venueSymbol.replace("-", "");
+      positions.push({
+        connId: input.connId,
+        symbol,
+        venueSymbol,
+        side: asSide(String(r.positionSide ?? r.onlyOnePositionSide ?? ""), String(r.side ?? "")),
+        qty,
+        entry: num(r.avgPrice ?? r.entryPrice),
+        mark: num(r.markPrice ?? r.avgPrice),
+        pnl: num(r.unrealizedProfit ?? r.unrealisedPnl ?? r.pnl),
+      });
     }
   }
-  if (posErr && positions.length === 0) {
-    return { ...empty, latencyMs: ms, error: posErr, ok: false };
+
+  let orders: ExchangeOrder[] = [];
+  let ordErr = "";
+  if (ordRes.ok) {
+    const data = ordRes.data as { orders?: unknown[] } | unknown[] | null;
+    const rawOrd = Array.isArray(data) ? data : Array.isArray(data?.orders) ? data.orders : [];
+    for (const row of rawOrd) {
+      const parsed = parseOpenOrderRow(row as Record<string, unknown>, input.connId);
+      if (parsed) orders.push(parsed);
+    }
+  } else {
+    ordErr = String(ordRes.error || "");
+  }
+
+  if (!posRes.ok && positions.length === 0) {
+    return { ...empty, latencyMs: ms, error: posRes.error || ping.error || "book fetch fail", ok: false };
   }
   return {
     connId: input.connId,
@@ -945,7 +962,7 @@ export async function fetchExchangeBook(input: {
     orders,
     at: Date.now(),
     latencyMs: ms,
-    error: ordErr || undefined,
+    error: ordErr || (!ping.ok ? ping.error : undefined),
   };
 }
 

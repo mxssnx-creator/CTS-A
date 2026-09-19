@@ -261,6 +261,8 @@ function snapshot(e, extra) {
     bookMs: lastBook.latencyMs || 0,
     trailN: lastTrail.n,
     trailMs: lastTrail.ms,
+    partials: e.stats?.partials ?? book.orders.partial,
+    controlGap: Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0)),
     at: Date.now(),
     tick: e.tick,
   };
@@ -434,6 +436,24 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+async function mapLimit(items, n, fn) {
+  if (!items.length) return [];
+  const ret = new Array(items.length);
+  let i = 0;
+  const w = Math.max(1, Math.min(n, items.length));
+  await Promise.all(
+    Array.from({ length: w }, async () => {
+      for (;;) {
+        const idx = i;
+        i += 1;
+        if (idx >= items.length) return;
+        ret[idx] = await fn(items[idx], idx);
+      }
+    }),
+  );
+  return ret;
+}
+
 function withTimeout(promise, ms, label) {
   let t;
   const timeout = new Promise((_, rej) => {
@@ -511,36 +531,45 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   if (!missing.length && !extras && !stray) return null;
   const map = await fetchContractMap(network);
   const notes = [];
-  let strayN = 0;
+  const cancelOne = async (o) => {
+    const oid = String(o?.id || "");
+    if (!oid || cancelFailed.has(oid)) return { ok: false, id: oid };
+    const r = await withLiveBusy(() =>
+      cancelSwapOrder({
+        network,
+        connId: CONN,
+        symbol: o.venueSymbol || o.symbol,
+        orderId: oid,
+      }),
+    );
+    if (!r.ok) {
+      cancelFailed.add(oid);
+      noteApiFail(r);
+    }
+    return { ...r, id: oid };
+  };
+
+  const strayJobs = [];
   for (const [key, g] of grouped) {
-    if (!gone(key) || strayN >= 12) continue;
+    if (!gone(key)) continue;
     const sym = String(key).split(":")[0];
     if (!isDeskSymbol(sym)) continue;
-    for (const o of [...(g.sl || []), ...(g.tp || [])]) {
-      if (strayN >= 12) break;
-      const oid = String(o?.id || "");
-      if (!oid || cancelFailed.has(oid)) continue;
-      const r = await withLiveBusy(() =>
-        cancelSwapOrder({
-          network,
-          connId: CONN,
-          symbol: o.venueSymbol || o.symbol,
-          orderId: oid,
-        }),
-      );
-      if (r.ok) {
-        strayN += 1;
-        mirrored.delete(`sl:${key}`);
-        mirrored.delete(`tp:${key}`);
-        mirrored.delete(`own:${key}`);
-        mirrored.delete(`live:${key}`);
-      } else {
-        cancelFailed.add(oid);
-        noteApiFail(r);
-      }
-    }
+    for (const o of [...(g.sl || []), ...(g.tp || [])]) strayJobs.push({ key, o });
   }
+  const strayOut = await mapLimit(strayJobs.slice(0, 24), 8, async (job) => {
+    const r = await cancelOne(job.o);
+    if (r.ok) {
+      mirrored.delete(`sl:${job.key}`);
+      mirrored.delete(`tp:${job.key}`);
+      mirrored.delete(`own:${job.key}`);
+      mirrored.delete(`live:${job.key}`);
+    }
+    return r.ok;
+  });
+  const strayN = strayOut.filter(Boolean).length;
   if (strayN) notes.push(`stray ${strayN}`);
+
+  const extraJobs = [];
   for (const [key, g] of grouped) {
     if (!occupied.has(key)) continue;
     if (!isDeskSymbol(String(key).split(":")[0])) continue;
@@ -549,39 +578,33 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const list = g[kind];
       if (!list || list.length <= 1) continue;
       const tk = `${key}:${kind}`;
-      if ((trimHits.get(tk) || 0) >= 2) continue;
+      if ((trimHits.get(tk) || 0) >= 3) continue;
       list.sort((a, b) => Math.abs((a.qty || 0) - want) - Math.abs((b.qty || 0) - want));
-      const extra = list[list.length - 1];
-      const extraId = String(extra?.id || "");
-      if (!extraId || cancelFailed.has(extraId)) continue;
-      const r = await withLiveBusy(() =>
-        cancelSwapOrder({
-          network,
-          connId: CONN,
-          symbol: extra.venueSymbol || extra.symbol,
-          orderId: extraId,
-        }),
-      );
-      if (r.ok) {
-        trimHits.set(tk, (trimHits.get(tk) || 0) + 1);
-        notes.push(`trim ${kind} ${extra.symbol}`);
-      } else {
-        cancelFailed.add(extraId);
-        noteApiFail(r);
-      }
+      for (const extra of list.slice(1)) extraJobs.push({ tk, kind, extra });
     }
   }
+  const extraOut = await mapLimit(extraJobs.slice(0, 24), 8, async (job) => {
+    const r = await cancelOne(job.extra);
+    if (r.ok) {
+      trimHits.set(job.tk, (trimHits.get(job.tk) || 0) + 1);
+      return `trim ${job.kind} ${job.extra.symbol}`;
+    }
+    return null;
+  });
+  notes.push(...extraOut.filter(Boolean));
+
   const posByVol = [...(book.positions ?? [])].sort(
     (a, b) => vol1hOf(e?.quotes?.[b.symbol]) - vol1hOf(e?.quotes?.[a.symbol]),
   );
+  const closeRetry = (err) => /closePosition|close position|available amount|quantity|position/i.test(String(err || ""));
   let posts = 0;
-  for (const p of posByVol) {
-    if (posts >= 40) break;
-    if (!isDeskSymbol(p.symbol)) continue;
+
+  const protectOne = async (p, driftSl, driftTp) => {
+    const local = [];
+    let n = 0;
     const key = `${p.symbol}:${p.side}`;
-    if (!mirrored.has(`own:${key}`) && !mirrored.has(`live:${key}`)) continue;
     const px = p.mark || p.entry || 0;
-    if (!(px > 0) || !(p.qty > 0)) continue;
+    if (!(px > 0) || !(p.qty > 0)) return { notes: local, posts: n };
     const spec = map.get(p.venueSymbol);
     const cell = protectFor(p.symbol);
     const slAtr = cell.slAtr;
@@ -594,6 +617,16 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (!(q > 0)) q = snapQtyDown(p.qty, spec);
       return q;
     };
+    if (driftSl || driftTp) {
+      const g = grouped.get(key);
+      const drop = [];
+      if (driftSl) drop.push(...(g?.sl || []));
+      if (driftTp) drop.push(...(g?.tp || []));
+      await mapLimit(drop, 4, cancelOne);
+      if (driftSl) hasSl.delete(key);
+      if (driftTp) hasTp.delete(key);
+      n += drop.length;
+    }
     const placeProtect = async (type, qty) => {
       const body = {
         network,
@@ -614,8 +647,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         reduceOnly: false,
       };
       let r = await withLiveBusy(() => placeSwapOrder(body));
-      if (!r.ok) {
+      n += 1;
+      if (!r.ok && closeRetry(r.error)) {
         r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: true }));
+        n += 1;
       }
       return r;
     };
@@ -624,15 +659,12 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (!(qty > 0) && !(p.qty > 0)) return `${kind} skip ${p.symbol} qty`;
       mirrored.add(tag);
       let r = await placeProtect(type, qty);
-      posts += 1;
       if (!r.ok && parseAvailableUsdt(r.error) > 0) {
         qty = protectQty(parseAvailableUsdt(r.error));
         r = await placeProtect(type, qty > 0 ? qty : 0);
-        posts += 1;
       }
       if (!r.ok && /available amount|quantity/i.test(String(r.error || ""))) {
         r = await placeProtect(type, 0);
-        posts += 1;
       }
       if (!r.ok) {
         mirrored.delete(tag);
@@ -640,29 +672,56 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         return `${kind} skip ${p.symbol} ${String(r.error ?? "err").slice(0, 80)}`;
       }
       lastProtectQty.set(key, qty);
+      if (kind === "sl") hasSl.add(key);
+      else hasTp.add(key);
       return `${kind} ${p.symbol}`;
     };
-    const wantQ = protectQty();
-    const prevQ = Number(lastProtectQty.get(key) || 0);
-    const qtyDrift = prevQ > 0 && wantQ > 0 && Math.abs(wantQ - prevQ) / Math.max(prevQ, wantQ) > 0.08;
-    if (qtyDrift) {
-      hasSl.delete(key);
-      hasTp.delete(key);
-    }
     const jobs = [];
     if (!hasSl.has(key)) jobs.push(attach("sl", "STOP_MARKET", `sl:${key}`));
     if (!hasTp.has(key)) jobs.push(attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`));
-    if (jobs.length) {
-      const out = await Promise.all(jobs);
-      notes.push(...out);
+    if (jobs.length) local.push(...(await Promise.all(jobs)));
+    return { notes: local, posts: n };
+  };
+
+  const need = [];
+  for (const p of posByVol) {
+    if (!isDeskSymbol(p.symbol)) continue;
+    const key = `${p.symbol}:${p.side}`;
+    if (!mirrored.has(`own:${key}`) && !mirrored.has(`live:${key}`)) continue;
+    if (!(p.qty > 0) || !((p.mark || p.entry) > 0)) continue;
+    const g = grouped.get(key);
+    const slQ = Number(g?.sl?.[0]?.remaining ?? g?.sl?.[0]?.qty ?? 0);
+    const tpQ = Number(g?.tp?.[0]?.remaining ?? g?.tp?.[0]?.qty ?? 0);
+    const wantQ = p.qty;
+    const prevQ = Number(lastProtectQty.get(key) || 0);
+    const slDrift =
+      hasSl.has(key) &&
+      wantQ > 0 &&
+      ((slQ > 0 && Math.abs(wantQ - slQ) / Math.max(wantQ, slQ) > 0.08) ||
+        (prevQ > 0 && slQ <= 0 && Math.abs(wantQ - prevQ) / Math.max(wantQ, prevQ) > 0.08));
+    const tpDrift =
+      hasTp.has(key) &&
+      wantQ > 0 &&
+      tpQ > 0 &&
+      Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.08;
+    if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift });
+  }
+  for (let i = 0; i < need.length && posts < 48; i += 8) {
+    const chunk = need.slice(i, i + 8);
+    const out = await Promise.all(chunk.map((row) => protectOne(row.p, row.slDrift, row.tpDrift)));
+    for (const r of out) {
+      posts += r.posts;
+      notes.push(...r.notes);
     }
   }
+
   const trailT0 = Date.now();
   let trailed = 0;
-  if (posts < 40 && !apiQuiet()) {
+  if (posts < 48 && !apiQuiet()) {
     const mode = network === "mainnet" ? "main" : "vst";
+    const trailNeed = [];
     for (const p of posByVol) {
-      if (trailed >= 16 || posts >= 40) break;
+      if (trailNeed.length >= 16) break;
       if (!isDeskSymbol(p.symbol)) continue;
       const key = `${p.symbol}:${p.side}`;
       if (!hasSl.has(key)) continue;
@@ -695,13 +754,15 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (!improved || !(next > 0)) continue;
       if (p.side === "long" && !(next < mark)) continue;
       if (p.side === "short" && !(next > mark)) continue;
+      trailNeed.push({ p, key, spec, cell, mark, next, slOrd });
+    }
+    const trailOut = await mapLimit(trailNeed, 6, async (row) => {
+      const { p, key, spec, cell, mark, next, slOrd } = row;
       const slId = String(slOrd?.id || "");
       if (slId) {
-        const c = await withLiveBusy(() => cancelSwapOrder({ network, connId: CONN, symbol: slOrd.venueSymbol || p.symbol, orderId: slId }));
-        posts += 1;
+        const c = await cancelOne(slOrd);
         if (!c.ok && !/not exist|filled|nothing to cancel|no need/i.test(String(c.error || ""))) {
-          noteApiFail(c);
-          continue;
+          return null;
         }
         hasSl.delete(key);
       }
@@ -725,31 +786,35 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         reduceOnly: false,
       };
       let r = await withLiveBusy(() => placeSwapOrder(body));
-      posts += 1;
-      if (!r.ok) {
+      if (!r.ok && closeRetry(r.error)) {
         r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: true }));
-        posts += 1;
       }
       if (r.ok) {
         lastPostedSl.set(key, next);
         lastProtectQty.set(key, qty);
         hasSl.add(key);
-        trailed += 1;
-        notes.push(`trail ${p.symbol}`);
-      } else {
-        noteApiFail(r);
-        notes.push(`trail skip ${p.symbol} ${String(r.error || "err").slice(0, 60)}`);
+        return `trail ${p.symbol}`;
+      }
+      noteApiFail(r);
+      return `trail skip ${p.symbol} ${String(r.error || "err").slice(0, 60)}`;
+    });
+    for (const t of trailOut) {
+      if (t) {
+        notes.push(t);
+        if (String(t).startsWith("trail ")) trailed += 1;
       }
     }
   }
   lastTrail = { n: trailed, ms: Date.now() - trailT0, at: Date.now() };
+  lastBook.sl = (book.positions ?? []).filter((p) => isDeskSymbol(p.symbol) && hasSl.has(`${p.symbol}:${p.side}`)).length;
+  lastBook.tp = (book.positions ?? []).filter((p) => isDeskSymbol(p.symbol) && hasTp.has(`${p.symbol}:${p.side}`)).length;
   if (notes.length) return notes.filter(Boolean).slice(0, 4).join(" · ");
   return null;
 }
 
 async function mirrorToExchange(e, network, cfg) {
   if (apiQuiet()) return null;
-  if (Date.now() - liveLast < 350) return;
+  if (Date.now() - liveLast < 200) return;
   liveLast = Date.now();
   const keys = keysForConn(CONN);
   if (!keys.apiKey || !keys.secret) return "live no keys";
@@ -804,6 +869,8 @@ async function mirrorToExchange(e, network, cfg) {
       venueSymbol: o.venueSymbol,
       side: o.side,
       qty: o.qty,
+      filled: Number(o.filled) || 0,
+      remaining: o.remaining != null ? Number(o.remaining) : o.qty,
       price: o.price,
       stopPrice: o.stopPrice,
       status: o.status,
@@ -877,7 +944,9 @@ async function mirrorToExchange(e, network, cfg) {
 
   let placed = 0;
   let failed = 0;
-  for (const f of e.fills.slice(0, 80)) {
+  const fillJobs = [];
+  for (const f of e.fills) {
+    if (fillJobs.length >= 8) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
     if (e.lastTactic === "dca" || /dca/i.test(String(f.playbook || f.note || ""))) {
@@ -890,15 +959,17 @@ async function mirrorToExchange(e, network, cfg) {
       mirrored.add(f.id);
       continue;
     }
-    if (occupied.has(`${f.symbol}:${f.side}`)) {
+    if (occupied.has(`${f.symbol}:${f.side}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side)) {
       mirrored.add(f.id);
       continue;
     }
-    if (openN + placed >= liveMaxPos() || accountN + placed >= liveMaxPos()) break;
+    if (openN + fillJobs.length >= liveMaxPos() || accountN + fillJobs.length >= liveMaxPos()) break;
     if (apiQuiet()) break;
-    let r;
+    fillJobs.push(f);
+  }
+  const fillOut = await mapLimit(fillJobs, 4, async (f) => {
     try {
-      r = await withLiveBusy(() =>
+      const r = await withLiveBusy(() =>
         placeSwapOrder({
           network,
           connId: CONN,
@@ -916,18 +987,23 @@ async function mirrorToExchange(e, network, cfg) {
           equity: Number(book.equity) || 0,
         }),
       );
+      return { f, r };
     } catch (err) {
-      noteApiFail(err);
-      skippedFills.add(f.id);
-      return `live throw ${err instanceof Error ? err.message : "err"}`;
+      return { f, r: { ok: false, error: err instanceof Error ? err.message : "err" }, threw: true };
     }
-    if (!r.ok) {
+  });
+  for (const row of fillOut) {
+    const { f, r, threw } = row;
+    if (!r?.ok) {
       skippedFills.add(f.id);
-      const err = String(r.error ?? "err");
-      if (!/min notional exceeds|TP Price|SL Price|must be (greater|lower)/i.test(err)) skipUntil.set(f.symbol, Date.now() + (isRateLimited(r.error) ? 480_000 : 90_000));
+      const err = String(r?.error ?? "err");
+      if (!/min notional exceeds|TP Price|SL Price|must be (greater|lower)/i.test(err)) {
+        skipUntil.set(f.symbol, Date.now() + (isRateLimited(r?.error) ? 480_000 : 90_000));
+      }
       const quiet = noteApiFail(r);
       failed += 1;
       notes.push(`skip ${f.symbol} ${err.slice(0, 80)}`);
+      if (threw) return `live throw ${err}`;
       if (quiet || failed >= 4) break;
       continue;
     }
@@ -937,7 +1013,6 @@ async function mirrorToExchange(e, network, cfg) {
     occupied.add(`${f.symbol}:${f.side}`);
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
-    if (placed >= 16) break;
   }
   return notes.length ? notes.slice(0, 4).join(" · ") : null;
 }
@@ -1167,7 +1242,7 @@ async function main() {
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
       }
-      if (!apiQuiet() && liveBusy === 0 && ping.pingOk) {
+      if (!apiQuiet() && ping.pingOk) {
         try {
           const liveNote = await withTimeout(mirrorToExchange(engine, ping.network, pick.cfg), 15000, "live");
           if (liveNote) adjustments.push(liveNote);
@@ -1342,6 +1417,12 @@ async function main() {
     }
   }, Math.max(800, TICK_MS));
 
+  const ioTimer = setInterval(() => {
+    if (hostPhase !== "running") return;
+    void ioCycle();
+  }, 400);
+  void ioCycle();
+
   let lastSettingsAt = Date.now();
 
   let lastSettingsRead = 0;
@@ -1425,7 +1506,6 @@ async function main() {
     try {
       doTick();
 
-      if (engine.tick % 4 === 0) void ioCycle();
       if (engine.tick % 12 === 0) {
         const note = intenseCheck(engine, pick);
         if (note) adjustments.push(note);
@@ -1464,6 +1544,7 @@ async function main() {
   }
 
   clearInterval(watchdog);
+  clearInterval(ioTimer);
   const final = snapshot(engine, statusBase());
   final.stable = locked || (final.positive && final.mdd <= 0.22);
   writeStatus(final);

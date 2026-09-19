@@ -34,6 +34,7 @@ export function OrdersView() {
                 <th className="py-2 pr-3 font-medium">Side</th>
                 <th className="py-2 pr-3 font-medium">Type</th>
                 <th className="py-2 pr-3 font-medium">Qty</th>
+                <th className="py-2 pr-3 font-medium">Left</th>
                 <th className="py-2 pr-3 font-medium">Stop</th>
                 <th className="py-2 pr-3 font-medium">Status</th>
               </tr>
@@ -48,13 +49,16 @@ export function OrdersView() {
                     </td>
                     <td className="py-2 pr-3 font-mono text-xs">{o.type}</td>
                     <td className="py-2 pr-3">{o.qty}</td>
+                    <td className="py-2 pr-3">
+                      {o.remaining != null ? o.remaining : "—"}
+                    </td>
                     <td className="py-2 pr-3">{o.stopPrice ? fmtPx(o.stopPrice) : o.price ? fmtPx(o.price) : "—"}</td>
                     <td className="py-2 pr-3">{o.status || "NEW"}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td className="py-6 text-muted" colSpan={6}>
+                  <td className="py-6 text-muted" colSpan={7}>
                     No open orders on {live.venueLabel}.
                   </td>
                 </tr>

@@ -73,7 +73,7 @@ export const TRAIL_POS_RATIOS = [0.86, 0.72, 0.58, 0.46, 0.36, 0.28] as const;
 
 export function snapTrailPct(n: number): number {
   if (!Number.isFinite(n)) return 1.4;
-  let best = TRAIL_PCTS[0]!;
+  let best: (typeof TRAIL_PCTS)[number] = TRAIL_PCTS[0]!;
   let dist = Infinity;
   for (const t of TRAIL_PCTS) {
     const d = Math.abs(t - n);
@@ -223,7 +223,7 @@ export type ShortSlOfTp = (typeof SHORT_SL_OF_TP)[number];
 
 export function snapShortTpAtr(n: number): number {
   if (!Number.isFinite(n)) return 0.3;
-  let best = SHORT_TP_ATR[0]!;
+  let best: (typeof SHORT_TP_ATR)[number] = SHORT_TP_ATR[0]!;
   let dist = Infinity;
   for (const t of SHORT_TP_ATR) {
     const d = Math.abs(t - n);

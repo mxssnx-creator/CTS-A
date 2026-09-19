@@ -11,6 +11,7 @@ import {
   maxLeverageOf,
   parseBingxJson,
   parseAvailableUsdt,
+  parseOpenOrderRow,
   signQuery,
   snapQty,
   snapQtyDown,
@@ -58,6 +59,45 @@ describe("live feed", () => {
     assert.equal(parsed.data.orders[0].orderId, sl);
     assert.equal(parsed.data.orders[1].orderId, tp);
     assert.notEqual(String(parsed.data.orders[0].orderId), String(parsed.data.orders[1].orderId));
+  });
+
+  it("parses independent filled and remaining on control orders", () => {
+    const row = parseOpenOrderRow(
+      {
+        symbol: "ETH-USDT",
+        orderId: "2100774590279671861",
+        positionSide: "LONG",
+        side: "SELL",
+        type: "STOP_MARKET",
+        origQty: "0.02",
+        executedQty: "0.008",
+        stopPrice: "2500",
+        status: "NEW",
+      },
+      "bingx-x01",
+    );
+    assert.ok(row);
+    assert.equal(row.symbol, "ETHUSDT");
+    assert.equal(row.qty, 0.02);
+    assert.equal(row.filled, 0.008);
+    assert.ok(Math.abs((row.remaining ?? 0) - 0.012) < 1e-9);
+    assert.equal(row.status, "partial");
+    assert.equal(row.type, "STOP_MARKET");
+    const full = parseOpenOrderRow(
+      {
+        symbol: "BTC-USDT",
+        orderId: "1",
+        positionSide: "SHORT",
+        type: "TAKE_PROFIT_MARKET",
+        origQty: 2,
+        executedQty: 0,
+        status: "NEW",
+      },
+      "bingx-x01",
+    );
+    assert.equal(full?.status, "NEW");
+    assert.equal(full?.filled, 0);
+    assert.equal(full?.remaining, 2);
   });
 
   it("signs with ASCII-sorted keys and no value encoding", () => {

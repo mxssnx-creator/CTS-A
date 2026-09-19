@@ -405,6 +405,8 @@ export interface ExchangeOrder {
   venueSymbol: string;
   side: Side;
   qty: number;
+  filled?: number;
+  remaining?: number;
   price: number;
   stopPrice?: number;
   status: string;
