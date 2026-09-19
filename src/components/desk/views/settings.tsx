@@ -852,7 +852,7 @@ export function SettingsView() {
       <div id="block" className="scroll-mt-24">
         <Panel title="Block strategy · overall active orders">
           <p className="text-sm text-muted">
-            Stack and windows both use counts <strong>1–16 independently</strong> (not a 1-then-2
+            Stack and windows both use counts <strong>1–6 independently</strong> (not a 1-then-2
             ladder). Stack: each N can add on a winning parent if that N’s eval is valid. Windows:
             last N closes; a loss adjusts the next N of that symbol. Shared + additive volume run in
             parallel. Both types on by default.

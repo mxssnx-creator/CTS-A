@@ -52,15 +52,15 @@ const BLOCK = {
   cadence: 6,
   flattenConflict: false,
   addOnWin: true,
-  maxMultiple: 16,
+  maxMultiple: 6,
   minMultiple: 1,
   overall: true,
-  counts: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+  counts: [1, 2, 3, 4, 5, 6],
   volumeRatio: 1.25,
   maxVolumeMultiplier: 2.25,
   pfRatio: 1.45,
   pauseCountRatio: 2,
-  evalPosCount: 16,
+  evalPosCount: 6,
   activeLive: true,
   minActiveLevel: 0,
   stack: true,
@@ -710,7 +710,7 @@ async function mirrorToExchange(e, network, cfg) {
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
-    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 16))) continue;
+    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 6))) continue;
     if (occupied.has(`${f.symbol}:${f.side}`)) {
       mirrored.add(f.id);
       continue;

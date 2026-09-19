@@ -1055,7 +1055,11 @@ describe("VST engine", () => {
       }
     }
 
-    const { report } = simulateHours(16, CFG, "axis", { symbolCount: 8, rangeType: "atr" });
+    const { report } = simulateHours(16, CFG, "axis", {
+      symbolCount: 8,
+      rangeType: "atr",
+      block: { ...DEFAULT_BLOCK_CONFIG, volumeMode: "shared", counts: [1, 2], maxMultiple: 2, windows: true },
+    });
     assert.equal(report.hours, 16);
     assert.ok(report.passed, report.issues.join("; "));
     assert.ok(report.pf >= 1, `PF ${report.pf}`);
@@ -1113,48 +1117,48 @@ describe("VST engine", () => {
     assert.ok(e.tick >= 1);
   });
 
-  it("last-N pos windows: loss in last 16 adjusts the next 16", () => {
+  it("last-N pos windows: loss in last 6 adjusts the next 6", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
-    for (let i = 0; i < 16; i++) noteBlockPosClose(e, "BTCUSDT", "long", -1);
-    const w16 = e.blockWindows[16];
-    assert.equal(w16.windows, 1);
-    assert.equal(w16.lossWindows, 1);
-    assert.equal(w16.pauseLeft, 16);
-    assert.ok(blockPosPaused(e, 16));
-    assert.ok(symbolBlockPaused(e, "BTCUSDT", 16));
-    for (let i = 0; i < 16; i++) noteBlockPosClose(e, "ETHUSDT", "short", 1);
-    assert.equal(e.blockWindows[16].pauseLeft, 0);
-    assert.equal(e.blockWindows[16].adjusted, 16);
-    assert.equal(blockPosPaused(e, 16), false);
-    const snap = blockWindowSnapshot(e, 16);
+    for (let i = 0; i < 6; i++) noteBlockPosClose(e, "BTCUSDT", "long", -1);
+    const w6 = e.blockWindows[6];
+    assert.equal(w6.windows, 1);
+    assert.equal(w6.lossWindows, 1);
+    assert.equal(w6.pauseLeft, 6);
+    assert.ok(blockPosPaused(e, 6));
+    assert.ok(symbolBlockPaused(e, "BTCUSDT", 6));
+    for (let i = 0; i < 6; i++) noteBlockPosClose(e, "ETHUSDT", "short", 1);
+    assert.equal(e.blockWindows[6].pauseLeft, 0);
+    assert.equal(e.blockWindows[6].adjusted, 6);
+    assert.equal(blockPosPaused(e, 6), false);
+    const snap = blockWindowSnapshot(e, 6);
     assert.ok(snap.symbols.some((s) => s.symbol === "BTCUSDT" && s.lastAvg < 0));
-    assert.ok(snap.symbols.some((s) => s.symbol === "ETHUSDT" && s.closed === 16));
+    assert.ok(snap.symbols.some((s) => s.symbol === "ETHUSDT" && s.closed === 6));
     const w1 = e.blockWindows[1];
-    assert.ok(w1.windows >= 16);
+    assert.ok(w1.windows >= 6);
   });
 
-  it("old stack 1-2 and new windows 1-16 stay independent", () => {
+  it("old stack 1-2 and new windows 1-6 stay independent", () => {
     const stackOnly = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: false, maxMultiple: 2, counts: [1, 2], endStageOnly: false };
-    const winOnly = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: false, windows: true, evalPosCount: 16, endStageOnly: false };
-    const both = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: true, maxMultiple: 2, counts: [1, 2], evalPosCount: 16, endStageOnly: false };
+    const winOnly = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: false, windows: true, evalPosCount: 6, endStageOnly: false };
+    const both = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: true, maxMultiple: 2, counts: [1, 2], evalPosCount: 6, endStageOnly: false };
     const a = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: stackOnly });
     const b = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: winOnly });
     const c = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: both });
     assert.ok(a.report.passed && b.report.passed && c.report.passed);
     finiteNum(a.report.pf, b.report.pf, c.report.pf);
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
-    for (let i = 0; i < 16; i++) noteBlockPosClose(e, "BTCUSDT", "long", -0.5, winOnly);
-    assert.ok(blockPosPaused(e, 16));
+    for (let i = 0; i < 6; i++) noteBlockPosClose(e, "BTCUSDT", "long", -0.5, winOnly);
+    assert.ok(blockPosPaused(e, 6));
     const e2 = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
-    for (let i = 0; i < 16; i++) noteBlockPosClose(e2, "BTCUSDT", "long", -0.5, stackOnly);
-    assert.equal(blockPosPaused(e2, 16), false);
+    for (let i = 0; i < 6; i++) noteBlockPosClose(e2, "BTCUSDT", "long", -0.5, stackOnly);
+    assert.equal(blockPosPaused(e2, 6), false);
   });
 
-  it("windows 1-16 skip next N of a losing symbol while other symbols still arm", () => {
+  it("windows 1-6 skip next N of a losing symbol while other symbols still arm", () => {
     const e = initVstEngine(CFG, { warmup: 4, symbolCount: 6, arm: false });
-    e.blockCfg = { ...DEFAULT_BLOCK_CONFIG, stack: false, windows: true, evalPosCount: 16 };
-    for (let i = 0; i < 16; i++) noteBlockPosClose(e, "BTCUSDT", "long", -0.4, e.blockCfg);
-    assert.ok(symbolBlockPaused(e, "BTCUSDT", 16));
+    e.blockCfg = { ...DEFAULT_BLOCK_CONFIG, stack: false, windows: true, evalPosCount: 6 };
+    for (let i = 0; i < 6; i++) noteBlockPosClose(e, "BTCUSDT", "long", -0.4, e.blockCfg);
+    assert.ok(symbolBlockPaused(e, "BTCUSDT", 6));
     armUniverse(e, CFG, "hybrid", "fibonacci");
     const btc = [...e.queue, ...e.orders].filter((o) => o.symbol === "BTCUSDT");
     const other = [...e.queue, ...e.orders].filter((o) => o.symbol !== "BTCUSDT");
@@ -1164,7 +1168,7 @@ describe("VST engine", () => {
 
   it("Block long, short, and both sides run independent vs old stack", () => {
     const old = { ...DEFAULT_BLOCK_CONFIG, stack: true, windows: false, volumeMode: "shared" as const, counts: [1, 2], maxMultiple: 2 };
-    const neu = { ...DEFAULT_BLOCK_CONFIG, stack: true, windows: true, volumeMode: "shared" as const, counts: [1, 2], maxMultiple: 2, evalPosCount: 16 };
+    const neu = { ...DEFAULT_BLOCK_CONFIG, stack: true, windows: true, volumeMode: "shared" as const, counts: [1, 2], maxMultiple: 2, evalPosCount: 6 };
     for (const sides of ["long", "short", "both"] as const) {
       const a = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: { ...old, sides } });
       const b = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: { ...neu, sides } });
@@ -1178,20 +1182,20 @@ describe("VST engine", () => {
   });
 
   it("windows shared vs additive run with stack 1-2 additionally", () => {
-    const base = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: true, counts: [1, 2], maxMultiple: 2, evalPosCount: 16, volumeRatio: 1.25, endStageOnly: false };
+    const base = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: true, counts: [1, 2], maxMultiple: 2, evalPosCount: 6, volumeRatio: 1.25, endStageOnly: false };
     const shared = simulateHours(24, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...base, volumeMode: "shared" } });
     const additive = simulateHours(24, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...base, volumeMode: "additive" } });
     const winOnly = simulateHours(24, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...base, stack: false, volumeMode: "shared" } });
     assert.ok(shared.report.passed && additive.report.passed && winOnly.report.passed);
     finiteNum(shared.report.pf, additive.report.pf, winOnly.report.pf);
-    assert.ok(shared.engine.blockWindows[16]);
-    assert.ok(winOnly.engine.blockWindows[16].closed >= 0);
+    assert.ok(shared.engine.blockWindows[6]);
+    assert.ok(winOnly.engine.blockWindows[6].closed >= 0);
   });
 
-  it("all Block counts 1-16 run independently", () => {
-    assert.equal(DEFAULT_BLOCK_CONFIG.counts.length, 16);
-    assert.equal(DEFAULT_BLOCK_CONFIG.maxMultiple, 16);
-    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+  it("all Block counts 1-6 run independently", () => {
+    assert.equal(DEFAULT_BLOCK_CONFIG.counts.length, 6);
+    assert.equal(DEFAULT_BLOCK_CONFIG.maxMultiple, 6);
+    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2, 3, 4, 5, 6]);
     const r = simulateHours(12, CFG, "hybrid", {
       symbolCount: 8,
       rangeType: "fibonacci",
@@ -1210,7 +1214,7 @@ describe("VST engine", () => {
       volumeMode: "parallel" as const,
       counts: [1, 2],
       maxMultiple: 2,
-      evalPosCount: 16,
+      evalPosCount: 6,
       endStageOnly: false,
     };
     const shared = simulateHours(16, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...par, volumeMode: "shared" } });

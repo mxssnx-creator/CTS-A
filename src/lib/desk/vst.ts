@@ -820,7 +820,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     const q = e.quotes[s.id];
     if (!q || !(q.px > 0)) return;
     if ((e.cooldown[cooldownKey(connId, s.id)] ?? 0) > e.tick) return;
-    const winN = Math.min(16, Math.max(1, Math.round(e.blockCfg?.evalPosCount || 16)));
+    const winN = Math.min(16, Math.max(1, Math.round(e.blockCfg?.evalPosCount || 6)));
     if (e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     if (pn >= VST_MAX_POSITIONS) return;
     const mode = e.blockCfg?.sides;
@@ -1675,7 +1675,7 @@ function liveBlockCounts(block: BlockConfig) {
 
 function evalBlockNs(block?: BlockConfig) {
   if (block && block.windows === false) return [];
-  const cap = Math.min(16, Math.max(1, Math.round(block?.evalPosCount || 16)));
+  const cap = Math.min(16, Math.max(1, Math.round(block?.evalPosCount || 6)));
   return Array.from({ length: cap }, (_, i) => i + 1);
 }
 
@@ -1731,7 +1731,7 @@ export function noteBlockPosClose(e: VstEngine, symbol: string, side: Side, pnl:
 }
 
 /** Last-N overall window is in its "next N adjusted" pause. */
-export function blockPosPaused(e: VstEngine, n = 16) {
+export function blockPosPaused(e: VstEngine, n = 6) {
   return (e.blockWindows?.[n]?.pauseLeft || 0) > 0;
 }
 
@@ -1752,14 +1752,14 @@ export function symbolTapePf(e: VstEngine, symbol: string) {
 }
 
 /** Skip new entries on losing last-N windows, PF<1 symbols, or direction indication. */
-export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 16) {
+export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (symbolBlockPaused(e, symbol, evalN)) return true;
   if (symbolTapePf(e, symbol) + 1e-9 < 1) return true;
   if (classifyIndication(e, symbol) === "direction") return true;
   return false;
 }
 
-export function blockWindowSnapshot(e: VstEngine, n = 16) {
+export function blockWindowSnapshot(e: VstEngine, n = 6) {
   const overall = e.blockWindows?.[n] ?? emptyBlockWindow(n);
   const symbols = Object.entries(e.blockWindowsBySymbol ?? {}).map(([symbol, map]) => {
     const w = map[n] ?? emptyBlockWindow(n);
@@ -2002,7 +2002,7 @@ export function adjustActiveBlocks(
   const counts = liveBlockCounts(block);
   const vr = block.volumeRatio || 1.25;
   const minPf = 1.85;
-  const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 16)));
+  const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
   const overallPause = block.windows !== false && blockPosPaused(e, evalN);
   const volModes = blockVolumeModes(block);
 
