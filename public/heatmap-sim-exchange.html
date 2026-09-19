@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<title>CTS-A heatmap · lowest TP/SL 0.25R · sim vs exchange</title>
+<style>
+  :root { --bg:#071018; --fg:#e8f1ff; --muted:#8aa0b8; --line:#1c2a3a; }
+  body { margin:0; font:14px/1.45 ui-sans-serif,system-ui; background:var(--bg); color:var(--fg); }
+  main { max-width:1200px; margin:0 auto; padding:28px 20px 80px; }
+  h1 { font-size:22px; font-weight:650; letter-spacing:-.02em; }
+  h2 { margin:28px 0 10px; font-size:15px; color:#9ec0ff; }
+  .meta { color:var(--muted); font-size:13px; }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; }
+  th,td { border:1px solid var(--line); padding:6px 8px; text-align:center; font-size:12px; }
+  th { background:#0d1a28; font-weight:600; }
+  td small { display:block; color:#cfe0f4; opacity:.8; font-size:10px; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin:18px 0; }
+  .kpi { background:#0d1a28; border:1px solid var(--line); padding:12px 14px; }
+  .kpi b { display:block; font-size:20px; }
+  .kpi span { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  .legend { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; margin:8px 0 16px; }
+  .bar { height:8px; width:140px; background:linear-gradient(90deg,#c04028,#1a3048,#14b8c8); }
+</style></head><body><main>
+<h1>Lowest TP/SL 0.25R · sim vs exchange</h1>
+<p class="meta">SL floor 0.35×ATR · TP = 0.25×SL · 24–50 symbols · 8–72h · Block stack 1–2 + windows 1–16. Live book uses 3.00R (not this low test).</p>
+<div class="kpis">
+  <div class="kpi"><span>Live exchange PF</span><b>5.14</b></div>
+  <div class="kpi"><span>Live last-N PF</span><b>4.27</b></div>
+  <div class="kpi"><span>Live pos / trades</span><b>82 / 130</b></div>
+  <div class="kpi"><span>Best low-TPSL sim</span><b>1.21</b><span>hybrid/fibonacci 72h</span></div>
+</div>
+<div class="legend"><span>PF</span><span class="bar"></span><span>0 · 1 · 4+</span></div>
+<h2>48h × 24 symbols · lowest 0.25R · tactic × range</h2><table><thead><tr><th></th><th>fibonacci</th><th>atr</th><th>volume</th></tr></thead><tbody><tr><th>hybrid</th><td style="background:rgb(20,75,202)" title="hybrid/fibonacci PF 1.12 n=1279"><b>1.12</b><small>n=1279</small></td><td style="background:rgb(20,73,201)" title="hybrid/atr PF 1.08 n=1388"><b>1.08</b><small>n=1388</small></td><td style="background:rgb(20,72,201)" title="hybrid/volume PF 1.04 n=1133"><b>1.04</b><small>n=1133</small></td></tr><tr><th>trailing</th><td style="background:rgb(20,72,201)" title="trailing/fibonacci PF 1.06 n=1202"><b>1.06</b><small>n=1202</small></td><td style="background:rgb(20,73,201)" title="trailing/atr PF 1.08 n=1302"><b>1.08</b><small>n=1302</small></td><td style="background:rgb(181,70,40)" title="trailing/volume PF 0.99 n=1063"><b>0.99</b><small>n=1063</small></td></tr><tr><th>axis</th><td style="background:rgb(197,60,40)" title="axis/fibonacci PF 0.73 n=823"><b>0.73</b><small>n=823</small></td><td style="background:rgb(193,62,40)" title="axis/atr PF 0.79 n=1160"><b>0.79</b><small>n=1160</small></td><td style="background:rgb(193,62,40)" title="axis/volume PF 0.80 n=881"><b>0.80</b><small>n=881</small></td></tr></tbody></table>
+<h2>hybrid/fibonacci 24 symbols · hours (0.25R)</h2><table><thead><tr><th></th><th>8</th><th>24</th><th>48</th><th>72</th></tr></thead><tbody><tr><th>hybrid/fibonacci</th><td style="background:rgb(191,63,40)" title="hybrid/fibonacci/8 PF 0.82 n=190"><b>0.82</b><small>n=190</small></td><td style="background:rgb(20,70,200)" title="hybrid/fibonacci/24 PF 1.01 n=650"><b>1.01</b><small>n=650</small></td><td style="background:rgb(20,75,202)" title="hybrid/fibonacci/48 PF 1.12 n=1279"><b>1.12</b><small>n=1279</small></td><td style="background:rgb(20,78,203)" title="hybrid/fibonacci/72 PF 1.20 n=1894"><b>1.20</b><small>n=1894</small></td></tr></tbody></table>
+<h2>24h × 16 symbols · TP/SL ratio sweep (hybrid/fibonacci)</h2><table><thead><tr><th></th><th>0.25</th><th>0.5</th><th>0.75</th><th>1</th><th>1.5</th><th>2</th><th>2.75</th><th>3</th></tr></thead><tbody><tr><th>hybrid/fibonacci</th><td style="background:rgb(183,68,40)" title="hybrid/fibonacci/0.25 PF 0.95 n=409"><b>0.95</b><small>n=409</small></td><td style="background:rgb(20,83,204)" title="hybrid/fibonacci/0.5 PF 1.33 n=379"><b>1.33</b><small>n=379</small></td><td style="background:rgb(20,98,209)" title="hybrid/fibonacci/0.75 PF 1.69 n=361"><b>1.69</b><small>n=361</small></td><td style="background:rgb(20,108,213)" title="hybrid/fibonacci/1 PF 1.94 n=371"><b>1.94</b><small>n=371</small></td><td style="background:rgb(20,129,220)" title="hybrid/fibonacci/1.5 PF 2.47 n=372"><b>2.47</b><small>n=372</small></td><td style="background:rgb(20,125,218)" title="hybrid/fibonacci/2 PF 2.37 n=374"><b>2.37</b><small>n=374</small></td><td style="background:rgb(20,132,221)" title="hybrid/fibonacci/2.75 PF 2.55 n=378"><b>2.55</b><small>n=378</small></td><td style="background:rgb(20,118,216)" title="hybrid/fibonacci/3 PF 2.20 n=365"><b>2.20</b><small>n=365</small></td></tr></tbody></table>
+<h2>72h × 50 symbols · lowest 0.25R</h2>
+<table><thead><tr><th>lane</th><th>PF</th><th>WR</th><th>n</th><th>net</th></tr></thead><tbody>
+<tr><th>hybrid/fibonacci</th><td style="background:rgb(20,78,203)">1.21</td><td>65%</td><td>3573</td><td>22.76</td></tr><tr><th>hybrid/atr</th><td style="background:rgb(20,76,202)">1.15</td><td>65%</td><td>4018</td><td>16.17</td></tr><tr><th>trailing/fibonacci</th><td style="background:rgb(20,75,202)">1.13</td><td>65%</td><td>3472</td><td>24.30</td></tr>
+</tbody></table>
+<h2>Per symbol · sim 72h/50 hybrid/fib 0.25R vs live exchange</h2>
+<table><thead><tr><th>symbol</th><th>sim PF</th><th>sim n</th><th>exchange PF</th><th>ex n</th><th>ex net</th></tr></thead><tbody>
+<tr><th>AAVEUSDT</th>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td style="background:rgb(20,133,221)">2.58<small>n=3</small></td>
+      <td>3</td>
+      <td>-0.223</td></tr><tr><th>ADAUSDT</th>
+      <td style="background:rgb(20,71,200)">1.02<small>n=86</small></td>
+      <td>86</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=3</small></td>
+      <td>3</td>
+      <td>1.022</td></tr><tr><th>ALGOUSDT</th>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td style="background:rgb(20,190,240)">58.16<small>n=3</small></td>
+      <td>3</td>
+      <td>0.277</td></tr><tr><th>APTUSDT</th>
+      <td style="background:rgb(20,73,201)">1.07<small>n=115</small></td>
+      <td>115</td>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td>-0.002</td></tr><tr><th>ARBUSDT</th>
+      <td style="background:rgb(20,86,205)">1.41<small>n=45</small></td>
+      <td>45</td>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td>0.038</td></tr><tr><th>ATOMUSDT</th>
+      <td style="background:rgb(20,129,220)">2.47<small>n=111</small></td>
+      <td>111</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=3</small></td>
+      <td>3</td>
+      <td>0.501</td></tr><tr><th>AVAXUSDT</th>
+      <td style="background:rgb(20,73,201)">1.06<small>n=147</small></td>
+      <td>147</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=5</small></td>
+      <td>5</td>
+      <td>0.520</td></tr><tr><th>AXSUSDT</th>
+      <td style="background:rgb(20,88,206)">1.45<small>n=74</small></td>
+      <td>74</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=3</small></td>
+      <td>3</td>
+      <td>1.059</td></tr><tr><th>BCHUSDT</th>
+      <td style="background:rgb(20,168,233)">3.45<small>n=120</small></td>
+      <td>120</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=2</small></td>
+      <td>2</td>
+      <td>0.583</td></tr><tr><th>BNBUSDT</th>
+      <td style="background:rgb(20,154,228)">3.10<small>n=127</small></td>
+      <td>127</td>
+      <td style="background:rgb(20,81,204)">1.27<small>n=5</small></td>
+      <td>5</td>
+      <td>0.129</td></tr><tr><th>BTCUSDT</th>
+      <td style="background:rgb(20,101,210)">1.78<small>n=112</small></td>
+      <td>112</td>
+      <td style="background:rgb(20,190,240)">4.63<small>n=3</small></td>
+      <td>3</td>
+      <td>0.197</td></tr><tr><th>CRVUSDT</th>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td style="background:rgb(20,102,211)">1.81<small>n=4</small></td>
+      <td>4</td>
+      <td>0.096</td></tr><tr><th>DOGEUSDT</th>
+      <td style="background:rgb(20,143,224)">2.82<small>n=35</small></td>
+      <td>35</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=3</small></td>
+      <td>3</td>
+      <td>0.613</td></tr><tr><th>DOTUSDT</th>
+      <td style="background:rgb(20,99,210)">1.71<small>n=73</small></td>
+      <td>73</td>
+      <td style="background:rgb(20,190,240)">5.11<small>n=4</small></td>
+      <td>4</td>
+      <td>0.432</td></tr><tr><th>ETCUSDT</th>
+      <td style="background:rgb(20,108,213)">1.95<small>n=114</small></td>
+      <td>114</td>
+      <td style="background:rgb(20,190,240)">8.76<small>n=2</small></td>
+      <td>2</td>
+      <td>0.110</td></tr><tr><th>ETHUSDT</th>
+      <td style="background:rgb(20,190,240)">6.17<small>n=28</small></td>
+      <td>28</td>
+      <td style="background:rgb(20,81,204)">1.29<small>n=3</small></td>
+      <td>3</td>
+      <td>0.225</td></tr><tr><th>FETUSDT</th>
+      <td style="background:rgb(186,66,40)">0.91<small>n=97</small></td>
+      <td>97</td>
+      <td style="background:rgb(20,103,211)">1.83<small>n=4</small></td>
+      <td>4</td>
+      <td>0.315</td></tr><tr><th>FILUSDT</th>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=4</small></td>
+      <td>4</td>
+      <td>1.574</td></tr><tr><th>GRTUSDT</th>
+      <td style="background:rgb(20,105,212)">1.87<small>n=27</small></td>
+      <td>27</td>
+      <td style="background:rgb(20,175,235)">3.61<small>n=3</small></td>
+      <td>3</td>
+      <td>0.353</td></tr><tr><th>IMXUSDT</th>
+      <td style="background:rgb(20,80,203)">1.25<small>n=150</small></td>
+      <td>150</td>
+      <td style="background:rgb(20,152,227)">3.04<small>n=4</small></td>
+      <td>4</td>
+      <td>0.174</td></tr><tr><th>INJUSDT</th>
+      <td style="background:rgb(20,75,202)">1.14<small>n=102</small></td>
+      <td>102</td>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td>-0.024</td></tr><tr><th>JUPUSDT</th>
+      <td style="background:rgb(181,70,40)">0.99<small>n=120</small></td>
+      <td>120</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=1</small></td>
+      <td>1</td>
+      <td>0.439</td></tr><tr><th>LDOUSDT</th>
+      <td style="background:rgb(20,77,202)">1.17<small>n=78</small></td>
+      <td>78</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=3</small></td>
+      <td>3</td>
+      <td>0.571</td></tr><tr><th>LINKUSDT</th>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td style="background:rgb(20,185,238)">3.87<small>n=3</small></td>
+      <td>3</td>
+      <td>0.322</td></tr><tr><th>LTCUSDT</th>
+      <td style="background:rgb(20,190,240)">5.64<small>n=45</small></td>
+      <td>45</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=2</small></td>
+      <td>2</td>
+      <td>0.456</td></tr><tr><th>MANAUSDT</th>
+      <td style="background:rgb(181,70,40)">0.99<small>n=129</small></td>
+      <td>129</td>
+      <td style="background:rgb(201,58,40)">0.67<small>n=5</small></td>
+      <td>5</td>
+      <td>-0.177</td></tr><tr><th>MATICUSDT</th>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=1</small></td>
+      <td>1</td>
+      <td>0.042</td></tr><tr><th>MKRUSDT</th>
+      <td style="background:rgb(20,136,222)">2.64<small>n=117</small></td>
+      <td>117</td>
+      <td style="background:rgb(20,71,200)">1.02<small>n=3</small></td>
+      <td>3</td>
+      <td>0.000</td></tr><tr><th>NEARUSDT</th>
+      <td style="background:rgb(20,80,203)">1.26<small>n=141</small></td>
+      <td>141</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=1</small></td>
+      <td>1</td>
+      <td>0.257</td></tr><tr><th>ONDOUSDT</th>
+      <td style="background:rgb(20,95,208)">1.61<small>n=58</small></td>
+      <td>58</td>
+      <td style="background:rgb(20,190,240)">9.92<small>n=4</small></td>
+      <td>4</td>
+      <td>0.899</td></tr><tr><th>OPUSDT</th>
+      <td style="background:rgb(20,70,200)">1.01<small>n=131</small></td>
+      <td>131</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=2</small></td>
+      <td>2</td>
+      <td>0.976</td></tr><tr><th>PEPEUSDT</th>
+      <td style="background:rgb(201,57,40)">0.66<small>n=153</small></td>
+      <td>153</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=5</small></td>
+      <td>5</td>
+      <td>0.609</td></tr><tr><th>PYTHUSDT</th>
+      <td style="background:rgb(199,59,40)">0.70<small>n=12</small></td>
+      <td>12</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=2</small></td>
+      <td>2</td>
+      <td>0.064</td></tr><tr><th>RENDERUSDT</th>
+      <td style="background:rgb(20,81,204)">1.29<small>n=106</small></td>
+      <td>106</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=3</small></td>
+      <td>3</td>
+      <td>0.728</td></tr><tr><th>RUNEUSDT</th>
+      <td style="background:rgb(182,69,40)">0.97<small>n=144</small></td>
+      <td>144</td>
+      <td style="background:rgb(20,76,202)">1.15<small>n=4</small></td>
+      <td>4</td>
+      <td>0.043</td></tr><tr><th>SANDUSDT</th>
+      <td style="background:rgb(185,67,40)">0.92<small>n=60</small></td>
+      <td>60</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=2</small></td>
+      <td>2</td>
+      <td>0.209</td></tr><tr><th>SEIUSDT</th>
+      <td style="background:rgb(198,59,40)">0.72<small>n=117</small></td>
+      <td>117</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=2</small></td>
+      <td>2</td>
+      <td>0.276</td></tr><tr><th>SHIBUSDT</th>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=3</small></td>
+      <td>3</td>
+      <td>0.511</td></tr><tr><th>SOLUSDT</th>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td style="background:#2a2a2a">0.00<small>n=1</small></td>
+      <td>1</td>
+      <td>-0.354</td></tr><tr><th>STXUSDT</th>
+      <td style="background:rgb(20,71,200)">1.03<small>n=29</small></td>
+      <td>29</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=1</small></td>
+      <td>1</td>
+      <td>0.425</td></tr><tr><th>SUIUSDT</th>
+      <td style="background:rgb(20,70,200)">1.00<small>n=55</small></td>
+      <td>55</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=3</small></td>
+      <td>3</td>
+      <td>0.750</td></tr><tr><th>TIAUSDT</th>
+      <td style="background:rgb(198,59,40)">0.70<small>n=98</small></td>
+      <td>98</td>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td>-0.003</td></tr><tr><th>TONUSDT</th>
+      <td style="background:rgb(20,100,210)">1.75<small>n=31</small></td>
+      <td>31</td>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td>0.000</td></tr><tr><th>TRXUSDT</th>
+      <td style="background:rgb(20,190,240)">5.38<small>n=20</small></td>
+      <td>20</td>
+      <td style="background:rgb(220,46,40)">0.36<small>n=5</small></td>
+      <td>5</td>
+      <td>-0.142</td></tr><tr><th>UNIUSDT</th>
+      <td style="background:rgb(20,158,229)">3.20<small>n=6</small></td>
+      <td>6</td>
+      <td style="background:rgb(20,190,240)">39.32<small>n=2</small></td>
+      <td>2</td>
+      <td>0.630</td></tr><tr><th>WIFUSDT</th>
+      <td style="background:#2a2a2a">0.00<small>n=0</small></td>
+      <td>0</td>
+      <td style="background:rgb(20,115,215)">2.12<small>n=2</small></td>
+      <td>2</td>
+      <td>0.205</td></tr><tr><th>WLDUSDT</th>
+      <td style="background:rgb(20,74,201)">1.10<small>n=147</small></td>
+      <td>147</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=1</small></td>
+      <td>1</td>
+      <td>0.228</td></tr><tr><th>XLMUSDT</th>
+      <td style="background:rgb(20,88,206)">1.45<small>n=163</small></td>
+      <td>163</td>
+      <td style="background:rgb(20,174,235)">3.60<small>n=5</small></td>
+      <td>5</td>
+      <td>0.268</td></tr><tr><th>XRPUSDT</th>
+      <td style="background:rgb(20,72,201)">1.06<small>n=50</small></td>
+      <td>50</td>
+      <td style="background:rgb(20,158,229)">3.20<small>n=3</small></td>
+      <td>3</td>
+      <td>0.443</td></tr>
+</tbody></table>
+<p class="meta">Generated 2026-09-19T00:29:25.360Z · lowest R=0.25 is a stress test, not the live default (3.00R).</p>
+</main></body></html>

@@ -39,6 +39,7 @@ const NAV = [
   { to: "/tactics", label: "Tactics", icon: SlidersHorizontal },
   { to: "/performance", label: "Performance", icon: Trophy },
   { to: "/results", label: "Results", icon: BarChart3 },
+  { to: "/heatmap", label: "Heatmap", icon: Grid3x3 },
   { to: "/system", label: "System", icon: Server },
   { to: "/settings", label: "Settings", icon: Settings },
   { to: "/connections", label: "Connections", icon: Cable },
