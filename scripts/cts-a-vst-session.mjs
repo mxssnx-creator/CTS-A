@@ -647,6 +647,8 @@ async function flattenBelowMinPf(network, book, e) {
         type: "MARKET",
         closePosition: true,
         confirmLive: true,
+        notional: Math.max(Number(p.qty) * Math.max(Number(p.mark) || Number(p.entry) || 0, 1e-8), 1),
+        price: Number(p.mark) || Number(p.entry) || 0,
       }),
     );
     if (r.ok) {
@@ -658,7 +660,8 @@ async function flattenBelowMinPf(network, book, e) {
       mirrored.delete(`seed:${key}`);
     } else noteApiFail(r);
   });
-  return closed ? `flatten minPF ${floor} ${closed}/${jobs.length}` : null;
+  if (closed) e.lastMsg = `flatten minPF ${floor} ${closed}/${jobs.length}`;
+  return closed ? `flatten minPF ${floor} ${closed}/${jobs.length}` : jobs.length ? `flatten pending ${jobs.length} last ${lastApiError || "wait"}` : null;
 }
 
 function apiQuiet() {

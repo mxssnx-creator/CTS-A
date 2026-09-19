@@ -730,7 +730,7 @@ export async function placeSwapOrder(input: {
   if (!input.confirmLive) return { ok: false, error: "Live confirm required" };
   const { apiKey, secret } = resolveKeys(input.connId, input.apiKey, input.secret);
   if (!apiKey || !secret) return { ok: false, error: "API key and secret required" };
-  if (!(input.notional > 0) || !Number.isFinite(input.notional)) return { ok: false, error: "Invalid notional" };
+  if (!input.closePosition && (!(input.notional > 0) || !Number.isFinite(input.notional))) return { ok: false, error: "Invalid notional" };
   const venueSymbol =
     BINGX_SYMBOL[input.symbol] ??
     (input.symbol.includes("-") ? input.symbol : `${input.symbol.replace(/USDT$/i, "")}-USDT`);
