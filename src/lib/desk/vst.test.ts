@@ -1253,11 +1253,14 @@ describe("VST engine", () => {
     for (let i = 0; i < 26; i++) tickVst(e, CFG, "trailing", { skipWalk: true, rangeType: "atr" });
     assert.equal(e.queue.length, q0, "pf-gate / skipWalk must not queue paper ladders");
     const n = ingestLivePnls(e, [
-      { t: Date.now() - 3600_000, v: 1.2, symbol: "BTCUSDT" },
-      { t: Date.now() - 1800_000, v: -0.4, symbol: "ETHUSDT" },
-      { t: Date.now() - 900_000, v: 0.8, symbol: "BTCUSDT" },
-      { t: Date.now() - 60_000, v: -0.2, symbol: "SOLUSDT" },
+      { t: Date.now() - 3600_000, v: 1.2, symbol: "BTCUSDT", side: "short" },
+      { t: Date.now() - 1800_000, v: -0.4, symbol: "ETHUSDT", side: "long" },
+      { t: Date.now() - 900_000, v: 0.8, symbol: "BTCUSDT", side: "short" },
+      { t: Date.now() - 60_000, v: -0.2, symbol: "SOLUSDT", side: "long" },
     ]);
+    assert.ok(n >= 4);
+    assert.ok(e.closed.some((c) => c.symbol === "BTCUSDT" && c.side === "short" && c.pnl > 0));
+    assert.ok(e.closed.some((c) => c.symbol === "ETHUSDT" && c.side === "long" && c.pnl < 0));
     assert.ok(n >= 4);
     assert.ok(e.closed.some((c) => c.id.startsWith("x:") && c.symbol === "BTCUSDT"));
     const ev = evalBlockRelations(e, { ...DEFAULT_BLOCK_CONFIG, enabled: true, autoEval: true, liveDisable: true });
@@ -2059,12 +2062,13 @@ describe("VST engine", () => {
     assert.equal(skipLiveSymbol(e, "ETHUSDT"), false);
     assert.equal(entryMinPf(e), DEFAULT_MIN_PF);
     e.liveTape = true;
+    e.liveOpenN = 20;
     e.symbolStats.ADAUSDT = { id: "ADAUSDT", trades: 6, wins: 3, profit: 1.5, loss: 1.0, sl: 3, tp: 3 };
-    assert.ok((symbolTapePf(e, "ADAUSDT") ?? 0) < DEFAULT_MIN_PF);
-    assert.equal(skipLiveSymbol(e, "ADAUSDT"), true);
+    assert.ok((symbolTapePf(e, "ADAUSDT") ?? 0) >= 1);
+    assert.equal(skipLiveSymbol(e, "ADAUSDT"), false);
     e.minPf = 2;
-    e.symbolStats.BNBUSDT = { id: "BNBUSDT", trades: 6, wins: 3, profit: 1.2, loss: 1.0, sl: 3, tp: 3 };
-    assert.ok((symbolTapePf(e, "BNBUSDT") ?? 0) < 2);
+    e.symbolStats.BNBUSDT = { id: "BNBUSDT", trades: 6, wins: 3, profit: 0.4, loss: 1.0, sl: 3, tp: 3 };
+    assert.ok((symbolTapePf(e, "BNBUSDT") ?? 0) < 1);
     assert.equal(skipLiveSymbol(e, "BNBUSDT"), true);
   });
 
@@ -2347,8 +2351,8 @@ describe("VST engine", () => {
     assert.equal(skipLiveSymbol(e, "SOLUSDT"), true);
     assert.equal(skipLiveSymbol(e, "ETHUSDT"), false);
     assert.equal(skipLiveSymbol(e, "ADAUSDT"), true);
-    e.symbolStats.XRPUSDT = { id: "XRPUSDT", trades: 6, wins: 4, profit: 1.2, loss: 1.0, sl: 2, tp: 4 };
-    assert.ok((symbolTapePf(e, "XRPUSDT") ?? 0) < DEFAULT_MIN_PF);
+    e.symbolStats.XRPUSDT = { id: "XRPUSDT", trades: 6, wins: 4, profit: 0.5, loss: 1.0, sl: 2, tp: 4 };
+    assert.ok((symbolTapePf(e, "XRPUSDT") ?? 0) < 1);
     assert.equal(skipLiveSymbol(e, "XRPUSDT"), true);
     assert.equal(skipLiveSymbol(e, "DOGEUSDT"), true);
   });

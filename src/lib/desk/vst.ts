@@ -2132,7 +2132,7 @@ export function symbolBlockPaused(e: VstEngine, symbol: string, n?: number) {
 /** Fold BingX realized PnL into closed tape + block windows so live evals are real. */
 export function ingestLivePnls(
   e: VstEngine,
-  rows: { t: number; v: number; symbol: string }[],
+  rows: { t: number; v: number; symbol: string; side?: Side }[],
   block: BlockConfig = e.blockCfg ?? DEFAULT_BLOCK_CONFIG,
 ) {
   if (!rows?.length) return 0;
@@ -2149,15 +2149,19 @@ export function ingestLivePnls(
     const id = `x:${symbol}:${t}:${pnl.toFixed(6)}`;
     if (have.has(id)) continue;
     have.add(id);
-    const indication = classifyIndication(e, symbol);
-    const tactic = tacticForIndication(indication);
-    const playbook = openPlaybook(tactic, indication);
-    const kind = kindFromIndication(indication, playbook, tactic);
+    const hint = e.liveLegHint?.[symbol];
+    const last = e.closed.find((c) => c.symbol === symbol && (c.side === "long" || c.side === "short"));
+    const side: Side = r.side === "short" || r.side === "long" ? r.side : hint?.side === "short" || hint?.side === "long" ? hint.side : last?.side === "short" ? "short" : "long";
+    const indication = hint?.indication ?? classifyIndication(e, symbol);
+    const tactic = hint?.tactic ?? tacticForIndication(indication);
+    const playbook = hint?.playbook ?? openPlaybook(tactic, indication);
+    const kind = hint?.kind ?? kindFromIndication(indication, playbook, tactic);
+    const rangeType = hint?.rangeType ?? pickIndicationRange(e, indication, e.lastRange);
     e.closed.unshift({
       id,
       connId: e.activeConnId,
       symbol,
-      side: pnl >= 0 ? "long" : "short",
+      side,
       pnl,
       qty: 0,
       entry: 0,
@@ -2167,16 +2171,16 @@ export function ingestLivePnls(
       at: t,
       r: 0,
       tactic,
-      rangeType: pickIndicationRange(e, indication, e.lastRange),
+      rangeType,
       kind,
       indication,
       playbook,
     });
-    noteBlockPosClose(e, symbol, pnl >= 0 ? "long" : "short", pnl, block, {
+    noteBlockPosClose(e, symbol, side, pnl, block, {
       indication,
       kind,
       tactic,
-      rangeType: pickIndicationRange(e, indication, e.lastRange),
+      rangeType,
       playbook,
     });
     n += 1;
@@ -2262,12 +2266,13 @@ export function applyRealizedSymbolStats(
 export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (symbolBlockPaused(e, symbol, evalN)) return true;
   const floor = entryMinPf(e);
+  const liveFloor = e.liveTape ? 1 : floor;
   const st = e.symbolStats?.[symbol];
   const tape = symbolTapePf(e, symbol);
-  const thin = Boolean(e.liveTape && (e.liveOpenN ?? 99) < 80);
-  if (!thin && tape != null && tape + 1e-9 < 1) return true;
+  const thin = Boolean(e.liveTape && (e.liveOpenN ?? 99) < 12);
+  if (!thin && tape != null && tape + 1e-9 < liveFloor) return true;
   if (!thin && st && st.trades >= 6 && st.profit + 1e-12 <= st.loss) return true;
-  if (!thin && e.liveDisabled?.[`sym:${symbol}`]) return true;
+  if (!thin && e.liveDisabled?.[`sym:${symbol}`] && (tape == null || tape + 1e-9 < liveFloor)) return true;
   if (e.liveTape && !thin) {
     let liveN = 0;
     let liveProfit = 0;
@@ -2279,16 +2284,27 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
     }
     const livePf = liveN >= 8 ? profitFactor(liveProfit, liveLoss) : Number(e.stats.pf);
     const overallBad =
-      (liveN >= 8 || (e.stats.trades || 0) >= 8) && Number.isFinite(livePf) && livePf > 0 && livePf + 1e-9 < floor;
+      (liveN >= 8 || (e.stats.trades || 0) >= 8) && Number.isFinite(livePf) && livePf > 0 && livePf + 1e-9 < liveFloor;
     if (overallBad) {
       if (!st || st.trades < 4) return true;
       const pf = tape ?? profitFactor(st.profit, st.loss);
-      if (pf + 1e-9 < floor) return true;
+      if (pf + 1e-9 < liveFloor) return true;
       if (st.profit + 1e-12 <= st.loss) return true;
+    } else if (liveN >= 8 && (!st || st.trades < 2)) {
+      return true;
     }
     if (!st || st.trades < 2) {
       const last = symbolLastNPf(e, symbol, evalN);
-      if (last != null && last + 1e-9 < floor) return true;
+      if (last != null && last + 1e-9 < liveFloor) return true;
+    }
+    try {
+      const ind = classifyIndication(e, symbol);
+      if (ind === "direction" || ind === "break") {
+        const take = e.closed.filter((c) => isDeskConn(c.connId) && c.indication === ind).slice(0, 40);
+        if (take.length >= 12 && pfFromPnls(take) + 1e-9 < 1) return true;
+      }
+    } catch {
+      /* quotes may be thin */
     }
   } else if (!e.liveTape) {
     const last = symbolLastNPf(e, symbol, evalN);
@@ -4823,7 +4839,18 @@ export function liveShouldExecute(
     if (e.blockCfg?.activeLive === false) return true;
     return isBlockFill || positionBlockAdjusted(e, rel.symbol, rel.side);
   }
-  if (play === "axis" || rel.tactic === "axis") return t.axis;
+  if (play === "axis" || rel.tactic === "axis") {
+    if (!t.axis) return false;
+    if (e.liveTape) {
+      const take = e.closed.filter((c) => c.tactic === "axis").slice(0, 40);
+      if (take.length >= 12 && pfFromPnls(take) + 1e-9 < 1) return false;
+    }
+    return true;
+  }
+  if (rel.indication === "direction" && e.liveTape) {
+    const take = e.closed.filter((c) => c.indication === "direction").slice(0, 40);
+    if (take.length >= 12 && pfFromPnls(take) + 1e-9 < 1) return false;
+  }
   if (!t.trailing && (rel.tactic === "trailing" || rel.tactic === "hybrid")) return false;
   if (rel.kind === "normal" || play === "normal") return t.normal;
   return t.normal;

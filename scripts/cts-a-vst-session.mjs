@@ -194,9 +194,10 @@ const BLOCK = {
 
 const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false };
 
-const LIVE_CFG = { trailingPct: 1.4, tpRatio: 1, dcaCount: 1, slAtr: 0.3, tpAtr: 0.3, slOfTp: 1, shortRange: true, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
-const BASE_GRID = LIVE_TACTICS.flatMap((tactic) =>
-  RANGE_TYPES.map((range) => ({
+const LIVE_CFG = { trailingPct: 1.4, tpRatio: 1 / 1.5, dcaCount: 1, slAtr: 0.525, tpAtr: 0.35, slOfTp: 1.5, shortRange: true, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
+const LIVE_SHORT_TACTICS = ["trailing", "hybrid"];
+const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
+  ["atr", "fibonacci"].map((range) => ({
     tactic,
     range,
     cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, dcaCount: 1 },
@@ -205,7 +206,7 @@ const BASE_GRID = LIVE_TACTICS.flatMap((tactic) =>
 const SHORT_GRID = allShortTpSlCombos()
   .filter((s) => s.tpAtr + 1e-9 >= 0.3 && s.slOfTp + 1e-9 >= 1)
   .flatMap((s) =>
-  LIVE_TACTICS.map((tactic) => ({
+  LIVE_SHORT_TACTICS.map((tactic) => ({
     tactic,
     range: "atr",
     cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, ...s, dcaCount: 1, maxHoldTicks: 16 },
@@ -669,12 +670,27 @@ function venueOf(id) {
   return BINGX_SYMBOL[s] ?? (s.includes("-") ? s : `${s.replace(/USDT$/i, "")}-USDT`);
 }
 
+const vanishedLegs = [];
+function rememberLeg(symbol, side, extra = {}) {
+  if (!symbol || (side !== "long" && side !== "short")) return;
+  vanishedLegs.unshift({ symbol, side, t: Date.now(), ...extra });
+  if (vanishedLegs.length > 500) vanishedLegs.length = 500;
+}
+function hintSide(symbol, t) {
+  const row = vanishedLegs.find((v) => v.symbol === symbol && Math.abs((Number(t) || Date.now()) - v.t) < 180_000);
+  return row?.side;
+}
+
 function ingestExec(ex) {
   if (!ex?.ok) return;
   const income = Array.isArray(ex.income) ? ex.income : [];
   const rows = income
     .filter((x) => String(x.type || "") === "REALIZED_PNL" && isDeskSymbol(x.symbol))
-    .map((x) => ({ t: Number(x.time) || 0, v: Number(x.income) || 0, symbol: String(x.symbol || "") }))
+    .map((x) => {
+      const symbol = String(x.symbol || "");
+      const t = Number(x.time) || 0;
+      return { t, v: Number(x.income) || 0, symbol, side: hintSide(symbol, t) };
+    })
     .filter((r) => r.t > 0 && Number.isFinite(r.v));
   if (rows.length) lastPnl = rows;
 }
@@ -771,6 +787,8 @@ function mergeLivePositions(e, book) {
       cur.unrealized = Number(p.pnl) || cur.unrealized || 0;
       if (!cur.playbook) cur.playbook = "short";
       if (!cur.kind) cur.kind = "short";
+      e.liveLegHint = e.liveLegHint || {};
+      e.liveLegHint[p.symbol] = { side: p.side, indication: cur.indication, tactic: cur.tactic, playbook: cur.playbook, kind: cur.kind, rangeType: cur.controllingRange };
       continue;
     }
     const slDist = Math.max(mark * 0.002, 1e-8);
@@ -1415,6 +1433,8 @@ async function mirrorToExchange(e, network, cfg) {
     skipUntil.delete(String(key).split(":")[0]);
   };
   for (const k of vanished) {
+    const [sym, side] = String(k).split(":");
+    rememberLeg(sym, side);
     if (!livePosKeys.has(k)) forget(k);
   }
   for (const tag of [...mirrored]) {
