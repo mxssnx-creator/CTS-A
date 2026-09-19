@@ -128,7 +128,7 @@ export function MultiCurveChart({
   data,
   title,
 }: {
-  data: { i: number; eq?: number; dd?: number; pf?: number; vol?: number }[];
+  data: readonly { i: number; eq?: number; dd?: number; pf?: number; vol?: number }[];
   title?: string;
 }) {
   if (!data.length) {
@@ -137,7 +137,7 @@ export function MultiCurveChart({
   return (
     <div className="h-56 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+        <ComposedChart data={[...data]} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="ovEq" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="var(--color-primary)" stopOpacity={0.28} />

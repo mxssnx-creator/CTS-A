@@ -919,6 +919,26 @@ export function SettingsView() {
               }}
               ariaLabel="Block profit factor"
             />
+            <RangeKnob
+              label="Short overall PF"
+              value={th.shortPf ?? 1.2}
+              min={0.8}
+              max={2.5}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setTh({ shortPf: n })}
+              ariaLabel="Short-range overall profit factor"
+            />
+            <RangeKnob
+              label="Short base PF"
+              value={th.shortBasePf ?? 0.8}
+              min={0.5}
+              max={1.5}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setTh({ shortBasePf: n })}
+              ariaLabel="Short-range base profit factor"
+            />
           </div>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <RangeKnob
@@ -1094,9 +1114,31 @@ export function SettingsView() {
                 })}
               </div>
               <span className="text-[11px] text-subtle">
-                5 TP × 3 SL = 15 short combos, validated independently with Block
+                5 TP × 3 SL = 15 short combos · overall PF {th.shortPf?.toFixed(2) ?? "1.20"} · base PF {th.shortBasePf?.toFixed(2) ?? "0.80"}
               </span>
             </div>
+            <RangeKnob
+              label="Short overall PF"
+              value={th.shortPf ?? 1.2}
+              min={0.8}
+              max={2.5}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setTh({ shortPf: n })}
+              onCommit={applyLive}
+              ariaLabel="Short-range overall PF"
+            />
+            <RangeKnob
+              label="Short base PF"
+              value={th.shortBasePf ?? 0.8}
+              min={0.5}
+              max={1.5}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setTh({ shortBasePf: n })}
+              onCommit={applyLive}
+              ariaLabel="Short-range base PF"
+            />
             <RangeKnob
               label="DCA"
               value={1}

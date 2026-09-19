@@ -60,7 +60,7 @@ export function StrategiesView() {
       return {
         st,
         bt,
-        last: { pf: last.pf / n, wr: last.wr / n, net: last.net, trades: last.trades, mdd: bt.stats.mdd, ddt: 0 },
+        last: { pf: last.pf / n, wr: last.wr / n, net: last.net, trades: last.trades, mdd: bt.stats.mdd, ddt: 0, sqn: bt.stats.sqn, volumeFactor: bt.stats.volumeFactor },
         adj,
       };
     }).sort((a, b) => (a.st.kind === "normal" ? -1 : b.st.kind === "normal" ? 1 : b.last.pf - a.last.pf));

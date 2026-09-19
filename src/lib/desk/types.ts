@@ -477,6 +477,10 @@ export interface Thresholds {
   basePf: number;
   axisPf: number;
   blockPf: number;
+  /** Live floor for short-range configs (independent of overall 1.8). */
+  shortPf: number;
+  /** Base validation for short-range configs before Axis/Block overlays. */
+  shortBasePf: number;
   maxMdd: number;
   minWr: number;
   minVf: number;
@@ -981,10 +985,14 @@ export interface VstEngine {
   basePf?: number;
   axisPf?: number;
   blockPf?: number;
+  shortPf?: number;
+  shortBasePf?: number;
   liveTape?: boolean;
+  shortRange?: boolean;
   strategyToggles?: StrategyToggles;
   /** Owned live exchange position count — used to allow a restart when the book is empty. */
   liveOpenN?: number;
+  liveLegHint?: Record<string, { side?: Side; indication?: IndicationId; tactic?: TacticKind; playbook?: string; kind?: string; rangeType?: RangeType }>;
 }
 
 export interface BlockLaneState {

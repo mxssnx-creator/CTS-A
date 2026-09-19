@@ -187,8 +187,8 @@ export function ResultsView() {
     playbooksLive.length && playbooksLive.some((p) => p.n > 0 || (p as Bucket).openN)
       ? playbooksLive
       : file?.playbooks?.books ?? live.byPlaybook ?? liveNow?.byPlaybook ?? [];
-  const indicationRows = tape.byIndication ?? live.byIndication ?? liveNow?.byIndication ?? [];
-  const kindRows = tape.byKind ?? live.byKind ?? liveNow?.byKind ?? [];
+  const indicationRows: Bucket[] = (tape.byIndication ?? live.byIndication ?? liveNow?.byIndication ?? []) as Bucket[];
+  const kindRows: Bucket[] = (tape.byKind ?? live.byKind ?? liveNow?.byKind ?? []) as Bucket[];
   const kindLabels = Object.fromEntries(STRATEGY_KINDS.map((k) => [k.id, k.label]));
   const indLabels = Object.fromEntries(INDICATION_KINDS.map((k) => [k.id, k.label]));
   const playLabels: Record<string, string> = { normal: "Normal", axis: "Axis", block: "Block", dca: "DCA" };
@@ -250,13 +250,13 @@ export function ResultsView() {
     const avgOrdK = avg.length ? avg.reduce((s, x) => s + x.avgOrd, 0) / avg.length : replay.occupancy.avgOrd;
     return {
       key: k.id,
-      n: liveRow?.n ?? compute?.trades ?? 0,
-      openN: liveRow?.openN ?? 0,
-      pf: liveRow?.n ? liveRow.pf : compute?.pf ?? 0,
-      wr: liveRow?.n ? liveRow.wr : compute?.wr ?? 0,
-      net: liveRow?.n ? liveRow.net : compute?.net ?? 0,
-      ddt: liveRow?.ddt ?? 0,
-      mdd: liveRow?.mdd ?? 0,
+      n: compute?.trades ?? 0,
+      openN: 0,
+      pf: compute?.pf ?? 0,
+      wr: compute?.wr ?? 0,
+      net: compute?.net ?? 0,
+      ddt: 0,
+      mdd: 0,
       avgPositions: avgPosK,
       avgOrders: avgOrdK,
     };

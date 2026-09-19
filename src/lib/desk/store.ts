@@ -879,6 +879,9 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.basePf = get().thresholds.basePf;
     e.axisPf = get().thresholds.axisPf;
     e.blockPf = get().thresholds.blockPf;
+    e.shortPf = get().thresholds.shortPf;
+    e.shortBasePf = get().thresholds.shortBasePf;
+    e.shortRange = Boolean(get().tacticConfig.shortRange);
     e.blockCfg = {
       ...get().blockConfig,
       enabled: get().strategyToggles.block && get().blockConfig.enabled,

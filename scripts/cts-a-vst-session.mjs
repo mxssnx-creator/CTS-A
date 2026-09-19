@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -518,7 +518,7 @@ function writeSettingsPick(pick, extra = {}) {
     enabledKinds: [...DEFAULT_ENABLED_KINDS],
     strategyId: "normal",
     minPf: LIVE_MIN_PF,
-    thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
+    thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, shortPf: DEFAULT_SHORT_PF, shortBasePf: DEFAULT_SHORT_BASE_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
     activeConnId: CONN,
     evalHours: [4, 8, 16],
     evalLastNs: [5, 10, 15],
@@ -535,7 +535,7 @@ function writeSettingsPick(pick, extra = {}) {
     strategyToggles: { ...STRAT },
     strategyId: "normal",
     minPf: LIVE_MIN_PF,
-    thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
+    thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, shortPf: DEFAULT_SHORT_PF, shortBasePf: DEFAULT_SHORT_BASE_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
     activeConnId: CONN,
     evalHours: [4, 8, 16],
     evalLastNs: [5, 10, 15],
@@ -1690,11 +1690,16 @@ function applyPfGates(engine, remote) {
   const base = Math.max(1, Number(th.basePf) || DEFAULT_BASE_PF);
   const axis = Math.max(1, Number(th.axisPf) || DEFAULT_AXIS_PF);
   const blockPf = Math.max(1, Number(th.blockPf) || DEFAULT_BLOCK_PF);
+  const shortPf = Math.max(0.8, Number(th.shortPf) || DEFAULT_SHORT_PF);
+  const shortBase = Math.max(0.5, Number(th.shortBasePf) || DEFAULT_SHORT_BASE_PF);
   const bc = remote?.blockConfig || {};
   engine.minPf = overall;
   engine.basePf = base;
   engine.axisPf = axis;
   engine.blockPf = blockPf;
+  engine.shortPf = shortPf;
+  engine.shortBasePf = shortBase;
+  engine.shortRange = remote?.tacticConfig?.shortRange !== false;
   engine.blockCfg = {
     ...(engine.blockCfg || BLOCK),
     volumeRatio: migrateBlockVol(bc.volumeRatio ?? engine.blockCfg?.volumeRatio),
@@ -1719,6 +1724,9 @@ async function main() {
   engine.basePf = DEFAULT_BASE_PF;
   engine.axisPf = DEFAULT_AXIS_PF;
   engine.blockPf = DEFAULT_BLOCK_PF;
+  engine.shortPf = DEFAULT_SHORT_PF;
+  engine.shortBasePf = DEFAULT_SHORT_BASE_PF;
+  engine.shortRange = true;
   engine.liveTape = true;
   engine.strategyToggles = { ...STRAT };
   engine.blockCfg = { ...BLOCK, liveDisableMinPf: DEFAULT_BLOCK_PF, minRelPf: DEFAULT_BLOCK_PF, enabled: STRAT.block };
@@ -1762,7 +1770,7 @@ async function main() {
   let ping = await pingVst();
   applyExecFromSettings(readSettingsPick());
   applyPfGates(engine, readSettingsPick());
-  const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} sym · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf}`];
+  const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} sym · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf} short ${engine.shortPf}/${engine.shortBasePf}`];
   if (seededLosers) adjustments.push(`seed skip ${seededLosers} loser symbols`);
   if (seededOff) adjustments.push(`seed disable ${seededOff} relations`);
   if (lastExec.n) adjustments.push(`seed exec n=${lastExec.n} PF ${lastExec.pf.toFixed(2)}`);
@@ -2139,10 +2147,10 @@ async function main() {
         const scored = validateSymbols100h(pick.cfg, pick.tactic, {
           symbolCount: Math.min(16, LIVE_SYMBOLS),
           rangeType: pick.range,
-          minPf: Number(LIVE_MIN_PF) || DEFAULT_MIN_PF,
+          minPf: Number(engine.shortPf) || DEFAULT_SHORT_PF,
         });
         const kept = mergeSymbolHourEval(engine, scored.engine);
-        refreshSymbolHourEval(engine, { hours: 100, minPf: Number(LIVE_MIN_PF) || DEFAULT_MIN_PF });
+        refreshSymbolHourEval(engine, { hours: 100, minPf: Number(engine.shortPf) || DEFAULT_SHORT_PF });
         adjustments.push(
           `symbol 100h · ${kept.length} performing · skip ${scored.skipped.length} · hour ${scored.hour} ${scored.engine.hourCoord?.bestInd || ""}/${scored.engine.hourCoord?.bestTac || ""}`,
         );

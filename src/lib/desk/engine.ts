@@ -482,6 +482,8 @@ export const DEFAULT_MIN_PF = 1.8;
 export const DEFAULT_BASE_PF = 1.1;
 export const DEFAULT_AXIS_PF = 1.5;
 export const DEFAULT_BLOCK_PF = 1.6;
+export const DEFAULT_SHORT_PF = 1.2;
+export const DEFAULT_SHORT_BASE_PF = 0.8;
 export const DEFAULT_BLOCK_VOLUME_RATIO = 0.4;
 export const AXIS_PARTIAL_RATIO = 0.08;
 
@@ -506,6 +508,8 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   basePf: DEFAULT_BASE_PF,
   axisPf: DEFAULT_AXIS_PF,
   blockPf: DEFAULT_BLOCK_PF,
+  shortPf: DEFAULT_SHORT_PF,
+  shortBasePf: DEFAULT_SHORT_BASE_PF,
   maxMdd: 0.12,
   minWr: 0.55,
   minVf: 1.12,
@@ -1618,20 +1622,31 @@ function tacticCfgMod(cfg: TacticConfig, tactic: TacticKind, trailPct?: number, 
 }
 
 export function isPositive(
-  s: { pf: number; mdd: number; wr: number; volumeFactor: number; ddt?: number; tactic?: string; playbook?: string; kind?: string },
+  s: { pf: number; mdd: number; wr: number; volumeFactor: number; ddt?: number; tactic?: string; playbook?: string; kind?: string; shortRange?: boolean },
   th: Thresholds,
 ) {
   const vfFloor = Math.max(th.minVf, MIN_VOLUME_FACTOR);
+  const short = Boolean(s.shortRange || s.playbook === "short" || s.kind === "short");
   const lane =
     s.playbook === "block" || s.kind === "block"
       ? "block"
       : s.tactic === "axis" || s.playbook === "axis"
         ? "axis"
-        : s.kind === "normal" || s.playbook === "normal"
-          ? "base"
-          : "overall";
+        : short
+          ? "short"
+          : s.kind === "normal" || s.playbook === "normal"
+            ? "base"
+            : "overall";
   const minPf =
-    lane === "block" ? th.blockPf ?? DEFAULT_BLOCK_PF : lane === "axis" ? th.axisPf ?? DEFAULT_AXIS_PF : lane === "base" ? th.basePf ?? DEFAULT_BASE_PF : th.minPf;
+    lane === "block"
+      ? th.blockPf ?? DEFAULT_BLOCK_PF
+      : lane === "axis"
+        ? th.axisPf ?? DEFAULT_AXIS_PF
+        : lane === "short"
+          ? th.shortPf ?? DEFAULT_SHORT_PF
+          : lane === "base"
+            ? th.basePf ?? DEFAULT_BASE_PF
+            : th.minPf;
   if (s.pf < minPf) return false;
   if (s.mdd > th.maxMdd) return false;
   if (s.wr < th.minWr) return false;

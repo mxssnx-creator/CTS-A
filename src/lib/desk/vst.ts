@@ -34,6 +34,8 @@ import {
   DEFAULT_BASE_PF,
   DEFAULT_AXIS_PF,
   DEFAULT_BLOCK_PF,
+  DEFAULT_SHORT_PF,
+  DEFAULT_SHORT_BASE_PF,
   AXIS_PARTIAL_RATIO,
   DEFAULT_STRATEGY_TOGGLES,
   BLOCK_POS_COUNTS,
@@ -730,6 +732,9 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.basePf = e.basePf ?? DEFAULT_THRESHOLDS.basePf;
   e.axisPf = e.axisPf ?? DEFAULT_THRESHOLDS.axisPf;
   e.blockPf = e.blockPf ?? DEFAULT_THRESHOLDS.blockPf;
+  e.shortPf = e.shortPf ?? DEFAULT_THRESHOLDS.shortPf;
+  e.shortBasePf = e.shortBasePf ?? DEFAULT_THRESHOLDS.shortBasePf;
+  e.shortRange = e.shortRange ?? false;
   e.liveTape = e.liveTape ?? false;
   for (const lane of Object.values(e.blockLanes)) {
     lane.active = lane.active ?? true;
@@ -796,6 +801,9 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     basePf: DEFAULT_THRESHOLDS.basePf,
     axisPf: DEFAULT_THRESHOLDS.axisPf,
     blockPf: DEFAULT_THRESHOLDS.blockPf,
+    shortPf: DEFAULT_THRESHOLDS.shortPf,
+    shortBasePf: DEFAULT_THRESHOLDS.shortBasePf,
+    shortRange: Boolean(cfg.shortRange),
     liveTape: false,
     strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
   };
@@ -2060,7 +2068,7 @@ export function blockRelationKeys(rel: {
   symbol: string;
   side: Side;
   indication?: IndicationId;
-  kind?: StrategyKind;
+  kind?: string;
   tactic?: TacticKind;
   rangeType?: RangeType;
   playbook?: string;
@@ -2097,7 +2105,7 @@ export function noteBlockPosClose(
   block: BlockConfig = DEFAULT_BLOCK_CONFIG,
   rel?: {
     indication?: IndicationId;
-    kind?: StrategyKind;
+  kind?: string;
     tactic?: TacticKind;
     rangeType?: RangeType;
     playbook?: string;
@@ -2136,7 +2144,7 @@ export function blockComboPaused(
     symbol: string;
     side: Side;
     indication?: IndicationId;
-    kind?: StrategyKind;
+  kind?: string;
     tactic?: TacticKind;
     rangeType?: RangeType;
     playbook?: string;
@@ -2188,7 +2196,7 @@ export function ingestLivePnls(
     const indication = hint?.indication ?? classifyIndication(e, symbol);
     const tactic = hint?.tactic ?? tacticForIndication(indication);
     const playbook = liveExecPlaybook(e, tactic, indication, hint?.playbook);
-    const kind = hint?.kind ?? kindFromIndication(indication, playbook, tactic);
+    const kind = (hint?.kind as StrategyKind | undefined) ?? kindFromIndication(indication, playbook, tactic);
     const rangeType = hint?.rangeType ?? pickIndicationRange(e, indication, e.lastRange);
     e.closed.unshift({
       id,
@@ -2241,19 +2249,21 @@ export function symbolTapePf(e: VstEngine, symbol: string): number | null {
   return profitFactor(t.profit, t.loss);
 }
 
-export type PfLane = "overall" | "base" | "axis" | "block";
+export type PfLane = "overall" | "base" | "axis" | "block" | "short" | "shortBase";
 
 function numPf(n: number | undefined, fallback: number): number {
   const x = Number(n);
   return Number.isFinite(x) && x > 0 ? x : fallback;
 }
 
-/** Overall is the live default. Axis/Block/Base are independent (can be lower). */
+/** Overall is the live default. Axis/Block/Base/Short are independent (can be lower). */
 export function minPfFor(e: VstEngine, lane: PfLane = "overall"): number {
   const overall = numPf(e.minPf, DEFAULT_THRESHOLDS.minPf);
   if (lane === "overall") return overall;
   if (lane === "base") return numPf(e.basePf, DEFAULT_THRESHOLDS.basePf);
   if (lane === "axis") return numPf(e.axisPf, DEFAULT_THRESHOLDS.axisPf);
+  if (lane === "short") return numPf(e.shortPf, DEFAULT_THRESHOLDS.shortPf);
+  if (lane === "shortBase") return numPf(e.shortBasePf, DEFAULT_THRESHOLDS.shortBasePf);
   return numPf(e.blockPf ?? e.blockCfg?.liveDisableMinPf, DEFAULT_THRESHOLDS.blockPf);
 }
 
@@ -2264,6 +2274,7 @@ export function pfLaneOf(rel: { tactic?: string; playbook?: string; kind?: strin
   const tac = String(rel?.tactic || "");
   if (play === "block" || kind === "block" || /^Block/i.test(note) || (rel?.blockLevel ?? 0) >= 1) return "block";
   if (play === "axis" || tac === "axis" || kind === "axis") return "axis";
+  if (play === "short" || kind === "short" || /short/i.test(note)) return "short";
   if (play === "normal" || kind === "normal") return "base";
   return "overall";
 }
@@ -2272,9 +2283,15 @@ export function entryMinPfFor(e: VstEngine, rel?: Parameters<typeof pfLaneOf>[0]
   return minPfFor(e, pfLaneOf(rel));
 }
 
-/** Lowest floor among enabled strategies — used so Axis 1.5 can still arm when Overall is 1.8. */
+/** Lowest floor among enabled strategies — Short 1.2 can arm when Overall is 1.8. */
 export function activeMinPf(e: VstEngine): number {
   const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  if (e.shortRange) {
+    const xs = [minPfFor(e, "short")];
+    if (t.axis) xs.push(minPfFor(e, "axis"));
+    if (t.block) xs.push(minPfFor(e, "block"));
+    return Math.min(...xs);
+  }
   const xs = [minPfFor(e, "overall")];
   if (t.axis) xs.push(minPfFor(e, "axis"));
   if (t.block) xs.push(minPfFor(e, "block"));
@@ -2285,8 +2302,9 @@ export function activeMinPf(e: VstEngine): number {
 function floorForDisableKey(e: VstEngine, key: string): number {
   if (key.startsWith("tac:axis") || key.includes(":axis:") || key.endsWith(":axis")) return minPfFor(e, "axis");
   if (key.startsWith("book:block") || key.startsWith("kind:block") || key.includes(":block:")) return minPfFor(e, "block");
+  if (key.startsWith("kind:short") || key.startsWith("book:short")) return minPfFor(e, "short");
   if (key.startsWith("kind:normal") || key.startsWith("book:normal")) return minPfFor(e, "base");
-  return minPfFor(e, "overall");
+  return e.shortRange ? minPfFor(e, "short") : minPfFor(e, "overall");
 }
 
 /** Systemwide overall PF (trailing / hybrid / symbol). */
@@ -2350,7 +2368,7 @@ export function applyRealizedSymbolStats(
 /** Skip new entries below system min PF, losing last-N, or 100h non-performers. */
 export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (symbolBlockPaused(e, symbol, evalN)) return true;
-  const floor = e.liveTape ? activeMinPf(e) : minPfFor(e, "base");
+  const floor = e.liveTape ? activeMinPf(e) : minPfFor(e, e.shortRange ? "shortBase" : "base");
   const liveFloor = floor;
   const st = e.symbolStats?.[symbol];
   const tape = symbolTapePf(e, symbol);
@@ -2794,7 +2812,7 @@ export function liveRelationDisabled(
     symbol: string;
     side: Side;
     indication?: IndicationId;
-    kind?: StrategyKind;
+  kind?: string;
     tactic?: TacticKind;
     rangeType?: RangeType;
     playbook?: string;
@@ -3711,6 +3729,7 @@ export type OverallBucket = {
   symbols?: number;
   orders?: number;
   avgOrders?: number;
+  avgPositions?: number;
   openN?: number;
 };
 
@@ -4315,7 +4334,7 @@ export function sweepAllConfigs(
         wr: report.wr,
         net: report.net,
         trades: report.trades,
-        ok: report.pf >= 1 && report.net > 0 && report.trades >= 8,
+        ok: cellPass(report.pf, report.net, report.trades, 8, cfg),
       });
     }
   }
@@ -4371,12 +4390,18 @@ export type CompleteComputeReport = {
   elapsedMs: number;
 };
 
+function cellPass(pf: number, net: number, trades: number, minTrades: number, cfg?: TacticConfig) {
+  const floor = cfg && cfgUsesShortRange(cfg) ? DEFAULT_SHORT_BASE_PF : 1;
+  return pf + 1e-9 >= floor && net > 0 && trades >= minTrades;
+}
+
 function cellFromRows(
   rows: { pnl: number }[],
   tactic: TacticKind,
   range: RangeType,
   hours: number,
   mdd: number,
+  cfg?: TacticConfig,
 ): CompleteCell {
   const profit = rows.filter((t) => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
   const loss = Math.abs(rows.filter((t) => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
@@ -4392,7 +4417,7 @@ function cellFromRows(
     net,
     trades: rows.length,
     mdd,
-    ok: pf >= 1 && net > 0 && rows.length >= 4,
+    ok: cellPass(pf, net, rows.length, 4, cfg),
   };
 }
 
@@ -4415,7 +4440,7 @@ function oneCompleteCell(
       net: report.net,
       trades: report.trades,
       mdd: report.mdd,
-      ok: report.pf >= 1 && report.net > 0 && report.trades >= 4,
+      ok: cellPass(report.pf, report.net, report.trades, 4, cfg),
     };
   }
   const minTick = engine.tick - hours * TICKS_PER_HOUR;
@@ -4425,6 +4450,7 @@ function oneCompleteCell(
     range,
     hours,
     report.mdd,
+    cfg,
   );
 }
 
@@ -4448,7 +4474,7 @@ function completeCellsForPair(
         net: report.net,
         trades: report.trades,
         mdd: report.mdd,
-        ok: report.pf >= 1 && report.net > 0 && report.trades >= 4,
+        ok: cellPass(report.pf, report.net, report.trades, 4, cfg),
       };
     }
     const minTick = engine.tick - h * TICKS_PER_HOUR;
@@ -4458,6 +4484,7 @@ function completeCellsForPair(
       range,
       h,
       report.mdd,
+      cfg,
     );
   });
 }
@@ -4549,7 +4576,7 @@ export function sweepShortRange(
           wr: report.wr,
           net: report.net,
           trades: report.trades,
-          ok: report.pf >= 1 && report.net > 0 && report.trades >= 8,
+          ok: cellPass(report.pf, report.net, report.trades, 8, cfg),
           tpAtr: prot.tpAtr,
           slOfTp: prot.slOfTp,
           slAtr: prot.slAtr,
@@ -4967,6 +4994,10 @@ export function liveShouldExecute(
       if (positionBlockAdjusted(e, rel.symbol, rel.side)) return true;
       if (winningRelLive(e, rel) && !liveRelationDisabled(e, rel)) return true;
       return (e.liveOpenN ?? 0) < 12;
+    }
+    if (e.liveTape) {
+      const take = e.closed.filter((c) => c.kind === "short" || c.playbook === "short").slice(0, 40);
+      if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, "short")) return false;
     }
     return true;
   }

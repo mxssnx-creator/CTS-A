@@ -58,6 +58,8 @@ import {
   DEFAULT_BASE_PF,
   DEFAULT_AXIS_PF,
   DEFAULT_BLOCK_PF,
+  DEFAULT_SHORT_PF,
+  DEFAULT_SHORT_BASE_PF,
   AXIS_PARTIAL_RATIO,
   UNIT_NOTIONAL,
   profitFactor,
@@ -1869,6 +1871,8 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_THRESHOLDS.basePf, 1.1);
     assert.equal(DEFAULT_THRESHOLDS.axisPf, 1.5);
     assert.equal(DEFAULT_THRESHOLDS.blockPf, 1.6);
+    assert.equal(DEFAULT_THRESHOLDS.shortPf, 1.2);
+    assert.equal(DEFAULT_THRESHOLDS.shortBasePf, 0.8);
     assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 1.6);
     assert.equal(DEFAULT_BLOCK_CONFIG.liveLastN, 12);
     assert.equal(DEFAULT_BLOCK_CONFIG.minRelPf, 1.6);
@@ -2129,10 +2133,17 @@ describe("VST engine", () => {
     assert.equal(minPfFor(e, "base"), DEFAULT_BASE_PF);
     assert.equal(minPfFor(e, "axis"), DEFAULT_AXIS_PF);
     assert.equal(minPfFor(e, "block"), DEFAULT_BLOCK_PF);
+    assert.equal(minPfFor(e, "short"), DEFAULT_SHORT_PF);
+    assert.equal(minPfFor(e, "shortBase"), DEFAULT_SHORT_BASE_PF);
     assert.equal(activeMinPf(e), 1.5);
     assert.equal(pfLaneOf({ tactic: "axis" }), "axis");
     assert.equal(pfLaneOf({ playbook: "block", blockLevel: 2 }), "block");
     assert.equal(pfLaneOf({ kind: "normal" }), "base");
+    assert.equal(pfLaneOf({ playbook: "short", kind: "short" }), "short");
+    e.shortRange = true;
+    e.shortPf = 1.2;
+    e.shortBasePf = 0.8;
+    assert.equal(activeMinPf(e), 1.2);
     e.liveTape = true;
     e.closed = Array.from({ length: 10 }, (_, i) => ({
       id: `a${i}`,
@@ -2532,6 +2543,8 @@ describe("VST engine", () => {
     assert.equal(snap.thresholds.basePf, DEFAULT_BASE_PF);
     assert.equal(snap.thresholds.axisPf, DEFAULT_AXIS_PF);
     assert.equal(snap.thresholds.blockPf, DEFAULT_BLOCK_PF);
+    assert.equal(snap.thresholds.shortPf, DEFAULT_SHORT_PF);
+    assert.equal(snap.thresholds.shortBasePf, DEFAULT_SHORT_BASE_PF);
     assert.ok(snap.tacticConfig.slAtr >= 0.8);
     assert.equal(snap.thresholds.maxDdt, 20);
     assert.equal(snap.hedgeMode, true);
@@ -2635,12 +2648,75 @@ describe("VST engine", () => {
     assert.equal(liveShouldExecute(e, rel), true);
   });
 
+  it("short-range overall PF 1.2 and base PF 0.8 are independent of overall 1.8", () => {
+    assert.equal(DEFAULT_SHORT_PF, 1.2);
+    assert.equal(DEFAULT_SHORT_BASE_PF, 0.8);
+    const th = { ...DEFAULT_THRESHOLDS };
+    const shortRow = { pf: 0.9, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, shortRange: true, playbook: "short" as const, kind: "short" };
+    assert.equal(isPositive(shortRow, th), false);
+    assert.equal(isPositive({ ...shortRow, pf: 1.25 }, th), true);
+    assert.equal(isPositive({ pf: 1.0, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "normal", kind: "normal" }, th), false);
+    const snap = sanitizeDeskSettings({ thresholds: { minPf: 1.8 } } as never);
+    assert.equal(snap.thresholds.shortPf, 1.2);
+    assert.equal(snap.thresholds.shortBasePf, 0.8);
+    const cfg = { ...CFG, shortRange: true as const, tpAtr: 0.35, slOfTp: 1.5, slAtr: 0.525, tpRatio: 1 / 1.5 };
+    const e = initVstEngine(cfg, { warmup: 0, symbolCount: 6, arm: false });
+    assert.equal(e.shortRange, true);
+    assert.equal(minPfFor(e, "short"), 1.2);
+    assert.equal(minPfFor(e, "shortBase"), 0.8);
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: false, dca: false };
+    e.liveTape = true;
+    e.liveOpenN = 20;
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), true);
+    e.closed = Array.from({ length: 12 }, (_, i) => ({
+      id: `s${i}`,
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      pnl: i < 3 ? 0.2 : -0.35,
+      qty: 1,
+      entry: 1,
+      exit: 1,
+      reason: i < 3 ? "tp" : "sl",
+      tick: i,
+      r: 1,
+      tactic: "trailing" as const,
+      rangeType: "atr" as const,
+      playbook: "short",
+      kind: "short",
+    })) as never;
+    assert.ok(pfFromPnls(e.closed) + 1e-9 < 1.2);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), false);
+    e.closed = Array.from({ length: 12 }, (_, i) => ({
+      id: `w${i}`,
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      pnl: i < 9 ? 0.4 : -0.15,
+      qty: 1,
+      entry: 1,
+      exit: 1,
+      reason: i < 9 ? "tp" : "sl",
+      tick: i,
+      r: 1,
+      tactic: "trailing" as const,
+      rangeType: "atr" as const,
+      playbook: "short",
+      kind: "short",
+    })) as never;
+    assert.ok(pfFromPnls(e.closed) >= 1.2);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), true);
+    const { report } = simulateHours(6, cfg, "hybrid", { symbolCount: 8, rangeType: "atr" });
+    finiteNum(report.pf, report.net);
+    assert.ok(report.trades >= 0);
+  });
+
   it("axis extra rungs are 0.08 of the validated base qty", () => {
     const cfg = { ...CFG, axisLevels: 4, axisPartialRatio: 0.08, trailingPct: 1.5 };
     const e = initVstEngine(cfg, { warmup: 0, symbolCount: 6, arm: false });
     e.lastTactic = "axis";
     armUniverse(e, cfg, "axis");
-    const bySym = new Map();
+    const bySym = new Map<string, typeof e.queue>();
     for (const o of e.queue) {
       if (o.level < 1) continue;
       const arr = bySym.get(o.symbol) ?? [];
