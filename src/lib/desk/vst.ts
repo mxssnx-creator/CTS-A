@@ -36,6 +36,7 @@ import {
   positionNotional,
   RANGE_TYPES,
   snapTpRatio,
+  snapSlAtr,
   symbolIndications,
   symbolSideSet,
   STAGE_HOURS,
@@ -426,8 +427,10 @@ function rand(tick: number, salt: string): number {
   return hash(`${tick}:${salt}`) % 1e4 / 1e4;
 }
 function slDist(atr: number, spacing: number, slAtr: number): number {
-  const raw = Math.min(atr * slAtr, spacing * .42);
-  return Math.max(raw, atr * .35);
+  const mul = snapSlAtr(slAtr);
+  const want = Math.max(atr * mul, 1e-12);
+  if (spacing > 0 && spacing * 0.9 < want * 0.5) return want;
+  return want;
 }
 function tpDistFromSl(sl: number, ratio = TP_SL_RATIO): number {
   return sl * snapTpRatio(ratio);
@@ -448,12 +451,20 @@ function protectLevels(entry: number, side: Side, sl0: number, tp0: number, rati
   if (side === "long" && tp <= entry) tp = entry * 1.005;
   if (side === "short" && tp >= entry) tp = entry * .995;
   const slD = Math.abs(entry - sl);
-  let tpD = Math.abs(tp - entry);
-  if (slD > tpD / r + 1e-12) {
-    const cap = tpD / r;
-    sl = side === "long" ? entry - cap : entry + cap;
+  if (r >= 1) {
+    const tpD = Math.abs(tp - entry);
+    if (slD > tpD / r + 1e-12) {
+      const cap = tpD / r;
+      sl = side === "long" ? entry - cap : entry + cap;
+    }
+  } else {
+    const want = slD * r;
+    tp = side === "long" ? entry + want : entry - want;
+    tp = clampPx(tp, floor);
+    if (side === "long" && tp <= entry) tp = entry + want;
+    if (side === "short" && tp >= entry) tp = entry - want;
   }
-  tpD = Math.abs(tp - entry);
+  const tpD = Math.abs(tp - entry);
   return {
     sl,
     tp,
@@ -2732,7 +2743,7 @@ export function enqueueManual(e: VstEngine, input: { connId: string; symbol: str
   if (e.positions.filter((p) => p.connId === input.connId).length >= VST_MAX_POSITIONS) return "Position cap 100 reached on this session.";
   const px = input.price ?? q.px;
   const hi = highestRange(q, DEFAULT_CFG);
-  const sl0 = slDist(q.atr, hi.spacing, SL_ATR_MULT);
+  const sl0 = slDist(q.atr, hi.spacing, DEFAULT_CFG.slAtr ?? SL_ATR_MULT);
   const tp0 = tpDistFromSl(sl0, e.tpRatio);
   const lv = protectLevels(px, input.side, sl0, tp0, e.tpRatio);
   const qty = input.cost / px;
