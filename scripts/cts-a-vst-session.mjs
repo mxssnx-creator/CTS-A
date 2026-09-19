@@ -95,7 +95,7 @@ const BLOCK = {
   relAdditive: true,
   relVolumeRatio: 0.08,
   minRelPf: IS_X01 ? X01_DEFAULTS.minPf : 1.6,
-  evalLastNs: IS_X01 ? [1, 2, 3, 4, 5, 6] : [1, 2, 4, 8],
+  evalLastNs: IS_X01 ? [1, 2, 3] : [1, 2, 3],
   liveLastN: 12,
   liveDisable: true,
   liveDisableMinPf: 1.1,
