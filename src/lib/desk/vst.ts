@@ -2080,7 +2080,7 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
 }
 
 function refreshIndicationSets(e: VstEngine, block: BlockConfig) {
-  const minPf = Math.min(block.liveDisableMinPf ?? 1.1, 1.1);
+  const minPf = block.liveDisableMinPf ?? 1.1;
   const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, 40);
   const byIndRange = new Map<string, { pnl: number }[]>();
   const byIndTac = new Map<string, { pnl: number }[]>();

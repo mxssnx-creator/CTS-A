@@ -978,7 +978,11 @@ describe("VST engine", () => {
     assert.equal(result.confirmReport!.ratioViolations, 0);
     assert.ok(result.confirmReport!.trades >= 2, `3d trades ${result.confirmReport!.trades}`);
     assert.ok(Number.isFinite(result.cfg.trailingPct));
-    assert.ok(result.cfg.tpRatio >= 1 && result.cfg.tpRatio <= 3);
+    assert.ok(result.cfg.tpRatio >= 0.6 && result.cfg.tpRatio <= 3);
+    assert.ok(result.cfg.slAtr >= 0.4 && result.cfg.slAtr <= 2);
+    assert.ok(result.picks.slAtr);
+    assert.notEqual(result.picks.tactic.value, "dca");
+    assert.equal(result.cfg.dcaCount, 1);
   });
 
   it("stage-evals 4/8/16h with independent last-N 5/10/15 and end PF avg", async () => {

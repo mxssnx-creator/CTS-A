@@ -1,6 +1,7 @@
 import type {
   AutoValidateResult,
   AxisPick,
+  BlockConfig,
   ClosedTrade,
   CoordValidate,
   HorizonMark,
@@ -21,6 +22,7 @@ import {
   DEFAULT_THRESHOLDS,
   LANE_EVAL_NS,
   RANGE_TYPES,
+  SL_ATR_RATIOS,
   STAGE_HOURS,
   STAGE_META,
   STRATEGY_KINDS,
@@ -33,6 +35,8 @@ import {
   isPositive,
   lastNEval,
   pickBestCombo,
+  snapSlAtr,
+  snapTpRatio,
   strategiesForKinds,
 } from "./engine.ts";
 import { adjustActiveBlocks, simulateHours } from "./vst.ts";
@@ -41,6 +45,8 @@ export const HIST_HOURS = [2, 4, 8, 16, 32] as const;
 export const DAYS_HOURS = 72;
 export const VALIDATE_MARKS = [...HIST_HOURS, DAYS_HOURS];
 
+const VALIDATE_TACTICS: TacticKind[] = ["trailing", "axis", "hybrid"];
+const VALIDATE_SL = SL_ATR_RATIOS.filter((n) => [0.4, 0.5, 0.7, 0.9, 1.1, 1.4].includes(n));
 const SWEEP_SYMBOLS = 8;
 const SWEEP_ORDER: "limit" = "limit";
 
@@ -135,10 +141,15 @@ export function autoValidateConfigs(opts?: {
   base?: TacticConfig;
 }): AutoValidateResult {
   const th = opts?.th ?? DEFAULT_THRESHOLDS;
-  const base = { ...DEFAULT_TACTIC_CONFIG, ...opts?.base, tpRatio: 2.5 };
+  const base: TacticConfig = {
+    ...DEFAULT_TACTIC_CONFIG,
+    ...opts?.base,
+    slAtr: snapSlAtr(opts?.base?.slAtr ?? DEFAULT_TACTIC_CONFIG.slAtr),
+    tpRatio: snapTpRatio(opts?.base?.tpRatio ?? DEFAULT_TACTIC_CONFIG.tpRatio),
+  };
   const lastN = opts?.lastN ?? 10;
 
-  const tacticRows = TACTICS.map((t) => runAxis("tactic", t, t, base, t, "atr"));
+  const tacticRows = VALIDATE_TACTICS.map((t) => runAxis("tactic", t, t, base, t, "atr"));
   const tacticPick = bestPick(tacticRows, "hybrid");
 
   const rangeRows = RANGE_TYPES.map((r) => runAxis("range", r, r, base, tacticPick.value, r));
@@ -149,16 +160,29 @@ export function autoValidateConfigs(opts?: {
   );
   const trailPick = bestPick(trailRows, base.trailingPct);
 
-  const ratioRows = TP_SL_RATIOS.map((r) =>
-    runAxis("tpRatio", r, `${r.toFixed(2)}R`, { ...base, trailingPct: trailPick.value, tpRatio: r }, tacticPick.value, rangePick.value),
+  const slRows = VALIDATE_SL.map((s) =>
+    runAxis("slAtr", s, `${s.toFixed(1)} ATR`, { ...base, trailingPct: trailPick.value, slAtr: s }, tacticPick.value, rangePick.value),
   );
-  const tightRatios = ratioRows.filter((r) => r.value >= 2);
-  const ratioPick = bestPick(tightRatios.length ? tightRatios : ratioRows, 2.5);
+  const slPick = bestPick(slRows, base.slAtr);
+
+  const ratioRows = TP_SL_RATIOS.map((r) =>
+    runAxis(
+      "tpRatio",
+      r,
+      `${r.toFixed(2)}R`,
+      { ...base, trailingPct: trailPick.value, slAtr: slPick.value, tpRatio: r },
+      tacticPick.value,
+      rangePick.value,
+    ),
+  );
+  const ratioPick = bestPick(ratioRows, base.tpRatio);
 
   const cfg: TacticConfig = {
     ...base,
     trailingPct: trailPick.value,
-    tpRatio: ratioPick.value,
+    slAtr: snapSlAtr(slPick.value),
+    tpRatio: snapTpRatio(ratioPick.value),
+    dcaCount: 1,
   };
   const kinds = validateKindsIndependent(lastN, cfg, th);
   const enabledKinds: StrategyKind[] = kinds.filter((k) => k.ok).map((k) => k.kind);
@@ -166,7 +190,7 @@ export function autoValidateConfigs(opts?: {
 
   const confirmSim = historicSim(cfg, tacticPick.value, rangePick.value, DAYS_HOURS);
   const confirm = confirmSim.report.marks ?? [];
-  const confirmOk = axisScore(confirm).ok;
+  const confirmOk = axisScore(confirm).ok && confirmSim.report.pf >= Math.min(th.minPf, 1.2);
 
   return {
     hours: DAYS_HOURS,
@@ -175,6 +199,7 @@ export function autoValidateConfigs(opts?: {
       tactic: tacticPick,
       rangeType: rangePick,
       trailPct: trailPick,
+      slAtr: slPick,
       tpRatio: ratioPick,
     },
     kinds,
@@ -297,23 +322,26 @@ export function evaluateStages(opts?: {
   tactic?: TacticKind;
   rangeType?: RangeType;
   enabledKinds?: readonly StrategyKind[];
+  block?: BlockConfig;
 }): StageEvalBundle {
   const th = opts?.th ?? DEFAULT_THRESHOLDS;
   const cfg = { ...DEFAULT_TACTIC_CONFIG, ...opts?.base };
   const lastNs = [...(opts?.lastNs?.length ? opts.lastNs : LANE_EVAL_NS)];
   const hours = [...(opts?.hours?.length ? opts.hours : STAGE_HOURS)];
   const maxH = Math.max(...hours);
-  const tactic = opts?.tactic ?? "axis";
+  const tactic = opts?.tactic ?? "hybrid";
   const rangeType = opts?.rangeType ?? "atr";
   const kinds = opts?.enabledKinds ?? STRATEGY_KINDS.map((k) => k.id);
+  const block = opts?.block ?? DEFAULT_BLOCK_CONFIG;
 
   const { report, engine } = simulateHours(maxH, cfg, tactic, {
     symbolCount: SWEEP_SYMBOLS,
     orderType: SWEEP_ORDER,
     rangeType,
     marks: hours,
+    block,
   });
-  const blockAdjust = adjustActiveBlocks(engine, cfg, tactic, DEFAULT_BLOCK_CONFIG, rangeType, { endStage: true });
+  const blockAdjust = adjustActiveBlocks(engine, cfg, tactic, block, rangeType, { endStage: true });
   const marks = report.marks ?? [];
 
   const laneTracks = overlayLiveTracks(trackLaneEvals(th, kinds, lastNs), engine.closed, lastNs, th.minPf);

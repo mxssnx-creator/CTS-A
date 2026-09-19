@@ -916,22 +916,28 @@ export const useDesk = create<DeskStore>((set, get) => ({
       th: get().thresholds,
       base: get().tacticConfig,
     });
-    const applied = { ...result, applied: true };
+    const applied = result.confirmOk;
     set({
-      tactic: applied.tactic,
-      rangeType: applied.rangeType,
-      tacticConfig: applied.cfg,
-      enabledKinds: applied.enabledKinds,
-      validation: applied,
+      validation: { ...result, applied },
+      ...(applied
+        ? {
+            tactic: result.tactic,
+            rangeType: result.rangeType,
+            tacticConfig: result.cfg,
+            enabledKinds: result.enabledKinds,
+          }
+        : {}),
     });
     const e = get().vst;
-    if (applied.confirmReport) e.sim = applied.confirmReport;
-    e.lastMsg = applied.confirmOk
-      ? `Auto-validate 3d · ${applied.tactic} · ${applied.rangeType} · trail ${applied.cfg.trailingPct.toFixed(1)}% · TP/SL ${applied.cfg.tpRatio.toFixed(2)}R`
-      : `Auto-validate · check horizons`;
-    get().applyLiveConfig();
+    if (result.confirmReport) e.sim = result.confirmReport;
+    if (applied) {
+      e.lastMsg = `Auto-validate 3d · ${result.tactic} · ${result.rangeType} · trail ${result.cfg.trailingPct.toFixed(1)}% · SL ${result.cfg.slAtr.toFixed(1)} · TP/SL ${result.cfg.tpRatio.toFixed(2)}R`;
+      get().applyLiveConfig();
+    } else {
+      e.lastMsg = `Auto-validate held · 3d PF ${(result.confirmReport?.pf ?? 0).toFixed(2)} · live unchanged`;
+    }
     set({ ticketMsg: e.lastMsg, vst: snapshotVst(e) });
-    return applied;
+    return { ...result, applied };
     } catch (err) {
       set({ ticketMsg: err instanceof Error ? err.message : "validate failed" });
       return get().validation as AutoValidateResult;
@@ -947,6 +953,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       tactic: get().tactic,
       rangeType: get().rangeType,
       enabledKinds: get().enabledKinds,
+      block: get().blockConfig,
     });
     let mirrored = false;
     const e = get().vst;

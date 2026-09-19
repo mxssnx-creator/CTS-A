@@ -786,6 +786,7 @@ export interface AutoValidateResult {
     tactic: AxisPick<TacticKind>;
     rangeType: AxisPick<RangeType>;
     trailPct: AxisPick<number>;
+    slAtr: AxisPick<number>;
     tpRatio: AxisPick<number>;
   };
   kinds: KindValidate[];

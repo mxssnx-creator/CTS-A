@@ -415,14 +415,15 @@ export function PerformanceView() {
       {validation ? (
         <Panel title="Auto-validate · 3 days + historic ranges">
           <p className="mb-3 text-sm text-muted">
-            Independent sweeps of tactic, range, trail and TP/SL. Performing kinds stay enabled. Live
-            settings follow the winners.
+            Independent sweeps of tactic, range, trail, SL ATR and TP/SL. Performing kinds stay
+            enabled. Live settings apply only when the 3-day confirm passes.
           </p>
           <div className="flex flex-wrap gap-2">
             <Pill tone={validation.confirmOk ? "up" : "down"}>
-              3d {validation.confirmOk ? "pass" : "check"} · {validation.tactic} · {validation.rangeType}
+              3d {validation.applied ? "applied" : validation.confirmOk ? "pass" : "held"} · {validation.tactic} · {validation.rangeType}
             </Pill>
             <Pill>Trail {validation.cfg.trailingPct.toFixed(1)}%</Pill>
+            <Pill>SL {validation.cfg.slAtr.toFixed(1)} ATR</Pill>
             <Pill>TP/SL {validation.cfg.tpRatio.toFixed(2)}R</Pill>
             {validation.kinds.map((k) => (
               <Pill key={k.kind} tone={k.ok ? "up" : "neutral"}>
