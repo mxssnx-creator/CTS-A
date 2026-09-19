@@ -266,8 +266,8 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   cadence: 6,
   overall: true,
   counts: [...BLOCK_COUNTS],
-  volumeRatio: 2.5,
-  maxVolumeMultiplier: 3.5,
+  volumeRatio: 0.4,
+  maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: 2,
   evalPosCount: 6,
@@ -277,6 +277,12 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   windows: true,
   volumeMode: "shared",
   sides: "mixed",
+  evalHours: 2,
+  autoEval: true,
+  relAdditive: true,
+  relVolumeRatio: 0.4,
+  minRelPf: 1.25,
+  evalLastNs: [1, 2, 3, 4, 5, 6],
 };
 
 /** Additive: each count uses `ratio`. Shared (old): extra/n when n>2. */

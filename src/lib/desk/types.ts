@@ -267,6 +267,14 @@ export interface BlockConfig {
   volumeMode?: "additive" | "shared" | "parallel";
   /** Restrict Block/arm to one side or hedge both. */
   sides?: "long" | "short" | "both" | "mixed";
+  /** Recalc relation evals every N hours. */
+  evalHours?: number;
+  autoEval?: boolean;
+  /** Additive extra = winningRelations × relVolumeRatio × base. */
+  relAdditive?: boolean;
+  relVolumeRatio?: number;
+  minRelPf?: number;
+  evalLastNs?: number[];
 }
 
 export interface BlockAdjustResult {
@@ -880,6 +888,9 @@ export interface VstEngine {
   blockWindows: Record<number, BlockPosWindow>;
   blockWindowsBySymbol: Record<string, Record<number, BlockPosWindow>>;
   blockRelWindows: Record<string, Record<number, BlockPosWindow>>;
+  blockRelBest?: Record<string, { key: string; n: number; pf: number; net: number; vol: number; major: boolean }>;
+  lastRelEvalTick?: number;
+  relVolumeFactor?: number;
   blockCfg?: BlockConfig;
 }
 

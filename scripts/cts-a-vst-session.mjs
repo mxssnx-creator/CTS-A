@@ -56,8 +56,8 @@ const BLOCK = {
   minMultiple: 1,
   overall: true,
   counts: [1, 2],
-  volumeRatio: 2.5,
-  maxVolumeMultiplier: 3.5,
+  volumeRatio: 0.4,
+  maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: 2,
   evalPosCount: 6,
@@ -67,6 +67,12 @@ const BLOCK = {
   windows: true,
   volumeMode: "shared",
   sides: "mixed",
+  evalHours: 2,
+  autoEval: true,
+  relAdditive: true,
+  relVolumeRatio: 0.4,
+  minRelPf: 1.25,
+  evalLastNs: [1, 2, 3, 4, 5, 6],
 };
 
 const GRID = [

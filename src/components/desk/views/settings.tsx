@@ -853,8 +853,8 @@ export function SettingsView() {
         <Panel title="Block strategy · overall active orders">
           <p className="text-sm text-muted">
             Stack uses counts <strong>1–2</strong>. Windows use last-N <strong>1,2,3,4,5,6</strong> (step 1)
-            independently. Stack: each N can add on a winning parent if that N’s eval is valid. Windows:
-            last N closes; a loss adjusts the next N of that symbol. Shared volume. Both types on by default.
+            independently. Auto-eval every 2h picks the best last-N per major and minor relation and adds
+            volume additively: winners × 0.4 × base. Overall Block volume ratio 0.4.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
@@ -879,7 +879,7 @@ export function SettingsView() {
               className="h-11 sm:h-8"
               onClick={() => setBlockCfg({ windows: !(blockCfg.windows !== false) })}
             >
-              {blockCfg.windows !== false ? "Windows 1–16" : "Windows off"}
+              {blockCfg.windows !== false ? "Windows 1–6" : "Windows off"}
             </Button>
             <Button
               size="sm"
@@ -921,6 +921,22 @@ export function SettingsView() {
             >
               {blockCfg.activeLive !== false ? "Active live" : "Active off"}
             </Button>
+            <Button
+              size="sm"
+              variant={blockCfg.autoEval !== false ? "primary" : "secondary"}
+              className="h-11 sm:h-8"
+              onClick={() => setBlockCfg({ autoEval: !(blockCfg.autoEval !== false) })}
+            >
+              {blockCfg.autoEval !== false ? "Auto eval 2h" : "Auto eval off"}
+            </Button>
+            <Button
+              size="sm"
+              variant={blockCfg.relAdditive !== false ? "primary" : "secondary"}
+              className="h-11 sm:h-8"
+              onClick={() => setBlockCfg({ relAdditive: !(blockCfg.relAdditive !== false) })}
+            >
+              {blockCfg.relAdditive !== false ? "Rel vol additive" : "Rel vol off"}
+            </Button>
           </div>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <RangeKnob
@@ -945,13 +961,43 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Volume ratio"
-              value={blockCfg.volumeRatio ?? 1.25}
-              min={1.25}
+              value={blockCfg.volumeRatio ?? 0.4}
+              min={0.1}
               max={2.5}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ volumeRatio: n })}
               ariaLabel="Block volume ratio"
+            />
+            <RangeKnob
+              label="Relation vol ratio"
+              value={blockCfg.relVolumeRatio ?? 0.4}
+              min={0.1}
+              max={2}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setBlockCfg({ relVolumeRatio: n })}
+              ariaLabel="Relation additive volume ratio"
+            />
+            <RangeKnob
+              label="Eval hours"
+              value={blockCfg.evalHours ?? 2}
+              min={1}
+              max={12}
+              step={1}
+              format={(n) => `${n}h`}
+              onChange={(n) => setBlockCfg({ evalHours: n })}
+              ariaLabel="Block relation eval hours"
+            />
+            <RangeKnob
+              label="Min relation PF"
+              value={blockCfg.minRelPf ?? 1.25}
+              min={1}
+              max={3}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setBlockCfg({ minRelPf: n })}
+              ariaLabel="Min relation PF"
             />
             <RangeKnob
               label="PF ratio"
@@ -965,9 +1011,9 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Eval last N"
-              value={blockCfg.evalPosCount ?? 16}
+              value={blockCfg.evalPosCount ?? 6}
               min={1}
-              max={16}
+              max={6}
               step={1}
               format={(n) => String(n)}
               onChange={(n) => setBlockCfg({ evalPosCount: n })}

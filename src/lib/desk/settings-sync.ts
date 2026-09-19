@@ -194,15 +194,25 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
             : [...(d.blockConfig.counts ?? [1, 2])];
           return rawCounts.length ? rawCounts.slice(0, 16) : [1, 2];
         })(),
-        volumeRatio: Math.min(2.5, Math.max(1.25, asNum(b.volumeRatio, d.blockConfig.volumeRatio ?? 1.25))),
-        maxVolumeMultiplier: Math.min(2.5, Math.max(2.25, asNum(b.maxVolumeMultiplier, d.blockConfig.maxVolumeMultiplier ?? 2.25))),
+        volumeRatio: Math.min(5, Math.max(0.1, asNum(b.volumeRatio, d.blockConfig.volumeRatio ?? 0.4))),
+        maxVolumeMultiplier: Math.min(5, Math.max(1.2, asNum(b.maxVolumeMultiplier, d.blockConfig.maxVolumeMultiplier ?? 1.8))),
         pfRatio: Math.min(5, Math.max(1.25, asNum(b.pfRatio, d.blockConfig.pfRatio ?? 1.45))),
         pauseCountRatio: Math.min(6, Math.max(1, Math.round(asNum(b.pauseCountRatio, d.blockConfig.pauseCountRatio ?? 2)))),
-        evalPosCount: Math.min(16, Math.max(1, Math.round(asNum(b.evalPosCount, d.blockConfig.evalPosCount ?? 16)))),
+        evalPosCount: Math.min(16, Math.max(1, Math.round(asNum(b.evalPosCount, d.blockConfig.evalPosCount ?? 6)))),
         activeLive: asBool(b.activeLive, d.blockConfig.activeLive ?? true),
         minActiveLevel: Math.min(16, Math.max(0, Math.round(asNum(b.minActiveLevel, d.blockConfig.minActiveLevel ?? 0)))),
         stack: asBool((b as { stack?: boolean }).stack, d.blockConfig.stack ?? true),
         windows: asBool((b as { windows?: boolean }).windows, d.blockConfig.windows ?? true),
+        volumeMode: b.volumeMode === "additive" || b.volumeMode === "parallel" || b.volumeMode === "shared" ? b.volumeMode : d.blockConfig.volumeMode ?? "shared",
+        sides: b.sides === "long" || b.sides === "short" || b.sides === "both" || b.sides === "mixed" ? b.sides : d.blockConfig.sides ?? "mixed",
+        evalHours: Math.min(12, Math.max(1, Math.round(asNum(b.evalHours, d.blockConfig.evalHours ?? 2)))),
+        autoEval: asBool(b.autoEval, d.blockConfig.autoEval ?? true),
+        relAdditive: asBool(b.relAdditive, d.blockConfig.relAdditive ?? true),
+        relVolumeRatio: Math.min(2, Math.max(0.05, asNum(b.relVolumeRatio, d.blockConfig.relVolumeRatio ?? 0.4))),
+        minRelPf: Math.min(5, Math.max(1, asNum(b.minRelPf, d.blockConfig.minRelPf ?? 1.25))),
+        evalLastNs: Array.isArray(b.evalLastNs)
+          ? [...new Set(b.evalLastNs.map((n) => Math.round(Number(n))).filter((n) => n >= 1 && n <= 6))].sort((a, c) => a - c)
+          : [...(d.blockConfig.evalLastNs ?? [1, 2, 3, 4, 5, 6])],
       };
     })(),
     symbolCount: clampSymbolCount(asNum(raw.symbolCount, d.symbolCount)),

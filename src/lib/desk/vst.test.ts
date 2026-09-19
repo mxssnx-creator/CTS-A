@@ -77,6 +77,7 @@ import {
   simulateHours,
   sweepAllConfigs,
   sweepBlockRelations,
+  evalBlockRelations,
   blockRelationKeys,
   blockRelPaused,
   blockComboPaused,
@@ -1250,6 +1251,45 @@ describe("VST engine", () => {
     const s = sweepBlockRelations(1, 4, CFG);
     assert.equal(s.runs.length, LIVE_TACTICS.length * RANGE_TYPES.length * 3);
     for (const r of s.runs) finiteNum(r.pf, r.net, r.trades, r.relKeys);
+  });
+
+  it("auto-evals major/minor relations every 2h and adds volume additively", () => {
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
+    assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.4);
+    assert.equal(DEFAULT_BLOCK_CONFIG.evalHours, 2);
+    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2]);
+    assert.deepEqual(DEFAULT_BLOCK_CONFIG.evalLastNs, [1, 2, 3, 4, 5, 6]);
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    const block = { ...DEFAULT_BLOCK_CONFIG };
+    for (let i = 0; i < 6; i++) {
+      noteBlockPosClose(e, "BTCUSDT", "long", 1, block, {
+        indication: "trend",
+        kind: "trend",
+        tactic: "hybrid",
+        rangeType: "fibonacci",
+        playbook: "normal",
+        indicationCfg: "trend-ema",
+      });
+    }
+    const ev = evalBlockRelations(e, block);
+    assert.ok(ev.winners >= 1, `winners ${ev.winners}`);
+    assert.ok(ev.factor >= 0.4 - 1e-9, `factor ${ev.factor}`);
+    assert.ok(ev.picks.some((p) => p.major));
+    assert.equal(e.lastRelEvalTick, e.tick);
+  });
+
+  it("24h × 20 symbols Block 0.4 with auto-eval stays finite and positive", () => {
+    const { report, engine } = simulateHours(24, CFG, "hybrid", {
+      symbolCount: 20,
+      rangeType: "fibonacci",
+      block: { ...DEFAULT_BLOCK_CONFIG, autoEval: true, relAdditive: true, volumeRatio: 0.4, evalHours: 2 },
+    });
+    assert.ok(report.passed, report.issues.join("; "));
+    finiteNum(report.pf, report.net, report.wr);
+    assert.ok(report.trades >= 8);
+    assert.ok(report.pf >= 1, `PF ${report.pf}`);
+    assert.ok((engine.lastRelEvalTick || 0) >= 2 * 60, `eval tick ${engine.lastRelEvalTick}`);
+    assert.ok((engine.relVolumeFactor || 0) >= 0);
   });
 
   it("windows shared vs additive run with stack 1-2 additionally", () => {

@@ -666,6 +666,9 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.blockWindows = e.blockWindows ?? {};
   e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
   e.blockRelWindows = e.blockRelWindows ?? {};
+  e.blockRelBest = e.blockRelBest ?? {};
+  e.lastRelEvalTick = e.lastRelEvalTick ?? 0;
+  e.relVolumeFactor = e.relVolumeFactor ?? 0;
   for (const lane of Object.values(e.blockLanes)) {
     lane.active = lane.active ?? true;
     lane.pauseRemaining = lane.pauseRemaining ?? {};
@@ -716,6 +719,9 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     blockWindows: {},
     blockWindowsBySymbol: {},
     blockRelWindows: {},
+    blockRelBest: {},
+    lastRelEvalTick: 0,
+    relVolumeFactor: 0,
     blockCfg: opts.block ?? DEFAULT_BLOCK_CONFIG,
   };
   if (opts.arm !== false) armUniverse(engine, cfg, "hybrid");
@@ -1873,6 +1879,49 @@ export function blockWindowSnapshot(e: VstEngine, n = 6) {
   return { n, overall, symbols };
 }
 
+const MAJOR_REL = new Set(["ind", "kind", "tac", "rng", "side", "book"]);
+const MINOR_REL = new Set(["cfg", "sub", "combo"]);
+
+export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BLOCK_CONFIG) {
+  const ns = (block.evalLastNs?.length ? block.evalLastNs : [1, 2, 3, 4, 5, 6])
+    .map((n) => Math.max(1, Math.min(6, Math.round(n))));
+  const minPf = block.minRelPf ?? 1.25;
+  const vr = Math.min(2, Math.max(0.05, block.relVolumeRatio ?? block.volumeRatio ?? 0.4));
+  const maps = e.blockRelWindows ?? {};
+  const candidates: { key: string; n: number; pf: number; net: number; closed: number }[] = [];
+  for (const [key, byN] of Object.entries(maps)) {
+    let best: (typeof candidates)[number] | null = null;
+    for (const n of ns) {
+      const w = byN[n];
+      if (!w || w.closed < n) continue;
+      if (!best || w.lastPf > best.pf || (w.lastPf === best.pf && n < best.n)) {
+        best = { key, n, pf: w.lastPf, net: w.lastNet, closed: w.closed };
+      }
+    }
+    if (best && best.pf >= minPf) candidates.push(best);
+  }
+  const byPrefix = new Map<string, (typeof candidates)[number]>();
+  for (const c of candidates) {
+    const p = c.key.split(":")[0] ?? "";
+    if (!MAJOR_REL.has(p)) continue;
+    const prev = byPrefix.get(p);
+    if (!prev || c.pf > prev.pf) byPrefix.set(p, c);
+  }
+  const picks: { key: string; n: number; pf: number; net: number; vol: number; major: boolean }[] = [];
+  for (const c of byPrefix.values()) picks.push({ ...c, vol: vr, major: true });
+  for (const c of candidates) {
+    const p = c.key.split(":")[0] ?? "";
+    if (MINOR_REL.has(p)) picks.push({ ...c, vol: vr, major: false });
+  }
+  const seen = new Set<string>();
+  const uniq = picks.filter((p) => (seen.has(p.key) ? false : (seen.add(p.key), true))).sort((a, b) => b.pf - a.pf || b.net - a.net);
+  const used = uniq.slice(0, 8);
+  e.blockRelBest = Object.fromEntries(used.map((p) => [p.key, p]));
+  e.relVolumeFactor = block.relAdditive === false ? 0 : used.length * vr;
+  e.lastRelEvalTick = e.tick;
+  return { picks: used, winners: used.length, factor: e.relVolumeFactor || 0, at: e.tick, candidates: uniq.length };
+}
+
 function emptyBlockLane(symbol: string, side: Side, baseQty: number, baseEntry: number): BlockLaneState {
   return {
     symbol,
@@ -1948,7 +1997,7 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   if (!lane) return;
   lane.confirmedAdd += take;
   const n = Math.max(1, o.level || lane.pending || 1);
-  const vr = DEFAULT_BLOCK_CONFIG.volumeRatio || 1.25;
+  const vr = DEFAULT_BLOCK_CONFIG.volumeRatio || 0.4;
   const mode = blockModeOf(o);
   const target = lane.baseQty * blockMaxAdditionalRatio(n, vr, DEFAULT_BLOCK_CONFIG.maxVolumeMultiplier, mode);
   if (lane.confirmedAdd + 1e-12 >= target) lane.satisfied[n] = true;
@@ -1996,7 +2045,7 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
   const gp = ring.filter((x) => x > 0).reduce((s, x) => s + x, 0);
   const gl = Math.abs(ring.filter((x) => x < 0).reduce((s, x) => s + x, 0));
   const pf = gl === 0 ? (gp > 0 ? 4 : 0) : gp / gl;
-  const vr = block.volumeRatio || 1.25;
+  const vr = block.volumeRatio || 0.4;
   const inc = vr;
   const floor = Math.max(minPf, blockMinimumProfitFactor(minPf, block.pfRatio || 1.25, inc) || minPf);
   if (pf + 1e-9 < floor) {
@@ -2094,7 +2143,7 @@ export function adjustActiveBlocks(
 
   syncBlockParents(e, conn);
   const counts = liveBlockCounts(block);
-  const vr = block.volumeRatio || 1.25;
+  const vr = block.volumeRatio || 0.4;
   const minPf = 1.85;
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
   const overallPause = block.windows !== false && blockPosPaused(e, evalN);
@@ -2138,7 +2187,7 @@ export function adjustActiveBlocks(
           if (next < minM || next > maxM) continue;
           if (next <= (block.minActiveLevel || 0)) continue;
           if (lane.satisfied[next] || liveLevels.has(next)) continue;
-          if (lane.confirmedAdd + 1e-12 >= lane.baseQty * blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 2.25, mode)) continue;
+          if (lane.confirmedAdd + 1e-12 >= lane.baseQty * blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 1.8, mode)) continue;
           if (!blockPfOk(lane, next, block, minPf)) continue;
           if (next >= 3) {
             const recent = e.closed.slice(0, 40);
@@ -2158,7 +2207,9 @@ export function adjustActiveBlocks(
               if (pf < 1.85) continue;
             }
           }
-          const qty = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 2.25, counts.length, 0, mode);
+          const qty =
+            blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, mode) +
+            (block.relAdditive === false ? 0 : (e.relVolumeFactor || 0) * lane.baseQty);
           if (!(qty > 0)) continue;
           const hi = pickRange(q, cfg, rangeType);
           const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);
@@ -2237,6 +2288,12 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   if (blockDue && !over()) {
     safeStage(e, "block", () => {
       adjustActiveBlocks(e, cfg, tactic, block, opts?.rangeType, { endStage: opts?.endStage || e.tick >= endTick });
+    });
+  }
+  const evalEvery = Math.max(TICKS_PER_HOUR, Math.round((block.evalHours || 2) * TICKS_PER_HOUR));
+  if (block.autoEval !== false && block.enabled && e.tick > 0 && e.tick % evalEvery === 0 && !over()) {
+    safeStage(e, "block-eval", () => {
+      evalBlockRelations(e, block);
     });
   }
   if ((e.tick % 4 === 0 || (opts?.skipWalk && e.orders.length > 96)) && !over()) {
