@@ -2203,10 +2203,17 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
       const last = symbolLastNPf(e, symbol, evalN);
       if (last != null && last + 1e-9 < floor) return true;
     }
-    const st = e.stats;
-    if ((st.trades || 0) >= 8 && st.pf > 0 && st.pf + 1e-9 < floor) {
-      const t = e.symbolStats?.[symbol];
-      if (!t || t.trades < 1 || t.profit + 1e-12 <= t.loss) return true;
+    let liveN = 0;
+    let liveProfit = 0;
+    let liveLoss = 0;
+    for (const t of Object.values(e.symbolStats ?? {})) {
+      liveN += t.trades || 0;
+      liveProfit += t.profit || 0;
+      liveLoss += t.loss || 0;
+    }
+    const livePf = liveN >= 8 ? profitFactor(liveProfit, liveLoss) : Number(e.stats.pf);
+    if (liveN >= 8 && livePf > 0 && livePf + 1e-9 < floor) {
+      if (!stLive || stLive.trades < 1 || stLive.profit + 1e-12 <= stLive.loss) return true;
     }
   } else {
     const last = symbolLastNPf(e, symbol, evalN);

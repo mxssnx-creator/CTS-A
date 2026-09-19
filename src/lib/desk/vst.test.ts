@@ -2166,6 +2166,7 @@ describe("VST engine", () => {
     e.minPf = 1.8;
     e.symbolStats.SOLUSDT = { id: "SOLUSDT", trades: 8, wins: 1, profit: 0.2, loss: 1.0, sl: 7, tp: 1 };
     e.symbolStats.ETHUSDT = { id: "ETHUSDT", trades: 8, wins: 6, profit: 2.4, loss: 0.4, sl: 2, tp: 6 };
+    e.symbolStats.INJUSDT = { id: "INJUSDT", trades: 10, wins: 2, profit: 0.1, loss: 1.2, sl: 8, tp: 2 };
     for (let i = 0; i < 12; i++) {
       e.closed.push({
         id: `p${i}`,
@@ -2194,9 +2195,11 @@ describe("VST engine", () => {
       liveDisableMinSamples: 4,
     });
     assert.ok(h.disabled.includes("sym:SOLUSDT"), `disabled ${h.disabled.join(",")}`);
+    assert.ok(h.disabled.includes("sym:INJUSDT"));
     assert.equal(h.disabled.includes("sym:ETHUSDT"), false);
     assert.equal(skipLiveSymbol(e, "SOLUSDT"), true);
     assert.equal(skipLiveSymbol(e, "ETHUSDT"), false);
+    assert.equal(skipLiveSymbol(e, "ADAUSDT"), true);
   });
 
   it("self-heals NaN books, empty running books, and coordinator faults", () => {
