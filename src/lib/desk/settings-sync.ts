@@ -7,8 +7,10 @@ import {
   DEFAULT_TACTIC_CONFIG,
   DEFAULT_THRESHOLDS,
   DEFAULT_MIN_PF,
+  DEFAULT_STRATEGY_TOGGLES,
   LANE_EVAL_NS,
   MIN_VOLUME_FACTOR,
+  sanitizeStrategyToggles,
   snapTpRatio,
   snapSlAtr,
   snapTpAtr,
@@ -35,6 +37,7 @@ import type {
   TacticConfig,
   TacticKind,
   Thresholds,
+  StrategyToggles,
 } from "./types";
 import { sanitizeUserPresets } from "./presets.ts";
 
@@ -87,6 +90,7 @@ export interface DeskSettingsSnap {
   minSizeRatio: number;
   activePresetId: string;
   userPresets: import("./presets.ts").SettingsPreset[];
+  strategyToggles: StrategyToggles;
 }
 
 function asNum(n: unknown, fallback: number) {
@@ -141,6 +145,7 @@ export function defaultDeskSettings(): DeskSettingsSnap {
     minSizeRatio: 1.08,
     activePresetId: "",
     userPresets: [],
+    strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
   };
 }
 
@@ -302,6 +307,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     minSizeRatio: Math.min(2, Math.max(1, asNum((raw as { minSizeRatio?: number }).minSizeRatio, 1.08))),
     activePresetId: typeof (raw as { activePresetId?: string }).activePresetId === "string" ? String((raw as { activePresetId?: string }).activePresetId).slice(0, 48) : "",
     userPresets: sanitizeUserPresets((raw as { userPresets?: unknown }).userPresets),
+    strategyToggles: sanitizeStrategyToggles((raw as { strategyToggles?: Partial<StrategyToggles> }).strategyToggles),
   };
   if (!snap.evalHours.length) snap.evalHours = [...STAGE_HOURS];
   if (!snap.evalLastNs.length) snap.evalLastNs = [...LANE_EVAL_NS];
@@ -339,6 +345,7 @@ export function collectDeskSettings(s: {
   minSizeRatio?: number;
   activePresetId?: string;
   userPresets?: import("./presets.ts").SettingsPreset[];
+  strategyToggles?: StrategyToggles;
 }): DeskSettingsSnap {
   return sanitizeDeskSettings({
     v: SETTINGS_VERSION,
@@ -372,6 +379,7 @@ export function collectDeskSettings(s: {
     minSizeRatio: s.minSizeRatio,
     activePresetId: s.activePresetId,
     userPresets: s.userPresets,
+    strategyToggles: s.strategyToggles,
   });
 }
 

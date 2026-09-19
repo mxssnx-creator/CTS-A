@@ -2,6 +2,17 @@ export type Venue = "bingx" | "bybit";
 export type RangeType = "linear" | "geometric" | "atr" | "volume" | "fibonacci";
 export type TacticKind = "trailing" | "dca" | "axis" | "hybrid";
 export type StrategyKind = "normal" | "trend" | "mean" | "breakout" | "volume" | "hybrid" | "active" | "block" | "short";
+
+/** Independent live switches. Normal is always computed internally even when live is off. */
+export interface StrategyToggles {
+  /** Live-execute general/unadjusted lanes. Off = calc-only base for relations. */
+  normal: boolean;
+  /** Trailing as a base set and as overlay on Axis/Block. Off = unused everywhere. */
+  trailing: boolean;
+  axis: boolean;
+  block: boolean;
+  dca: boolean;
+}
 export type IndicationId = "trend" | "break" | "active" | "direction";
 export type Side = "long" | "short";
 export type LaneStatus = "validated" | "candidate" | "rejected";
@@ -963,6 +974,7 @@ export interface VstEngine {
   hourCoord?: HourCoord;
   minPf?: number;
   liveTape?: boolean;
+  strategyToggles?: StrategyToggles;
 }
 
 export interface BlockLaneState {

@@ -31,6 +31,7 @@ import {
   DEFAULT_BLOCK_CONFIG,
   DEFAULT_THRESHOLDS,
   DEFAULT_MIN_PF,
+  DEFAULT_STRATEGY_TOGGLES,
   BLOCK_POS_COUNTS,
   DEFAULT_MAX_HOLD_TICKS,
   MIN_QUOTE_VOL,
@@ -785,6 +786,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     hourCoord: { hour: 0, performing: [], skipped: [], at: 0 },
     minPf: DEFAULT_THRESHOLDS.minPf,
     liveTape: false,
+    strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
   };
   if (opts.arm !== false) armUniverse(engine, cfg, "hybrid");
   const warm = opts.arm === false ? 0 : (opts.warmup ?? 12);
@@ -2911,6 +2913,8 @@ export function adjustActiveBlocks(
   opts?: { endStage?: boolean },
 ): BlockAdjustResult {
   const empty: BlockAdjustResult = { cancelled: 0, added: 0, flattened: 0, blocks: 0 };
+  const toggles = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  if (!toggles.block || block.enabled === false) return empty;
   if (!block.enabled) return empty;
   if (block.endStageOnly && !opts?.endStage) return empty;
   const conn = isDeskConn(e.activeConnId) ? e.activeConnId : VST_DEFAULT_CONN;
@@ -4698,4 +4702,46 @@ export function positionsAsTrades(pos: Position[]): import("./types.ts").Trade[]
     volume: Math.max(Math.abs(p.qty * p.entry), p.cost || 0),
     cost: p.cost,
   }));
+}
+
+export function positionBlockAdjusted(e: VstEngine, symbol: string, side: Side): boolean {
+  const pos = e.positions.find((p) => p.symbol === symbol && p.side === side && ownedByDesk(p));
+  if (pos && (pos.blockLevel ?? 0) >= 1) return true;
+  for (const lane of Object.values(e.blockLanes ?? {})) {
+    if (lane.symbol !== symbol || lane.side !== side) continue;
+    if ((lane.confirmedAdd ?? 0) > 0) return true;
+    if (Object.values(lane.satisfied ?? {}).some(Boolean)) return true;
+  }
+  return false;
+}
+
+/** Live exchange: additional strategies only. Normal/general stays calc-only when off. */
+export function liveShouldExecute(
+  e: VstEngine,
+  rel: {
+    symbol: string;
+    side: Side;
+    tactic?: TacticKind;
+    playbook?: string;
+    kind?: string;
+    note?: string;
+    blockLevel?: number;
+  },
+): boolean {
+  const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  const note = String(rel.note || "");
+  const play = String(rel.playbook || "");
+  const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
+  if (isDca) return t.dca;
+  const isBlockFill = play === "block" || /^Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
+  const isBlock = isBlockFill || positionBlockAdjusted(e, rel.symbol, rel.side);
+  if (isBlock) {
+    if (!t.block) return false;
+    if (e.blockCfg?.activeLive === false) return true;
+    return isBlockFill || positionBlockAdjusted(e, rel.symbol, rel.side);
+  }
+  if (play === "axis" || rel.tactic === "axis") return t.axis;
+  if (!t.trailing && (rel.tactic === "trailing" || rel.tactic === "hybrid")) return false;
+  if (rel.kind === "normal" || play === "normal") return t.normal;
+  return t.normal;
 }

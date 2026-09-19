@@ -1,4 +1,4 @@
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_THRESHOLDS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, X01_DEFAULTS } from "./engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_THRESHOLDS, DEFAULT_STRATEGY_TOGGLES, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, X01_DEFAULTS } from "./engine.ts";
 import type { DeskSettingsSnap } from "./settings-sync.ts";
 
 export interface SettingsPreset {
@@ -180,6 +180,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       leverage: 0,
       minSizeRatio: 1.08,
       sessionPhase: "running",
+      strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false },
     },
   },
 ];

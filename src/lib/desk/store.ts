@@ -14,6 +14,7 @@ import type {
   Side,
   StageEvalBundle,
   StrategyKind,
+  StrategyToggles,
   TacticConfig,
   TacticKind,
   Thresholds,
@@ -25,6 +26,7 @@ import {
   COST_STEPS,
   DEFAULT_BLOCK_CONFIG,
   DEFAULT_ENABLED_KINDS,
+  DEFAULT_STRATEGY_TOGGLES,
   DEFAULT_LAST_N,
   DEFAULT_LAST_N_CONFIG,
   DEFAULT_TACTIC_CONFIG,
@@ -144,6 +146,7 @@ interface DeskStore {
   minSizeRatio: number;
   activePresetId: string;
   userPresets: import("./presets").SettingsPreset[];
+  strategyToggles: StrategyToggles;
   exchange: ExchangeBook | null;
   settingsRev: number;
   settingsAt: number;
@@ -168,6 +171,7 @@ interface DeskStore {
   setThresholds: (p: Partial<Thresholds>) => void;
   setTacticConfig: (p: Partial<TacticConfig>) => void;
   setBlockConfig: (p: Partial<BlockConfig>) => void;
+  setStrategyToggles: (p: Partial<StrategyToggles>) => void;
   setComboOnlyPositive: (v: boolean) => void;
   setComboTactic: (t: TacticKind | "all") => void;
   setComboRange: (r: RangeType | "all") => void;
@@ -344,6 +348,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   minSizeRatio: 1.08,
   activePresetId: "",
   userPresets: [] as SettingsPreset[],
+  strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
   exchange: null,
   liveSession: null,
   liveOverall: null,
@@ -436,6 +441,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       thresholds: { ...DEFAULT_THRESHOLDS },
       tacticConfig: { ...DEFAULT_TACTIC_CONFIG },
       blockConfig: { ...DEFAULT_BLOCK_CONFIG },
+      strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
       comboOnlyPositive: true,
       comboTactic: "all",
       comboRange: "all",
@@ -560,6 +566,18 @@ export const useDesk = create<DeskStore>((set, get) => ({
   },
   setBlockConfig: (p) => {
     set({ blockConfig: { ...get().blockConfig, ...p } });
+    const e = get().vst;
+    e.blockCfg = { ...e.blockCfg, ...get().blockConfig };
+    get().syncSettings();
+  },
+  setStrategyToggles: (p) => {
+    const strategyToggles = { ...get().strategyToggles, ...p };
+    if (!strategyToggles.block) strategyToggles.block = false;
+    set({ strategyToggles });
+    const e = get().vst;
+    e.strategyToggles = strategyToggles;
+    if (strategyToggles.block === false) e.blockCfg = { ...get().blockConfig, enabled: false };
+    else e.blockCfg = { ...get().blockConfig, enabled: true };
     get().syncSettings();
   },
   setComboOnlyPositive: (comboOnlyPositive) => {
@@ -852,6 +870,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.orderType = get().orderType;
     e.activeConnId = get().activeConnId;
     e.costStep = get().costStep;
+    e.strategyToggles = get().strategyToggles;
+    e.blockCfg = { ...get().blockConfig, enabled: get().strategyToggles.block && get().blockConfig.enabled };
     if (!get().liveSession) requeueFree(e, cfg, tactic, rangeType, get().activeConnId);
     e.lastMsg = get().liveSession
       ? `Host BingX VST-02 · ${tactic} · ${rangeType}`
@@ -1398,6 +1418,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
       e.symbolCount = snap.symbolCount;
       e.orderType = snap.orderType;
       e.activeConnId = snap.activeConnId;
+      e.strategyToggles = snap.strategyToggles;
+      e.blockCfg = { ...snap.blockConfig, enabled: snap.strategyToggles.block && snap.blockConfig.enabled };
       applyUniverse(e, snap.symbolCount, snap.orderType);
       if (!e.running && !get().liveSession) requeueFree(e, snap.tacticConfig, snap.tactic, snap.rangeType, snap.activeConnId);
       else e.lastMsg = `Settings synced · ${snap.tactic} · ${snap.rangeType} · ${snap.symbolCount}`;
@@ -1411,6 +1433,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
         thresholds: snap.thresholds,
         tacticConfig: snap.tacticConfig,
         blockConfig: snap.blockConfig,
+        strategyToggles: snap.strategyToggles,
         symbolCount: snap.symbolCount,
         orderType: snap.orderType,
         enabledKinds: snap.enabledKinds,

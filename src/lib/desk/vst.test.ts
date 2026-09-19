@@ -20,6 +20,7 @@ import {
   buildLanes,
   DEFAULT_TACTIC_CONFIG,
   DEFAULT_ENABLED_KINDS,
+  DEFAULT_STRATEGY_TOGGLES,
   heatmapFor,
   positionsFrom,
   posSliceStats,
@@ -120,6 +121,7 @@ import {
   sweepBlockRelations,
   refreshLiveDisable,
   liveRelationDisabled,
+  liveShouldExecute,
   blockRelationKeys,
   blockRelPaused,
   blockComboPaused,
@@ -2438,7 +2440,8 @@ describe("VST engine", () => {
     assert.ok(findPreset("x01-live", [])?.patch.tactic === "trailing");
     assert.ok(findPreset("short-block-live", [])?.patch.tacticConfig?.shortRange === true);
     assert.ok((findPreset("short-block-live", [])?.patch.blockConfig?.counts ?? []).length === 1);
-    assert.equal(findPreset("short-block-live", [])?.patch.enabledKinds?.includes("normal"), false);
+    assert.equal(findPreset("short-block-live", [])?.patch.strategyToggles?.normal, false);
+    assert.equal(findPreset("short-block-live", [])?.patch.strategyToggles?.block, true);
     const saved = sanitizeUserPresets([{ id: "user-a", label: "Mine", blurb: "x", builtin: false, patch: { tactic: "axis" } }, { id: "" }]);
     assert.equal(saved.length, 1);
     assert.equal(saved[0]?.label, "Mine");
@@ -2447,6 +2450,38 @@ describe("VST engine", () => {
     assert.equal(withUser.userPresets.length, 1);
     assert.ok(presetIdOf("My Setup").startsWith("user-"));
     assert.equal(BUILTIN_PRESETS.every((p) => p.builtin), true);
+  });
+
+  it("strategy toggles: Normal calc-only, Block Active executes adjusted only", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.strategyToggles = { normal: false, trailing: true, axis: true, block: true, dca: false };
+    e.blockCfg = { ...DEFAULT_BLOCK_CONFIG, activeLive: true, enabled: true };
+    assert.equal(
+      liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "normal", kind: "normal", tactic: "trailing" }),
+      false,
+    );
+    assert.equal(
+      liveShouldExecute(e, { symbol: "ETHUSDT", side: "long", playbook: "block", note: "Block 1", blockLevel: 1, tactic: "trailing" }),
+      true,
+    );
+    assert.equal(liveShouldExecute(e, { symbol: "SOLUSDT", side: "short", playbook: "axis", tactic: "axis" }), true);
+    e.strategyToggles.trailing = false;
+    assert.equal(
+      liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", tactic: "trailing", playbook: "normal", kind: "normal" }),
+      false,
+    );
+    e.strategyToggles.block = false;
+    assert.equal(
+      liveShouldExecute(e, { symbol: "ETHUSDT", side: "long", playbook: "block", note: "Block 1", blockLevel: 1 }),
+      false,
+    );
+    const snap = sanitizeDeskSettings({ strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES, normal: true } });
+    assert.equal(snap.strategyToggles.normal, true);
+    assert.equal(snap.strategyToggles.dca, false);
+    assert.equal(snap.strategyToggles.block, true);
+    e.strategyToggles.block = true;
+    e.strategyToggles.dca = false;
+    assert.equal(liveShouldExecute(e, { symbol: "XRPUSDT", side: "long", playbook: "dca", tactic: "dca" }), false);
   });
 });
 

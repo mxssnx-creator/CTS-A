@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, allProtectCells, allShortTpSlCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_STRATEGY_TOGGLES, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -30,6 +30,7 @@ import {
   releaseVanished,
   skipLiveSymbol,
   liveRelationDisabled,
+  liveShouldExecute,
   classifyIndication,
   tacticForIndication,
   openPlaybook,
@@ -190,6 +191,8 @@ const BLOCK = {
   liveDisableMinSamples: 4,
 };
 
+const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false };
+
 const LIVE_CFG = { trailingPct: 1.4, tpRatio: tpRatioOf(1), dcaCount: 1, slAtr: slAtrOf(1.0, 1), tpAtr: 1.0, slOfTp: 1, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
 const BASE_GRID = LIVE_TACTICS.flatMap((tactic) =>
   RANGE_TYPES.map((range) => ({
@@ -254,13 +257,15 @@ function shortProtectCells() {
   }));
 }
 function gridLive(e) {
+  const tacs = new Set(liveTacticsOf(e?.strategyToggles ?? STRAT));
   const dis = e?.liveDisabled || {};
   const filtered = GRID.filter((g) => {
+    if (!tacs.has(g.tactic)) return false;
     if (dis[`tac:${g.tactic}`]) return false;
     if (!g.cfg?.shortRange && dis[`rng:${g.range}`]) return false;
     return true;
   });
-  return filtered.length ? filtered : GRID;
+  return filtered.length ? filtered : GRID.filter((g) => tacs.has(g.tactic));
 }
 function persistDisabled(e) {
   try {
@@ -498,6 +503,7 @@ function writeSettingsPick(pick, extra = {}) {
     liveGrid: GRID.length,
     shortGrid: SHORT_GRID.length,
     activePresetId: extra.activePresetId ?? "short-block-live",
+    strategyToggles: { ...STRAT },
     strategyId: "normal",
     minPf: LIVE_MIN_PF,
     thresholds: { minPf: LIVE_MIN_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
@@ -1116,7 +1122,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const trailT0 = Date.now();
   let trailed = 0;
   const protectGapNow = Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0));
-  if (posts < 48 && !apiQuiet() && protectGapNow === 0) {
+  if (posts < 48 && !apiQuiet() && protectGapNow === 0 && STRAT.trailing) {
     const mode = network === "mainnet" ? "main" : "vst";
     const trailNeed = [];
     for (const p of posByVol) {
@@ -1454,10 +1460,21 @@ async function mirrorToExchange(e, network, cfg) {
       continue;
     }
     {
+      const order = [...e.orders, ...e.queue].find((o) => o.id === f.orderId);
+      const pos = e.positions.find((p) => p.symbol === f.symbol && p.side === f.side);
       const ind = classifyIndication(e, f.symbol);
-      const kind = kindFromIndication(ind, openPlaybook(e.lastTactic, ind), e.lastTactic);
+      const kind = order?.kind ?? pos?.kind ?? kindFromIndication(ind, openPlaybook(e.lastTactic, ind), e.lastTactic);
+      const playbook = order?.playbook ?? pos?.playbook;
       if (
-        kind === "normal" ||
+        !liveShouldExecute(e, {
+          symbol: f.symbol,
+          side: f.side,
+          tactic: order?.tactic ?? e.lastTactic,
+          playbook,
+          kind,
+          note: order?.note,
+          blockLevel: order?.level ?? pos?.blockLevel,
+        }) ||
         liveRelationDisabled(e, {
           symbol: f.symbol,
           side: f.side,
@@ -1577,7 +1594,8 @@ async function main() {
   engine.symbolCount = LIVE_SYMBOLS;
   engine.minPf = LIVE_MIN_PF;
   engine.liveTape = true;
-  engine.blockCfg = { ...BLOCK, liveDisableMinPf: LIVE_MIN_PF };
+  engine.strategyToggles = { ...STRAT };
+  engine.blockCfg = { ...BLOCK, liveDisableMinPf: LIVE_MIN_PF, enabled: STRAT.block };
   let seededLosers = 0;
   try {
     const prev = JSON.parse(readFileSync(OVERALL, "utf8"));
@@ -2119,17 +2137,16 @@ async function main() {
           adjustments.push(`settings cfg sl ${pick.cfg.slAtr} tp ${pick.cfg.tpRatio} trail ${pick.cfg.trailingPct}`);
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
+        if (remote.strategyToggles) {
+          Object.assign(STRAT, remote.strategyToggles, { dca: false });
+          engine.strategyToggles = { ...STRAT };
+        }
         if (remote.blockConfig)
           Object.assign(BLOCK, remote.blockConfig, {
-            enabled: true,
-            counts: [1],
-            maxMultiple: 1,
-            minMultiple: 1,
-            evalLastNs: [1],
-            evalPosCount: 1,
-            activeLive: true,
-            minActiveLevel: 0,
+            enabled: STRAT.block,
+            activeLive: remote.blockConfig.activeLive !== false,
           });
+        engine.blockCfg = { ...BLOCK };
         if (engine.lastMsg?.startsWith("Host reset") || (remote.sessionPhase === "running" && engine.positions.length === 0 && Date.now() - lastResetAt > 8000 && engine.phase === "idle")) {
           lastResetAt = Date.now();
         }

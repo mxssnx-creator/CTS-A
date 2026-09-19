@@ -82,9 +82,13 @@ const SECTIONS = [
   { id: "last-n", label: "Last N pos" },
   { id: "stages", label: "Stages" },
   { id: "playbook", label: "Playbook" },
+  { id: "strategy", label: "Strategy" },
+  { id: "trailing", label: "Trailing" },
+  { id: "axis", label: "Axis" },
   { id: "gates", label: "Gates" },
-  { id: "tactics", label: "Tactics" },
+  { id: "tactics", label: "Protect" },
   { id: "block", label: "Block" },
+  { id: "dca", label: "DCA" },
   { id: "indicators", label: "Indicators" },
   { id: "universe", label: "Universe" },
   { id: "volume", label: "Volume" },
@@ -238,6 +242,8 @@ export function SettingsView() {
   const stageEval = useDesk((s) => s.stageEval);
   const blockCfg = useDesk((s) => s.blockConfig);
   const setBlockCfg = useDesk((s) => s.setBlockConfig);
+  const strategyToggles = useDesk((s) => s.strategyToggles);
+  const setStrategyToggles = useDesk((s) => s.setStrategyToggles);
   const exchange = useDesk((s) => s.exchange);
   const activeConnId = useDesk((s) => s.activeConnId);
   const venueTypes = orderTypesForVenue(connections[0]?.venue ?? "bingx", connections[0]?.orderTypesEnabled);
@@ -733,6 +739,115 @@ export function SettingsView() {
         </Panel>
       </div>
 
+      <div id="strategy" className="scroll-mt-24">
+        <Panel title="Strategy · enable / disable">
+          <p className="mb-3 text-sm text-muted">
+            Independent live switches. <strong>Normal</strong> is always calculated as the relation
+            base even when live is off. Trailing off also drops trailing overlay on Axis/Block.
+            Block Active only executes legs that were actually volume-adjusted.
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {(
+              [
+                ["normal", "Normal", "General unadjusted lanes — calc always, live optional"],
+                ["trailing", "Trailing", "Base trailing set and overlay on other strategies"],
+                ["axis", "Axis", "Mean-reversion axis lanes"],
+                ["block", "Block", "Volume-adjust on last-N / overall"],
+                ["dca", "DCA", "DCA ladders — live off by default"],
+              ] as const
+            ).map(([key, label, hint]) => (
+              <button
+                key={key}
+                type="button"
+                title={hint}
+                aria-pressed={strategyToggles[key]}
+                className={`${chip} ${strategyToggles[key] ? chipOn : chipOff}`}
+                onClick={() => setStrategyToggles({ [key]: !strategyToggles[key] })}
+              >
+                {label} {strategyToggles[key] ? "on" : "off"}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-subtle">
+            Live: {strategyToggles.normal ? "Normal lanes" : "no general lanes"}
+            {strategyToggles.trailing ? " · Trailing overlay" : " · no trailing"}
+            {strategyToggles.axis ? " · Axis" : ""}
+            {strategyToggles.block ? " · Block" : ""}
+            {strategyToggles.dca ? " · DCA" : " · DCA calc-only"}
+          </p>
+        </Panel>
+      </div>
+
+      <div id="trailing" className="scroll-mt-24">
+        <Panel title="Trailing">
+          <p className="mb-3 text-sm text-muted">
+            When on, trailing configs run in the base set and as overlay on Axis/Block. When off,
+            trailing is unused everywhere (including other strategies).
+          </p>
+          <div className="mb-3 flex flex-wrap gap-1">
+            <button
+              type="button"
+              className={`${chip} ${strategyToggles.trailing ? chipOn : chipOff}`}
+              onClick={() => setStrategyToggles({ trailing: !strategyToggles.trailing })}
+            >
+              Trailing {strategyToggles.trailing ? "on" : "off"}
+            </button>
+          </div>
+          <div className={`grid gap-4 sm:grid-cols-2 ${strategyToggles.trailing ? "" : "opacity-50"}`}>
+            <RangeKnob
+              label="Trailing (peak giveback)"
+              value={cfg.trailingPct}
+              min={1.4}
+              max={1.5}
+              step={0.1}
+              format={(n) => `${n.toFixed(1)}%`}
+              onChange={(n) => setCfg({ trailingPct: n })}
+              onCommit={applyLive}
+              ariaLabel="Trailing percent"
+            />
+          </div>
+        </Panel>
+      </div>
+
+      <div id="axis" className="scroll-mt-24">
+        <Panel title="Axis">
+          <p className="mb-3 text-sm text-muted">Independent mean-reversion. Trailing overlay applies only if Trailing is on.</p>
+          <div className="mb-3 flex flex-wrap gap-1">
+            <button
+              type="button"
+              className={`${chip} ${strategyToggles.axis ? chipOn : chipOff}`}
+              onClick={() => setStrategyToggles({ axis: !strategyToggles.axis })}
+            >
+              Axis {strategyToggles.axis ? "on" : "off"}
+            </button>
+          </div>
+          <div className={`grid gap-4 sm:grid-cols-2 ${strategyToggles.axis ? "" : "opacity-50"}`}>
+            <RangeKnob
+              label="Axis spacing (ATR)"
+              value={cfg.axisSpacing}
+              min={0.2}
+              max={2}
+              step={0.1}
+              format={(n) => n.toFixed(1)}
+              onChange={(n) => setCfg({ axisSpacing: n })}
+              onCommit={applyLive}
+              ariaLabel="Axis spacing"
+            />
+            <RangeKnob
+              label="Axis levels"
+              value={cfg.axisLevels}
+              min={2}
+              max={8}
+              step={1}
+              format={(n) => String(Math.round(n))}
+              onChange={(n) => setCfg({ axisLevels: Math.round(n) })}
+              onCommit={applyLive}
+              ariaLabel="Axis levels"
+            />
+          </div>
+        </Panel>
+      </div>
+
       <div id="gates" className="scroll-mt-24">
         <Panel
           title="Gates"
@@ -807,19 +922,8 @@ export function SettingsView() {
       </div>
 
       <div id="tactics" className="scroll-mt-24">
-        <Panel title="Tactic knobs">
+        <Panel title="Protect · TP / SL / short-range">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <RangeKnob
-              label="Trailing (peak giveback)"
-              value={cfg.trailingPct}
-              min={1.4}
-              max={1.5}
-              step={0.1}
-              format={(n) => `${n.toFixed(1)}%`}
-              onChange={(n) => setCfg({ trailingPct: n })}
-              onCommit={applyLive}
-              ariaLabel="Trailing percent"
-            />
             <RangeKnob
               label={`TP ATR · SL ${((cfg.slOfTp ?? 1) * 100).toFixed(0)}% of TP`}
               value={cfg.tpAtr ?? 1}
@@ -1026,21 +1130,24 @@ export function SettingsView() {
       </div>
 
       <div id="block" className="scroll-mt-24">
-        <Panel title="Block strategy · overall active orders">
+        <Panel title="Block strategy · overall + Active">
           <p className="text-sm text-muted">
-            Stack uses counts <strong>1–2</strong>. Windows use last-N <strong>1,2,3,4,5,6</strong> (step 1)
-            independently. <strong>Overall Block</strong> adds volume additively on every winning position,
-            independent of lanes, indications, and strategies. Live last-N (default 12) disables
-            non-performing configs/types from live results. Order ids, partials, and blockQty are tracked.
+            <strong>Overall</strong> adds volume on the whole book, independent of lanes.
+            <strong> Active</strong> only executes Block-adjusted legs (not unadjusted general size).
+            Normal/general stays calc-only when Strategy → Normal is off.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               size="sm"
-              variant={blockCfg.enabled ? "primary" : "secondary"}
+              variant={strategyToggles.block && blockCfg.enabled ? "primary" : "secondary"}
               className="h-11 sm:h-8"
-              onClick={() => setBlockCfg({ enabled: !blockCfg.enabled })}
+              onClick={() => {
+                const on = !(strategyToggles.block && blockCfg.enabled);
+                setStrategyToggles({ block: on });
+                setBlockCfg({ enabled: on });
+              }}
             >
-              {blockCfg.enabled ? "Block on" : "Block off"}
+              {strategyToggles.block && blockCfg.enabled ? "Block on" : "Block off"}
             </Button>
             <Button
               size="sm"
@@ -1116,7 +1223,7 @@ export function SettingsView() {
               className="h-11 sm:h-8"
               onClick={() => setBlockCfg({ activeLive: !(blockCfg.activeLive !== false) })}
             >
-              {blockCfg.activeLive !== false ? "Active live" : "Active off"}
+              {blockCfg.activeLive !== false ? "Active · adjusted only" : "Active off"}
             </Button>
             <Button
               size="sm"
@@ -1271,6 +1378,37 @@ export function SettingsView() {
               added {stageEval.blockAdjust.added} · flattened {stageEval.blockAdjust.flattened}
             </p>
           ) : null}
+        </Panel>
+      </div>
+
+      <div id="dca" className="scroll-mt-24">
+        <Panel title="DCA">
+          <p className="mb-3 text-sm text-muted">
+            Independent of Trailing/Axis/Block. Live execution stays off unless enabled here. Internal
+            compute still includes DCA cells when you run complete.
+          </p>
+          <div className="mb-3 flex flex-wrap gap-1">
+            <button
+              type="button"
+              className={`${chip} ${strategyToggles.dca ? chipOn : chipOff}`}
+              onClick={() => setStrategyToggles({ dca: !strategyToggles.dca })}
+            >
+              DCA {strategyToggles.dca ? "on" : "off"}
+            </button>
+          </div>
+          <div className={`grid gap-4 sm:grid-cols-2 ${strategyToggles.dca ? "" : "opacity-50"}`}>
+            <RangeKnob
+              label="DCA drawdown step"
+              value={cfg.dcaDrawdown}
+              min={0.3}
+              max={2}
+              step={0.1}
+              format={(n) => n.toFixed(1)}
+              onChange={(n) => setCfg({ dcaDrawdown: n })}
+              onCommit={applyLive}
+              ariaLabel="DCA drawdown"
+            />
+          </div>
         </Panel>
       </div>
 

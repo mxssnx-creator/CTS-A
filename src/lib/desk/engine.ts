@@ -27,6 +27,7 @@ import type {
   StrategyAdj,
   StrategyDef,
   StrategyKind,
+  StrategyToggles,
   TacticConfig,
   TacticKind,
   Thresholds,
@@ -388,6 +389,48 @@ export const STRATEGY_KINDS: { id: StrategyKind; label: string; blurb: string }[
 export const DEFAULT_ENABLED_KINDS: StrategyKind[] = STRATEGY_KINDS.map((k) => k.id);
 /** Live book: no Normal/general lanes. Indication + Block + short only. */
 export const LIVE_ENABLED_KINDS: StrategyKind[] = DEFAULT_ENABLED_KINDS.filter((k) => k !== "normal");
+
+export const DEFAULT_STRATEGY_TOGGLES: StrategyToggles = {
+  normal: false,
+  trailing: true,
+  axis: true,
+  block: true,
+  dca: false,
+};
+
+export function sanitizeStrategyToggles(raw: Partial<StrategyToggles> | null | undefined): StrategyToggles {
+  const d = DEFAULT_STRATEGY_TOGGLES;
+  if (!raw || typeof raw !== "object") return { ...d };
+  return {
+    normal: typeof raw.normal === "boolean" ? raw.normal : d.normal,
+    trailing: typeof raw.trailing === "boolean" ? raw.trailing : d.trailing,
+    axis: typeof raw.axis === "boolean" ? raw.axis : d.axis,
+    block: typeof raw.block === "boolean" ? raw.block : d.block,
+    dca: typeof raw.dca === "boolean" ? raw.dca : d.dca,
+  };
+}
+
+/** Tactics that may live-cycle. Trailing-off drops trailing overlay and hybrid. Internal compute still uses all. */
+export function liveTacticsOf(t: StrategyToggles = DEFAULT_STRATEGY_TOGGLES): TacticKind[] {
+  const out: TacticKind[] = [];
+  if (t.trailing) out.push("trailing");
+  if (t.axis) out.push("axis");
+  if (t.trailing) out.push("hybrid");
+  if (t.dca) out.push("dca");
+  return out.length ? out : ["axis"];
+}
+
+export function isBlockAdjustedRel(rel: {
+  playbook?: string;
+  note?: string;
+  blockLevel?: number;
+  adjusted?: boolean;
+}): boolean {
+  if (rel.adjusted) return true;
+  if ((rel.blockLevel ?? 0) >= 1) return true;
+  if (rel.playbook === "block") return true;
+  return /^Block/i.test(String(rel.note || ""));
+}
 
 export const VENUE_ORDER_TYPES: Record<Venue, OrderTypeId[]> = {
   bingx: ["market", "limit", "stop", "stop_limit", "trailing_stop", "post_only", "ioc", "fok"],
