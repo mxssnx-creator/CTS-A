@@ -1867,7 +1867,7 @@ describe("VST engine", () => {
   it("auto-evals major/minor relations every 2h and adds volume additively", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
     assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.4);
-    assert.equal(AXIS_PARTIAL_RATIO, 0.08);
+    assert.equal(AXIS_PARTIAL_RATIO, 1);
     assert.equal(clampBlockVol(0.08), 0.4);
     assert.equal(clampBlockVol(0.2), 0.4);
     assert.equal(clampBlockVol(1.5), 1);
@@ -2550,6 +2550,7 @@ describe("VST engine", () => {
     assert.equal(snap.thresholds.blockPf, DEFAULT_BLOCK_PF);
     assert.equal(snap.thresholds.shortPf, DEFAULT_SHORT_PF);
     assert.equal(snap.thresholds.shortBasePf, DEFAULT_SHORT_BASE_PF);
+    assert.equal(sanitizeDeskSettings({ tacticConfig: { axisPartialRatio: 0.08 } } as never).tacticConfig.axisPartialRatio, 1);
     assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 0.08, relVolumeRatio: 1.5 } } as never).blockConfig.volumeRatio, 0.4);
     assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 1.5, relVolumeRatio: 1.5 } } as never).blockConfig.relVolumeRatio, 1);
     assert.ok(snap.tacticConfig.slAtr >= 0.8);
@@ -2718,8 +2719,8 @@ describe("VST engine", () => {
     assert.ok(report.trades >= 0);
   });
 
-  it("axis extra rungs are 0.08 of the validated base qty", () => {
-    const cfg = { ...CFG, axisLevels: 4, axisPartialRatio: 0.08, trailingPct: 1.5 };
+  it("axis extra rungs are full size of the validated base qty", () => {
+    const cfg = { ...CFG, axisLevels: 4, axisPartialRatio: 1, trailingPct: 1.5 };
     const e = initVstEngine(cfg, { warmup: 0, symbolCount: 6, arm: false });
     e.lastTactic = "axis";
     armUniverse(e, cfg, "axis");
@@ -2736,7 +2737,7 @@ describe("VST engine", () => {
       const extra = rows.filter((o) => o.level > 1);
       if (!l1 || !extra.length) continue;
       for (const o of extra) {
-        assert.ok(Math.abs(o.qty / l1.qty - 0.08) < 0.02, `partial ${o.qty} vs base ${l1.qty}`);
+        assert.ok(Math.abs(o.qty / l1.qty - 1) < 0.08, `full ${o.qty} vs base ${l1.qty}`);
         checked += 1;
       }
     }

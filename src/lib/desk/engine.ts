@@ -494,7 +494,14 @@ export function clampBlockVol(n: unknown, fallback = DEFAULT_BLOCK_VOLUME_RATIO)
   if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return fallback;
   return Math.min(BLOCK_VOLUME_RATIO_MAX, Math.max(BLOCK_VOLUME_RATIO_MIN, x));
 }
-export const AXIS_PARTIAL_RATIO = 0.08;
+/** Extra Axis rungs: full size of the validated base qty (not 0.08). */
+export const AXIS_PARTIAL_RATIO = 1;
+
+export function clampAxisPartial(n: unknown, fallback = AXIS_PARTIAL_RATIO): number {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return fallback;
+  return Math.min(1, Math.max(0.02, x));
+}
 
 export const X01_DEFAULTS = {
   connId: "bingx-x01" as const,

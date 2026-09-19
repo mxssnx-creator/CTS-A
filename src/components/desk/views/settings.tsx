@@ -848,15 +848,15 @@ export function SettingsView() {
               ariaLabel="Axis levels"
             />
             <RangeKnob
-              label="Axis partial of base"
-              value={cfg.axisPartialRatio ?? 0.08}
+              label="Axis extra rung ratio"
+              value={cfg.axisPartialRatio ?? 1}
               min={0.04}
               max={1}
               step={0.02}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setCfg({ axisPartialRatio: n })}
               onCommit={applyLive}
-              ariaLabel="Axis partial ratio of base qty"
+              ariaLabel="Axis extra rung size vs base qty"
             />
           </div>
         </Panel>
