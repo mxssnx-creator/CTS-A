@@ -54,7 +54,7 @@ const DEFAULT_CFG: TacticConfig = {
 };
 
 export const TP_SL_RATIO = 2.5;
-export const SL_ATR_MULT = 0.45;
+export const SL_ATR_MULT = 0.5;
 export const VST_MAX_SYMBOLS = 50;
 export const VST_MAX_POSITIONS = 100;
 export const VST_BATCH_SIZE = 20;

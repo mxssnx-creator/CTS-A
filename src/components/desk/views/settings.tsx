@@ -756,9 +756,9 @@ export function SettingsView() {
             <RangeKnob
               label="TP / SL ratio"
               value={cfg.tpRatio}
-              min={0.25}
+              min={1}
               max={3}
-              step={0.25}
+              step={0.2}
               format={(n) => `${n.toFixed(2)}R`}
               onChange={(n) => setCfg({ tpRatio: n })}
               onCommit={applyLive}
@@ -811,8 +811,8 @@ export function SettingsView() {
             <RangeKnob
               label={`Stop ATR · TP/SL ${cfg.tpRatio.toFixed(2)}R`}
               value={cfg.slAtr}
-              min={0.25}
-              max={1.2}
+              min={0.5}
+              max={2}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setCfg({ slAtr: n })}

@@ -112,7 +112,7 @@ function loadProtectCells() {
   try {
     const raw = JSON.parse(readFileSync(PROTECT_FILE, "utf8"));
     const cells = Array.isArray(raw?.cells) ? raw.cells : Array.isArray(raw) ? raw : [];
-    const ok = cells.filter((c) => Number(c.tpRatio) > 0 && Number(c.slAtr) > 0);
+    const ok = cells.filter((c) => Number(c.tpRatio) >= 1 && Number(c.slAtr) >= 0.5 && (c.pf == null || Number(c.pf) >= 2));
     if (ok.length) return ok.map((c) => ({ slAtr: Number(c.slAtr), tpRatio: Number(c.tpRatio), trailPct: Number(c.trailPct) || 0.8 }));
   } catch {}
   const out = [];

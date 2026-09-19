@@ -345,7 +345,7 @@ export function liveProtectPrices(
   const minSlPct = mode === "vst" ? MIN_LIVE_SL_PCT_VST : MIN_LIVE_SL_PCT;
   const maxSlPct = mode === "vst" ? MAX_LIVE_SL_PCT_VST : MAX_LIVE_SL_PCT;
   const slPct = Math.min(maxSlPct, Math.max(minSlPct, Math.max(0.2, slAtr) * 0.01));
-  const r = Math.min(3, Math.max(0.2, tpRatio));
+  const r = Math.min(3, Math.max(1, tpRatio));
   const tpPct = Math.min(0.06, Math.max(minSlPct, slPct * r));
   const minSl = Math.max(px * slPct, tick * 3);
   const minTp = Math.max(px * tpPct, tick * 4);

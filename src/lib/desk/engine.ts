@@ -45,8 +45,8 @@ export const UNIT_NOTIONAL = BASE_EQUITY * POSITION_COST_PCT;
 export const MIN_VOLUME_FACTOR = 1.05;
 export const MIN_QUOTE_VOL = 0.006;
 export const TRAIL_PCTS = [0.4, 0.6, 0.8, 1.1, 1.4, 1.7, 2.0, 2.4] as const;
-/** Take-profit / stop-loss R-multiples: 0.2 … 3.0 step 0.2. */
-export const TP_SL_RATIO_MIN = 0.2;
+/** Take-profit / stop-loss R-multiples: 1.0 … 3.0 step 0.2. */
+export const TP_SL_RATIO_MIN = 1;
 export const TP_SL_RATIO_MAX = 3;
 export const TP_SL_RATIO_STEP = 0.2;
 export const TP_SL_RATIOS = Array.from(
@@ -60,8 +60,8 @@ export function snapTpRatio(n: number): number {
   return Math.round(Math.round(x / TP_SL_RATIO_STEP) * TP_SL_RATIO_STEP * 100) / 100;
 }
 
-/** Stop-loss ATR / % multiples: 0.2 … 2.0 step 0.1. */
-export const SL_ATR_MIN = 0.2;
+/** Stop-loss ATR / % multiples: 0.5 … 2.0 step 0.1. */
+export const SL_ATR_MIN = 0.5;
 export const SL_ATR_MAX = 2;
 export const SL_ATR_STEP = 0.1;
 export const SL_ATR_RATIOS = Array.from(
