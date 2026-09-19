@@ -1923,7 +1923,7 @@ export function collectActiveOrderBlocks(e: VstEngine, connId?: string) {
   const live = collectBlockOrders(e, conn);
   const map = new Map<string, LiveOrder[]>();
   for (const o of live) {
-    const k = `${o.symbol}:${o.side}`;
+    const k = `${o.symbol}:${o.side}:${blockModeOf(o)}`;
     const arr = map.get(k);
     if (arr) arr.push(o);
     else map.set(k, [o]);
@@ -2013,7 +2013,7 @@ export function adjustActiveBlocks(
       byKey.set(mk, (byKey.get(mk) ?? 0) + 1);
     }
     let adds = 0;
-    const addCap = 2 * volModes.length;
+    const addCap = Math.min(8, Math.max(4, volModes.length * 2));
     for (const p of e.positions) {
       if (adds >= addCap) break;
       if (!ownedByDesk(p, conn)) continue;
@@ -2029,83 +2029,76 @@ export function adjustActiveBlocks(
       if (!q || finiteOr(q.vol, 0) < MIN_QUOTE_VOL) continue;
       if ((e.cooldown[cooldownKey(conn, p.symbol)] ?? 0) > e.tick) continue;
       for (const mode of volModes) {
-      if (adds >= addCap) break;
-      const k = blockLaneKey(p.symbol, p.side, mode);
-      const lane = e.blockLanes[k];
-      if (!lane || !lane.active || lane.baseQty <= 0) continue;
-      if (lane.pending) continue;
-      const n = byKey.get(`${p.symbol}:${p.side}:${mode}`) ?? 0;
-      if (n >= maxM) continue;
-      const next = counts.find(
-        (c) =>
-          c >= minM &&
-          c > (block.minActiveLevel || 0) &&
-          !lane.satisfied[c] &&
-          lane.confirmedAdd + 1e-12 <
-            lane.baseQty * blockMaxAdditionalRatio(c, vr, block.maxVolumeMultiplier || 2.25, mode),
-      );
-      if (!next) continue;
-      if (!blockPfOk(lane, next, block, minPf)) continue;
-      if (next >= 3) {
-        const recent = e.closed.slice(0, 40);
-        if (recent.length >= 12) {
-          const profit = recent.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
-          const loss = Math.abs(recent.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
-          const pf = loss === 0 ? (profit > 0 ? 3 : 0) : profit / loss;
-          if (pf < 1.85) continue;
+        if (adds >= addCap) break;
+        const k = blockLaneKey(p.symbol, p.side, mode);
+        const lane = e.blockLanes[k];
+        if (!lane || !lane.active || lane.baseQty <= 0) continue;
+        const liveLevels = new Set(
+          collectBlockOrders(e, conn)
+            .filter((o) => o.symbol === p.symbol && o.side === p.side && blockModeOf(o) === mode)
+            .map((o) => Math.max(1, o.level || 1)),
+        );
+        let modeAdds = 0;
+        for (const next of counts) {
+          if (adds >= addCap || modeAdds >= 2) break;
+          if (next < minM || next > maxM) continue;
+          if (next <= (block.minActiveLevel || 0)) continue;
+          if (lane.satisfied[next] || liveLevels.has(next)) continue;
+          if (lane.confirmedAdd + 1e-12 >= lane.baseQty * blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 2.25, mode)) continue;
+          if (!blockPfOk(lane, next, block, minPf)) continue;
+          if (next >= 3) {
+            const recent = e.closed.slice(0, 40);
+            if (recent.length >= 12) {
+              const profit = recent.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
+              const loss = Math.abs(recent.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
+              const pf = loss === 0 ? (profit > 0 ? 3 : 0) : profit / loss;
+              if (pf < 1.85) continue;
+            }
+          }
+          if (next >= 4) {
+            const deep = e.closed.filter((c) => c.playbook === "block" && (c.level ?? 1) >= 4).slice(0, 24);
+            if (deep.length >= 6) {
+              const profit = deep.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
+              const loss = Math.abs(deep.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
+              const pf = loss === 0 ? (profit > 0 ? 3 : 0) : profit / loss;
+              if (pf < 1.85) continue;
+            }
+          }
+          const qty = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 2.25, counts.length, 0, mode);
+          if (!(qty > 0)) continue;
+          const hi = pickRange(q, cfg, rangeType);
+          const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);
+          const tp0 = tpDistFromSl(sl0, cfg.tpRatio);
+          const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
+          if (px <= 0) continue;
+          const lv = protectLevels(px, p.side, sl0, tp0, cfg.tpRatio);
+          e.queue.push({
+            id: nextId(e, "b"),
+            connId: conn,
+            symbol: p.symbol,
+            side: p.side,
+            type: e.orderType,
+            qty,
+            filled: 0,
+            price: px,
+            remaining: qty,
+            status: "queued",
+            rangeType: hi.rangeType,
+            level: next,
+            sl: lv.sl,
+            tp: lv.tp,
+            slDist: lv.slDist,
+            tpDist: lv.tpDist,
+            batchId: "",
+            note: `Block ${mode} #${next} ${p.symbol} ${p.side} · ${conn}`,
+          });
+          countPlaced(e);
+          liveLevels.add(next);
+          added += 1;
+          adds += 1;
+          modeAdds += 1;
+          e.lastBlockAt = e.tick;
         }
-      }
-      if (next >= 4) {
-        const deep = e.closed.filter((c) => c.playbook === "block" && (c.level ?? 1) >= 4).slice(0, 24);
-        if (deep.length >= 6) {
-          const profit = deep.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
-          const loss = Math.abs(deep.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
-          const pf = loss === 0 ? (profit > 0 ? 3 : 0) : profit / loss;
-          if (pf < 1.85) continue;
-        }
-      }
-      const qty = blockStepQty(
-        lane.baseQty,
-        next,
-        vr,
-        block.maxVolumeMultiplier || 2.25,
-        counts.length,
-        0,
-        mode,
-      );
-      if (!(qty > 0)) continue;
-      const hi = pickRange(q, cfg, rangeType);
-      const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);
-      const tp0 = tpDistFromSl(sl0, cfg.tpRatio);
-      const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
-      if (px <= 0) continue;
-      const lv = protectLevels(px, p.side, sl0, tp0, cfg.tpRatio);
-      e.queue.push({
-        id: nextId(e, "b"),
-        connId: conn,
-        symbol: p.symbol,
-        side: p.side,
-        type: e.orderType,
-        qty,
-        filled: 0,
-        price: px,
-        remaining: qty,
-        status: "queued",
-        rangeType: hi.rangeType,
-        level: next,
-        sl: lv.sl,
-        tp: lv.tp,
-        slDist: lv.slDist,
-        tpDist: lv.tpDist,
-        batchId: "",
-        note: `Block ${mode} #${next} ${p.symbol} ${p.side} · ${conn}`,
-      });
-      countPlaced(e);
-      lane.pending = next;
-      byKey.set(`${p.symbol}:${p.side}:${mode}`, n + 1);
-      added += 1;
-      adds += 1;
-      e.lastBlockAt = e.tick;
       }
     }
   }

@@ -1188,6 +1188,19 @@ describe("VST engine", () => {
     assert.ok(winOnly.engine.blockWindows[16].closed >= 0);
   });
 
+  it("all Block counts 1-16 run independently", () => {
+    assert.equal(DEFAULT_BLOCK_CONFIG.counts.length, 16);
+    assert.equal(DEFAULT_BLOCK_CONFIG.maxMultiple, 16);
+    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    const r = simulateHours(12, CFG, "hybrid", {
+      symbolCount: 8,
+      rangeType: "fibonacci",
+      block: { ...DEFAULT_BLOCK_CONFIG, stack: true, windows: true, volumeMode: "parallel", endStageOnly: false },
+    });
+    assert.ok(r.report.passed);
+    finiteNum(r.report.pf);
+  });
+
   it("shared and additive Block volume run in parallel independently", () => {
     const par = {
       ...DEFAULT_BLOCK_CONFIG,
