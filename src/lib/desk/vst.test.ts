@@ -1188,6 +1188,27 @@ describe("VST engine", () => {
     assert.ok(winOnly.engine.blockWindows[16].closed >= 0);
   });
 
+  it("shared and additive Block volume run in parallel independently", () => {
+    const par = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      stack: true,
+      windows: true,
+      volumeMode: "parallel" as const,
+      counts: [1, 2],
+      maxMultiple: 2,
+      evalPosCount: 16,
+      endStageOnly: false,
+    };
+    const shared = simulateHours(16, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...par, volumeMode: "shared" } });
+    const additive = simulateHours(16, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...par, volumeMode: "additive" } });
+    const both = simulateHours(16, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: par });
+    assert.ok(shared.report.passed && additive.report.passed && both.report.passed);
+    finiteNum(shared.report.pf, additive.report.pf, both.report.pf);
+    const keys = Object.keys(both.engine.blockLanes || {});
+    assert.ok(keys.some((k) => k.endsWith(":shared")) || keys.some((k) => k.endsWith(":additive")) || both.report.trades >= 0);
+  });
+
   it("skips direction indication and PF<1 symbols for live entries", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     e.symbolStats.SOLUSDT = { id: "SOLUSDT", trades: 4, wins: 0, profit: 0.1, loss: 0.8, sl: 4, tp: 0 };

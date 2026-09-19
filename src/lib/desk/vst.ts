@@ -1652,8 +1652,19 @@ export function healEngine(
   return { healed: Boolean(reason), reason, fixes };
 }
 
-function blockLaneKey(symbol: string, side: Side) {
-  return `${symbol}:${side}`;
+function blockLaneKey(symbol: string, side: Side, mode: "shared" | "additive" = "shared") {
+  return `${symbol}:${side}:${mode}`;
+}
+
+function blockVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
+  const m = block?.volumeMode;
+  if (m === "parallel" || m === "both") return ["shared", "additive"];
+  if (m === "additive") return ["additive"];
+  return ["shared"];
+}
+
+function blockModeOf(o: { note?: string }): "shared" | "additive" {
+  return /additive/i.test(o.note || "") ? "additive" : "shared";
 }
 
 function liveBlockCounts(block: BlockConfig) {
@@ -1798,32 +1809,35 @@ function collectBlockOrders(e: VstEngine, conn: string) {
 function syncBlockParents(e: VstEngine, conn: string) {
   e.blockLanes = e.blockLanes ?? {};
   const live = new Set<string>();
+  const modes = blockVolumeModes(e.blockCfg);
   for (const p of e.positions) {
     if (p.connId !== conn || p.qty <= 0) continue;
-    const k = blockLaneKey(p.symbol, p.side);
-    live.add(k);
     const first = p.legs[0]?.qty || p.qty;
-    let lane = e.blockLanes[k];
-    if (!lane) {
-      e.blockLanes[k] = emptyBlockLane(p.symbol, p.side, first, p.avgEntry);
-      continue;
-    }
-    if (!lane.active || lane.baseQty <= 0) {
-      lane.active = true;
-      lane.baseQty = first;
-      lane.baseEntry = p.avgEntry;
-      lane.confirmedAdd = Math.max(0, p.qty - first);
-      lane.satisfied = {};
-      lane.pending = undefined;
-      lane.pauseRemaining = {};
-      continue;
-    }
-    const grown = p.qty - (lane.baseQty + lane.confirmedAdd);
-    if (grown > lane.baseQty * 0.15 && !lane.pending) {
-      const prev = lane.baseQty;
-      lane.baseQty = prev + grown;
-      if (p.avgEntry > 0 && prev > 0) {
-        lane.baseEntry = (lane.baseEntry * prev + p.avgEntry * grown) / Math.max(lane.baseQty, 1e-9);
+    for (const mode of modes) {
+      const k = blockLaneKey(p.symbol, p.side, mode);
+      live.add(k);
+      let lane = e.blockLanes[k];
+      if (!lane) {
+        e.blockLanes[k] = emptyBlockLane(p.symbol, p.side, first, p.avgEntry);
+        continue;
+      }
+      if (!lane.active || lane.baseQty <= 0) {
+        lane.active = true;
+        lane.baseQty = first;
+        lane.baseEntry = p.avgEntry;
+        lane.confirmedAdd = Math.max(0, p.qty - first);
+        lane.satisfied = {};
+        lane.pending = undefined;
+        lane.pauseRemaining = {};
+        continue;
+      }
+      const grown = p.qty - (lane.baseQty + lane.confirmedAdd);
+      if (grown > lane.baseQty * 0.15 && !lane.pending) {
+        const prev = lane.baseQty;
+        lane.baseQty = prev + grown;
+        if (p.avgEntry > 0 && prev > 0) {
+          lane.baseEntry = (lane.baseEntry * prev + p.avgEntry * grown) / Math.max(lane.baseQty, 1e-9);
+        }
       }
     }
   }
@@ -1835,24 +1849,27 @@ function syncBlockParents(e: VstEngine, conn: string) {
 function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   if (!isBlockOrder(o)) return;
   e.blockLanes = e.blockLanes ?? {};
-  const k = blockLaneKey(o.symbol, o.side);
+  const k = blockLaneKey(o.symbol, o.side, blockModeOf(o));
   const lane = e.blockLanes[k];
   if (!lane) return;
   lane.confirmedAdd += take;
   const n = Math.max(1, o.level || lane.pending || 1);
   const vr = DEFAULT_BLOCK_CONFIG.volumeRatio || 1.25;
-  const target = lane.baseQty * blockMaxAdditionalRatio(n, vr, DEFAULT_BLOCK_CONFIG.maxVolumeMultiplier, DEFAULT_BLOCK_CONFIG.volumeMode === "shared" ? "shared" : "additive");
+  const mode = blockModeOf(o);
+  const target = lane.baseQty * blockMaxAdditionalRatio(n, vr, DEFAULT_BLOCK_CONFIG.maxVolumeMultiplier, mode);
   if (lane.confirmedAdd + 1e-12 >= target) lane.satisfied[n] = true;
   lane.pending = undefined;
   e.lastBlockAt = e.tick;
 }
 
 function recordBlockClose(e: VstEngine, p: LivePosition, pnl: number) {
-  const k = blockLaneKey(p.symbol, p.side);
-  const lane = e.blockLanes?.[k];
+  const modes = blockVolumeModes(e.blockCfg);
   const cost = Math.max(p.avgEntry * p.qty, 1e-9);
   const frac = pnl / cost;
-  if (!lane) return;
+  for (const mode of modes) {
+  const k = blockLaneKey(p.symbol, p.side, mode);
+  const lane = e.blockLanes?.[k];
+  if (!lane) continue;
   const n = Math.max(1, p.blockLevel || lane.pending || 1);
   (lane.pfRing[n] ??= []).push(frac);
   if (lane.pfRing[n].length > 75) lane.pfRing[n] = lane.pfRing[n].slice(-75);
@@ -1871,6 +1888,7 @@ function recordBlockClose(e: VstEngine, p: LivePosition, pnl: number) {
   lane.confirmedAdd = 0;
   lane.pending = undefined;
   lane.satisfied = {};
+  }
 }
 
 function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minPf: number) {
@@ -1986,13 +2004,18 @@ export function adjustActiveBlocks(
   const minPf = 1.85;
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 16)));
   const overallPause = block.windows !== false && blockPosPaused(e, evalN);
+  const volModes = blockVolumeModes(block);
 
   if (block.stack !== false && block.addOnWin && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
     const byKey = new Map<string, number>();
-    for (const b of collectActiveOrderBlocks(e, conn)) byKey.set(`${b.symbol}:${b.side}`, b.multiple);
+    for (const o of collectBlockOrders(e, conn)) {
+      const mk = `${o.symbol}:${o.side}:${blockModeOf(o)}`;
+      byKey.set(mk, (byKey.get(mk) ?? 0) + 1);
+    }
     let adds = 0;
+    const addCap = 2 * volModes.length;
     for (const p of e.positions) {
-      if (adds >= 2) break;
+      if (adds >= addCap) break;
       if (!ownedByDesk(p, conn)) continue;
       if (p.qty <= 0) continue;
       if (block.sides === "long" && p.side !== "long") continue;
@@ -2002,11 +2025,16 @@ export function adjustActiveBlocks(
       if (block.activeLive !== false && move < 0.004) continue;
       if (overallPause) continue;
       if (symbolBlockPaused(e, p.symbol, evalN)) continue;
-      const k = blockLaneKey(p.symbol, p.side);
+      const q = e.quotes[p.symbol];
+      if (!q || finiteOr(q.vol, 0) < MIN_QUOTE_VOL) continue;
+      if ((e.cooldown[cooldownKey(conn, p.symbol)] ?? 0) > e.tick) continue;
+      for (const mode of volModes) {
+      if (adds >= addCap) break;
+      const k = blockLaneKey(p.symbol, p.side, mode);
       const lane = e.blockLanes[k];
       if (!lane || !lane.active || lane.baseQty <= 0) continue;
       if (lane.pending) continue;
-      const n = byKey.get(k) ?? 0;
+      const n = byKey.get(`${p.symbol}:${p.side}:${mode}`) ?? 0;
       if (n >= maxM) continue;
       const next = counts.find(
         (c) =>
@@ -2014,7 +2042,7 @@ export function adjustActiveBlocks(
           c > (block.minActiveLevel || 0) &&
           !lane.satisfied[c] &&
           lane.confirmedAdd + 1e-12 <
-            lane.baseQty * blockMaxAdditionalRatio(c, vr, block.maxVolumeMultiplier || 2.25, block.volumeMode === "shared" ? "shared" : "additive"),
+            lane.baseQty * blockMaxAdditionalRatio(c, vr, block.maxVolumeMultiplier || 2.25, mode),
       );
       if (!next) continue;
       if (!blockPfOk(lane, next, block, minPf)) continue;
@@ -2036,9 +2064,6 @@ export function adjustActiveBlocks(
           if (pf < 1.85) continue;
         }
       }
-      const q = e.quotes[p.symbol];
-      if (!q || finiteOr(q.vol, 0) < MIN_QUOTE_VOL) continue;
-      if ((e.cooldown[cooldownKey(conn, p.symbol)] ?? 0) > e.tick) continue;
       const qty = blockStepQty(
         lane.baseQty,
         next,
@@ -2046,7 +2071,7 @@ export function adjustActiveBlocks(
         block.maxVolumeMultiplier || 2.25,
         counts.length,
         0,
-        block.volumeMode === "shared" ? "shared" : "additive",
+        mode,
       );
       if (!(qty > 0)) continue;
       const hi = pickRange(q, cfg, rangeType);
@@ -2073,14 +2098,15 @@ export function adjustActiveBlocks(
         slDist: lv.slDist,
         tpDist: lv.tpDist,
         batchId: "",
-        note: `Block #${next} ${p.symbol} ${p.side} · ${conn}`,
+        note: `Block ${mode} #${next} ${p.symbol} ${p.side} · ${conn}`,
       });
       countPlaced(e);
       lane.pending = next;
-      byKey.set(k, n + 1);
+      byKey.set(`${p.symbol}:${p.side}:${mode}`, n + 1);
       added += 1;
       adds += 1;
       e.lastBlockAt = e.tick;
+      }
     }
   }
 
