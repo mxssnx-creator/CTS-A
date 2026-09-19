@@ -665,6 +665,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.blockLanes = e.blockLanes ?? {};
   e.blockWindows = e.blockWindows ?? {};
   e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
+  e.blockRelWindows = e.blockRelWindows ?? {};
   for (const lane of Object.values(e.blockLanes)) {
     lane.active = lane.active ?? true;
     lane.pauseRemaining = lane.pauseRemaining ?? {};
@@ -714,6 +715,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     blockLanes: {},
     blockWindows: {},
     blockWindowsBySymbol: {},
+    blockRelWindows: {},
     blockCfg: opts.block ?? DEFAULT_BLOCK_CONFIG,
   };
   if (opts.arm !== false) armUniverse(engine, cfg, "hybrid");
@@ -830,7 +832,20 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     const mode = e.blockCfg?.sides;
     const trySides = symbolSideSet(s.id, mode, direction(q));
     const dual = trySides.length === 2;
+    const ind = classifyIndication(e, s.id);
+    const book = openPlaybook(e.lastTactic, ind);
+    const kind = kindFromIndication(ind, book, e.lastTactic);
+    const range = rangeType ?? e.lastRange ?? "atr";
     for (const side of trySides) {
+      if (qn >= VST_MAX_QUEUE || pn >= VST_MAX_POSITIONS) break;
+      if (
+        blockComboPaused(
+          e,
+          { symbol: s.id, side, indication: ind, kind, tactic: e.lastTactic, rangeType: range, playbook: book },
+          winN,
+        )
+      )
+        continue;
       if (qn >= VST_MAX_QUEUE || pn >= VST_MAX_POSITIONS) break;
       if (dual) {
         if (busyLegs.has(`${s.id}:${side}`)) continue;
@@ -1219,7 +1234,13 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     level: p.blockLevel ?? (p.playbook === "block" ? Math.max(1, p.legs.length) : Math.max(1, p.legs.length)),
   });
   recordBlockClose(e, p, pnl);
-  noteBlockPosClose(e, p.symbol, p.side, pnl, e.blockCfg);
+  noteBlockPosClose(e, p.symbol, p.side, pnl, e.blockCfg, {
+    indication: p.indication,
+    kind: p.kind,
+    tactic: p.tactic ?? e.lastTactic,
+    rangeType: p.controllingRange ?? e.lastRange,
+    playbook: p.playbook,
+  });
   if (e.closed.length > 600) e.closed.length = 600;
   e.fills.unshift({
     id: nextId(e, "f"),
@@ -1725,14 +1746,82 @@ function tickBlockWindow(w: BlockPosWindow, symbol: string, side: Side, pnl: num
   return w;
 }
 
-export function noteBlockPosClose(e: VstEngine, symbol: string, side: Side, pnl: number, block: BlockConfig = DEFAULT_BLOCK_CONFIG) {
+export function blockRelationKeys(rel: {
+  symbol: string;
+  side: Side;
+  indication?: IndicationId;
+  kind?: StrategyKind;
+  tactic?: TacticKind;
+  rangeType?: RangeType;
+  playbook?: string;
+  indicationCfg?: string;
+}): string[] {
+  const keys = [`sym:${rel.symbol}`, `side:${rel.side}`, `leg:${rel.symbol}:${rel.side}`];
+  if (rel.indication) keys.push(`ind:${rel.indication}`);
+  if (rel.indicationCfg) keys.push(`cfg:${rel.indicationCfg}`);
+  if (rel.kind) keys.push(`kind:${rel.kind}`);
+  if (rel.playbook) keys.push(`book:${rel.playbook}`);
+  if (rel.tactic) keys.push(`tac:${rel.tactic}`);
+  if (rel.rangeType) keys.push(`rng:${rel.rangeType}`);
+  if (rel.indication && rel.kind) keys.push(`sub:${rel.indication}:${rel.kind}`);
+  if (rel.indication && rel.tactic && rel.rangeType) {
+    keys.push(`combo:${rel.indication}:${rel.kind ?? "_"}:${rel.tactic}:${rel.rangeType}:${rel.side}`);
+  }
+  return keys;
+}
+
+export function noteBlockPosClose(
+  e: VstEngine,
+  symbol: string,
+  side: Side,
+  pnl: number,
+  block: BlockConfig = DEFAULT_BLOCK_CONFIG,
+  rel?: {
+    indication?: IndicationId;
+    kind?: StrategyKind;
+    tactic?: TacticKind;
+    rangeType?: RangeType;
+    playbook?: string;
+    indicationCfg?: string;
+  },
+) {
   e.blockWindows = e.blockWindows ?? {};
   e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
-  for (const n of evalBlockNs(block)) {
+  e.blockRelWindows = e.blockRelWindows ?? {};
+  const ns = evalBlockNs(block);
+  for (const n of ns) {
     e.blockWindows[n] = tickBlockWindow(e.blockWindows[n] ?? emptyBlockWindow(n), symbol, side, pnl);
     const by = (e.blockWindowsBySymbol[symbol] ??= {});
     by[n] = tickBlockWindow(by[n] ?? emptyBlockWindow(n), symbol, side, pnl);
   }
+  const keys = blockRelationKeys({ symbol, side, ...rel });
+  for (const key of keys) {
+    const map = (e.blockRelWindows[key] ??= {});
+    for (const n of ns) map[n] = tickBlockWindow(map[n] ?? emptyBlockWindow(n), symbol, side, pnl);
+  }
+}
+
+export function blockRelPaused(e: VstEngine, key: string, n = 6) {
+  return (e.blockRelWindows?.[key]?.[n]?.pauseLeft || 0) > 0;
+}
+
+export function blockComboPaused(
+  e: VstEngine,
+  rel: {
+    symbol: string;
+    side: Side;
+    indication?: IndicationId;
+    kind?: StrategyKind;
+    tactic?: TacticKind;
+    rangeType?: RangeType;
+    playbook?: string;
+    indicationCfg?: string;
+  },
+  n = 6,
+) {
+  return blockRelationKeys(rel)
+    .filter((k) => k.startsWith("combo:") || k.startsWith("sub:") || k.startsWith("ind:") || k.startsWith("kind:") || k.startsWith("cfg:") || k.startsWith("book:"))
+    .some((k) => blockRelPaused(e, k, n));
 }
 
 /** Last-N overall window is in its "next N adjusted" pause. */
@@ -3019,6 +3108,79 @@ export function overlayExchangeBook(
 }
 
 export const LIVE_TACTICS: TacticKind[] = ["trailing", "axis", "hybrid"];
+
+export function sweepBlockRelations(
+  hours = 8,
+  symbolCount = 8,
+  cfg: TacticConfig = DEFAULT_CFG,
+): {
+  hours: number;
+  symbolCount: number;
+  at: number;
+  runs: {
+    tactic: TacticKind;
+    range: RangeType;
+    sides: "long" | "short" | "both";
+    pf: number;
+    wr: number;
+    net: number;
+    trades: number;
+    blockN: number;
+    relKeys: number;
+    byIndication: { k: string; n: number; pf: number; net: number }[];
+    byKind: { k: string; n: number; pf: number; net: number }[];
+    byPlaybook: { k: string; n: number; pf: number; net: number }[];
+  }[];
+} {
+  const pfOf = (rows: { pnl: number }[]) => {
+    const gp = rows.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
+    const gl = Math.abs(rows.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
+    return {
+      n: rows.length,
+      net: rows.reduce((s, c) => s + c.pnl, 0),
+      pf: gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl,
+    };
+  };
+  const group = (rows: { pnl: number; indication?: string; kind?: string; playbook?: string }[], key: "indication" | "kind" | "playbook") => {
+    const map = new Map<string, { pnl: number }[]>();
+    for (const r of rows) {
+      const k = String(r[key] ?? "_");
+      const arr = map.get(k);
+      if (arr) arr.push(r);
+      else map.set(k, [r]);
+    }
+    return [...map.entries()].map(([k, v]) => ({ k, ...pfOf(v) })).sort((a, b) => b.n - a.n);
+  };
+  const runs = [];
+  for (const tactic of LIVE_TACTICS) {
+    for (const range of RANGE_TYPES) {
+      for (const sides of ["long", "short", "both"] as const) {
+        const { report, engine } = simulateHours(hours, cfg, tactic, {
+          symbolCount,
+          rangeType: range,
+          block: { ...DEFAULT_BLOCK_CONFIG, sides, volumeMode: "shared", stack: true, windows: true },
+        });
+        const closed = engine.closed;
+        const blockN = closed.filter((c) => c.playbook === "block").length;
+        runs.push({
+          tactic,
+          range,
+          sides,
+          pf: report.pf,
+          wr: report.wr,
+          net: report.net,
+          trades: report.trades,
+          blockN,
+          relKeys: Object.keys(engine.blockRelWindows ?? {}).length,
+          byIndication: group(closed, "indication"),
+          byKind: group(closed, "kind"),
+          byPlaybook: group(closed, "playbook"),
+        });
+      }
+    }
+  }
+  return { hours, symbolCount, at: Date.now(), runs };
+}
 
 export function sweepAllConfigs(
   hours = 8,

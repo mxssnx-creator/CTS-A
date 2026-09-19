@@ -879,6 +879,7 @@ export interface VstEngine {
   blockLanes: Record<string, BlockLaneState>;
   blockWindows: Record<number, BlockPosWindow>;
   blockWindowsBySymbol: Record<string, Record<number, BlockPosWindow>>;
+  blockRelWindows: Record<string, Record<number, BlockPosWindow>>;
   blockCfg?: BlockConfig;
 }
 

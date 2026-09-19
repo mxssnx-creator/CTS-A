@@ -76,6 +76,10 @@ import {
   resetSession,
   simulateHours,
   sweepAllConfigs,
+  sweepBlockRelations,
+  blockRelationKeys,
+  blockRelPaused,
+  blockComboPaused,
   completeComputations,
   LIVE_TACTICS,
   systemSnapshot,
@@ -1219,6 +1223,33 @@ describe("VST engine", () => {
     assert.ok(shortOnly >= 1, `short-only ${shortOnly}`);
     assert.ok(both >= 1, `both ${both}`);
     finiteNum(mix.longOnly ?? 0, mix.shortOnly ?? 0, mix.both ?? 0);
+  });
+
+  it("Block relations pause independently per indication, strategy, tactic, range, side", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    const block = { ...DEFAULT_BLOCK_CONFIG, windows: true, evalPosCount: 6 };
+    for (let i = 0; i < 6; i++) {
+      noteBlockPosClose(e, "BTCUSDT", "long", -1, block, {
+        indication: "trend",
+        kind: "trend",
+        tactic: "hybrid",
+        rangeType: "fibonacci",
+        playbook: "normal",
+      });
+    }
+    assert.ok(blockRelPaused(e, "ind:trend", 6));
+    assert.ok(blockComboPaused(e, { symbol: "BTCUSDT", side: "long", indication: "trend", kind: "trend", tactic: "hybrid", rangeType: "fibonacci" }, 6));
+    assert.equal(blockRelPaused(e, "ind:active", 6), false);
+    assert.equal(blockComboPaused(e, { symbol: "ETHUSDT", side: "short", indication: "active", kind: "active", tactic: "axis", rangeType: "atr" }, 6), false);
+    const keys = blockRelationKeys({ symbol: "BTCUSDT", side: "long", indication: "trend", kind: "trend", tactic: "hybrid", rangeType: "fibonacci", playbook: "normal" });
+    assert.ok(keys.some((k) => k.startsWith("combo:")));
+    assert.ok(keys.some((k) => k.startsWith("sub:")));
+  });
+
+  it("sweep Block relations covers tactic × range × sides independently", () => {
+    const s = sweepBlockRelations(1, 4, CFG);
+    assert.equal(s.runs.length, LIVE_TACTICS.length * RANGE_TYPES.length * 3);
+    for (const r of s.runs) finiteNum(r.pf, r.net, r.trades, r.relKeys);
   });
 
   it("windows shared vs additive run with stack 1-2 additionally", () => {
