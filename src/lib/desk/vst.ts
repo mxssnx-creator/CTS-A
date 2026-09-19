@@ -1676,6 +1676,13 @@ export function healEngine(
     e.tokens[e.activeConnId] = Math.max(4, VST_RATE_BURST / 2);
     reason = reason ? `${reason} · rate refill` : "rate refill";
   }
+  pruneBlockRelWindows(e);
+  const cfgBlock = e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
+  const evalEvery = Math.max(TICKS_PER_HOUR, Math.round((cfgBlock.evalHours || 2) * TICKS_PER_HOUR));
+  if (cfgBlock.autoEval !== false && cfgBlock.enabled && e.tick - (e.lastRelEvalTick || 0) >= evalEvery * 2) {
+    evalBlockRelations(e, cfgBlock);
+    reason = reason ? `${reason} · rel eval` : "rel eval";
+  }
   if (e.running && e.phase !== "running" && e.phase !== "paused" && e.phase !== "stopped") {
     e.phase = "running";
     reason = reason ? `${reason} · phase restored` : "phase restored";
@@ -1700,7 +1707,7 @@ function blockModeOf(o: { note?: string }): "shared" | "additive" {
 }
 
 function liveBlockCounts(block: BlockConfig) {
-  const cap = Math.max(1, Math.min(16, Math.round(block.maxMultiple || 6)));
+  const cap = Math.max(1, Math.min(16, Math.round(block.maxMultiple || 2)));
   const raw = Array.isArray(block.counts) && block.counts.length ? block.counts : [1, 2];
   return [...new Set(raw.map((n) => Math.round(n)).filter((n) => n >= 1 && n <= cap))].sort((a, b) => a - b);
 }
@@ -1826,7 +1833,7 @@ export function blockComboPaused(
   n = 6,
 ) {
   return blockRelationKeys(rel)
-    .filter((k) => k.startsWith("combo:") || k.startsWith("sub:") || k.startsWith("ind:") || k.startsWith("kind:") || k.startsWith("cfg:") || k.startsWith("book:"))
+    .filter((k) => k.startsWith("combo:") || k.startsWith("sub:") || k.startsWith("cfg:"))
     .some((k) => blockRelPaused(e, k, n));
 }
 
@@ -1894,9 +1901,10 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
     for (const n of ns) {
       const w = byN[n];
       if (!w || w.closed < n) continue;
-      if (!best || w.lastPf > best.pf || (w.lastPf === best.pf && n < best.n)) {
-        best = { key, n, pf: w.lastPf, net: w.lastNet, closed: w.closed };
-      }
+      const cand = { key, n, pf: w.lastPf, net: w.lastNet, closed: w.closed };
+      if (!best) best = cand;
+      else if (w.lastPf > best.pf + 0.2) best = cand;
+      else if (w.lastPf + 0.2 >= best.pf && n > best.n) best = cand;
     }
     if (best && best.pf >= minPf) candidates.push(best);
   }
@@ -1919,7 +1927,28 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
   e.blockRelBest = Object.fromEntries(used.map((p) => [p.key, p]));
   e.relVolumeFactor = block.relAdditive === false ? 0 : used.length * vr;
   e.lastRelEvalTick = e.tick;
+  pruneBlockRelWindows(e);
   return { picks: used, winners: used.length, factor: e.relVolumeFactor || 0, at: e.tick, candidates: uniq.length };
+}
+
+function pruneBlockRelWindows(e: VstEngine, max = 256) {
+  const maps = e.blockRelWindows ?? {};
+  const keys = Object.keys(maps);
+  if (keys.length <= max) return;
+  const scored = keys.map((k) => {
+    let closed = 0;
+    let pause = 0;
+    for (const w of Object.values(maps[k] ?? {})) {
+      closed += w.closed || 0;
+      pause += w.pauseLeft || 0;
+    }
+    return { k, closed, pause };
+  }).sort((a, b) => a.pause - b.pause || a.closed - b.closed);
+  for (const x of scored) {
+    if (Object.keys(maps).length <= max) break;
+    if (x.pause > 0) continue;
+    delete maps[x.k];
+  }
 }
 
 function emptyBlockLane(symbol: string, side: Side, baseQty: number, baseEntry: number): BlockLaneState {
@@ -1997,9 +2026,10 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   if (!lane) return;
   lane.confirmedAdd += take;
   const n = Math.max(1, o.level || lane.pending || 1);
-  const vr = DEFAULT_BLOCK_CONFIG.volumeRatio || 0.4;
+  const cfg = e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
+  const vr = cfg.volumeRatio || 0.4;
   const mode = blockModeOf(o);
-  const target = lane.baseQty * blockMaxAdditionalRatio(n, vr, DEFAULT_BLOCK_CONFIG.maxVolumeMultiplier, mode);
+  const target = lane.baseQty * blockMaxAdditionalRatio(n, vr, cfg.maxVolumeMultiplier || 1.8, mode);
   if (lane.confirmedAdd + 1e-12 >= target) lane.satisfied[n] = true;
   lane.pending = undefined;
   e.lastBlockAt = e.tick;
@@ -2150,11 +2180,6 @@ export function adjustActiveBlocks(
   const volModes = blockVolumeModes(block);
 
   if (block.stack !== false && block.addOnWin && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
-    const byKey = new Map<string, number>();
-    for (const o of collectBlockOrders(e, conn)) {
-      const mk = `${o.symbol}:${o.side}:${blockModeOf(o)}`;
-      byKey.set(mk, (byKey.get(mk) ?? 0) + 1);
-    }
     let adds = 0;
     const addCap = Math.min(8, Math.max(4, volModes.length * 2));
     for (const p of e.positions) {
@@ -2207,9 +2232,12 @@ export function adjustActiveBlocks(
               if (pf < 1.85) continue;
             }
           }
-          const qty =
-            blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, mode) +
-            (block.relAdditive === false ? 0 : (e.relVolumeFactor || 0) * lane.baseQty);
+          const step = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, mode);
+          const extra =
+            next === counts[0] && block.relAdditive !== false
+              ? Math.min((e.relVolumeFactor || 0) * lane.baseQty, lane.baseQty * 2)
+              : 0;
+          const qty = step + extra;
           if (!(qty > 0)) continue;
           const hi = pickRange(q, cfg, rangeType);
           const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);

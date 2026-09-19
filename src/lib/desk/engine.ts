@@ -276,7 +276,6 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   stack: true,
   windows: true,
   volumeMode: "shared",
-  sides: "mixed",
   evalHours: 2,
   autoEval: true,
   relAdditive: true,
