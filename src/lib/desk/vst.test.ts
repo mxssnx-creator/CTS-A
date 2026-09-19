@@ -2487,6 +2487,43 @@ describe("VST engine", () => {
     assert.ok(Math.abs(winningRelVolume(e, rel) - 0.24) < 1e-9);
     assert.equal(liveShouldExecute(e, rel), true);
   });
+
+  it("live Block stacks rungs 1-6 on open positions with playbook block", () => {
+    const e = initVstEngine(CFG, { warmup: 12, symbolCount: 8, arm: true });
+    e.liveTape = true;
+    e.strategyToggles = { normal: false, trailing: true, axis: true, block: true, dca: false };
+    if (!e.positions.some((x) => x.qty > 0)) {
+      for (let i = 0; i < 8 && !e.positions.some((x) => x.qty > 0); i++) tickVst(e, CFG, "hybrid", { rangeType: "atr", block: { ...DEFAULT_BLOCK_CONFIG, enabled: false } });
+    }
+    const p = e.positions.find((x) => x.qty > 0);
+    assert.ok(p, "need an open parent");
+    const adj = adjustActiveBlocks(
+      e,
+      CFG,
+      "hybrid",
+      {
+        ...DEFAULT_BLOCK_CONFIG,
+        enabled: true,
+        addOnWin: false,
+        counts: [1, 2, 3, 4, 5, 6],
+        maxMultiple: 6,
+        minMultiple: 1,
+        activeLive: true,
+        endStageOnly: false,
+        volumeMode: "parallel",
+        overall: true,
+      },
+      "atr",
+    );
+    const rungs = [...e.queue, ...e.orders].filter((o) => /Block/i.test(o.note || ""));
+    assert.ok(adj.added >= 1 || rungs.length >= 1, `added ${adj.added} rungs ${rungs.length}`);
+    for (const o of rungs) {
+      assert.equal(o.playbook, "block");
+      assert.equal(o.kind, "block");
+      assert.ok((o.level || 0) >= 1 && (o.level || 0) <= 6);
+      assert.equal(liveShouldExecute(e, { symbol: o.symbol, side: o.side, playbook: o.playbook, kind: o.kind, note: o.note, blockLevel: o.level, tactic: o.tactic }), true);
+    }
+  });
 });
 
 function finiteNum(...xs: number[]) {

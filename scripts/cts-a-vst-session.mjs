@@ -161,18 +161,18 @@ const BLOCK = {
   ...DEFAULT_BLOCK_CONFIG,
   enabled: true,
   endStageOnly: false,
-  cadence: 6,
+  cadence: 4,
   flattenConflict: false,
-  addOnWin: true,
-  maxMultiple: 1,
+  addOnWin: false,
+  maxMultiple: 6,
   minMultiple: 1,
   overall: true,
-  counts: [1],
+  counts: [...LIVE_BLOCK_COUNTS],
   volumeRatio: IS_X01 ? (X01_DEFAULTS.volumeRatio ?? 0.08) : 0.16,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: 0,
-  evalPosCount: 1,
+  evalPosCount: 6,
   activeLive: true,
   minActiveLevel: 0,
   keepAdjusted: true,
@@ -184,8 +184,8 @@ const BLOCK = {
   autoEval: true,
   relAdditive: true,
   relVolumeRatio: 0.08,
-  minRelPf: LIVE_MIN_PF,
-  evalLastNs: [1],
+  minRelPf: 1.05,
+  evalLastNs: [...LIVE_BLOCK_COUNTS],
   liveLastN: 12,
   liveDisable: true,
   liveDisableMinPf: LIVE_MIN_PF,
@@ -745,6 +745,60 @@ function liveNotional(e, f, equity, rel) {
   }
   if (short) mul *= 0.85;
   return base * Math.min(2.4, mul);
+}
+
+function mergeLivePositions(e, book) {
+  const conn = e.activeConnId || CONN;
+  const byKey = new Map();
+  for (const p of e.positions || []) {
+    if (p?.connId === conn) byKey.set(`${p.symbol}:${p.side}`, p);
+  }
+  for (const p of book?.positions || []) {
+    if (!isOwnedLeg(p.symbol, p.side)) continue;
+    if (!(p.qty > 0)) continue;
+    const key = `${p.symbol}:${p.side}`;
+    const entry = Number(p.entry) || Number(p.mark) || 0;
+    const mark = Number(p.mark) || entry;
+    if (!(entry > 0)) continue;
+    const cur = byKey.get(key);
+    if (cur) {
+      cur.qty = p.qty;
+      cur.plannedQty = Math.max(cur.plannedQty || 0, p.qty);
+      cur.avgEntry = entry;
+      cur.mark = mark;
+      cur.unrealized = Number(p.pnl) || cur.unrealized || 0;
+      if (!cur.playbook) cur.playbook = "short";
+      if (!cur.kind) cur.kind = "short";
+      continue;
+    }
+    const slDist = Math.max(mark * 0.002, 1e-8);
+    e.positions.push({
+      id: `ex:${key}`,
+      connId: conn,
+      symbol: p.symbol,
+      side: p.side,
+      qty: p.qty,
+      plannedQty: p.qty,
+      avgEntry: entry,
+      mark,
+      sl: p.side === "long" ? entry - slDist : entry + slDist,
+      tp: p.side === "long" ? entry + slDist * 2 : entry - slDist * 2,
+      slDist,
+      tpDist: slDist * 2,
+      realized: 0,
+      unrealized: Number(p.pnl) || 0,
+      legs: [{ orderId: `ex:${key}`, qty: p.qty, px: entry }],
+      controllingRange: e.lastRange || "atr",
+      rangeSpacing: slDist,
+      status: "open",
+      openedTick: e.tick,
+      tactic: e.lastTactic,
+      indication: classifyIndication(e, p.symbol),
+      kind: "short",
+      playbook: "short",
+      peakPx: mark,
+    });
+  }
 }
 
 function liveMaxPos() {
@@ -1740,9 +1794,10 @@ async function main() {
       engine.strategyToggles = { ...STRAT, dca: false };
       engine.blockCfg = { ...BLOCK, enabled: STRAT.block };
       pick.cfg = { ...pick.cfg, shortRange: true, dcaCount: 1 };
+      mergeLivePositions(engine, lastBook);
       tickVst(engine, pick.cfg, pick.tactic, {
-        freezeIds: lastBook.pos >= liveMaxPos() ? freeze : undefined,
-        skipWalk: lastBook.pos >= liveMaxPos(),
+        freezeIds: freeze,
+        skipWalk: true,
         skipMatch: lastBook.pos >= liveMaxPos(),
         rangeType: pick.range,
         symbolCount: LIVE_SYMBOLS,

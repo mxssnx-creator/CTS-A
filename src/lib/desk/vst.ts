@@ -2852,7 +2852,7 @@ function blockCountPositive(e: VstEngine, n: number, minPf: number) {
   if (n < 1 || n > 6) return false;
   const w = e.blockWindows?.[n];
   if (!w || w.closed < Math.max(3, n)) return n <= 3;
-  return w.lastPf + 1e-9 >= minPf;
+  return w.lastPf + 1e-9 >= Math.min(1.05, minPf);
 }
 
 function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minPf: number) {
@@ -2990,7 +2990,6 @@ export function adjustActiveBlocks(
       }
       const move = p.unrealized / Math.max(p.avgEntry * p.qty, 1e-9);
       if (block.addOnWin && move <= 0) continue;
-      if (e.liveTape && block.activeLive !== false && move < 0.004) continue;
       if (overallPause) continue;
       if (!overall && symbolBlockPaused(e, p.symbol, evalN)) continue;
       const q = e.quotes[p.symbol];
@@ -3055,6 +3054,10 @@ export function adjustActiveBlocks(
             slDist: lv.slDist,
             tpDist: lv.tpDist,
             batchId: `${p.id}:${next}`,
+            tactic: p.tactic ?? tactic,
+            indication: p.indication,
+            kind: "block",
+            playbook: "block",
             note: `${overall ? "Overall Block" : "Block"} ${mode} #${next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
           });
           countPlaced(e);
