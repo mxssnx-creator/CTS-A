@@ -1693,6 +1693,7 @@ describe("VST engine", () => {
     assert.equal(openPlaybook("hybrid", "active"), "normal");
     assert.equal(openPlaybook("hybrid", "direction"), "normal");
     assert.equal(openPlaybook("axis", "break"), "axis");
+    assert.equal(openPlaybook("dca", "trend"), "normal");
     assert.ok(indicationProtect("break").slMul > 1);
     assert.ok(indicationProtect("active").holdMul < 1);
     assert.ok(indicationProtect("direction").tpMul >= 1);

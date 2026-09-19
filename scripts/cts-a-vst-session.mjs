@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, TACTICS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -30,6 +30,7 @@ import {
   sweepAllConfigs,
   sweepPlaybooks,
   completeComputationsAsync,
+  LIVE_TACTICS,
 } from "../src/lib/desk/vst.ts";
 
 const HOURS = Number(process.env.CTS_A_VST_HOURS ?? 12);
@@ -102,11 +103,11 @@ const BLOCK = {
 };
 
 const LIVE_CFG = { trailingPct: 1.4, tpRatio: 1.6, dcaCount: 1, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
-const GRID = TACTICS.flatMap((tactic) =>
+const GRID = LIVE_TACTICS.flatMap((tactic) =>
   RANGE_TYPES.map((range) => ({
     tactic,
     range,
-    cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, dcaCount: tactic === "dca" ? 2 : 1 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, dcaCount: 1 },
   })),
 );
 
@@ -743,6 +744,10 @@ async function mirrorToExchange(e, network, cfg) {
   for (const f of e.fills.slice(0, 80)) {
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
+    if (e.lastTactic === "dca" || /dca/i.test(String(f.playbook || f.note || ""))) {
+      mirrored.add(f.id);
+      continue;
+    }
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
     if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 6))) continue;
     if (!isDeskSymbol(f.symbol)) {
@@ -1214,7 +1219,7 @@ async function main() {
           pick = {
             tactic: pick.tactic,
             range: pick.range,
-            cfg: { ...pick.cfg, ...nextCfg },
+            cfg: { ...pick.cfg, ...nextCfg, dcaCount: 1 },
           };
           adjustments.push(`settings cfg sl ${pick.cfg.slAtr} tp ${pick.cfg.tpRatio} trail ${pick.cfg.trailingPct}`);
           healEngine(engine, pick.cfg, pick.tactic, pick.range);

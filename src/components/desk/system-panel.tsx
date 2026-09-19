@@ -151,7 +151,7 @@ export function SystemPanel({
         <StatLine k="Min PF / VF" v={`${th.minPf.toFixed(2)} / ${th.minVf.toFixed(2)}`} />
         <StatLine k="Max DD / DDT" v={`${(th.maxMdd * 100).toFixed(0)}% / ${th.maxDdt} bars`} />
         <StatLine k="Min WR" v={fmtWr(th.minWr)} />
-        <StatLine k="Trailing / DCA" v={`${cfg.trailingPct.toFixed(1)}% · ${cfg.dcaCount}×${cfg.dcaDrawdown.toFixed(1)}`} />
+        <StatLine k="Trailing / DCA" v={`${cfg.trailingPct.toFixed(1)}% · off`} />
         <StatLine k="Axis" v={`${cfg.axisLevels} × ${cfg.axisSpacing.toFixed(1)}`} />
         <StatLine k="Stop / TP" v={`ATR ${cfg.slAtr.toFixed(2)} · TP/SL ${cfg.tpRatio.toFixed(2)}R`} />
         <StatLine

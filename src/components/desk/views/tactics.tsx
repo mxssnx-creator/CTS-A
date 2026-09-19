@@ -85,16 +85,8 @@ export function TacticsView() {
                 onPointerUp={() => applyLive()}
               />
             </Field>
-            <Field label={`DCA count ${cfg.dcaCount}`}>
-              <input
-                type="range"
-                min={2}
-                max={8}
-                step={1}
-                value={cfg.dcaCount}
-                onChange={(e) => setCfg({ dcaCount: Number(e.target.value) })}
-                onPointerUp={() => applyLive()}
-              />
+            <Field label="DCA off">
+              <input type="range" min={1} max={1} step={1} value={1} disabled aria-label="DCA disabled" />
             </Field>
             <Field label={`DCA drawdown ${cfg.dcaDrawdown.toFixed(1)} ATR`}>
               <input

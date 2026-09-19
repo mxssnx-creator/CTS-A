@@ -385,7 +385,7 @@ export function SettingsView() {
           <StatLine k="Min VF" v={th.minVf.toFixed(2)} />
           <StatLine k="Max DDT" v={`${th.maxDdt} bars`} />
           <StatLine k="Trailing" v={`${cfg.trailingPct.toFixed(1)}%`} />
-          <StatLine k="DCA" v={`${cfg.dcaCount} × ${cfg.dcaDrawdown.toFixed(1)}`} />
+          <StatLine k="DCA" v="off" />
           <StatLine k="Axis" v={`${cfg.axisLevels} × ${cfg.axisSpacing.toFixed(1)}`} />
           <StatLine k="Stop ATR" v={`${cfg.slAtr.toFixed(2)} · TP/SL ${cfg.tpRatio.toFixed(2)}R`} />
           <StatLine k="Tape" v={liveTape ? "BingX live" : "Synthetic"} />
@@ -765,26 +765,24 @@ export function SettingsView() {
               ariaLabel="Take-profit to stop-loss ratio"
             />
             <RangeKnob
-              label="DCA count"
-              value={cfg.dcaCount}
-              min={2}
-              max={8}
+              label="DCA"
+              value={1}
+              min={1}
+              max={1}
               step={1}
-              format={(n) => String(n)}
-              onChange={(n) => setCfg({ dcaCount: n })}
-              onCommit={applyLive}
-              ariaLabel="DCA count"
+              format={() => "off"}
+              onChange={() => setCfg({ dcaCount: 1 })}
+              ariaLabel="DCA disabled"
             />
             <RangeKnob
               label="DCA drawdown"
-              value={cfg.dcaDrawdown}
-              min={0.4}
-              max={2.4}
-              step={0.1}
-              format={(n) => n.toFixed(1)}
-              onChange={(n) => setCfg({ dcaDrawdown: n })}
-              onCommit={applyLive}
-              ariaLabel="DCA drawdown"
+              value={0}
+              min={0}
+              max={0}
+              step={1}
+              format={() => "off"}
+              onChange={() => undefined}
+              ariaLabel="DCA drawdown disabled"
             />
             <RangeKnob
               label="Axis levels"

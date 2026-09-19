@@ -1047,7 +1047,7 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
 }
 
 export function openPlaybook(tactic: TacticKind, indication: IndicationId): string {
-  if (tactic === "dca") return "dca";
+  if (tactic === "dca") return "normal";
   if (tactic === "axis") return "axis";
   if (indication === "break") return "normal";
   if (indication === "active") return "normal";

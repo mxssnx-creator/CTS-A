@@ -398,19 +398,8 @@ export function SessionProgress({
           />
         </label>
         <label className="flex min-w-0 flex-col gap-1">
-          <span className="text-xs font-medium text-muted">DCA {cfg.dcaCount} × {cfg.dcaDrawdown.toFixed(1)}</span>
-          <input
-            aria-label="DCA count"
-            type="range"
-            min={2}
-            max={8}
-            step={1}
-            value={cfg.dcaCount}
-            onChange={(e) => {
-              setTacticConfig({ dcaCount: Number(e.target.value) });
-            }}
-            onPointerUp={() => applyLiveConfig()}
-          />
+          <span className="text-xs font-medium text-muted">DCA off</span>
+          <input aria-label="DCA disabled" type="range" min={1} max={1} value={1} disabled />
         </label>
         <label className="flex min-w-0 flex-col gap-1">
           <span className="text-xs font-medium text-muted">
