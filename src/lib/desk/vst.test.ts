@@ -1055,9 +1055,9 @@ describe("VST engine", () => {
       }
     }
 
-    const { report } = simulateHours(16, CFG, "axis", {
+    const { report } = simulateHours(16, CFG, "hybrid", {
       symbolCount: 8,
-      rangeType: "atr",
+      rangeType: "fibonacci",
       block: { ...DEFAULT_BLOCK_CONFIG, volumeMode: "shared", counts: [1, 2], maxMultiple: 2, windows: true },
     });
     assert.equal(report.hours, 16);
