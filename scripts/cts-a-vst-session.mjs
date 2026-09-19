@@ -204,7 +204,7 @@ const SHORT_GRID = allShortTpSlCombos().flatMap((s) =>
     cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, ...s, dcaCount: 1, maxHoldTicks: 16 },
   })),
 );
-let GRID = [...BASE_GRID, ...SHORT_GRID];
+let GRID = [...SHORT_GRID, ...BASE_GRID];
 let currentPick = GRID[0];
 const DISABLED_FILE = process.env.CTS_A_DISABLED ?? "/var/lib/cts-a/live-disabled.json";
 
