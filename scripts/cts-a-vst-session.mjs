@@ -1722,7 +1722,7 @@ async function main() {
       tickVst(engine, pick.cfg, pick.tactic, {
         freezeIds: lastBook.pos >= liveMaxPos() ? freeze : undefined,
         skipWalk: lastBook.pos >= liveMaxPos(),
-        skipMatch: true,
+        skipMatch: lastBook.pos >= liveMaxPos(),
         rangeType: pick.range,
         symbolCount: LIVE_SYMBOLS,
         orderType: "limit",
