@@ -2221,6 +2221,7 @@ export interface ReplayTape {
   strategies: ReplayStrategyRow[];
   equity: { i: number; eq: number }[];
   load: { i: number; pos: number; ord: number }[];
+  symbolRows?: { id: string; pf: number; wr: number; net: number; trades: number; avgPos: number; avgOrd: number }[];
 }
 
 const REPLAY_CACHE = new Map<string, ReplayTape>();
@@ -2369,6 +2370,131 @@ export function getReplayTape(symbol: string, hours: number): ReplayTape {
   if (REPLAY_CACHE.size > 16) REPLAY_CACHE.clear();
   REPLAY_CACHE.set(key, tape);
   return tape;
+}
+
+export function getReplayDeskTape(hours: number, symbolIds?: string[]): ReplayTape {
+  const ids = (symbolIds?.length ? symbolIds : SYMBOLS.slice(0, 12).map((s) => s.id)).slice(0, 16);
+  const key = `desk:${ids.join(",")}:${replayBarsFor(hours)}`;
+  const hit = REPLAY_CACHE.get(key);
+  if (hit) return hit;
+  const tapes = ids.map((id) => getReplayTape(id, hours));
+  const primary = tapes[0] ?? getReplayTape(SYMBOLS[0]!.id, hours);
+  const n = tapes.length || 1;
+  const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+  const symbolRows = tapes.map((t) => {
+    const st = t.strategies.find((s) => s.id === "normal") ?? t.strategies[0];
+    return {
+      id: t.symbol,
+      pf: st?.pf ?? 0,
+      wr: st?.wr ?? 0,
+      net: st?.net ?? 0,
+      trades: st?.trades ?? 0,
+      avgPos: t.occupancy.avgPos,
+      avgOrd: t.occupancy.avgOrd,
+    };
+  });
+  const strategies = STRATEGIES.map((st) => {
+    const rows = tapes.map((t) => t.strategies.find((s) => s.id === st.id)).filter(Boolean) as ReplayStrategyRow[];
+    return {
+      id: st.id,
+      name: st.name,
+      kind: st.kind,
+      pf: avg(rows.map((r) => r.pf)),
+      wr: avg(rows.map((r) => r.wr)),
+      net: rows.reduce((s, r) => s + r.net, 0),
+      trades: rows.reduce((s, r) => s + r.trades, 0),
+      mdd: avg(rows.map((r) => r.mdd)),
+      avgPos: avg(rows.map((r) => r.avgPos)),
+      avgOrd: avg(rows.map((r) => r.avgOrd)),
+    };
+  });
+  const kinds = INDICATION_KINDS.map((k) => {
+    const rows = tapes.map((t) => t.kinds.find((r) => r.key === k.id)).filter(Boolean) as ReplayKindRow[];
+    return {
+      key: k.id,
+      hits: rows.reduce((s, r) => s + r.hits, 0),
+      avgStrength: avg(rows.map((r) => r.avgStrength)),
+      pf: avg(rows.map((r) => r.pf)),
+      wr: avg(rows.map((r) => r.wr)),
+      net: rows.reduce((s, r) => s + r.net, 0),
+      trades: rows.reduce((s, r) => s + r.trades, 0),
+    };
+  });
+  const configs = (primary.configs ?? []).map((c) => {
+    const rows = tapes.map((t) => t.configs.find((x) => x.id === c.id)).filter(Boolean);
+    return {
+      ...c,
+      hits: rows.reduce((s, r) => s + (r?.hits ?? 0), 0),
+      avgStrength: avg(rows.map((r) => r?.avgStrength ?? 0)),
+    };
+  });
+  const loadLen = Math.min(...tapes.map((t) => t.load.length));
+  const load = Array.from({ length: loadLen }, (_, i) => ({
+    i,
+    pos: avg(tapes.map((t) => t.load[i]?.pos ?? 0)),
+    ord: avg(tapes.map((t) => t.load[i]?.ord ?? 0)),
+  }));
+  const eqLen = Math.min(...tapes.map((t) => t.equity.length));
+  const equity = Array.from({ length: eqLen }, (_, i) => ({
+    i,
+    eq: tapes.reduce((s, t) => s + (t.equity[i]?.eq ?? 0), 0) / n,
+  }));
+  const tape: ReplayTape = {
+    ...primary,
+    symbol: "ALL",
+    occupancy: {
+      avgPos: avg(tapes.map((t) => t.occupancy.avgPos)),
+      avgOrd: avg(tapes.map((t) => t.occupancy.avgOrd)),
+      peak: Math.max(...tapes.map((t) => t.occupancy.peak)),
+    },
+    kinds,
+    configs,
+    strategies,
+    equity,
+    load,
+    symbolRows,
+  };
+  if (REPLAY_CACHE.size > 16) REPLAY_CACHE.clear();
+  REPLAY_CACHE.set(key, tape);
+  return tape;
+}
+
+export function heatmapForDesk(
+  strategyId: string,
+  tactic: TacticKind,
+  lastN: number,
+  cfg: TacticConfig,
+  th: Thresholds,
+  adj?: StrategyAdj,
+  symbolCount = 8,
+): HeatCell[] {
+  const ids = SYMBOLS.slice(0, Math.max(4, Math.min(12, symbolCount))).map((s) => s.id);
+  const acc = new Map<string, HeatCell & { n: number }>();
+  for (const id of ids) {
+    const bt = getBacktest(strategyId, id);
+    const name = STRATEGIES.find((s) => s.id === strategyId)?.name ?? strategyId;
+    for (const range of RANGE_TYPES) {
+      for (const cost of COST_STEPS) {
+        const c = deriveCombo(bt, name, cost, range, tactic, lastN, cfg, th, adj, cfg.trailingPct, cfg.tpRatio);
+        const k = `${cost}:${range}`;
+        const prev = acc.get(k);
+        if (!prev) acc.set(k, { cost, rangeType: range, pf: c.pf, mdd: c.mdd, positive: c.positive, n: 1 });
+        else {
+          prev.pf += c.pf;
+          prev.mdd += c.mdd;
+          prev.n += 1;
+          prev.positive = prev.positive && c.positive;
+        }
+      }
+    }
+  }
+  return [...acc.values()].map((c) => ({
+    cost: c.cost,
+    rangeType: c.rangeType,
+    pf: c.n ? c.pf / c.n : 0,
+    mdd: c.n ? c.mdd / c.n : 0,
+    positive: c.positive,
+  }));
 }
 
 export function heatmapFor(

@@ -111,8 +111,8 @@ export function PositionsView() {
         ) : liveSnap.livePos === 0 && liveSnap.liveOrd === 0 ? (
           <p className="mt-3 text-sm text-muted">Account connected. No open positions or orders on the exchange.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-border text-sm">
-            {exchange?.positions.slice(0, 12).map((p) => (
+          <ul className="mt-3 max-h-[32rem] divide-y divide-border overflow-auto text-sm">
+            {exchange?.positions.map((p) => (
               <li key={`${p.symbol}-${p.side}`} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="font-mono text-xs">{p.symbol.replace("USDT", "")}</span>
                 <span className="capitalize">{p.side}</span>
@@ -121,7 +121,7 @@ export function PositionsView() {
                 <span className={clsPnl(p.pnl)}>{fmtUsd(p.pnl)}</span>
               </li>
             ))}
-            {exchange?.orders.slice(0, 8).map((o, i) => (
+            {exchange?.orders.map((o, i) => (
               <li key={`${o.id}:${o.type}:${i}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-muted">
                 <span className="font-mono text-xs">{o.symbol.replace("USDT", "")}</span>
                 <span>{o.type}</span>

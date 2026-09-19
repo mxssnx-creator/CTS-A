@@ -486,7 +486,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     try {
       const h = hours ?? replayHoursFor(get().replayRangeId);
       const bundle = runReplaySimulation(h, get().tacticConfig, get().tactic, get().rangeType, {
-        symbolCount: Math.min(8, get().symbolCount || 8),
+        symbolCount: Math.min(16, get().symbolCount || 16),
         complete: false,
       });
       const e = get().vst;
@@ -503,7 +503,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       if (withComplete && typeof window !== "undefined") {
         const hoursList = completeHoursFor(h, { cap: 48 });
         void completeComputationsAsync(get().tacticConfig, {
-          symbolCount: Math.min(6, get().symbolCount || 6),
+          symbolCount: Math.min(8, get().symbolCount || 8),
           hours: hoursList,
           yieldFn: () => new Promise((r) => window.setTimeout(r, 0)),
           onCell: (cell, i, total) => {

@@ -5,7 +5,7 @@ import {
   buildLanes,
   coordinate,
   DESK,
-  heatmapFor,
+  heatmapForDesk,
   posSliceStats,
   STRATEGIES,
   TACTIC_META,
@@ -53,23 +53,23 @@ export function OverviewView() {
   }, [strategyId, params]);
 
   const book = useMemo(
-    () => bookStats(lastNs.lanes, cfg, th, symbol, enabledKinds),
-    [lastNs.lanes, cfg, th, symbol, enabledKinds],
+    () => bookStats(lastNs.lanes, cfg, th, undefined, enabledKinds),
+    [lastNs.lanes, cfg, th, enabledKinds],
   );
   const [cells, setCells] = useState<ReturnType<typeof heatmapFor>>([]);
   useEffect(() => {
     const t = window.setTimeout(() => {
       try {
-        setCells(heatmapFor(strategyId, symbol, tactic, lastNs.combos, cfg, th, adj));
+        setCells(heatmapForDesk(strategyId, tactic, lastNs.combos, cfg, th, adj, 8));
       } catch {
         setCells([]);
       }
     }, 40);
     return () => window.clearTimeout(t);
-  }, [strategyId, symbol, tactic, lastNs.combos, cfg, th, adj]);
+  }, [strategyId, tactic, lastNs.combos, cfg, th, adj]);
   const lanes = useMemo(
-    () => buildLanes(lastNs.lanes, cfg, th, symbol, enabledKinds).filter((l) => l.status !== "rejected").slice(0, 6),
-    [lastNs.lanes, cfg, th, symbol, enabledKinds],
+    () => buildLanes(lastNs.lanes, cfg, th, undefined, enabledKinds).filter((l) => l.status !== "rejected").slice(0, 12),
+    [lastNs.lanes, cfg, th, enabledKinds],
   );
   const live = liveDeskBook(useDesk.getState().vst, activeConnId, lastNs.last);
   void vstTick;
@@ -133,7 +133,7 @@ export function OverviewView() {
           <h1 className="text-2xl font-semibold tracking-tight">Strategy desk</h1>
         </div>
         <p className="max-w-md text-sm text-muted">
-          Independent combinations across cost 3–30. Live book is {liveSnap.venueLabel} — tape, positions and fills from the exchange.
+          Independent combinations across cost 3–30 for all symbols. Header quote is {symbol} only — listings and stats are the full book.
         </p>
       </div>
 
@@ -203,7 +203,7 @@ export function OverviewView() {
           </div>
         ) : null}
         {overall.bySymbol?.length ? (
-          <div className="mt-3 overflow-x-auto">
+          <div className="mt-3 max-h-[28rem] overflow-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-widest text-subtle">
@@ -214,7 +214,7 @@ export function OverviewView() {
                 </tr>
               </thead>
               <tbody>
-                {overall.bySymbol.slice(0, 12).map((s) => (
+                {overall.bySymbol.map((s) => (
                   <tr key={s.key} className="border-t border-border">
                     <td className="py-1 pr-2 font-medium">{s.key}</td>
                     <td className="py-1 pr-2 font-mono tabular">{s.n}</td>

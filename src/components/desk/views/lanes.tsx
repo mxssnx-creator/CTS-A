@@ -27,8 +27,8 @@ export function LanesView() {
   const applyLive = useDesk((s) => s.applyLiveConfig);
 
   const lanes = useMemo(
-    () => buildLanes(lastNs.lanes, cfg, th, symbol, enabledKinds),
-    [lastNs.lanes, cfg, th, symbol, enabledKinds],
+    () => buildLanes(lastNs.lanes, cfg, th, undefined, enabledKinds),
+    [lastNs.lanes, cfg, th, enabledKinds],
   );
 
   return (
@@ -37,8 +37,7 @@ export function LanesView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Flow</p>
         <h1 className="text-2xl font-semibold tracking-tight">Validated lanes</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          A lane is strategy × symbol × tactic. Trend, Break, Active and Direction indications process independently
-          on every set. Last {lastNs.lanes} plus the full book. High-frequency activity is flagged on the card.
+          A lane is strategy × symbol × tactic for every symbol. Trend, Break, Active and Direction run independently. Last {lastNs.lanes} plus the full book.
         </p>
       </div>
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_TACTIC_CONFIG, REPLAY_RANGES, getReplayTape, WARMUP } from "./engine.ts";
+import { DEFAULT_TACTIC_CONFIG, REPLAY_RANGES, getReplayTape, getReplayDeskTape, WARMUP } from "./engine.ts";
 import { completeComputations, LIVE_TACTICS, simulateHours } from "./vst.ts";
 import { RANGE_TYPES } from "./engine.ts";
 import { completeHoursFor, replayHoursFor, runReplaySimulation } from "./replay-run.ts";
@@ -66,5 +66,15 @@ describe("replay simulation", () => {
     assert.ok(complete.winner);
     assert.ok(complete.byHours["8"] && complete.byHours["16"] && complete.byHours["24"]);
     assert.ok(complete.winner!.trades >= 1);
+  });
+
+  it("desk tape covers multiple symbols with occupancy and PF rows", () => {
+    const tape = getReplayDeskTape(8, ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]);
+    assert.equal(tape.symbol, "ALL");
+    assert.ok((tape.symbolRows?.length ?? 0) >= 4);
+    assert.ok(tape.strategies.length >= 1);
+    assert.ok(tape.kinds.length >= 1);
+    assert.ok(tape.load.length >= 1);
+    assert.ok(Number.isFinite(tape.occupancy.avgPos));
   });
 });

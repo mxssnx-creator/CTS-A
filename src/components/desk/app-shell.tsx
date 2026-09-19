@@ -288,7 +288,7 @@ export function AppShell() {
           </div>
           <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
             <select
-              aria-label="Symbol"
+              aria-label="Quote symbol"
               className="h-8 max-w-28 border-0 bg-primary-hover px-2 text-sm text-header-fg sm:max-w-none"
               value={symbol}
               onChange={(e) => setSymbol(e.target.value)}

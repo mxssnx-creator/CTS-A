@@ -9,16 +9,17 @@ import {
   TACTIC_META,
   WARMUP,
   getReplayTape,
+  getReplayDeskTape,
   type ReplayRangeId,
 } from "@/lib/desk/engine";
-import { LIVE_TACTICS } from "@/lib/desk/vst";
+import { LIVE_TACTICS, universeSymbols } from "@/lib/desk/vst";
 import { replayHoursFor } from "@/lib/desk/replay-run";
 import type { RangeType, TacticKind } from "@/lib/desk/types";
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
 import { fmtNum, fmtPx, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { EquityChart, MetricBarChart, OccupancyChart, PriceChart } from "../charts";
+import { EquityChart, HBarChart, MetricBarChart, OccupancyChart, PriceChart } from "../charts";
 import { fmtMdd, fmtPf, fmtWr, Kpi, Panel, Pill, Segmented, StatLine, pfTone } from "../widgets";
 import { LiveBookStrip } from "../live-book-strip";
 
@@ -62,10 +63,16 @@ export function ReplayView() {
   const ticketMsg = useDesk((s) => s.ticketMsg);
   const live = useLiveSnapshot();
   const [busy, setBusy] = useState<"sim" | "all" | null>(null);
+  const [deskMode, setDeskMode] = useState(true);
+  const symbolCount = useDesk((s) => s.symbolCount);
 
   const hours = REPLAY_RANGES.find((r) => r.id === rangeId)?.hours ?? 48;
   const simHours = replayHoursFor(rangeId);
-  const tape = useMemo(() => getReplayTape(symbol, hours), [symbol, hours]);
+  const deskIds = universeSymbols(Math.min(16, symbolCount || 16)).map((s) => s.id);
+  const tape = useMemo(
+    () => (deskMode ? getReplayDeskTape(hours, deskIds) : getReplayTape(symbol, hours)),
+    [deskMode, symbol, hours, symbolCount],
+  );
   const max = Math.max(0, tape.bars - 1);
   const idx = Math.min(max, Math.max(WARMUP, replayIndex));
   const bt = tape.backtests[strategyId] ?? tape.backtests.normal;
@@ -166,15 +173,23 @@ export function ReplayView() {
           <p className="text-xs font-medium uppercase tracking-widest text-subtle">History · simulation</p>
           <h1 className="text-2xl font-semibold tracking-tight">Replay</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted">
-            Full VST trade simulations for the selected range: every live tactic × range, indications, playbooks, last-N and hour stats. Tape play is independent.
+            Full VST trade simulations across all symbols: every live tactic × range, indications, playbooks, last-N, hour stats and occupancy. Header quote is {symbol}.
           </p>
         </div>
         <select
-          aria-label="Symbol"
+          aria-label="Replay universe"
           className="h-8 border border-border bg-surface px-2 text-xs"
-          value={symbol}
-          onChange={(e) => setSymbol(e.target.value)}
+          value={deskMode ? "ALL" : symbol}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "ALL") setDeskMode(true);
+            else {
+              setDeskMode(false);
+              setSymbol(v);
+            }
+          }}
         >
+          <option value="ALL">All symbols ({deskIds.length})</option>
           {DESK.symbols.map((s) => (
             <option key={s.id} value={s.id}>
               {s.id}
@@ -524,6 +539,97 @@ export function ReplayView() {
                 </tbody>
               </table>
             </div>
+          </Panel>
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel title={`Symbols · PF (${tape.symbolRows?.length ?? 1})`}>
+          <HBarChart
+            data={[...(tape.symbolRows ?? [{ id: tape.symbol, pf: pfTape }])]
+              .sort((a, b) => b.pf - a.pf)
+              .slice(0, 16)
+              .map((s) => ({ label: String(s.id).replace("USDT", ""), value: s.pf }))}
+          />
+        </Panel>
+        <Panel title="Occupancy">
+          <OccupancyChart data={loadCurve} />
+          <div className="mt-2 grid grid-cols-2 gap-x-4">
+            <StatLine k="Avg positions" v={fmtNum(tape.occupancy.avgPos, 2)} />
+            <StatLine k="Avg orders" v={fmtNum(tape.occupancy.avgOrd, 2)} />
+            <StatLine k="Peak" v={fmtNum(tape.occupancy.peak, 0)} />
+            <StatLine k="Universe" v={String(deskMode ? deskIds.length : 1)} />
+          </div>
+        </Panel>
+      </div>
+
+      {stats?.bySymbol?.length ? (
+        <Panel title="Sim symbols · all" padded={false}>
+          <div className="max-h-80 overflow-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="sticky top-0 bg-bg text-xs uppercase tracking-wide text-subtle">
+                <tr>
+                  <th className="px-4 py-2">Symbol</th>
+                  <th className="px-2 py-2">n</th>
+                  <th className="px-2 py-2">PF</th>
+                  <th className="px-2 py-2">WR</th>
+                  <th className="px-2 py-2">Net</th>
+                  <th className="px-2 py-2">Open</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...stats.bySymbol].sort((a, b) => b.pf - a.pf).map((s) => (
+                  <tr key={s.key} className="border-t border-border">
+                    <td className="px-4 py-2 font-medium">{s.key}</td>
+                    <td className="px-2 py-2 font-mono tabular">{s.n}</td>
+                    <td className={`px-2 py-2 font-mono tabular ${s.pf >= 1 ? "text-up" : "text-down"}`}>{fmtPf(s.pf)}</td>
+                    <td className="px-2 py-2 font-mono tabular">{fmtWr(s.wr)}</td>
+                    <td className={`px-2 py-2 font-mono tabular ${s.net >= 0 ? "text-up" : "text-down"}`}>{fmtUsd(s.net)}</td>
+                    <td className="px-2 py-2 font-mono tabular">{s.openN ?? 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      ) : tape.symbolRows?.length ? (
+        <Panel title="Tape symbols · all" padded={false}>
+          <div className="max-h-80 overflow-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="sticky top-0 bg-bg text-xs uppercase tracking-wide text-subtle">
+                <tr>
+                  <th className="px-4 py-2">Symbol</th>
+                  <th className="px-2 py-2">n</th>
+                  <th className="px-2 py-2">PF</th>
+                  <th className="px-2 py-2">WR</th>
+                  <th className="px-2 py-2">Net</th>
+                  <th className="px-2 py-2">Avg pos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...tape.symbolRows].sort((a, b) => b.pf - a.pf).map((s) => (
+                  <tr key={s.id} className="border-t border-border">
+                    <td className="px-4 py-2 font-medium">{s.id}</td>
+                    <td className="px-2 py-2 font-mono tabular">{s.trades}</td>
+                    <td className={`px-2 py-2 font-mono tabular ${s.pf >= 1 ? "text-up" : "text-down"}`}>{fmtPf(s.pf)}</td>
+                    <td className="px-2 py-2 font-mono tabular">{fmtWr(s.wr)}</td>
+                    <td className={`px-2 py-2 font-mono tabular ${s.net >= 0 ? "text-up" : "text-down"}`}>{fmtUsd(s.net)}</td>
+                    <td className="px-2 py-2 font-mono tabular">{fmtNum(s.avgPos, 2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      ) : null}
+
+      {(stats?.bySide?.length || stats?.byReason?.length) ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel title="Side">
+            <MetricBarChart data={(stats?.bySide ?? []).map((b) => ({ label: b.key, value: b.pf }))} yLabel="PF" />
+          </Panel>
+          <Panel title="SL / TP">
+            <MetricBarChart data={(stats?.byReason ?? []).map((b) => ({ label: b.key, value: b.n }))} yLabel="n" />
           </Panel>
         </div>
       ) : null}

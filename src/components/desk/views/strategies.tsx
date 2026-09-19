@@ -6,6 +6,7 @@ import {
   lastNEval,
   paramBounds,
   paramKey,
+  SYMBOLS,
   STRATEGIES,
   strategyAdjMod,
   STRATEGY_KINDS,
@@ -38,12 +39,30 @@ export function StrategiesView() {
   const toggleKind = useDesk((s) => s.toggleKind);
 
   const ranked = useMemo(() => {
+    const ids = SYMBOLS.slice(0, 12).map((s) => s.id);
     return STRATEGIES.filter((st) => strategyMatchesKinds(st, enabledKinds))
       .map((st) => {
-      const bt = getBacktest(st.id, symbol);
       const adj = strategyAdjMod(st, params);
-      const last = applyAdjToStats(lastNEval(bt, lastNs.picks), adj);
-      return { st, bt, last, adj };
+      const last = ids.reduce(
+        (acc, id) => {
+          const s = applyAdjToStats(lastNEval(getBacktest(st.id, id), lastNs.picks), adj);
+          acc.pf += s.pf;
+          acc.wr += s.wr;
+          acc.net += s.net;
+          acc.trades += s.trades;
+          acc.n += 1;
+          return acc;
+        },
+        { pf: 0, wr: 0, net: 0, trades: 0, n: 0 },
+      );
+      const n = Math.max(1, last.n);
+      const bt = getBacktest(st.id, symbol);
+      return {
+        st,
+        bt,
+        last: { pf: last.pf / n, wr: last.wr / n, net: last.net, trades: last.trades, mdd: bt.stats.mdd, ddt: 0 },
+        adj,
+      };
     }).sort((a, b) => (a.st.kind === "normal" ? -1 : b.st.kind === "normal" ? 1 : b.last.pf - a.last.pf));
   }, [symbol, lastNs.picks, params, enabledKinds]);
 
@@ -70,7 +89,7 @@ export function StrategiesView() {
         <h1 className="text-2xl font-semibold tracking-tight">Strategies</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
           Normal is the general lane. Trend, Break, Active and Direction indications run independently on every
-          set. Ranked by last {lastNs.picks} picks on {symbol}.
+          set. Ranked by last {lastNs.picks} picks across the universe (header quote {symbol}).
         </p>
       </div>
 

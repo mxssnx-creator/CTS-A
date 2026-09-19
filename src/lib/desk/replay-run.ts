@@ -49,7 +49,7 @@ export function runReplaySimulation(
   opts?: { symbolCount?: number; complete?: boolean },
 ): ReplaySimBundle {
   const h = Math.max(8, Math.round(hours));
-  const symbolCount = Math.min(12, Math.max(4, opts?.symbolCount ?? 8));
+  const symbolCount = Math.min(16, Math.max(8, opts?.symbolCount ?? 12));
   const marks = [8, 16, 24, 48, 72, 120].filter((n) => n <= h);
   const { engine, report } = simulateHours(h, cfg, tactic, {
     symbolCount,
@@ -57,7 +57,7 @@ export function runReplaySimulation(
     marks,
   });
   const stats = overallLiveStats(engine);
-  const fills: ReplayFill[] = engine.closed.slice(0, 48).map((c) => ({
+  const fills: ReplayFill[] = engine.closed.slice(0, 200).map((c) => ({
     id: c.id,
     symbol: c.symbol,
     side: c.side,

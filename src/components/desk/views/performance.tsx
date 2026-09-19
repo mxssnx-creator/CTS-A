@@ -73,7 +73,7 @@ export function PerformanceView() {
   const [simming, setSimming] = useState(false);
   const [staging, setStaging] = useState(false);
 
-  const [scope, setScope] = useState<"symbol" | "desk">("symbol");
+  const [scope, setScope] = useState<"symbol" | "desk">("desk");
   const [hours, setHours] = useState<1 | 2 | 4 | 8 | 16 | 32 | 24 | 72>(8);
   const [curveSrc, setCurveSrc] = useState<"sim" | "backtest">("backtest");
 
