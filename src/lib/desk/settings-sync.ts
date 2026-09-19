@@ -250,7 +250,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         pauseCountRatio: Math.min(6, Math.max(0, Math.round(asNum(b.pauseCountRatio, d.blockConfig.pauseCountRatio ?? 0)))),
         evalPosCount: Math.min(16, Math.max(1, Math.round(asNum(b.evalPosCount, d.blockConfig.evalPosCount ?? 6)))),
         activeLive: asBool(b.activeLive, d.blockConfig.activeLive ?? true),
-        minActiveLevel: Math.min(16, Math.max(0, Math.round(asNum(b.minActiveLevel, d.blockConfig.minActiveLevel ?? 0)))),
+        minActiveLevel: Math.min(6, Math.max(1, Math.round(asNum(b.minActiveLevel, d.blockConfig.minActiveLevel ?? 1)))),
         keepAdjusted: asBool((b as { keepAdjusted?: boolean }).keepAdjusted, d.blockConfig.keepAdjusted ?? true),
         stack: asBool((b as { stack?: boolean }).stack, d.blockConfig.stack ?? true),
         windows: asBool((b as { windows?: boolean }).windows, d.blockConfig.windows ?? true),

@@ -1221,9 +1221,9 @@ export function SettingsView() {
               size="sm"
               variant={blockCfg.activeLive !== false ? "primary" : "secondary"}
               className="h-11 sm:h-8"
-              onClick={() => setBlockCfg({ activeLive: !(blockCfg.activeLive !== false) })}
+              onClick={() => setBlockCfg({ activeLive: !(blockCfg.activeLive !== false), minActiveLevel: blockCfg.minActiveLevel || 1 })}
             >
-              {blockCfg.activeLive !== false ? "Active · adjusted only" : "Active off"}
+              {blockCfg.activeLive !== false ? `Active ON · ${blockCfg.minActiveLevel || 1} step` : "Active off"}
             </Button>
             <Button
               size="sm"
@@ -1251,6 +1251,16 @@ export function SettingsView() {
             </Button>
           </div>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <RangeKnob
+              label="Active step (min level)"
+              value={blockCfg.minActiveLevel || 1}
+              min={1}
+              max={6}
+              step={1}
+              format={(n) => String(n)}
+              onChange={(n) => setBlockCfg({ minActiveLevel: n, activeLive: true })}
+              ariaLabel="Block Active minimum step"
+            />
             <RangeKnob
               label="Max block multiple"
               value={blockCfg.maxMultiple}

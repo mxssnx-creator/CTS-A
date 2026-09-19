@@ -539,7 +539,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   pauseCountRatio: 0,
   evalPosCount: 6,
   activeLive: true,
-  minActiveLevel: 0,
+  minActiveLevel: 1,
   keepAdjusted: true,
   stack: true,
   windows: true,

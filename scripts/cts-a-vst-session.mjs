@@ -174,7 +174,7 @@ const BLOCK = {
   pauseCountRatio: 0,
   evalPosCount: 6,
   activeLive: true,
-  minActiveLevel: 0,
+  minActiveLevel: 1,
   keepAdjusted: true,
   stack: true,
   windows: true,
@@ -2189,7 +2189,8 @@ async function main() {
         if (remote.blockConfig)
           Object.assign(BLOCK, remote.blockConfig, {
             enabled: STRAT.block,
-            activeLive: remote.blockConfig.activeLive !== false,
+            activeLive: true,
+            minActiveLevel: Math.max(1, Math.round(remote.blockConfig.minActiveLevel || BLOCK.minActiveLevel || 1)),
           });
         engine.blockCfg = { ...BLOCK };
         if (engine.lastMsg?.startsWith("Host reset") || (remote.sessionPhase === "running" && engine.positions.length === 0 && Date.now() - lastResetAt > 8000 && engine.phase === "idle")) {

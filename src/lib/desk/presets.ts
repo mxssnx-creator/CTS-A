@@ -150,7 +150,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
         minMultiple: 1,
         evalLastNs: [1],
         evalPosCount: 1,
-        minActiveLevel: 0,
+        minActiveLevel: 1,
         activeLive: true,
         relAdditive: true,
         relVolumeRatio: 0.08,

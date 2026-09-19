@@ -3028,7 +3028,7 @@ export function adjustActiveBlocks(
           if (adds >= addCap || modeAdds >= counts.length) break;
           if (next < minM || next > maxM) continue;
           if (!blockCountPositive(e, next, minPf)) continue;
-          if (next <= (block.minActiveLevel || 0)) continue;
+          if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
           if (lane.satisfied[next] || liveLevels.has(next) || lane.pending === next) continue;
           if (lane.confirmedAdd + 1e-12 >= lane.baseQty * (mode === "additive" ? next * vr : blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 1.8, mode))) continue;
           if (!blockPfOk(lane, next, block, minPf)) continue;
