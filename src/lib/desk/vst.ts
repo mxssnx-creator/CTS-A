@@ -348,10 +348,10 @@ export const VST_SYMBOLS: VstSymbol[] = [
     .012
   ],
   [
-    "TONUSDT",
-    "TON",
-    5.42,
-    .015
+    "HBARUSDT",
+    "HBAR",
+    0.182,
+    .018
   ],
   [
     "WLDUSDT",
@@ -1946,7 +1946,7 @@ export function symbolBlockPaused(e: VstEngine, symbol: string, n?: number) {
 
 export function symbolTapePf(e: VstEngine, symbol: string) {
   const t = e.symbolStats?.[symbol];
-  if (!t || t.trades < 2) return 99;
+  if (!t || t.trades < 4) return 99;
   const gl = Math.max(0, t.loss);
   const gp = Math.max(0, t.profit);
   return gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl;
@@ -2087,8 +2087,13 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
   }
   const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
   const minPf = block.liveDisableMinPf ?? 1.1;
-  const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
+  const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 8));
   const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, n);
+  if (take.length < n) {
+    e.liveDisabled = {};
+    e.liveHealth = { n, at: e.tick, disabled: [], kept: [] };
+    return e.liveHealth;
+  }
   const groups = new Map<string, { pnl: number }[]>();
   const add = (key: string, pnl: number) => {
     if (!key || key.endsWith(":block") || key === "book:block") return;

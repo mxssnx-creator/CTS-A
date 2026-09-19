@@ -302,7 +302,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   liveLastN: 12,
   liveDisable: true,
   liveDisableMinPf: 1.1,
-  liveDisableMinSamples: 4,
+  liveDisableMinSamples: 8,
 };
 
 /** Additive: each count uses `ratio`. Shared (old): extra/n when n>2. */

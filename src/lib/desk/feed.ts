@@ -85,6 +85,7 @@ export const BINGX_SYMBOL: Record<string, string> = {
   ALGOUSDT: "ALGO-USDT",
   XLMUSDT: "XLM-USDT",
   TRXUSDT: "TRX-USDT",
+  HBARUSDT: "HBAR-USDT",
   WLDUSDT: "WLD-USDT",
   JUPUSDT: "JUP-USDT",
   PYTHUSDT: "PYTH-USDT",

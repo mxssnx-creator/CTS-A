@@ -57,7 +57,7 @@ const BLOCK = {
   minMultiple: 1,
   overall: true,
   counts: IS_X01 ? [...(X01_DEFAULTS.counts ?? [1, 2])] : [...LIVE_BLOCK_COUNTS],
-  volumeRatio: IS_X01 ? (X01_DEFAULTS.volumeRatio ?? 0.08) : 0.08,
+  volumeRatio: IS_X01 ? (X01_DEFAULTS.volumeRatio ?? 0.08) : 0.16,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: IS_X01 ? 2 : 0,
@@ -78,7 +78,7 @@ const BLOCK = {
   liveLastN: 12,
   liveDisable: true,
   liveDisableMinPf: 1.1,
-  liveDisableMinSamples: 4,
+  liveDisableMinSamples: 8,
 };
 
 const GRID = [
