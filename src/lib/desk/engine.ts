@@ -292,7 +292,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   keepAdjusted: true,
   stack: true,
   windows: true,
-  volumeMode: "additive",
+  volumeMode: "parallel",
   sides: "both",
   evalHours: 2,
   autoEval: true,

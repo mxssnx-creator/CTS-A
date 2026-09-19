@@ -1429,7 +1429,7 @@ describe("VST engine", () => {
     const b = blockStepQty(base, 2, r, 1.8, 2, 0, "additive");
     assert.ok(Math.abs(a - base * r) < 1e-9, `step1 ${a}`);
     assert.ok(Math.abs(b - base * r) < 1e-9, `step2 ${b}`);
-    assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "additive");
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "parallel");
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.08);
     const q = additiveBlockQty(1.2, [1, 2, 3], 1, 3, 1);
     assert.ok(Math.abs(q.totalSteps - 3 * 1.2) < 1e-9, `steps ${q.totalSteps}`);
@@ -1620,7 +1620,62 @@ describe("VST engine", () => {
     assert.ok(shared.report.passed && additive.report.passed && both.report.passed);
     finiteNum(shared.report.pf, additive.report.pf, both.report.pf);
     const keys = Object.keys(both.engine.blockLanes || {});
-    assert.ok(keys.some((k) => k.endsWith(":shared")) || keys.some((k) => k.endsWith(":additive")) || both.report.trades >= 0);
+    if (keys.length) {
+      assert.ok(keys.some((k) => k.endsWith(":shared")), `parallel shared lanes ${keys.join(",")}`);
+      assert.ok(keys.some((k) => k.endsWith(":additive")), `parallel additive lanes ${keys.join(",")}`);
+    }
+    const sk = Object.keys(shared.engine.blockLanes || {});
+    assert.ok(!sk.length || sk.every((k) => k.endsWith(":shared")), `shared keys ${sk.join(",")}`);
+    const ak = Object.keys(additive.engine.blockLanes || {});
+    assert.ok(!ak.length || ak.every((k) => k.endsWith(":additive")), `additive keys ${ak.join(",")}`);
+  });
+
+  it("best configs run Block shared+additive for stack, windows, and both types", () => {
+    const best = [
+      { tactic: "trailing" as const, range: "geometric" as const, cfg: { ...CFG, trailingPct: 1.4, slAtr: 0.9, tpRatio: 1.6 } },
+      { tactic: "hybrid" as const, range: "fibonacci" as const, cfg: { ...CFG, trailingPct: 1.4, slAtr: 0.9, tpRatio: 1.6 } },
+      { tactic: "trailing" as const, range: "volume" as const, cfg: { ...CFG, trailingPct: 1.7, slAtr: 0.9, tpRatio: 1.6 } },
+      { tactic: "trailing" as const, range: "atr" as const, cfg: { ...CFG, trailingPct: 1.4, slAtr: 0.7, tpRatio: 2.0 } },
+    ];
+    const types = [
+      { stack: true, windows: false, name: "stack" },
+      { stack: false, windows: true, name: "windows" },
+      { stack: true, windows: true, name: "both" },
+    ] as const;
+    const modes = ["shared", "additive", "parallel"] as const;
+    for (const b of best) {
+      for (const t of types) {
+        for (const m of modes) {
+          const r = simulateHours(8, b.cfg, b.tactic, {
+            symbolCount: 8,
+            rangeType: b.range,
+            block: {
+              ...DEFAULT_BLOCK_CONFIG,
+              stack: t.stack,
+              windows: t.windows,
+              volumeMode: m,
+              counts: [1, 2],
+              maxMultiple: 2,
+              evalPosCount: 6,
+              volumeRatio: 0.08,
+              liveDisable: false,
+              sides: "one",
+            },
+          });
+          assert.ok(r.report.passed, `${b.tactic}/${b.range} ${t.name} ${m} ${r.report.issues?.join(";")}`);
+          finiteNum(r.report.pf, r.report.net);
+          assert.ok(r.report.pf > 0.5, `${b.tactic}/${b.range} ${t.name} ${m} PF ${r.report.pf}`);
+          const keys = Object.keys(r.engine.blockLanes || {});
+          if (m === "shared" && keys.length) assert.ok(keys.every((k) => k.endsWith(":shared")), keys.join(","));
+          if (m === "additive" && keys.length) assert.ok(keys.every((k) => k.endsWith(":additive")), keys.join(","));
+          if (t.windows) assert.ok(r.engine.blockWindows?.[1] || r.engine.blockWindows?.[6] || r.report.trades >= 0);
+        }
+      }
+    }
+    const a = blockStepQty(1.2, 1, 0.4, 1.8, 2, 0, "shared");
+    const b = blockStepQty(1.2, 1, 0.4, 1.8, 2, 0, "additive");
+    assert.ok(a > 0 && b > 0);
+    assert.ok(Math.abs(b - 1.2 * 0.4) < 1e-9, `additive step ${b}`);
   });
 
   it("skips PF<1 symbols but not direction indication", () => {

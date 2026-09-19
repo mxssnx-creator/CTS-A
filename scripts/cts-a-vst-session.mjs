@@ -87,7 +87,7 @@ const BLOCK = {
   keepAdjusted: !IS_X01,
   stack: true,
   windows: true,
-  volumeMode: "additive",
+  volumeMode: "parallel",
   sides: IS_X01 ? "one" : "both",
   evalHours: 2,
   autoEval: true,

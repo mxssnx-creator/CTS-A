@@ -1789,12 +1789,15 @@ function blockVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
   return ["shared"];
 }
 
-function liveVolumeModes(_block?: BlockConfig): ("shared" | "additive")[] {
-  return ["additive"];
+function liveVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
+  return blockVolumeModes(block);
 }
 
 function blockModeOf(o: { note?: string }): "shared" | "additive" {
-  return /additive|Overall Block/i.test(o.note || "") ? "additive" : "shared";
+  const n = o.note || "";
+  if (/additive/i.test(n)) return "additive";
+  if (/shared/i.test(n)) return "shared";
+  return /Overall Block/i.test(n) ? "additive" : "shared";
 }
 
 function liveBlockCounts(block: BlockConfig) {
@@ -2480,7 +2483,7 @@ export function adjustActiveBlocks(
           if (lane.satisfied[next] || liveLevels.has(next) || lane.pending === next) continue;
           if (lane.confirmedAdd + 1e-12 >= lane.baseQty * (mode === "additive" ? next * vr : blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 1.8, mode))) continue;
           if (!blockPfOk(lane, next, block, minPf)) continue;
-          const step = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, "additive");
+          const step = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, mode);
           const extra =
             block.relAdditive === false || !((e.relVolumeFactor || 0) > 0)
               ? 0
