@@ -1264,9 +1264,10 @@ describe("VST engine", () => {
   });
 
   it("all Block counts 1-6 run independently", () => {
-    assert.equal(DEFAULT_BLOCK_CONFIG.counts.length, 6);
-    assert.equal(DEFAULT_BLOCK_CONFIG.maxMultiple, 6);
-    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2, 3, 4, 5, 6]);
+    assert.equal(DEFAULT_BLOCK_CONFIG.counts.length, 2);
+    assert.equal(DEFAULT_BLOCK_CONFIG.maxMultiple, 2);
+    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2]);
+    assert.equal(DEFAULT_BLOCK_CONFIG.evalPosCount, 6);
     const r = simulateHours(12, CFG, "hybrid", {
       symbolCount: 8,
       rangeType: "fibonacci",

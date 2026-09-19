@@ -253,11 +253,12 @@ export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
 };
 
 export const BLOCK_POS_COUNTS = [1, 2, 3, 4, 5, 6] as const;
-export const BLOCK_COUNTS = [...BLOCK_POS_COUNTS];
+export const BLOCK_STACK_COUNTS = [1, 2] as const;
+export const BLOCK_COUNTS = [...BLOCK_STACK_COUNTS];
 
 export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   enabled: true,
-  maxMultiple: 6,
+  maxMultiple: 2,
   minMultiple: 1,
   addOnWin: true,
   flattenConflict: true,
