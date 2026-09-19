@@ -1162,6 +1162,21 @@ describe("VST engine", () => {
     assert.ok(other.length > 0, "other symbols should still arm");
   });
 
+  it("Block long, short, and both sides run independent vs old stack", () => {
+    const old = { ...DEFAULT_BLOCK_CONFIG, stack: true, windows: false, volumeMode: "shared" as const, counts: [1, 2], maxMultiple: 2 };
+    const neu = { ...DEFAULT_BLOCK_CONFIG, stack: true, windows: true, volumeMode: "shared" as const, counts: [1, 2], maxMultiple: 2, evalPosCount: 16 };
+    for (const sides of ["long", "short", "both"] as const) {
+      const a = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: { ...old, sides } });
+      const b = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: { ...neu, sides } });
+      assert.ok(a.report.passed && b.report.passed, `${sides} passed`);
+      finiteNum(a.report.pf, b.report.pf);
+      if (sides !== "both") {
+        assert.ok(a.engine.closed.every((c) => c.side === sides) || a.engine.closed.length === 0);
+        assert.ok(b.engine.closed.every((c) => c.side === sides) || b.engine.closed.length === 0);
+      }
+    }
+  });
+
   it("windows shared vs additive run with stack 1-2 additionally", () => {
     const base = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: true, counts: [1, 2], maxMultiple: 2, evalPosCount: 16, volumeRatio: 1.25, endStageOnly: false };
     const shared = simulateHours(24, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...base, volumeMode: "shared" } });

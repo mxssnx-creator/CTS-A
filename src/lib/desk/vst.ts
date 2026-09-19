@@ -676,7 +676,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
   return e;
 }
 
-export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: number; symbolCount?: number; orderType?: OrderTypeId; arm?: boolean } = {}): VstEngine {
+export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: number; symbolCount?: number; orderType?: OrderTypeId; arm?: boolean; block?: BlockConfig } = {}): VstEngine {
   const engine: VstEngine = {
     quotes: mkQuotes(),
     queue: [],
@@ -713,6 +713,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     blockLanes: {},
     blockWindows: {},
     blockWindowsBySymbol: {},
+    blockCfg: opts.block ?? DEFAULT_BLOCK_CONFIG,
   };
   if (opts.arm !== false) armUniverse(engine, cfg, "hybrid");
   const warm = opts.arm === false ? 0 : (opts.warmup ?? 12);
@@ -732,6 +733,14 @@ function occupiedSymbols(e: VstEngine, connId?: string): Set<string> {
   for (const p of e.positions) if (on(p.connId)) s.add(p.symbol);
   for (const o of e.orders) if (on(o.connId) && (o.status === "open" || o.status === "partial")) s.add(o.symbol);
   for (const o of e.queue) if (on(o.connId)) s.add(o.symbol);
+  return s;
+}
+function occupiedLegs(e: VstEngine, connId?: string): Set<string> {
+  const s = new Set<string>();
+  const on = (id: string) => (connId ? id === connId : isDeskConn(id));
+  for (const p of e.positions) if (on(p.connId)) s.add(`${p.symbol}:${p.side}`);
+  for (const o of e.orders) if (on(o.connId) && (o.status === "open" || o.status === "partial")) s.add(`${o.symbol}:${o.side}`);
+  for (const o of e.queue) if (on(o.connId)) s.add(`${o.symbol}:${o.side}`);
   return s;
 }
 function isTerminal(status: LiveOrder['status']): boolean {
@@ -805,53 +814,61 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   for (const p of e.positions) if (p.connId === connId) pn += 1;
   if (qn >= VST_MAX_QUEUE || pn >= VST_MAX_POSITIONS) return;
   const busy = occupiedSymbols(e, connId);
+  const busyLegs = occupiedLegs(e, connId);
   const universe = rankUniverse(e);
   universe.forEach((s, rank) => {
     const q = e.quotes[s.id];
     if (!q || !(q.px > 0)) return;
-    if (busy.has(s.id)) return;
     if ((e.cooldown[cooldownKey(connId, s.id)] ?? 0) > e.tick) return;
     const winN = Math.min(16, Math.max(1, Math.round(e.blockCfg?.evalPosCount || 16)));
     if (e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     if (pn >= VST_MAX_POSITIONS) return;
-    const side = direction(q);
-    const hi = pickRange(q, cfg, rangeType);
-    const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);
-    const tp0 = tpDistFromSl(sl0, cfg.tpRatio);
-    const volMul = Math.min(1.4, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
-    if (rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
-    const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul;
-    const depth = rank < 10 ? hi.levels.length : rank < 24 ? Math.min(3, hi.levels.length) : Math.min(2, hi.levels.length);
-    hi.levels.slice(0, Math.max(1, depth)).forEach((offset, li) => {
-      if (qn >= VST_MAX_QUEUE) return;
-      const px = side === "long" ? q.axis - offset : q.axis + offset;
-      if (px <= 0) return;
-      const qty = notional / px;
-      const lv = protectLevels(px, side, sl0, tp0, cfg.tpRatio);
-      e.queue.push({
-        id: nextId(e, "q"),
-        connId,
-        symbol: s.id,
-        side,
-        type: ladderOrderType(e.orderType, li),
-        qty,
-        filled: 0,
-        price: px,
-        remaining: qty,
-        status: "queued",
-        rangeType: hi.rangeType,
-        level: li + 1,
-        sl: lv.sl,
-        tp: lv.tp,
-        slDist: lv.slDist,
-        tpDist: lv.tpDist,
-        batchId: "",
-        note: `${e.lastTactic} ${hi.rangeType} L${li + 1} · ${connId}`
+    const mode = e.blockCfg?.sides;
+    const trySides: Side[] = mode === "long" || mode === "short" ? [mode] : mode === "both" ? ["long", "short"] : [direction(q)];
+    for (const side of trySides) {
+      if (qn >= VST_MAX_QUEUE || pn >= VST_MAX_POSITIONS) break;
+      if (mode === "both") {
+        if (busyLegs.has(`${s.id}:${side}`)) continue;
+      } else if (busy.has(s.id)) continue;
+      const hi = pickRange(q, cfg, rangeType);
+      const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);
+      const tp0 = tpDistFromSl(sl0, cfg.tpRatio);
+      const volMul = Math.min(1.4, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
+      if (rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
+      const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul;
+      const depth = rank < 10 ? hi.levels.length : rank < 24 ? Math.min(3, hi.levels.length) : Math.min(2, hi.levels.length);
+      hi.levels.slice(0, Math.max(1, depth)).forEach((offset, li) => {
+        if (qn >= VST_MAX_QUEUE) return;
+        const px = side === "long" ? q.axis - offset : q.axis + offset;
+        if (px <= 0) return;
+        const qty = notional / px;
+        const lv = protectLevels(px, side, sl0, tp0, cfg.tpRatio);
+        e.queue.push({
+          id: nextId(e, "q"),
+          connId,
+          symbol: s.id,
+          side,
+          type: ladderOrderType(e.orderType, li),
+          qty,
+          filled: 0,
+          price: px,
+          remaining: qty,
+          status: "queued",
+          rangeType: hi.rangeType,
+          level: li + 1,
+          sl: lv.sl,
+          tp: lv.tp,
+          slDist: lv.slDist,
+          tpDist: lv.tpDist,
+          batchId: "",
+          note: `${e.lastTactic} ${hi.rangeType} L${li + 1} · ${connId}`,
+        });
+        qn += 1;
+        countPlaced(e);
       });
-      qn += 1;
-      countPlaced(e);
-    });
-    busy.add(s.id);
+      busy.add(s.id);
+      busyLegs.add(`${s.id}:${side}`);
+    }
   });
   e.lastMsg = `Queued ${qn} ladder orders on ${connId} · ${universe.length} symbols best-first · ${e.orderType}`;
 }
@@ -1978,6 +1995,8 @@ export function adjustActiveBlocks(
       if (adds >= 2) break;
       if (!ownedByDesk(p, conn)) continue;
       if (p.qty <= 0) continue;
+      if (block.sides === "long" && p.side !== "long") continue;
+      if (block.sides === "short" && p.side !== "short") continue;
       const move = p.unrealized / Math.max(p.avgEntry * p.qty, 1e-9);
       if (block.addOnWin && move <= 0) continue;
       if (block.activeLive !== false && move < 0.004) continue;
@@ -2397,6 +2416,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     warmup: 0,
     symbolCount: opts?.symbolCount,
     orderType: opts?.orderType,
+    block: opts?.block,
   });
   let peak = 1e4;
   const curve = [{
