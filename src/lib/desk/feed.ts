@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import type { ExchangeBook, VstEngine } from "./types";
+import { refreshLiveIndications } from "./engine.ts";
 
 export interface LiveTicker {
   id: string;
@@ -208,7 +209,10 @@ export function applyLiveTape(e: VstEngine, tickers: LiveTicker[]): number {
     q.vol = q.vol * 0.7 + Math.min(0.08, Math.max(0.004, liveVol)) * 0.3;
     n += 1;
   }
-  if (n) e.lastMsg = `Live BingX tape · ${n} symbols`;
+  if (n) {
+    refreshLiveIndications(e.quotes);
+    e.lastMsg = `Live BingX tape · ${n} symbols`;
+  }
   return n;
 }
 

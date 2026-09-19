@@ -18,7 +18,7 @@ import {
   systemSnapshot,
 } from "@/lib/desk/vst";
 import { MAX_LIVE_NOTIONAL } from "@/lib/desk/feed";
-import { fmtEquity, fmtUsd } from "@/lib/utils";
+import { fmtEquity, fmtUsd, fmtNum } from "@/lib/utils";
 import { fmtMdd, fmtPf, fmtWr, Kpi, Meter, Panel, pfTone, Pill, StatLine } from "./widgets";
 
 export function SystemPanel({
@@ -87,7 +87,7 @@ export function SystemPanel({
         <div className="flex flex-wrap items-center gap-2">
           <Pill tone={healthTone}>{liveSnap.hasLive ? "live" : health}</Pill>
           <Pill tone={liveSnap.hasLive || phase === "running" ? "up" : phase === "paused" ? "warn" : "accent"}>
-            {liveSnap.hasLive ? "BingX VST-02" : phase}
+            {liveSnap.hasLive ? liveSnap.venueLabel : phase}
           </Pill>
           <Pill tone={liveSnap.pingOk || feed.state === "live" ? "up" : feed.state === "error" ? "down" : "accent"}>
             tape {liveSnap.hasLive ? "live" : liveTape ? feed.state : "off"}
@@ -114,6 +114,34 @@ export function SystemPanel({
         <Kpi label="SL / TP" value={`${liveSnap.hasLive ? liveSnap.liveSl : ledger.slExits} / ${liveSnap.hasLive ? liveSnap.liveTp : ledger.tpExits}`} hint={`streak ${ledger.winStreak}`} />
         <Kpi label="Net" value={fmtUsd(liveSnap.hasLive ? liveSnap.net : st.net, 0)} tone={(liveSnap.hasLive ? liveSnap.net : st.net) >= 0 ? "up" : "down"} hint={fmtMdd(liveSnap.hasLive ? liveSnap.mdd : st.mdd)} />
       </div>
+      {(() => {
+        const rows = ((liveSnap.overall as { byIndication?: { key: string; n: number; pf: number; openN?: number }[] } | null)?.byIndication) ?? [];
+        const mix = (liveSnap.session as { indMix?: Record<string, number> } | null)?.indMix;
+        return (
+          <>
+            <h3 className="mt-5 text-xs font-medium uppercase tracking-widest text-subtle">Indications</h3>
+            <div className="mt-2 grid grid-cols-2 gap-x-6 sm:grid-cols-4">
+              {(["trend", "break", "active", "direction"] as const).map((k) => {
+                const b = rows.find((r) => r.key === k);
+                return (
+                  <StatLine
+                    key={k}
+                    k={k}
+                    v={`PF ${fmtPf(b?.pf ?? 0)} · open ${mix?.[k] ?? b?.openN ?? 0}`}
+                    tone={pfTone(b?.pf ?? 0)}
+                  />
+                );
+              })}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-x-6 sm:grid-cols-4">
+              <StatLine k="Sel trend" v={fmtNum(ind.trend, 2)} />
+              <StatLine k="Sel break" v={fmtNum(ind.break, 2)} />
+              <StatLine k="Sel active" v={fmtNum(ind.active, 2)} />
+              <StatLine k="Sel dir" v={fmtNum(ind.direction, 2)} />
+            </div>
+          </>
+        );
+      })()}
       <div className="mt-3 grid grid-cols-2 gap-x-6 sm:grid-cols-3 xl:grid-cols-4">
         <StatLine k="Win rate" v={fmtWr(liveSnap.hasLive ? liveSnap.wr : st.wr)} />
         <StatLine k="Max DD" v={fmtMdd(liveSnap.hasLive ? liveSnap.mdd : st.mdd)} />

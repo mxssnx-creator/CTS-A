@@ -71,6 +71,8 @@ import {
   strategyMatchesKinds,
   summarizeIndications,
   symbolIndications,
+  refreshLiveIndications,
+  indicationFromQuote,
 } from "./engine.ts";
 import {
   collectDeskSettings,
@@ -1136,6 +1138,63 @@ describe("VST engine", () => {
       dirHits += h.length;
     }
     assert.ok(dirHits > 0, "direction flips in window");
+  });
+
+  it("classifies trend, break, active and direction independently from live quotes", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 8, arm: false });
+    const q = e.quotes.BTCUSDT;
+    q.px = 100;
+    q.axis = 99.2;
+    q.atr = 0.45;
+    q.hi = 100.12;
+    q.lo = 99.88;
+    q.chg = 0.014;
+    q.vol = 0.005;
+    q.vol1h = 0.004;
+    refreshLiveIndications(e.quotes);
+    assert.equal(classifyIndication(e, "BTCUSDT"), "trend");
+    q.hi = 102.4;
+    q.lo = 97.6;
+    q.chg = 0.022;
+    q.vol1h = 0.03;
+    q.atr = 0.5;
+    refreshLiveIndications({ BTCUSDT: q });
+    assert.equal(classifyIndication(e, "BTCUSDT"), "break");
+    q.hi = 100.18;
+    q.lo = 99.92;
+    q.chg = 0.0008;
+    q.vol = 0.07;
+    q.vol1h = 0.028;
+    q.atr = 0.85;
+    q.axis = 100;
+    refreshLiveIndications({ BTCUSDT: q });
+    assert.equal(classifyIndication(e, "BTCUSDT"), "active");
+    q.px = 100;
+    q.axis = 102.4;
+    q.chg = 0.016;
+    q.hi = 100.25;
+    q.lo = 99.85;
+    q.atr = 0.55;
+    q.vol = 0.01;
+    q.vol1h = 0.006;
+    refreshLiveIndications({ BTCUSDT: q });
+    assert.equal(classifyIndication(e, "BTCUSDT"), "direction");
+    const pack = indicationFromQuote(q);
+    assert.ok(Math.abs(pack.direction) >= Math.abs(pack.trend) * 0.5);
+    const seen = new Set<string>();
+    for (const id of Object.keys(e.quotes).slice(0, 8)) {
+      const qq = e.quotes[id]!;
+      qq.px = 50 + id.length;
+      qq.axis = qq.px * (id.length % 2 ? 0.992 : 1.02);
+      qq.atr = qq.px * 0.008;
+      qq.hi = qq.px * (id.includes("B") ? 1.03 : 1.002);
+      qq.lo = qq.px * (id.includes("B") ? 0.97 : 0.998);
+      qq.chg = id.length % 3 === 0 ? 0.02 : id.length % 3 === 1 ? 0.0005 : -0.012;
+      qq.vol = id.length % 2 ? 0.06 : 0.006;
+      qq.vol1h = id.includes("E") ? 0.03 : 0.005;
+      seen.add(classifyIndication(e, id));
+    }
+    assert.ok(seen.size >= 3, `kinds ${[...seen]}`);
   });
 
   it("short-range holds, timings and activity relations stay correct", () => {

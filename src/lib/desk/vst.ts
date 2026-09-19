@@ -49,6 +49,7 @@ import {
   cfgUsesShortRange,
   trailStopFromPeak,
   symbolIndications,
+  refreshLiveIndications,
   symbolSideSet,
   STAGE_HOURS,
   SYMBOL_EVAL_HOURS,
@@ -1087,8 +1088,9 @@ function walkQuotes(e: VstEngine, freeze?: Set<string>) {
   }
 }
 export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
-  const pack = symbolIndications(symbol);
   const q = e.quotes[symbol];
+  if (q && q.px > 0) refreshLiveIndications({ [symbol]: q });
+  const pack = symbolIndications(symbol);
   const rankedPack: [IndicationId, number][] = [
     ["trend", Math.abs(pack.trend)],
     ["break", Math.abs(pack.break)],
@@ -1103,20 +1105,14 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
   const chg = Number.isFinite(q.chg) ? q.chg : 0;
   const aligned = Math.sign(chg || 0) === Math.sign(q.px - q.axis || 0) || Math.abs(chg) < 1e-6;
   const scores: Record<IndicationId, number> = {
-    trend: Math.abs(pack.trend) * 1.35 + (aligned ? Math.abs(chg) * 10 : Math.abs(chg) * 3),
-    break: Math.abs(pack.break) * 3.2 + Math.max(0, span - 1.18) * 2.6 + Math.max(0, axisDist - 1.55) * 0.65 + Math.max(0, Math.abs(chg) * 70 - 0.25) + (q.vol > 0.012 ? 0.35 : 0),
-    active: Math.abs(pack.active) * 2.0 + Math.min(1.8, q.vol * 14) + (span < 1.25 ? 0.45 : 0),
-    direction: Math.abs(pack.direction) * 2.4 + (!aligned ? Math.abs(chg) * 24 : Math.abs(chg) * 4),
+    trend: Math.abs(pack.trend) * 1.55 + (aligned ? Math.abs(chg) * 14 : Math.abs(chg) * 2.2) + (aligned && Math.abs(chg) >= 0.008 && span < 1.4 ? 1.15 : 0),
+    break: Math.abs(pack.break) * 3.4 + Math.max(0, span - 1.15) * 2.8 + (span > 1.2 ? Math.max(0, Math.abs(chg) * 50 - 0.1) : 0) + ((q.vol1h ?? 0) > 0.018 && span > 1.15 ? 0.45 : 0),
+    active: Math.abs(pack.active) * 2.2 + Math.min(2.1, q.vol * 16) + (span < 1.22 && q.vol > 0.02 ? 0.7 : 0) + (Math.abs(chg) < 0.0035 && q.vol > 0.025 ? 0.35 : 0),
+    direction: Math.abs(pack.direction) * 2.6 + (!aligned ? Math.abs(chg) * 28 + 0.9 : Math.abs(chg) * 3),
   };
-  if (Math.abs(pack.break) < 0.12 && span < 1.18 && Math.abs(chg) < 0.0035) scores.break *= 0.22;
+  if (Math.abs(pack.break) < 0.12 && span < 1.18 && Math.abs(chg) < 0.0035) scores.break *= 0.18;
   const lead = rankedPack[0];
-  if (lead && lead[1] >= 0.08) scores[lead[0]] += 1.05;
-  let h = 2166136261;
-  for (let i = 0; i < symbol.length; i++) h = Math.imul(h ^ symbol.charCodeAt(i), 16777619);
-  const slot = Math.abs(h) % 4;
-  if (slot === 1 && (span >= 1.2 || Math.abs(pack.break) >= 0.15)) scores.break += 0.55;
-  if (slot === 2) scores.active += 0.95;
-  if (slot === 3) scores.direction += 1.35;
+  if (lead && lead[1] >= 0.08) scores[lead[0]] += 0.85;
   const ranked = (Object.entries(scores) as [IndicationId, number][]).sort((a, b) => b[1] - a[1]);
   return ranked[0]?.[0] ?? lead?.[0] ?? "trend";
 }
@@ -3009,6 +3005,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
     if (opts?.freezeIds) walkQuotes(e, opts.freezeIds);
     else walkQuotes(e);
   });
+  if (e.tick % 2 === 0) safeStage(e, "indications", () => refreshLiveIndications(e.quotes));
   safeStage(e, "batch", () => processBatches(e));
   safeStage(e, "match", () => matchOrders(e));
   safeStage(e, "positions", () => managePositions(e, tactic, cfg, { minHold: opts?.skipWalk ? 80 : 1, liveTape: Boolean(opts?.skipWalk) }));

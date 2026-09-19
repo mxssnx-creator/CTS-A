@@ -1757,34 +1757,111 @@ export function summarizeIndications(hits: IndicationHit[]): IndicationSummary {
   };
 }
 
-export function symbolIndications(symbol: string): IndicationSummary {
-  if (IND_CACHE[symbol]) return IND_CACHE[symbol]!;
-  return {
-    trend: 0,
-    break: 0,
-    active: 0,
-    direction: 0,
-    activity: 0,
+const EMPTY_IND: IndicationSummary = {
+  trend: 0,
+  break: 0,
+  active: 0,
+  direction: 0,
+  activity: 0,
+  hf: false,
+  agree: false,
+  hits: 0,
+  timing: 0,
+  relations: {
+    pulse: 0,
+    range: 0,
+    vol: 0,
+    dir: 0,
+    volRange: 0,
+    pulseDir: 0,
+    rangeDir: 0,
+    agree: 0,
     hf: false,
-    agree: false,
-    hits: 0,
     timing: 0,
+  },
+};
+
+const IND_CACHE: Record<string, IndicationSummary> = {};
+const LIVE_IND: Record<string, IndicationSummary> = {};
+
+function mixInd(a: number, b: number, w = 0.82) {
+  return clampDir(a * w + b * (1 - w));
+}
+
+/** Live tape → independent trend / break / active / direction scores. */
+export function indicationFromQuote(
+  q: { px: number; hi: number; lo: number; atr: number; vol: number; axis: number; chg: number; vol1h?: number },
+  desk?: IndicationSummary | null,
+): IndicationSummary {
+  const px = Math.max(q.px, 1e-9);
+  const atr = Math.max(q.atr, px * 0.0008, 1e-9);
+  const span = Math.max(0, (q.hi - q.lo) / atr);
+  const axisDist = Math.abs(px - (q.axis || px)) / atr;
+  const chg = Number.isFinite(q.chg) ? q.chg : 0;
+  const aligned = Math.sign(chg || 0) === Math.sign(px - (q.axis || px) || 0) || Math.abs(chg) < 1e-6;
+  const vol = Math.max(0, Number(q.vol) || 0);
+  const vol1h = Math.max(0, Number(q.vol1h) || 0);
+  const side = Math.sign(chg || px - (q.axis || px) || 1) || 1;
+  const trendM = (aligned ? 0.95 : 0.18) * Math.min(1, Math.abs(chg) * 100 + axisDist * 0.14);
+  const breakM = Math.min(
+    1,
+    Math.max(0, span - 1.15) * 0.95 +
+      (span > 1.2 ? Math.max(0, Math.abs(chg) * 70 - 0.08) : 0) +
+      (vol1h > 0.018 && span > 1.15 ? 0.3 : 0),
+  );
+  const activeM = Math.min(1, vol * 18 + (span < 1.22 && vol > 0.02 ? 0.5 : 0) + Math.min(0.55, vol1h * 10) + (Math.abs(chg) < 0.0035 && vol > 0.025 ? 0.25 : 0));
+  const dirM = (!aligned ? 1.05 : 0.16) * Math.min(1, Math.abs(chg) * 105 + axisDist * 0.22);
+  let trend = clampDir(side * trendM);
+  let brk = clampDir(side * breakM);
+  let active = clampDir(side * activeM);
+  let direction = clampDir(side * dirM);
+  if (desk) {
+    trend = mixInd(trend, desk.trend);
+    brk = mixInd(brk, desk.break);
+    active = mixInd(active, desk.active);
+    direction = mixInd(direction, desk.direction);
+  }
+  const signed = [trend, brk, active, direction].filter((x) => Math.abs(x) > 0.12);
+  const agree = signed.length >= 2 && signed.every((x) => Math.sign(x) === Math.sign(signed[0]!));
+  const activity = clamp(vol * 10 + vol1h * 8 + Math.min(1.4, span * 0.35), 0, 2);
+  return {
+    trend,
+    break: brk,
+    active,
+    direction,
+    activity,
+    hf: activity >= 1.08 || Math.abs(direction) >= 0.6,
+    agree,
+    hits: signed.length,
+    timing: clamp((Math.abs(direction) > 0.12 ? 0.55 : 0.2) + (activity >= 1.08 ? 0.25 : 0) + (agree ? 0.15 : 0), 0, 1),
     relations: {
-      pulse: 0,
-      range: 0,
-      vol: 0,
-      dir: 0,
-      volRange: 0,
-      pulseDir: 0,
-      rangeDir: 0,
-      agree: 0,
-      hf: false,
-      timing: 0,
+      pulse: activity,
+      range: span,
+      vol: activity,
+      dir: direction,
+      volRange: vol1h,
+      pulseDir: direction !== 0 && activity >= 1.05 ? Math.sign(direction) : 0,
+      rangeDir: Math.sign(chg || 0),
+      agree: signed.length / 4,
+      hf: activity >= 1.08 || Math.abs(direction) >= 0.6,
+      timing: clamp((Math.abs(direction) > 0.12 ? 0.55 : 0.2) + (activity >= 1.08 ? 0.25 : 0) + (agree ? 0.15 : 0), 0, 1),
     },
   };
 }
 
-const IND_CACHE: Record<string, IndicationSummary> = {};
+export function refreshLiveIndications(quotes: Record<string, { id: string; px: number; hi: number; lo: number; atr: number; vol: number; axis: number; chg: number; vol1h?: number }>): number {
+  let n = 0;
+  for (const q of Object.values(quotes)) {
+    if (!q?.id || !(q.px > 0)) continue;
+    LIVE_IND[q.id] = indicationFromQuote(q, null);
+    n += 1;
+  }
+  return n;
+}
+
+export function symbolIndications(symbol: string): IndicationSummary {
+  return LIVE_IND[symbol] ?? IND_CACHE[symbol] ?? EMPTY_IND;
+}
 
 function indicationLaneAdj(kind: StrategyKind, sum: IndicationSummary): StrategyAdj & { vf: number } {
   const w =

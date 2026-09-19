@@ -29,6 +29,7 @@ import {
   overlayExchangeBook,
   releaseVanished,
   skipLiveSymbol,
+  classifyIndication,
   applyRealizedSymbolStats,
   overlayLiveExecutions,
   syncLivePartials,
@@ -373,6 +374,14 @@ function snapshot(e, extra) {
     minPf: LIVE_MIN_PF,
     pfGate: pfGateClosed(),
     liveDisabled: Object.keys(e.liveDisabled ?? {}).length,
+    indMix: (() => {
+      const mix = { trend: 0, break: 0, active: 0, direction: 0 };
+      for (const p of lastBook.positions ?? []) {
+        const id = classifyIndication(e, p.symbol);
+        mix[id] = (mix[id] || 0) + 1;
+      }
+      return mix;
+    })(),
     at: Date.now(),
     tick: e.tick,
   };

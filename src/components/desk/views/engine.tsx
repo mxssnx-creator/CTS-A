@@ -116,6 +116,34 @@ export function EngineView() {
 
       <LiveBookStrip />
 
+      {(() => {
+        const rows = ((liveSnap.overall as { byIndication?: { key: string; n: number; pf: number; wr?: number; openN?: number; net?: number }[] } | null)?.byIndication) ?? [];
+        const mix = (liveSnap.session as { indMix?: Record<string, number> } | null)?.indMix;
+        const kinds = ["trend", "break", "active", "direction"] as const;
+        return (
+          <Panel title="Indications · independent">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {kinds.map((k) => {
+                const b = rows.find((r) => r.key === k);
+                const open = mix?.[k] ?? b?.openN ?? 0;
+                return (
+                  <div key={k} className="border border-border bg-surface-muted/40 p-3">
+                    <div className="text-xs uppercase tracking-widest text-subtle">{k}</div>
+                    <div className="mt-1 text-lg font-semibold tabular">{fmtPf(b?.pf ?? 0)}</div>
+                    <div className="text-xs text-muted">
+                      open {open} · n {b?.n ?? 0}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-3 text-xs text-muted">
+              Trend, Break, Active and Direction each score the live tape independently. Engine cycle {String(liveSnap.session?.tactic ?? liveSnap.tactic)} / {String(liveSnap.session?.range ?? liveSnap.range)}.
+            </p>
+          </Panel>
+        );
+      })()}
+
       {pos.length ? (
         <Panel title={`Open BingX positions · ${pos.length}`}>
           <div className="overflow-x-auto">
