@@ -1107,7 +1107,7 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
   const scores: Record<IndicationId, number> = {
     trend: Math.abs(pack.trend) * 1.55 + (aligned ? Math.abs(chg) * 14 : Math.abs(chg) * 2.2) + (aligned && Math.abs(chg) >= 0.008 && span < 1.4 ? 1.15 : 0),
     break: Math.abs(pack.break) * 3.4 + Math.max(0, span - 1.15) * 2.8 + (span > 1.2 ? Math.max(0, Math.abs(chg) * 50 - 0.1) : 0) + ((q.vol1h ?? 0) > 0.018 && span > 1.15 ? 0.45 : 0),
-    active: Math.abs(pack.active) * 2.2 + Math.min(2.1, q.vol * 16) + (span < 1.22 && q.vol > 0.02 ? 0.7 : 0) + (Math.abs(chg) < 0.0035 && q.vol > 0.025 ? 0.35 : 0),
+    active: Math.abs(pack.active) * 2.2 + Math.min(2.0, (q.vol1h ?? 0) * 40) + (span < 1.22 && (q.vol1h ?? 0) > 0.01 ? 0.55 : 0) + (Math.abs(chg) < 0.0035 && (q.vol1h ?? 0) > 0.012 ? 0.3 : 0),
     direction: Math.abs(pack.direction) * 2.6 + (!aligned ? Math.abs(chg) * 28 + 0.9 : Math.abs(chg) * 3),
   };
   if (Math.abs(pack.break) < 0.12 && span < 1.18 && Math.abs(chg) < 0.0035) scores.break *= 0.18;

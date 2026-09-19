@@ -1802,6 +1802,7 @@ export function indicationFromQuote(
   const vol = Math.max(0, Number(q.vol) || 0);
   const vol1h = Math.max(0, Number(q.vol1h) || 0);
   const side = Math.sign(chg || px - (q.axis || px) || 1) || 1;
+  const pulse = vol1h > 0 ? vol1h : Math.min(vol, 0.02);
   const trendM = (aligned ? 0.95 : 0.18) * Math.min(1, Math.abs(chg) * 100 + axisDist * 0.14);
   const breakM = Math.min(
     1,
@@ -1809,7 +1810,7 @@ export function indicationFromQuote(
       (span > 1.2 ? Math.max(0, Math.abs(chg) * 70 - 0.08) : 0) +
       (vol1h > 0.018 && span > 1.15 ? 0.3 : 0),
   );
-  const activeM = Math.min(1, vol * 18 + (span < 1.22 && vol > 0.02 ? 0.5 : 0) + Math.min(0.55, vol1h * 10) + (Math.abs(chg) < 0.0035 && vol > 0.025 ? 0.25 : 0));
+  const activeM = Math.min(1, pulse * 28 + (span < 1.22 && pulse > 0.01 ? 0.4 : 0) + (Math.abs(chg) < 0.0035 && pulse > 0.012 ? 0.25 : 0));
   const dirM = (!aligned ? 1.05 : 0.16) * Math.min(1, Math.abs(chg) * 105 + axisDist * 0.22);
   let trend = clampDir(side * trendM);
   let brk = clampDir(side * breakM);
