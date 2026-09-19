@@ -159,7 +159,7 @@ describe("VST engine", () => {
   it("sl 0.4 tp 0.6 distances match config R and ATR multiple", () => {
     const cfg = { ...CFG, slAtr: 0.4, tpRatio: 0.6, trailingPct: 1.4, dcaCount: 1, maxHoldTicks: 20000 };
     const e = initVstEngine(cfg, { warmup: 0, symbolCount: 8, arm: true });
-    const sample = [...e.queue, ...e.orders].filter((o) => o.sl > 0 && o.tp > 0 && o.price > 0).slice(0, 24);
+    const sample = [...e.queue, ...e.orders].filter((o) => o.sl > 0 && o.tp > 0 && o.price > 0 && o.indication !== "break").slice(0, 24);
     assert.ok(sample.length >= 4, `ladders ${sample.length}`);
     for (const o of sample) {
       const q = e.quotes[o.symbol];
@@ -1713,6 +1713,8 @@ describe("VST engine", () => {
     assert.equal(openPlaybook("axis", "break"), "axis");
     assert.equal(openPlaybook("dca", "trend"), "normal");
     assert.ok(indicationProtect("break").slMul > 1);
+    assert.ok(indicationProtect("break").tpMul > 1);
+    assert.ok(indicationProtect("break").holdMul > 1);
     assert.ok(indicationProtect("active").holdMul < 1);
     assert.ok(indicationProtect("direction").tpMul >= 1);
     const e = initVstEngine(CFG, { warmup: 24, symbolCount: 16, block: { ...DEFAULT_BLOCK_CONFIG, autoEval: true } });
@@ -1732,6 +1734,9 @@ describe("VST engine", () => {
       finiteNum(row.pf, row.net, row.wr);
     }
     assert.ok((by.break?.n ?? 0) + (by.active?.n ?? 0) + (by.direction?.n ?? 0) >= 3, `non-trend n break=${by.break?.n} active=${by.active?.n} dir=${by.direction?.n}`);
+    if ((by.break?.n ?? 0) >= 6) {
+      assert.ok((by.break?.pf ?? 0) >= 0.9, `break PF ${by.break?.pf} n=${by.break?.n}`);
+    }
     evalBlockRelations(engine, DEFAULT_BLOCK_CONFIG);
     assert.ok(engine.indRangeBest);
     for (const id of ["trend", "break", "active", "direction"] as const) {

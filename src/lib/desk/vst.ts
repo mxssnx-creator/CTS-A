@@ -858,9 +858,26 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     const disp = Math.abs(q.px - (q.axis || q.px)) / atr;
     if (axisTactic && (disp < 0.35 || disp > 2.6)) return;
     const meanSide: Side = q.px >= (q.axis || q.px) ? "short" : "long";
-    const trySides = axisTactic ? [meanSide] : symbolSideSet(s.id, mode, direction(q));
-    const dual = trySides.length === 2;
+    const pack = symbolIndications(s.id);
     const ind = classifyIndication(e, s.id);
+    let trySides = axisTactic ? [meanSide] : symbolSideSet(s.id, mode, direction(q));
+    if (!axisTactic && ind === "break") {
+      const spanNow = (q.hi - q.lo) / atr;
+      const weak = Math.abs(pack.break) < 0.12 && spanNow < 1.15 && Math.abs(q.chg) < 0.003;
+      if (weak) return;
+      const brk: Side =
+        pack.break > 0.08 ? "long" : pack.break < -0.08 ? "short" : q.px >= (q.axis || q.px) ? "long" : "short";
+      if (mode === "long" || mode === "short") {
+        if (brk !== mode) return;
+        trySides = [mode];
+      } else if (mode === "one") {
+        trySides = trySides.filter((x) => x === brk);
+        if (!trySides.length) return;
+      } else {
+        trySides = [brk];
+      }
+    }
+    const dual = trySides.length === 2;
     const book = openPlaybook(e.lastTactic, ind);
     const kind = kindFromIndication(ind, book, e.lastTactic);
     const range = pickIndicationRange(e, ind, rangeType ?? e.lastRange ?? "atr");
@@ -1041,16 +1058,17 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
   const aligned = Math.sign(chg || 0) === Math.sign(q.px - q.axis || 0) || Math.abs(chg) < 1e-6;
   const scores: Record<IndicationId, number> = {
     trend: Math.abs(pack.trend) * 1.35 + (aligned ? Math.abs(chg) * 10 : Math.abs(chg) * 3),
-    break: Math.abs(pack.break) * 2.1 + Math.max(0, span - 1.05) * 2.4 + Math.max(0, axisDist - 1.6) * 0.35,
+    break: Math.abs(pack.break) * 3.2 + Math.max(0, span - 1.18) * 2.6 + Math.max(0, axisDist - 1.55) * 0.65 + Math.max(0, Math.abs(chg) * 70 - 0.25) + (q.vol > 0.012 ? 0.35 : 0),
     active: Math.abs(pack.active) * 2.0 + Math.min(1.8, q.vol * 14) + (span < 1.25 ? 0.45 : 0),
     direction: Math.abs(pack.direction) * 2.4 + (!aligned ? Math.abs(chg) * 24 : Math.abs(chg) * 4),
   };
+  if (Math.abs(pack.break) < 0.12 && span < 1.18 && Math.abs(chg) < 0.0035) scores.break *= 0.22;
   const lead = rankedPack[0];
   if (lead && lead[1] >= 0.08) scores[lead[0]] += 1.05;
   let h = 2166136261;
   for (let i = 0; i < symbol.length; i++) h = Math.imul(h ^ symbol.charCodeAt(i), 16777619);
   const slot = Math.abs(h) % 4;
-  if (slot === 1) scores.break += 0.95;
+  if (slot === 1 && (span >= 1.2 || Math.abs(pack.break) >= 0.15)) scores.break += 0.55;
   if (slot === 2) scores.active += 0.95;
   if (slot === 3) scores.direction += 1.35;
   const ranked = (Object.entries(scores) as [IndicationId, number][]).sort((a, b) => b[1] - a[1]);
@@ -1080,13 +1098,13 @@ export function kindFromIndication(id: IndicationId, playbook: string, tactic: T
 
 const IND_RANGE_PREF: Record<IndicationId, RangeType[]> = {
   trend: ["fibonacci", "atr", "volume"],
-  break: ["volume", "atr", "fibonacci"],
+  break: ["atr", "fibonacci", "geometric"],
   active: ["atr", "fibonacci", "volume"],
   direction: ["atr", "fibonacci", "linear"],
 };
 
 export function indicationProtect(id: IndicationId): { slMul: number; tpMul: number; holdMul: number } {
-  if (id === "break") return { slMul: 1.12, tpMul: 1.0, holdMul: 1.15 };
+  if (id === "break") return { slMul: 1.28, tpMul: 1.45, holdMul: 1.35 };
   if (id === "active") return { slMul: 0.92, tpMul: 1.0, holdMul: 0.85 };
   if (id === "direction") return { slMul: 1.06, tpMul: 1.0, holdMul: 1.0 };
   return { slMul: 1, tpMul: 1, holdMul: 1 };
