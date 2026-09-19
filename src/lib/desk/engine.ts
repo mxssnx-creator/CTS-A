@@ -322,7 +322,7 @@ export function blockStepQty(
   if (!(baseQty > 0) || !(count > 0)) return 0;
   const floor = Math.max(0, minQty) * 1.08;
   if (mode !== "shared") {
-    let step = baseQty * sharedBlockVolumeRatio(volumeRatio);
+    let step = baseQty * sharedBlockVolumeRatio(volumeRatio, 1, 1, "additive");
     if (step > 0 && floor > 0 && step < floor) step = floor;
     return step;
   }
