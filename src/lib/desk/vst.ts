@@ -926,6 +926,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     const dual = trySides.length === 2;
     const book = cfgUsesShortRange(cfg) ? "short" : openPlaybook(e.lastTactic, ind);
     const kind = cfgUsesShortRange(cfg) ? "short" : kindFromIndication(ind, book, e.lastTactic);
+    if (kind === "normal") return;
     const range = pickIndicationRange(e, ind, rangeType ?? e.lastRange ?? "atr");
     if (!dual && e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     for (const side of trySides) {
@@ -1143,7 +1144,7 @@ export function kindFromIndication(id: IndicationId, playbook: string, tactic: T
   if (tactic === "hybrid") return "hybrid";
   if (tactic === "axis") return "mean";
   if (tactic === "dca") return "volume";
-  return "normal";
+  return "trend";
 }
 
 const IND_RANGE_PREF: Record<IndicationId, RangeType[]> = {
@@ -2311,6 +2312,15 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
       /* quotes may be thin */
     }
   }
+  try {
+    const ind = classifyIndication(e, symbol);
+    const kind = kindFromIndication(ind, openPlaybook(e.lastTactic, ind), e.lastTactic);
+    if (kind === "normal") return true;
+    if (e.liveDisabled?.[`kind:${kind}`]) return true;
+    if (e.liveDisabled?.[`ind:${ind}`]) return true;
+  } catch {
+    /* quotes may be thin */
+  }
   if (!e.liveTape) {
     const trend = e.closed.filter((c) => isDeskConn(c.connId) && c.indication === "trend").slice(0, 8);
     if (trend.length >= 3) {
@@ -2608,7 +2618,9 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
   const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
   const minPf = entryMinPf(e, block);
   const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
-  const disabled: Record<string, { pf: number; n: number; at: number }> = {};
+  const disabled: Record<string, { pf: number; n: number; at: number }> = {
+    "kind:normal": { pf: 0, n: 99, at: e.tick },
+  };
   const kept: string[] = [];
   if (e.liveTape) {
     for (const [id, t] of Object.entries(e.symbolStats ?? {})) {
@@ -2664,7 +2676,8 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
     }
   }
   e.liveDisabled = disabled;
-  e.liveHealth = { n, at: e.tick, disabled: Object.keys(disabled), kept: [...new Set(kept)] };
+  e.liveDisabled["kind:normal"] = { pf: 0, n: 99, at: e.tick };
+  e.liveHealth = { n, at: e.tick, disabled: Object.keys(e.liveDisabled), kept: [...new Set(kept)].filter((k) => k !== "kind:normal") };
   return e.liveHealth;
 }
 

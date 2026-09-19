@@ -386,6 +386,8 @@ export const STRATEGY_KINDS: { id: StrategyKind; label: string; blurb: string }[
 ];
 
 export const DEFAULT_ENABLED_KINDS: StrategyKind[] = STRATEGY_KINDS.map((k) => k.id);
+/** Live book: no Normal/general lanes. Indication + Block + short only. */
+export const LIVE_ENABLED_KINDS: StrategyKind[] = DEFAULT_ENABLED_KINDS.filter((k) => k !== "normal");
 
 export const VENUE_ORDER_TYPES: Record<Venue, OrderTypeId[]> = {
   bingx: ["market", "limit", "stop", "stop_limit", "trailing_stop", "post_only", "ioc", "fok"],

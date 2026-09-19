@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, allShortTpSlCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, allProtectCells, allShortTpSlCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -29,6 +29,7 @@ import {
   overlayExchangeBook,
   releaseVanished,
   skipLiveSymbol,
+  liveRelationDisabled,
   classifyIndication,
   tacticForIndication,
   openPlaybook,
@@ -161,15 +162,15 @@ const BLOCK = {
   cadence: 6,
   flattenConflict: false,
   addOnWin: true,
-  maxMultiple: 6,
+  maxMultiple: 1,
   minMultiple: 1,
   overall: true,
-  counts: [...LIVE_BLOCK_COUNTS],
+  counts: [1],
   volumeRatio: IS_X01 ? (X01_DEFAULTS.volumeRatio ?? 0.08) : 0.16,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: 0,
-  evalPosCount: 6,
+  evalPosCount: 1,
   activeLive: true,
   minActiveLevel: 0,
   keepAdjusted: true,
@@ -182,7 +183,7 @@ const BLOCK = {
   relAdditive: true,
   relVolumeRatio: 0.08,
   minRelPf: LIVE_MIN_PF,
-  evalLastNs: [1, 2, 3, 4, 5, 6],
+  evalLastNs: [1],
   liveLastN: 12,
   liveDisable: true,
   liveDisableMinPf: LIVE_MIN_PF,
@@ -204,7 +205,7 @@ const SHORT_GRID = allShortTpSlCombos().flatMap((s) =>
     cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, ...s, dcaCount: 1, maxHoldTicks: 16 },
   })),
 );
-let GRID = [...SHORT_GRID, ...BASE_GRID];
+let GRID = [...SHORT_GRID];
 let currentPick = GRID[0];
 const DISABLED_FILE = process.env.CTS_A_DISABLED ?? "/var/lib/cts-a/live-disabled.json";
 
@@ -480,7 +481,7 @@ function writeSettingsPick(pick, extra = {}) {
     comboOnlyPositive: true,
     comboTactic: "all",
     comboRange: "all",
-    enabledKinds: ["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block", "short"],
+    enabledKinds: [...LIVE_ENABLED_KINDS],
     strategyId: "normal",
     minPf: LIVE_MIN_PF,
     thresholds: { minPf: LIVE_MIN_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
@@ -1448,9 +1449,27 @@ async function mirrorToExchange(e, network, cfg) {
     }
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
     if (deadSymbols.has(f.symbol)) continue;
-    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 6))) {
+    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 1))) {
       skippedFills.add(f.id);
       continue;
+    }
+    {
+      const ind = classifyIndication(e, f.symbol);
+      const kind = kindFromIndication(ind, openPlaybook(e.lastTactic, ind), e.lastTactic);
+      if (
+        kind === "normal" ||
+        liveRelationDisabled(e, {
+          symbol: f.symbol,
+          side: f.side,
+          indication: ind,
+          kind,
+          tactic: e.lastTactic,
+          rangeType: e.lastRange,
+        })
+      ) {
+        skippedFills.add(f.id);
+        continue;
+      }
     }
     if (!isUniverseSymbol(f.symbol)) {
       mirrored.add(f.id);
@@ -2100,7 +2119,17 @@ async function main() {
           adjustments.push(`settings cfg sl ${pick.cfg.slAtr} tp ${pick.cfg.tpRatio} trail ${pick.cfg.trailingPct}`);
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
-        if (remote.blockConfig) Object.assign(BLOCK, remote.blockConfig, { enabled: true });
+        if (remote.blockConfig)
+          Object.assign(BLOCK, remote.blockConfig, {
+            enabled: true,
+            counts: [1],
+            maxMultiple: 1,
+            minMultiple: 1,
+            evalLastNs: [1],
+            evalPosCount: 1,
+            activeLive: true,
+            minActiveLevel: 0,
+          });
         if (engine.lastMsg?.startsWith("Host reset") || (remote.sessionPhase === "running" && engine.positions.length === 0 && Date.now() - lastResetAt > 8000 && engine.phase === "idle")) {
           lastResetAt = Date.now();
         }

@@ -1,4 +1,4 @@
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_THRESHOLDS, LIVE_BLOCK_COUNTS, X01_DEFAULTS } from "./engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_THRESHOLDS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, X01_DEFAULTS } from "./engine.ts";
 import type { DeskSettingsSnap } from "./settings-sync.ts";
 
 export interface SettingsPreset {
@@ -124,7 +124,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
   {
     id: "short-block-live",
     label: "Short + Block",
-    blurb: "x01 · 50 · short TP 0.2–0.4 × SL 0.5–1.5 · Block 1–6 · min PF 1.8 · last-N 12 disable",
+    blurb: "x01 · 50 · indications only · short TP/SL · Block Active 1-step · min PF 1.8",
     builtin: true,
     patch: {
       activeConnId: "bingx-x01",
@@ -145,8 +145,12 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       },
       blockConfig: {
         ...BLOCK_LIVE,
-        enabled: true,
-        overall: true,
+        counts: [1],
+        maxMultiple: 1,
+        minMultiple: 1,
+        evalLastNs: [1],
+        evalPosCount: 1,
+        minActiveLevel: 0,
         activeLive: true,
         relAdditive: true,
         relVolumeRatio: 0.08,
@@ -160,7 +164,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
         autoEval: true,
       },
       thresholds: { ...DEFAULT_THRESHOLDS, minPf: 1.8, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
-      enabledKinds: ["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block", "short"],
+      enabledKinds: [...LIVE_ENABLED_KINDS],
       liveTape: true,
       comboOnlyPositive: true,
       comboTactic: "all",
