@@ -598,7 +598,7 @@ function quietMs(s) {
       if (wait > 2000) return Math.min(480_000, wait);
     }
   }
-  return /109418|480000|over 20/i.test(msg) ? 480_000 : 180_000;
+  return /109418|480000|over 20/i.test(msg) ? 120_000 : 25_000;
 }
 
 function protectKind(t) {
@@ -906,7 +906,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (mayCancelOrder(o)) strayJobs.push({ key, o });
     }
   }
-  const strayOut = await mapLimit(strayJobs.slice(0, 24), 8, async (job) => {
+  const strayOut = await mapLimit(strayJobs.slice(0, 2), 1, async (job) => {
     const r = await cancelOne(job.o);
     if (r.ok) {
       mirrored.delete(`sl:${job.key}`);
@@ -932,7 +932,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       for (const extra of list.slice(1)) extraJobs.push({ tk, kind, extra });
     }
   }
-  const extraOut = await mapLimit(extraJobs.slice(0, 24), 8, async (job) => {
+  const extraOut = await mapLimit(extraJobs.slice(0, 2), 1, async (job) => {
     const r = await cancelOne(job.extra);
     if (r.ok) {
       trimHits.set(job.tk, (trimHits.get(job.tk) || 0) + 1);
@@ -1026,10 +1026,13 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       else hasTp.add(key);
       return `${kind} ${p.symbol}`;
     };
-    const jobs = [];
-    if (!hasSl.has(key)) jobs.push(attach("sl", "STOP_MARKET", `sl:${key}`));
-    if (!hasTp.has(key)) jobs.push(attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`));
-    if (jobs.length) local.push(...(await Promise.all(jobs)));
+    if (!hasSl.has(key) && !apiQuiet()) {
+      local.push(await attach("sl", "STOP_MARKET", `sl:${key}`));
+      await sleep(120);
+    }
+    if (!hasTp.has(key) && !apiQuiet()) {
+      local.push(await attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`));
+    }
     return { notes: local, posts: n };
   };
 
@@ -1055,13 +1058,13 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.08;
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift });
   }
-  for (let i = 0; i < need.length && posts < 48; i += 8) {
-    const chunk = need.slice(i, i + 8);
-    const out = await Promise.all(chunk.map((row) => protectOne(row.p, row.slDrift, row.tpDrift)));
-    for (const r of out) {
-      posts += r.posts;
-      notes.push(...r.notes);
-    }
+  for (let i = 0; i < Math.min(need.length, 2) && posts < 4; i += 1) {
+    if (apiQuiet()) break;
+    const row = need[i];
+    const r = await protectOne(row.p, false, false);
+    posts += r.posts;
+    notes.push(...r.notes);
+    await sleep(120);
   }
 
   const trailT0 = Date.now();
@@ -1106,7 +1109,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (p.side === "short" && !(next > mark)) continue;
       trailNeed.push({ p, key, spec, cell, mark, next, slOrd });
     }
-    const trailOut = await mapLimit(trailNeed, 6, async (row) => {
+    const trailOut = await mapLimit(trailNeed.slice(0, 1), 1, async (row) => {
       const { p, key, spec, cell, mark, next, slOrd } = row;
       const slId = String(slOrd?.id || "");
       if (slId) {
@@ -1404,7 +1407,7 @@ async function mirrorToExchange(e, network, cfg) {
       _fromQueue: true,
     }));
   for (const f of [...e.fills, ...queueIntents]) {
-    if (fillJobs.length >= 20) break;
+    if (fillJobs.length >= 2) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
     if (e.lastTactic === "dca" || /dca/i.test(String(f.playbook || f.note || ""))) {
@@ -1454,7 +1457,7 @@ async function mirrorToExchange(e, network, cfg) {
     if (apiQuiet()) break;
     fillJobs.push(f);
   }
-  const fillOut = await mapLimit(fillJobs, 4, async (f) => {
+  const fillOut = await mapLimit(fillJobs, 1, async (f) => {
     try {
       const r = await withLiveBusy(() =>
         placeSwapOrder({
