@@ -920,7 +920,7 @@ describe("VST engine", () => {
     assert.equal(result.confirmReport!.ratioViolations, 0);
     assert.ok(result.confirmReport!.trades >= 2, `3d trades ${result.confirmReport!.trades}`);
     assert.ok(Number.isFinite(result.cfg.trailingPct));
-    assert.ok(result.cfg.tpRatio >= 0.25 && result.cfg.tpRatio <= 3);
+    assert.ok(result.cfg.tpRatio >= 0.2 && result.cfg.tpRatio <= 3);
   });
 
   it("stage-evals 4/8/16h with independent last-N 5/10/15 and end PF avg", async () => {

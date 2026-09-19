@@ -112,9 +112,11 @@ export type ContractSpec = {
   maxLeverage?: number;
 };
 
-/** Exchange-safe minimum stop distance. */
+/** Exchange-safe minimum stop distance. VST demo may go to 0.2%. */
 export const MIN_LIVE_SL_PCT = 0.008;
+export const MIN_LIVE_SL_PCT_VST = 0.002;
 export const MAX_LIVE_SL_PCT = 0.025;
+export const MAX_LIVE_SL_PCT_VST = 0.02;
 
 let contractCache: { at: number; network: string; map: Map<string, ContractSpec> } | null = null;
 
@@ -334,15 +336,19 @@ export function liveProtectPrices(
   entry: number,
   side: Side,
   slAtr = 1.05,
-  tpRatio = 2.5,
+  tpRatio = 2.6,
   spec?: ContractSpec | null,
+  mode: "vst" | "main" = "vst",
 ): { sl: number; tp: number; slPct: number; tpPct: number } {
   const px = Math.max(entry, 1e-12);
   const tick = spec?.pxPrec != null ? Math.pow(10, -Math.max(0, spec.pxPrec)) : px * 1e-4;
-  const slPct = Math.min(MAX_LIVE_SL_PCT, Math.max(MIN_LIVE_SL_PCT, 0.005 * Math.max(0.4, slAtr)));
-  const tpPct = Math.max(slPct * Math.min(3, Math.max(0.25, tpRatio)), slPct * 1.5);
-  const minSl = Math.max(px * 0.01, tick * 3);
-  const minTp = Math.max(px * 0.015, tick * 4);
+  const minSlPct = mode === "vst" ? MIN_LIVE_SL_PCT_VST : MIN_LIVE_SL_PCT;
+  const maxSlPct = mode === "vst" ? MAX_LIVE_SL_PCT_VST : MAX_LIVE_SL_PCT;
+  const slPct = Math.min(maxSlPct, Math.max(minSlPct, Math.max(0.2, slAtr) * 0.01));
+  const r = Math.min(3, Math.max(0.2, tpRatio));
+  const tpPct = Math.min(0.06, Math.max(minSlPct, slPct * r));
+  const minSl = Math.max(px * slPct, tick * 3);
+  const minTp = Math.max(px * tpPct, tick * 4);
   let slRaw = side === "long" ? px * (1 - slPct) : px * (1 + slPct);
   let tpRaw = side === "long" ? px * (1 + tpPct) : px * (1 - tpPct);
   if (side === "long") {
@@ -635,7 +641,7 @@ export async function placeSwapOrder(input: {
     } else if (input.type === "MARKET" && !input.closePosition && input.attachProtect !== false && withProtect) {
       const ref = px > 0 ? px : sendQty > 0 ? usedNotional / sendQty : 0;
       if (ref > 0) {
-        const prot = liveProtectPrices(ref, protectSide, input.slAtr ?? 1.05, input.tpRatio ?? 2.5, spec);
+        const prot = liveProtectPrices(ref, protectSide, input.slAtr ?? 1.05, input.tpRatio ?? 2.6, spec, input.network === "mainnet" ? "main" : "vst");
         params.stopLoss = JSON.stringify({
           type: "STOP_MARKET",
           stopPrice: prot.sl,

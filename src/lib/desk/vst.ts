@@ -47,8 +47,8 @@ const DEFAULT_CFG: TacticConfig = {
   dcaDrawdown: 0.8,
   axisSpacing: 0.55,
   axisLevels: 4,
-  slAtr: 1.05,
-  tpRatio: 3,
+  slAtr: 0.7,
+  tpRatio: 2.2,
   maxHoldBars: 3,
   maxHoldTicks: 16,
 };

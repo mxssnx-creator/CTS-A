@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -35,8 +35,8 @@ const STATUS = process.env.CTS_A_STATUS ?? "/var/lib/cts-a/vst-session.json";
 const SETTINGS = process.env.CTS_A_SETTINGS ?? "/var/lib/cts-a/desk-settings.json";
 const OVERALL = process.env.CTS_A_OVERALL ?? "/var/lib/cts-a/overall-stats.json";
 const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
-const CONN = process.env.CTS_A_CONN ?? "bingx-vst-02";
-const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || CONN === "bingx-x01" ? "mainnet" : "testnet";
+const CONN = process.env.CTS_A_X01 === "1" ? "bingx-x01" : "bingx-vst-02";
+const NETWORK_PREF = CONN === "bingx-x01" ? "mainnet" : "testnet";
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
 const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? 1.85);
 let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [] };
@@ -71,29 +71,50 @@ const GRID = [
   {
     tactic: "hybrid",
     range: "fibonacci",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.75, dcaCount: 1, slAtr: 1.15, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.6, dcaCount: 1, slAtr: 1.1, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "hybrid",
     range: "atr",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.75, dcaCount: 1, slAtr: 1.15, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.6, dcaCount: 1, slAtr: 1.1, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "hybrid",
     range: "volume",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.75, dcaCount: 1, slAtr: 1.15, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.6, dcaCount: 1, slAtr: 1.1, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "trailing",
     range: "fibonacci",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.75, dcaCount: 1, slAtr: 1.15, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.6, dcaCount: 1, slAtr: 1.1, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
   {
     tactic: "axis",
     range: "atr",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.75, dcaCount: 1, axisLevels: 5, slAtr: 1.15, maxHoldTicks: 20000, maxHoldBars: 8 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 0.8, tpRatio: 2.6, dcaCount: 1, axisLevels: 5, slAtr: 1.1, maxHoldTicks: 20000, maxHoldBars: 8 },
   },
 ];
+
+const PROTECT_FILE = process.env.CTS_A_PROTECT ?? "/var/lib/cts-a/protect-grid.json";
+function loadProtectCells() {
+  try {
+    const raw = JSON.parse(readFileSync(PROTECT_FILE, "utf8"));
+    const cells = Array.isArray(raw?.cells) ? raw.cells : Array.isArray(raw) ? raw : [];
+    const ok = cells.filter((c) => Number(c.tpRatio) > 0 && Number(c.slAtr) > 0);
+    if (ok.length) return ok.map((c) => ({ slAtr: Number(c.slAtr), tpRatio: Number(c.tpRatio), trailPct: Number(c.trailPct) || 0.8 }));
+  } catch {}
+  const out = [];
+  for (const slAtr of SL_ATR_RATIOS) {
+    for (const tpRatio of TP_SL_RATIOS) {
+      for (const trailPct of [0.8, 1.4, 2.0]) out.push({ slAtr, tpRatio, trailPct });
+    }
+  }
+  return out;
+}
+let protectCells = loadProtectCells();
+function protectFor(symbol) {
+  return pickProtectCell(String(symbol || "BTCUSDT"), protectCells);
+}
 
 function applyTape(e, tickers) {
   applyLiveTape(e, tickers);
@@ -390,8 +411,6 @@ async function closeHit(network, hit) {
 
 async function ensureProtect(network, book, cfg, vanished = new Set()) {
   if (apiQuiet()) return null;
-  const slAtr = Number(cfg?.slAtr) || 1.05;
-  const tpRatio = Number(cfg?.tpRatio) || 2.5;
   const hasSl = new Set();
   const hasTp = new Set();
   const grouped = new Map();
@@ -496,7 +515,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set()) {
     const px = p.mark || p.entry || 0;
     if (!(px > 0) || !(p.qty > 0)) continue;
     const spec = map.get(p.venueSymbol);
-    const prot = liveProtectPrices(px, p.side, slAtr, tpRatio, spec);
+    const cell = protectFor(p.symbol);
+    const slAtr = cell.slAtr;
+    const tpRatio = cell.tpRatio;
+    const prot = liveProtectPrices(px, p.side, slAtr, tpRatio, spec, network === "mainnet" ? "main" : "vst");
     const protectQty = (availUsdt = 0) => {
       let q = p.qty;
       if (availUsdt > 0 && px > 0) q = Math.min(q, (availUsdt * 0.99) / px);
@@ -708,8 +730,8 @@ async function mirrorToExchange(e, network, cfg) {
           price: f.px,
           notional: sizeNotional(book.equity),
           confirmLive: true,
-          slAtr: Number(cfg?.slAtr) || 1.05,
-          tpRatio: Number(cfg?.tpRatio) || 2.5,
+          slAtr: protectFor(f.symbol).slAtr,
+          tpRatio: protectFor(f.symbol).tpRatio,
           attachProtect: false,
           equity: Number(book.equity) || 0,
         }),

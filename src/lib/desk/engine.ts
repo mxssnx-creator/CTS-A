@@ -44,20 +44,54 @@ export const UNIT_NOTIONAL = BASE_EQUITY * POSITION_COST_PCT;
 /** Hard floor — volume factor cannot be gated below this. */
 export const MIN_VOLUME_FACTOR = 1.05;
 export const MIN_QUOTE_VOL = 0.006;
-export const TRAIL_PCTS = [0.8, 1.1, 1.4, 1.7, 2.0, 2.4] as const;
-/** Take-profit / stop-loss R-multiples: 0.25 … 3.00. */
-export const TP_SL_RATIO_MIN = 0.25;
+export const TRAIL_PCTS = [0.4, 0.6, 0.8, 1.1, 1.4, 1.7, 2.0, 2.4] as const;
+/** Take-profit / stop-loss R-multiples: 0.2 … 3.0 step 0.2. */
+export const TP_SL_RATIO_MIN = 0.2;
 export const TP_SL_RATIO_MAX = 3;
-export const TP_SL_RATIO_STEP = 0.25;
+export const TP_SL_RATIO_STEP = 0.2;
 export const TP_SL_RATIOS = Array.from(
   { length: Math.round((TP_SL_RATIO_MAX - TP_SL_RATIO_MIN) / TP_SL_RATIO_STEP) + 1 },
   (_, i) => Math.round((TP_SL_RATIO_MIN + i * TP_SL_RATIO_STEP) * 100) / 100,
 ) as readonly number[];
 
 export function snapTpRatio(n: number): number {
-  if (!Number.isFinite(n)) return 2.5;
+  if (!Number.isFinite(n)) return 2.2;
   const x = Math.min(TP_SL_RATIO_MAX, Math.max(TP_SL_RATIO_MIN, n));
-  return Math.round(x / TP_SL_RATIO_STEP) * TP_SL_RATIO_STEP;
+  return Math.round(Math.round(x / TP_SL_RATIO_STEP) * TP_SL_RATIO_STEP * 100) / 100;
+}
+
+/** Stop-loss ATR / % multiples: 0.2 … 2.0 step 0.1. */
+export const SL_ATR_MIN = 0.2;
+export const SL_ATR_MAX = 2;
+export const SL_ATR_STEP = 0.1;
+export const SL_ATR_RATIOS = Array.from(
+  { length: Math.round((SL_ATR_MAX - SL_ATR_MIN) / SL_ATR_STEP) + 1 },
+  (_, i) => Math.round((SL_ATR_MIN + i * SL_ATR_STEP) * 10) / 10,
+) as readonly number[];
+
+export function snapSlAtr(n: number): number {
+  if (!Number.isFinite(n)) return 0.7;
+  const x = Math.min(SL_ATR_MAX, Math.max(SL_ATR_MIN, n));
+  return Math.round(Math.round(x / SL_ATR_STEP) * SL_ATR_STEP * 10) / 10;
+}
+
+export type ProtectCell = { slAtr: number; tpRatio: number; trailPct: number };
+
+export function allProtectCells(): ProtectCell[] {
+  const out: ProtectCell[] = [];
+  for (const slAtr of SL_ATR_RATIOS) {
+    for (const tpRatio of TP_SL_RATIOS) {
+      for (const trailPct of TRAIL_PCTS) out.push({ slAtr, tpRatio, trailPct });
+    }
+  }
+  return out;
+}
+
+export function pickProtectCell(symbol: string, cells: ProtectCell[]): ProtectCell {
+  if (!cells.length) return { slAtr: 1.1, tpRatio: 2.6, trailPct: 0.8 };
+  let h = 2166136261;
+  for (let i = 0; i < symbol.length; i++) h = Math.imul(h ^ symbol.charCodeAt(i), 16777619);
+  return cells[Math.abs(h) % cells.length]!;
 }
 export const T0 = 1_725_000_000_000;
 export const BAR_MS = 15 * 60 * 1000;
@@ -212,8 +246,8 @@ export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
   dcaDrawdown: 0.8,
   axisSpacing: 0.55,
   axisLevels: 4,
-  slAtr: 1.05,
-  tpRatio: 3,
+  slAtr: 0.7,
+  tpRatio: 2.2,
   maxHoldBars: 3,
   maxHoldTicks: 16,
 };
