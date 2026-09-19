@@ -281,10 +281,10 @@ export const VST_SYMBOLS: VstSymbol[] = [
     .015
   ],
   [
-    "TONUSDT",
-    "TON",
-    5.42,
-    .018
+    "TAOUSDT",
+    "TAO",
+    320,
+    .02
   ],
   [
     "CRVUSDT",
@@ -2198,13 +2198,19 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (tape != null && tape + 1e-9 < 1) return true;
   if (e.liveTape) {
     if (tape != null && tape + 1e-9 < floor) return true;
-    const last = symbolLastNPf(e, symbol, evalN);
-    if (last != null && last + 1e-9 < floor) return true;
+    const stLive = e.symbolStats?.[symbol];
+    if (!stLive || stLive.trades < 2) {
+      const last = symbolLastNPf(e, symbol, evalN);
+      if (last != null && last + 1e-9 < floor) return true;
+    }
     const st = e.stats;
     if ((st.trades || 0) >= 8 && st.pf > 0 && st.pf + 1e-9 < floor) {
       const t = e.symbolStats?.[symbol];
       if (!t || t.trades < 1 || t.profit + 1e-12 <= t.loss) return true;
     }
+  } else {
+    const last = symbolLastNPf(e, symbol, evalN);
+    if (last != null && last + 1e-9 < floor) return true;
   }
   if (e.liveDisabled?.[`sym:${symbol}`]) return true;
   const perf = e.performingSymbols;
@@ -2217,14 +2223,16 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
       /* quotes may be thin */
     }
   }
-  const trend = e.closed.filter((c) => isDeskConn(c.connId) && c.indication === "trend").slice(0, 8);
-  if (trend.length >= 3) {
-    const pf = pfFromPnls(trend);
-    if (pf + 1e-9 < floor) {
-      try {
-        if (classifyIndication(e, symbol) === "trend") return true;
-      } catch {
-        /* keep */
+  if (!e.liveTape) {
+    const trend = e.closed.filter((c) => isDeskConn(c.connId) && c.indication === "trend").slice(0, 8);
+    if (trend.length >= 3) {
+      const pf = pfFromPnls(trend);
+      if (pf + 1e-9 < floor) {
+        try {
+          if (classifyIndication(e, symbol) === "trend") return true;
+        } catch {
+          /* keep */
+        }
       }
     }
   }
@@ -2512,6 +2520,20 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
   const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
   const minPf = entryMinPf(e, block);
   const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
+  if (e.liveTape) {
+    const disabled: Record<string, { pf: number; n: number; at: number }> = {};
+    const kept: string[] = [];
+    for (const [id, t] of Object.entries(e.symbolStats ?? {})) {
+      if (!t || t.trades < 2) continue;
+      const pf = profitFactor(t.profit, t.loss);
+      const key = `sym:${id}`;
+      if (pf + 1e-9 < minPf) disabled[key] = { pf, n: t.trades, at: e.tick };
+      else kept.push(key);
+    }
+    e.liveDisabled = disabled;
+    e.liveHealth = { n, at: e.tick, disabled: Object.keys(disabled), kept };
+    return e.liveHealth;
+  }
   const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, Math.max(n, minS));
   if (take.length < minS) {
     e.liveHealth = { n, at: e.tick, disabled: Object.keys(e.liveDisabled ?? {}), kept: e.liveHealth?.kept ?? [] };
@@ -3529,6 +3551,41 @@ function pnlBucket(rows: { pnl: number }[], key = "all"): OverallBucket {
 
 export const LIVE_POS_NS = [12, 40, 120] as const;
 export const LIVE_HOUR_NS = [1, 2, 4, 6, 8, 12, 50] as const;
+
+export type LivePnlRow = { t: number; v: number; symbol?: string };
+
+/** Overlay BingX realized PnL onto last-N and hour windows (paper closed is ignored). */
+export function overlayLiveExecutions(
+  stats: {
+    lastN?: Record<string, OverallBucket>;
+    hours?: Record<string, OverallBucket>;
+  },
+  pnl: LivePnlRow[],
+  now = Date.now(),
+) {
+  if (!stats || !Array.isArray(pnl) || !pnl.length) return stats;
+  const newest = pnl
+    .filter((r) => Number.isFinite(Number(r.v)) && Number.isFinite(Number(r.t)))
+    .sort((a, b) => Number(b.t) - Number(a.t));
+  if (!newest.length) return stats;
+  const asRows = (rows: LivePnlRow[]) => rows.map((r) => ({ pnl: Number(r.v) || 0 }));
+  if (stats.lastN) {
+    for (const n of LIVE_POS_NS) {
+      const take = newest.slice(0, n);
+      if (take.length) stats.lastN[String(n)] = pnlBucket(asRows(take), `n${n}`);
+    }
+  }
+  if (stats.hours) {
+    for (const h of LIVE_HOUR_NS) {
+      const since = now - h * 3_600_000;
+      const take = newest.filter((r) => Number(r.t) >= since);
+      const b = pnlBucket(asRows(take), `${h}h`);
+      const symbols = new Set(take.map((r) => String(r.symbol || "")).filter(Boolean)).size;
+      stats.hours[String(h)] = { ...b, symbols, orders: take.length, avgOrders: take.length };
+    }
+  }
+  return stats;
+}
 
 export type PlaybookDetail = OverallBucket & {
   active: OverallBucket;

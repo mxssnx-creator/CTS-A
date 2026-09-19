@@ -95,6 +95,7 @@ import {
   validateSymbols100h,
   symbolTapePf,
   overlayExchangeBook,
+  overlayLiveExecutions,
   noteBlockPosClose,
   blockPosPaused,
   symbolBlockPaused,
@@ -137,6 +138,7 @@ import {
   vol1hOf,
   syncLivePartials,
 } from "./vst.ts";
+import { BINGX_SYMBOL } from "./feed.ts";
 import { applyLiveTape, LIVE_IDS } from "./feed.ts";
 
 const CFG = {
@@ -2132,9 +2134,69 @@ describe("VST engine", () => {
     assert.equal(book.open?.n, 2);
     assert.ok(Math.abs((book.open?.net ?? 0) - 0) < 1e-9);
     const ids = universeSymbols(50).map((s) => s.id);
-    assert.ok(ids.includes("TONUSDT") && ids.includes("ENAUSDT"));
+    assert.ok(ids.includes("TAOUSDT") && ids.includes("ENAUSDT"));
     assert.equal(ids.includes("MKRUSDT"), false);
     assert.equal(ids.includes("FTMUSDT"), false);
+    assert.equal(ids.includes("TONUSDT"), false);
+    for (const id of ids) {
+      assert.ok(BINGX_SYMBOL[id], `missing BingX map ${id}`);
+    }
+  });
+
+  it("overlays last-N and hour windows from BingX realized PnL", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.liveTape = true;
+    const ov = overallLiveStats(e);
+    const now = Date.now();
+    const pnl = Array.from({ length: 20 }, (_, i) => ({
+      t: now - i * 60_000,
+      v: i % 3 === 0 ? -0.1 : 0.2,
+      symbol: i % 2 ? "ETHUSDT" : "BTCUSDT",
+    }));
+    overlayLiveExecutions(ov, pnl, now);
+    assert.equal(ov.lastN["12"].n, 12);
+    assert.ok(ov.lastN["12"].pf > 1);
+    assert.ok(ov.hours["1"].n >= 12);
+    assert.ok((ov.hours["1"].symbols ?? 0) >= 1);
+  });
+
+  it("live-tape disable uses realized symbol PF not paper last-N", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.liveTape = true;
+    e.minPf = 1.8;
+    e.symbolStats.SOLUSDT = { id: "SOLUSDT", trades: 8, wins: 1, profit: 0.2, loss: 1.0, sl: 7, tp: 1 };
+    e.symbolStats.ETHUSDT = { id: "ETHUSDT", trades: 8, wins: 6, profit: 2.4, loss: 0.4, sl: 2, tp: 6 };
+    for (let i = 0; i < 12; i++) {
+      e.closed.push({
+        id: `p${i}`,
+        connId: VST_DEFAULT_CONN,
+        symbol: "ETHUSDT",
+        side: "long",
+        pnl: -0.5,
+        qty: 1,
+        entry: 1,
+        exit: 1,
+        reason: "sl",
+        tick: i,
+        r: -1,
+        tactic: "hybrid",
+        rangeType: "atr",
+        kind: "trend",
+        indication: "trend",
+        playbook: "normal",
+      } as never);
+    }
+    const h = refreshLiveDisable(e, {
+      ...DEFAULT_BLOCK_CONFIG,
+      liveLastN: 12,
+      liveDisable: true,
+      liveDisableMinPf: 1.8,
+      liveDisableMinSamples: 4,
+    });
+    assert.ok(h.disabled.includes("sym:SOLUSDT"), `disabled ${h.disabled.join(",")}`);
+    assert.equal(h.disabled.includes("sym:ETHUSDT"), false);
+    assert.equal(skipLiveSymbol(e, "SOLUSDT"), true);
+    assert.equal(skipLiveSymbol(e, "ETHUSDT"), false);
   });
 
   it("self-heals NaN books, empty running books, and coordinator faults", () => {

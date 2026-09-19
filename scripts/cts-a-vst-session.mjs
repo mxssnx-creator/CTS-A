@@ -5,7 +5,7 @@
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h } from "../src/lib/desk/feed.server.ts";
-import { applyLiveTape } from "../src/lib/desk/feed.ts";
+import { applyLiveTape, BINGX_SYMBOL } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
@@ -30,6 +30,7 @@ import {
   releaseVanished,
   skipLiveSymbol,
   applyRealizedSymbolStats,
+  overlayLiveExecutions,
   syncLivePartials,
   sweepAllConfigs,
   sweepPlaybooks,
@@ -73,6 +74,7 @@ function pickCompleteLock(complete) {
 let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0 };
 let lastTrail = { n: 0, ms: 0, at: 0 };
 let lastExec = { n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 };
+let lastPnl = [];
 const lastPostedSl = new Map();
 const lastPeakPx = new Map();
 const lastProtectQty = new Map();
@@ -218,6 +220,7 @@ function snapshot(e, extra) {
     overall.net = lastExec.net;
     overall.trades = lastExec.n;
   }
+  if (lastPnl.length) overlayLiveExecutions(overall, lastPnl);
   const last12 = overall.lastN?.["12"] ?? null;
   const tapeReady = (lastExec.n >= 2) || (e.ledger.trades >= 4 && Number(e.stats.pf) > 0);
   const rawLive = lastExec.n >= 2 ? lastExec.pf : last12?.n >= 4 ? last12.pf : e.stats.pf;
@@ -230,7 +233,7 @@ function snapshot(e, extra) {
   const livePf = clampPf(rawLive, last12?.n ?? e.ledger.trades);
   const pf = clampPf(rawPf, e.ledger.trades);
   const net = Number.isFinite(lastBook.pnl) ? lastBook.pnl : e.stats.net;
-  const wr = tapeReady ? e.stats.wr : Number(last12?.wr || e.stats.wr);
+  const wr = lastExec.n >= 2 ? lastExec.wr : tapeReady ? e.stats.wr : Number(last12?.wr || e.stats.wr);
   const tapeThin = e.ledger.trades < 12;
   const positive = Number.isFinite(livePf) && livePf >= 1 && (tapeThin || ((last12?.net ?? net) >= -0.05 && ((last12?.wr ?? wr) >= 0.36 || livePf >= 1.5)));
   return {
@@ -245,11 +248,11 @@ function snapshot(e, extra) {
     legs: lastBook.pos || (lastBook.positions ?? []).length,
     long: (lastBook.positions ?? []).filter((p) => p.side === "long").length,
     short: (lastBook.positions ?? []).filter((p) => p.side === "short").length,
-    working: book.orders.working,
+    working: lastBook.ord || book.orders.working,
     queued: book.orders.queued,
     placed: book.orders.placed,
     filled: book.orders.filled,
-    liveOrders: book.orders.live,
+    liveOrders: lastBook.ord || book.orders.live,
     symbols: e.symbolCount,
     occupied: new Set((lastBook.positions ?? []).map((p) => p.symbol).filter(Boolean)).size || book.positions.symbols,
     heal: e.healCount ?? 0,
@@ -266,7 +269,7 @@ function snapshot(e, extra) {
     liveTp: lastBook.tp,
     liveOwned: (lastBook.positions ?? []).filter((p) => mirrored.has(`own:${p.symbol}:${p.side}`) || mirrored.has(`live:${p.symbol}:${p.side}`)).length,
     owned: [...mirrored].filter((k) => typeof k === "string" && (k.startsWith("own:") || k.startsWith("live:") || k.startsWith("seed:"))),
-    closedNet: e.ledger.profit - e.ledger.loss,
+    closedNet: lastExec.n >= 2 ? lastExec.net : e.ledger.profit - e.ledger.loss,
     avgLivePos: bookAvg.n ? bookAvg.pos / bookAvg.n : lastBook.pos,
     avgLiveOrd: bookAvg.n ? bookAvg.ord / bookAvg.n : lastBook.ord,
     overall,
@@ -464,6 +467,39 @@ function foldExec(rows) {
   };
 }
 
+function venueOf(id) {
+  const s = String(id || "");
+  return BINGX_SYMBOL[s] ?? (s.includes("-") ? s : `${s.replace(/USDT$/i, "")}-USDT`);
+}
+
+function ingestExec(ex) {
+  if (!ex?.ok) return;
+  const income = Array.isArray(ex.income) ? ex.income : [];
+  const rows = income
+    .filter((x) => String(x.type || "") === "REALIZED_PNL" && isDeskSymbol(x.symbol))
+    .map((x) => ({ t: Number(x.time) || 0, v: Number(x.income) || 0, symbol: String(x.symbol || "") }))
+    .filter((r) => r.t > 0 && Number.isFinite(r.v));
+  if (rows.length) lastPnl = rows;
+}
+
+async function pruneUnlisted(network) {
+  try {
+    const map = await fetchContractMap(network);
+    if (!map.size) return 0;
+    let n = 0;
+    for (const s of universeSymbols(LIVE_SYMBOLS)) {
+      if (!map.has(venueOf(s.id))) {
+        deadSymbols.add(s.id);
+        skipUntil.set(s.id, Date.now() + 86_400_000);
+        n += 1;
+      }
+    }
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
 async function pingVst() {
   const keys = keysForConn(CONN);
   if (!keys.apiKey || !keys.secret) return { network: NETWORK_PREF, pingOk: false, equity: 0, error: "no keys" };
@@ -493,7 +529,7 @@ function markDeadSymbol(symbol, err) {
   const id = String(symbol || "");
   if (!id) return false;
   const msg = String(err || "");
-  if (!/offline currently|not in api|does not exist|invalid symbol|symbol not exist/i.test(msg)) return false;
+  if (!/offline currently|not in api|does not exist|not exist|invalid symbol|symbol not exist/i.test(msg)) return false;
   deadSymbols.add(id);
   skipUntil.set(id, Date.now() + 86_400_000);
   return true;
@@ -1168,6 +1204,9 @@ async function main() {
   try {
     const prev = JSON.parse(readFileSync(OVERALL, "utf8"));
     const rows = deskExecRows(prev?.executions?.bySymbol);
+    if (Array.isArray(prev?.executions?.income) && prev.executions.income.length) {
+      ingestExec({ ok: true, income: prev.executions.income });
+    }
     if (rows.length) {
       applyRealizedSymbolStats(engine, rows);
       seededLosers = rows.filter((r) => Number(r.n || r.trades) >= 2 && Number(r.pf) + 1e-9 < LIVE_MIN_PF).length;
@@ -1218,6 +1257,12 @@ async function main() {
       adjustments.push(`max lev ${armed.n} symbols · peak ${armed.max}x`);
     } catch (err) {
       adjustments.push(`lev ${err instanceof Error ? err.message : "fail"}`);
+    }
+    try {
+      const dead = await pruneUnlisted(ping.network);
+      if (dead) adjustments.push(`unlisted ${dead} contracts skipped`);
+    } catch (err) {
+      adjustments.push(`contracts ${err instanceof Error ? err.message : "fail"}`);
     }
   }
 
@@ -1277,6 +1322,7 @@ async function main() {
     try {
       const ex0 = await withTimeout(fetchLiveExecutions({ network: ping.network, connId: CONN, since: started - 3 * 86400000 }), 8000, "exec0");
       if (ex0.ok && ex0.realized?.n > 0) {
+        ingestExec(ex0);
         const rows = deskExecRows(ex0.bySymbol);
         const folded = rows.length ? foldExec(rows) : null;
         lastExec = folded && folded.n > 0 ? { ...lastExec, ...folded, ddt: ex0.realized.ddt, mdd: ex0.realized.mdd } : { ...lastExec, ...ex0.realized };
@@ -1406,6 +1452,7 @@ async function main() {
         try {
           const ex = await withTimeout(fetchLiveExecutions({ network: ping.network, connId: CONN, since: started - 3 * 86400000 }), 8000, "exec");
           if (ex.ok) {
+            ingestExec(ex);
             if (ex.realized?.n > 0) {
               const rows = deskExecRows(ex.bySymbol);
               const folded = rows.length ? foldExec(rows) : null;
@@ -1433,7 +1480,17 @@ async function main() {
             }
             writeFileSync(
               OVERALL,
-              JSON.stringify({ ...prev, executions: { ok: true, realized: ex.realized, bySymbol: ex.bySymbol, orders: ex.orders.slice(0, 40), at: ex.at } }),
+              JSON.stringify({
+                ...prev,
+                executions: {
+                  ok: true,
+                  realized: ex.realized,
+                  bySymbol: ex.bySymbol,
+                  orders: ex.orders.slice(0, 40),
+                  income: (ex.income || []).filter((x) => String(x.type || "") === "REALIZED_PNL").slice(-400),
+                  at: ex.at,
+                },
+              }),
             );
           }
         } catch (err) {
