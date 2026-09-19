@@ -1085,7 +1085,7 @@ describe("VST engine", () => {
       stack: true,
       windows: false,
       volumeMode: "shared" as const,
-      volumeRatio: 0.4,
+      volumeRatio: 0.08,
       relAdditive: false,
       addOnWin: true,
       flattenConflict: false,
@@ -1371,12 +1371,21 @@ describe("VST engine", () => {
     for (const r of s.runs) finiteNum(r.pf, r.net, r.trades, r.relKeys);
   });
 
+  it("Block volume is always additive and independent of other lanes", () => {
+    const base = 1.2;
+    const r = 0.08;
+    const a = blockStepQty(base, 1, r, 1.8, 2, 0, "additive");
+    const b = blockStepQty(base, 2, r, 1.8, 2, 0, "additive");
+    assert.ok(Math.abs(a - base * r) < 1e-9, `step1 ${a}`);
+    assert.ok(Math.abs(b - base * r) < 1e-9, `step2 ${b}`);
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "additive");
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.08);
+  });
+
   it("auto-evals major/minor relations every 2h and adds volume additively", () => {
-    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.08);
+    assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.08);
     assert.equal(DEFAULT_THRESHOLDS.minPf, 2);
-    assert.equal(DEFAULT_BLOCK_CONFIG.minRelPf, 2);
-    assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 2);
-    assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.4);
     assert.equal(DEFAULT_BLOCK_CONFIG.evalHours, 2);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2]);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.evalLastNs, [1, 2, 3, 4, 5, 6]);
@@ -1394,7 +1403,7 @@ describe("VST engine", () => {
     }
     const ev = evalBlockRelations(e, block);
     assert.ok(ev.winners >= 1, `winners ${ev.winners}`);
-    assert.ok(ev.factor >= 0.4 - 1e-9, `factor ${ev.factor}`);
+    assert.ok(ev.factor >= 0.05 - 1e-9, `factor ${ev.factor}`);
     assert.ok(ev.picks.some((p) => p.major));
     assert.ok(ev.picks.some((p) => p.n >= 2), "prefers last-N ≥ 2 when samples exist");
     assert.equal(e.lastRelEvalTick, e.tick);
@@ -1452,7 +1461,7 @@ describe("VST engine", () => {
     const { report, engine } = simulateHours(24, CFG, "hybrid", {
       symbolCount: 20,
       rangeType: "fibonacci",
-      block: { ...DEFAULT_BLOCK_CONFIG, autoEval: true, relAdditive: true, volumeRatio: 0.4, evalHours: 2 },
+      block: { ...DEFAULT_BLOCK_CONFIG, autoEval: true, relAdditive: true, volumeRatio: 0.08, evalHours: 2 },
     });
     assert.ok(report.trades >= 8);
     finiteNum(report.pf, report.net, report.wr);

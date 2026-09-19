@@ -970,20 +970,20 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Volume ratio"
-              value={blockCfg.volumeRatio ?? 0.4}
-              min={0.1}
+              value={blockCfg.volumeRatio ?? 0.08}
+              min={0.05}
               max={2.5}
-              step={0.05}
+              step={0.01}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ volumeRatio: n })}
               ariaLabel="Block volume ratio"
             />
             <RangeKnob
               label="Relation vol ratio"
-              value={blockCfg.relVolumeRatio ?? 0.4}
-              min={0.1}
+              value={blockCfg.relVolumeRatio ?? 0.08}
+              min={0.05}
               max={2}
-              step={0.05}
+              step={0.01}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ relVolumeRatio: n })}
               ariaLabel="Relation additive volume ratio"

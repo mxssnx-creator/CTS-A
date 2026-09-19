@@ -1040,7 +1040,7 @@ export function kindFromIndication(id: IndicationId, playbook: string, tactic: T
   return "normal";
 }
 export function playbookOf(e: VstEngine, o: LiveOrder): string {
-  if (/^Block/i.test(o.note || "")) return "block";
+  if (/Block/i.test(o.note || "")) return "block";
   if (/^DCA/i.test(o.note || "") || e.lastTactic === "dca") return "dca";
   if (e.lastTactic === "axis" || /^axis\b/i.test(o.note || "")) return "axis";
   return "normal";
@@ -1108,7 +1108,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     px
   });
   recordBlockFill(e, o, take);
-  if (/^Block/i.test(o.note || "")) {
+  if (/Block/i.test(o.note || "")) {
     pos.blockLevel = Math.max(pos.blockLevel || 1, o.level || 1);
     pos.blockQty = (pos.blockQty || 0) + take;
     if (created) {
@@ -1723,9 +1723,8 @@ function blockVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
   return ["shared"];
 }
 
-function liveVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
-  if (block?.overall !== false) return ["additive"];
-  return blockVolumeModes(block);
+function liveVolumeModes(_block?: BlockConfig): ("shared" | "additive")[] {
+  return ["additive"];
 }
 
 function blockModeOf(o: { note?: string }): "shared" | "additive" {
@@ -1952,7 +1951,7 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
   const uniq = picks.filter((p) => (seen.has(p.key) ? false : (seen.add(p.key), true))).sort((a, b) => b.pf - a.pf || b.net - a.net);
   const used = uniq.slice(0, 8);
   e.blockRelBest = Object.fromEntries(used.map((p) => [p.key, p]));
-  e.relVolumeFactor = block.relAdditive === false ? 0 : used.length * vr;
+  e.relVolumeFactor = block.relAdditive === false ? 0 : used.length ? vr : 0;
   e.lastRelEvalTick = e.tick;
   pruneBlockRelWindows(e);
   refreshLiveDisable(e, block);
@@ -2087,7 +2086,7 @@ function emptyBlockLane(symbol: string, side: Side, baseQty: number, baseEntry: 
 }
 
 function isBlockOrder(o: LiveOrder) {
-  return /^Block/i.test(o.note || "");
+  return /Block/i.test(o.note || "");
 }
 
 function collectBlockOrders(e: VstEngine, conn: string) {
@@ -2341,11 +2340,11 @@ export function adjustActiveBlocks(
           if (lane.satisfied[next] || liveLevels.has(next) || lane.pending === next) continue;
           if (lane.confirmedAdd + 1e-12 >= lane.baseQty * (mode === "additive" ? next * vr : blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 1.8, mode))) continue;
           if (!blockPfOk(lane, next, block, minPf)) continue;
-          const step = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, mode);
+          const step = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, "additive");
           const extra =
-            next === counts[0] && block.relAdditive !== false
-              ? Math.min((e.relVolumeFactor || 0) * lane.baseQty, lane.baseQty * 2)
-              : 0;
+            block.relAdditive === false || !((e.relVolumeFactor || 0) > 0)
+              ? 0
+              : (block.relVolumeRatio ?? vr) * lane.baseQty;
           const qty = step + extra;
           if (!(qty > 0)) continue;
           const hi = pickRange(q, cfg, rangeType);
