@@ -1125,7 +1125,7 @@ export function openPlaybook(tactic: TacticKind, indication: IndicationId): stri
   if (tactic === "axis") return "axis";
   if (indication === "break") return "normal";
   if (indication === "active") return "normal";
-  if (indication === "direction") return "axis";
+  if (indication === "direction") return "normal";
   return "normal";
 }
 
@@ -2991,7 +2991,7 @@ export function adjustActiveBlocks(
       }
       const move = p.unrealized / Math.max(p.avgEntry * p.qty, 1e-9);
       if (block.addOnWin && move <= 0) continue;
-      if (block.activeLive !== false && move < 0.004) continue;
+      if (e.liveTape && block.activeLive !== false && move < 0.004) continue;
       if (overallPause) continue;
       if (!overall && symbolBlockPaused(e, p.symbol, evalN)) continue;
       const q = e.quotes[p.symbol];
@@ -3078,7 +3078,7 @@ export function adjustActiveBlocks(
   return { cancelled, added, flattened, blocks: blockN };
 }
 
-export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { freezeIds?: Set<string>; skipWalk?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
+export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { freezeIds?: Set<string>; skipWalk?: boolean; skipMatch?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
   ensureEngine(e);
   if (opts?.skipWalk) e.liveTape = true;
   const t0 = Date.now();
@@ -3098,7 +3098,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   });
   if (e.tick % 2 === 0) safeStage(e, "indications", () => refreshLiveIndications(e.quotes));
   safeStage(e, "batch", () => processBatches(e));
-  if (!opts?.skipWalk) safeStage(e, "match", () => matchOrders(e));
+  if (!opts?.skipMatch) safeStage(e, "match", () => matchOrders(e));
   safeStage(e, "positions", () => managePositions(e, tactic, cfg, { minHold: opts?.skipWalk ? 80 : 1, liveTape: Boolean(opts?.skipWalk) }));
   if (e.tick % 8 === 0 && !over()) safeStage(e, "coord", () => applySessionCoord(e));
   const block = opts?.block ?? e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
