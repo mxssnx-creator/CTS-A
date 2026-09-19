@@ -925,7 +925,7 @@ async function closeHit(network, hit) {
       notional: Math.max(6, Math.abs(hit.qty * (hit.mark || hit.entry || 1))),
       confirmLive: true,
       closePosition: false,
-      reduceOnly: true,
+      reduceOnly: false,
       attachProtect: false,
     }),
   );
@@ -1099,12 +1099,12 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         tpRatio,
         attachProtect: false,
         closePosition: false,
-        reduceOnly: true,
+        reduceOnly: false,
       };
       let r = await withLiveBusy(() => placeSwapOrder(body));
       n += 1;
       if (!r.ok && closeRetry(r.error)) {
-        r = await withLiveBusy(() => placeSwapOrder({ ...body, reduceOnly: true, closePosition: false, quantity: 0 }));
+        r = await withLiveBusy(() => placeSwapOrder({ ...body, reduceOnly: false, closePosition: false, quantity: 0 }));
         n += 1;
       }
       return r;
@@ -1252,11 +1252,11 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         tpRatio: cell.tpRatio,
         attachProtect: false,
         closePosition: false,
-        reduceOnly: true,
+        reduceOnly: false,
       };
       let r = await withLiveBusy(() => placeSwapOrder(body));
       if (!r.ok && closeRetry(r.error)) {
-        r = await withLiveBusy(() => placeSwapOrder({ ...body, reduceOnly: true, closePosition: false }));
+        r = await withLiveBusy(() => placeSwapOrder({ ...body, reduceOnly: false, closePosition: false }));
       }
       if (r.ok) {
         lastPostedSl.set(key, next);
@@ -1330,7 +1330,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
           confirmLive: true,
           attachProtect: false,
           closePosition: false,
-          reduceOnly: true,
+          reduceOnly: false,
           notional: Math.max(1, qty * mark),
           price: mark,
         }),
