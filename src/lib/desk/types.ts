@@ -472,6 +472,9 @@ export interface TacticConfig {
 
 export interface Thresholds {
   minPf: number;
+  basePf: number;
+  axisPf: number;
+  blockPf: number;
   maxMdd: number;
   minWr: number;
   minVf: number;
@@ -973,6 +976,9 @@ export interface VstEngine {
   performingSymbols?: string[];
   hourCoord?: HourCoord;
   minPf?: number;
+  basePf?: number;
+  axisPf?: number;
+  blockPf?: number;
   liveTape?: boolean;
   strategyToggles?: StrategyToggles;
   /** Owned live exchange position count — used to allow a restart when the book is empty. */

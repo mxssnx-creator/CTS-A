@@ -875,7 +875,16 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.activeConnId = get().activeConnId;
     e.costStep = get().costStep;
     e.strategyToggles = get().strategyToggles;
-    e.blockCfg = { ...get().blockConfig, enabled: get().strategyToggles.block && get().blockConfig.enabled };
+    e.minPf = get().thresholds.minPf;
+    e.basePf = get().thresholds.basePf;
+    e.axisPf = get().thresholds.axisPf;
+    e.blockPf = get().thresholds.blockPf;
+    e.blockCfg = {
+      ...get().blockConfig,
+      enabled: get().strategyToggles.block && get().blockConfig.enabled,
+      minRelPf: get().thresholds.blockPf,
+      liveDisableMinPf: get().thresholds.blockPf,
+    };
     if (!get().liveSession) requeueFree(e, cfg, tactic, rangeType, get().activeConnId);
     e.lastMsg = get().liveSession
       ? `Host BingX VST-02 · ${tactic} · ${rangeType}`

@@ -609,15 +609,45 @@ export function PerformanceView() {
       </Panel>
 
       <Panel title="Thresholds">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          <Field label={`Min PF ${th.minPf.toFixed(2)}`}>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <Field label={`Overall PF ${th.minPf.toFixed(2)}`}>
             <input
               type="range"
-              min={1.8}
-              max={2.4}
+              min={1.1}
+              max={3}
               step={0.05}
               value={th.minPf}
               onChange={(e) => setTh({ minPf: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label={`Base PF ${(th.basePf ?? 1.1).toFixed(2)}`}>
+            <input
+              type="range"
+              min={1}
+              max={2}
+              step={0.05}
+              value={th.basePf ?? 1.1}
+              onChange={(e) => setTh({ basePf: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label={`Axis PF ${(th.axisPf ?? 1.5).toFixed(2)}`}>
+            <input
+              type="range"
+              min={1.1}
+              max={3}
+              step={0.05}
+              value={th.axisPf ?? 1.5}
+              onChange={(e) => setTh({ axisPf: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label={`Block PF ${(th.blockPf ?? 1.6).toFixed(2)}`}>
+            <input
+              type="range"
+              min={1.1}
+              max={3}
+              step={0.05}
+              value={th.blockPf ?? 1.6}
+              onChange={(e) => setTh({ blockPf: Number(e.target.value) })}
             />
           </Field>
           <Field label={`Max DD ${(th.maxMdd * 100).toFixed(0)}%`}>

@@ -479,6 +479,9 @@ export const TACTIC_META: Record<TacticKind, { label: string; blurb: string }> =
 };
 
 export const DEFAULT_MIN_PF = 1.8;
+export const DEFAULT_BASE_PF = 1.1;
+export const DEFAULT_AXIS_PF = 1.5;
+export const DEFAULT_BLOCK_PF = 1.6;
 
 export const X01_DEFAULTS = {
   connId: "bingx-x01" as const,
@@ -498,6 +501,9 @@ export const LIVE_BLOCK_COUNTS = [1, 2, 3, 4, 5, 6] as const;
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
   minPf: DEFAULT_MIN_PF,
+  basePf: DEFAULT_BASE_PF,
+  axisPf: DEFAULT_AXIS_PF,
+  blockPf: DEFAULT_BLOCK_PF,
   maxMdd: 0.12,
   minWr: 0.55,
   minVf: 1.12,
@@ -549,11 +555,11 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   autoEval: true,
   relAdditive: true,
   relVolumeRatio: 0.08,
-  minRelPf: DEFAULT_MIN_PF,
+  minRelPf: DEFAULT_BLOCK_PF,
   evalLastNs: [1, 2, 3, 4, 5, 6],
   liveLastN: 12,
   liveDisable: true,
-  liveDisableMinPf: DEFAULT_MIN_PF,
+  liveDisableMinPf: DEFAULT_BLOCK_PF,
   liveDisableMinSamples: 4,
   symbolEvalHours: 100,
   hourCoord: true,
@@ -1609,11 +1615,21 @@ function tacticCfgMod(cfg: TacticConfig, tactic: TacticKind, trailPct?: number, 
 }
 
 export function isPositive(
-  s: { pf: number; mdd: number; wr: number; volumeFactor: number; ddt?: number },
+  s: { pf: number; mdd: number; wr: number; volumeFactor: number; ddt?: number; tactic?: string; playbook?: string; kind?: string },
   th: Thresholds,
 ) {
   const vfFloor = Math.max(th.minVf, MIN_VOLUME_FACTOR);
-  if (s.pf < th.minPf) return false;
+  const lane =
+    s.playbook === "block" || s.kind === "block"
+      ? "block"
+      : s.tactic === "axis" || s.playbook === "axis"
+        ? "axis"
+        : s.kind === "normal" || s.playbook === "normal"
+          ? "base"
+          : "overall";
+  const minPf =
+    lane === "block" ? th.blockPf ?? DEFAULT_BLOCK_PF : lane === "axis" ? th.axisPf ?? DEFAULT_AXIS_PF : lane === "base" ? th.basePf ?? DEFAULT_BASE_PF : th.minPf;
+  if (s.pf < minPf) return false;
   if (s.mdd > th.maxMdd) return false;
   if (s.wr < th.minWr) return false;
   if (s.volumeFactor < vfFloor) return false;

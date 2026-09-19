@@ -55,6 +55,9 @@ import {
   SL_OF_TP,
   X01_DEFAULTS,
   DEFAULT_MIN_PF,
+  DEFAULT_BASE_PF,
+  DEFAULT_AXIS_PF,
+  DEFAULT_BLOCK_PF,
   UNIT_NOTIONAL,
   profitFactor,
   pfFromPnls,
@@ -94,6 +97,9 @@ import {
   releaseVanished,
   skipLiveSymbol,
   entryMinPf,
+  minPfFor,
+  activeMinPf,
+  pfLaneOf,
   refreshSymbolHourEval,
   validateSymbols100h,
   symbolTapePf,
@@ -1858,9 +1864,12 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.08);
     assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.08);
     assert.equal(DEFAULT_THRESHOLDS.minPf, 1.8);
-    assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 1.8);
+    assert.equal(DEFAULT_THRESHOLDS.basePf, 1.1);
+    assert.equal(DEFAULT_THRESHOLDS.axisPf, 1.5);
+    assert.equal(DEFAULT_THRESHOLDS.blockPf, 1.6);
+    assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 1.6);
     assert.equal(DEFAULT_BLOCK_CONFIG.liveLastN, 12);
-    assert.equal(DEFAULT_BLOCK_CONFIG.minRelPf, 1.8);
+    assert.equal(DEFAULT_BLOCK_CONFIG.minRelPf, 1.6);
     assert.equal(DEFAULT_TACTIC_CONFIG.slAtr, slAtrOf(1.0, 1));
     assert.equal(DEFAULT_TACTIC_CONFIG.tpRatio, tpRatioOf(1));
     assert.equal(TP_SL_RATIO_MIN, tpRatioOf(1.25));
@@ -2109,6 +2118,38 @@ describe("VST engine", () => {
     e.symbolStats.ETHUSDT = { id: "ETHUSDT", trades: 4, wins: 3, profit: 1.2, loss: 0.2, sl: 1, tp: 3 };
     assert.equal(skipLiveSymbol(e, "ETHUSDT"), false);
     assert.equal(entryMinPf(e), DEFAULT_MIN_PF);
+    e.minPf = 1.8;
+    e.basePf = 1.1;
+    e.axisPf = 1.5;
+    e.blockPf = 1.6;
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, axis: true, block: true, trailing: true, normal: false };
+    assert.equal(minPfFor(e, "overall"), DEFAULT_MIN_PF);
+    assert.equal(minPfFor(e, "base"), DEFAULT_BASE_PF);
+    assert.equal(minPfFor(e, "axis"), DEFAULT_AXIS_PF);
+    assert.equal(minPfFor(e, "block"), DEFAULT_BLOCK_PF);
+    assert.equal(activeMinPf(e), 1.5);
+    assert.equal(pfLaneOf({ tactic: "axis" }), "axis");
+    assert.equal(pfLaneOf({ playbook: "block", blockLevel: 2 }), "block");
+    assert.equal(pfLaneOf({ kind: "normal" }), "base");
+    e.liveTape = true;
+    e.closed = Array.from({ length: 10 }, (_, i) => ({
+      id: `a${i}`,
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long",
+      pnl: i % 2 ? 0.4 : 0.2,
+      qty: 1,
+      entry: 1,
+      exit: 1,
+      reason: "tp",
+      tick: i,
+      r: 1,
+      tactic: "axis",
+      rangeType: "atr",
+      playbook: "axis",
+      kind: "trend",
+    })) as never;
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", tactic: "axis", playbook: "axis" }), true);
     e.liveTape = true;
     e.liveOpenN = 20;
     e.symbolStats.ADAUSDT = { id: "ADAUSDT", trades: 6, wins: 3, profit: 1.5, loss: 1.0, sl: 3, tp: 3 };
@@ -2486,6 +2527,9 @@ describe("VST engine", () => {
     assert.equal(snap.symbolCount, 50);
     assert.equal(snap.tacticConfig.tpRatio, tpRatioOf(1));
     assert.equal(snap.thresholds.minPf, DEFAULT_MIN_PF);
+    assert.equal(snap.thresholds.basePf, DEFAULT_BASE_PF);
+    assert.equal(snap.thresholds.axisPf, DEFAULT_AXIS_PF);
+    assert.equal(snap.thresholds.blockPf, DEFAULT_BLOCK_PF);
     assert.ok(snap.tacticConfig.slAtr >= 0.8);
     assert.equal(snap.thresholds.maxDdt, 20);
     assert.equal(snap.hedgeMode, true);

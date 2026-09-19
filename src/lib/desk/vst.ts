@@ -31,6 +31,9 @@ import {
   DEFAULT_BLOCK_CONFIG,
   DEFAULT_THRESHOLDS,
   DEFAULT_MIN_PF,
+  DEFAULT_BASE_PF,
+  DEFAULT_AXIS_PF,
+  DEFAULT_BLOCK_PF,
   DEFAULT_STRATEGY_TOGGLES,
   BLOCK_POS_COUNTS,
   DEFAULT_MAX_HOLD_TICKS,
@@ -722,6 +725,9 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.performingSymbols = e.performingSymbols ?? [];
   e.hourCoord = e.hourCoord ?? { hour: 0, performing: [], skipped: [], at: 0 };
   e.minPf = e.minPf ?? DEFAULT_THRESHOLDS.minPf;
+  e.basePf = e.basePf ?? DEFAULT_THRESHOLDS.basePf;
+  e.axisPf = e.axisPf ?? DEFAULT_THRESHOLDS.axisPf;
+  e.blockPf = e.blockPf ?? DEFAULT_THRESHOLDS.blockPf;
   e.liveTape = e.liveTape ?? false;
   for (const lane of Object.values(e.blockLanes)) {
     lane.active = lane.active ?? true;
@@ -785,6 +791,9 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     performingSymbols: [],
     hourCoord: { hour: 0, performing: [], skipped: [], at: 0 },
     minPf: DEFAULT_THRESHOLDS.minPf,
+    basePf: DEFAULT_THRESHOLDS.basePf,
+    axisPf: DEFAULT_THRESHOLDS.axisPf,
+    blockPf: DEFAULT_THRESHOLDS.blockPf,
     liveTape: false,
     strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
   };
@@ -2228,13 +2237,57 @@ export function symbolTapePf(e: VstEngine, symbol: string): number | null {
   return profitFactor(t.profit, t.loss);
 }
 
-/** Systemwide entry floor: settings min PF, live-disable, and relation PF. */
-export function entryMinPf(e: VstEngine, block: BlockConfig = e.blockCfg ?? DEFAULT_BLOCK_CONFIG): number {
-  const a = Number(e.minPf);
-  const d = Number(block.liveDisableMinPf);
-  const th = Number.isFinite(a) && a > 0 ? a : DEFAULT_THRESHOLDS.minPf;
-  const xs = [th, d].filter((n) => Number.isFinite(n) && n > 0);
-  return Math.max(DEFAULT_MIN_PF, ...xs);
+export type PfLane = "overall" | "base" | "axis" | "block";
+
+function numPf(n: number | undefined, fallback: number): number {
+  const x = Number(n);
+  return Number.isFinite(x) && x > 0 ? x : fallback;
+}
+
+/** Overall is the live default. Axis/Block/Base are independent (can be lower). */
+export function minPfFor(e: VstEngine, lane: PfLane = "overall"): number {
+  const overall = numPf(e.minPf, DEFAULT_THRESHOLDS.minPf);
+  if (lane === "overall") return overall;
+  if (lane === "base") return numPf(e.basePf, DEFAULT_THRESHOLDS.basePf);
+  if (lane === "axis") return numPf(e.axisPf, DEFAULT_THRESHOLDS.axisPf);
+  return numPf(e.blockPf ?? e.blockCfg?.liveDisableMinPf, DEFAULT_THRESHOLDS.blockPf);
+}
+
+export function pfLaneOf(rel: { tactic?: string; playbook?: string; kind?: string; note?: string; blockLevel?: number } | null | undefined): PfLane {
+  const play = String(rel?.playbook || "");
+  const note = String(rel?.note || "");
+  const kind = String(rel?.kind || "");
+  const tac = String(rel?.tactic || "");
+  if (play === "block" || kind === "block" || /^Block/i.test(note) || (rel?.blockLevel ?? 0) >= 1) return "block";
+  if (play === "axis" || tac === "axis" || kind === "axis") return "axis";
+  if (play === "normal" || kind === "normal") return "base";
+  return "overall";
+}
+
+export function entryMinPfFor(e: VstEngine, rel?: Parameters<typeof pfLaneOf>[0]): number {
+  return minPfFor(e, pfLaneOf(rel));
+}
+
+/** Lowest floor among enabled strategies — used so Axis 1.5 can still arm when Overall is 1.8. */
+export function activeMinPf(e: VstEngine): number {
+  const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  const xs = [minPfFor(e, "overall")];
+  if (t.axis) xs.push(minPfFor(e, "axis"));
+  if (t.block) xs.push(minPfFor(e, "block"));
+  if (t.normal) xs.push(minPfFor(e, "base"));
+  return Math.min(...xs);
+}
+
+function floorForDisableKey(e: VstEngine, key: string): number {
+  if (key.startsWith("tac:axis") || key.includes(":axis:") || key.endsWith(":axis")) return minPfFor(e, "axis");
+  if (key.startsWith("book:block") || key.startsWith("kind:block") || key.includes(":block:")) return minPfFor(e, "block");
+  if (key.startsWith("kind:normal") || key.startsWith("book:normal")) return minPfFor(e, "base");
+  return minPfFor(e, "overall");
+}
+
+/** Systemwide overall PF (trailing / hybrid / symbol). */
+export function entryMinPf(e: VstEngine, _block: BlockConfig = e.blockCfg ?? DEFAULT_BLOCK_CONFIG): number {
+  return minPfFor(e, "overall");
 }
 
 export function symbolLastNPf(e: VstEngine, symbol: string, n = 6): number | null {
@@ -2293,8 +2346,8 @@ export function applyRealizedSymbolStats(
 /** Skip new entries below system min PF, losing last-N, or 100h non-performers. */
 export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (symbolBlockPaused(e, symbol, evalN)) return true;
-  const floor = entryMinPf(e);
-  const liveFloor = e.liveTape ? 1 : floor;
+  const floor = e.liveTape ? activeMinPf(e) : minPfFor(e, "base");
+  const liveFloor = floor;
   const st = e.symbolStats?.[symbol];
   const tape = symbolTapePf(e, symbol);
   const thin = Boolean(e.liveTape && (e.liveOpenN ?? 99) < 12);
@@ -2560,7 +2613,7 @@ const MINOR_REL = new Set(["cfg", "sub", "combo"]);
 export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BLOCK_CONFIG) {
   const ns = (block.evalLastNs?.length ? block.evalLastNs : [1, 2, 3, 4, 5, 6])
     .map((n) => Math.max(1, Math.min(6, Math.round(n))));
-  const minPf = block.minRelPf ?? DEFAULT_MIN_PF;
+  const minPf = block.minRelPf ?? minPfFor(e, "block");
   const vr = Math.min(2, Math.max(0.05, block.relVolumeRatio ?? block.volumeRatio ?? 0.4));
   const maps = e.blockRelWindows ?? {};
   const candidates: { key: string; n: number; pf: number; net: number; closed: number }[] = [];
@@ -2661,7 +2714,7 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
     return e.liveHealth;
   }
   const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
-  const minPf = e.liveTape ? 1 : entryMinPf(e, block);
+  const overall = minPfFor(e, "overall");
   const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
   const disabled: Record<string, { pf: number; n: number; at: number }> = {};
   const kept: string[] = [];
@@ -2670,7 +2723,7 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
       if (!t || t.trades < 2) continue;
       const pf = profitFactor(t.profit, t.loss);
       const key = `sym:${id}`;
-      if (pf + 1e-9 < minPf) disabled[key] = { pf, n: t.trades, at: e.tick };
+      if (pf + 1e-9 < overall) disabled[key] = { pf, n: t.trades, at: e.tick };
       else kept.push(key);
     }
   }
@@ -2708,10 +2761,10 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
     }
     for (const list of byAxis.values()) {
       list.sort((a, b) => b.pf - a.pf || b.n - a.n);
-      const anyKept = list.some((x) => x.pf + 1e-9 >= minPf);
+      const anyKept = list.some((y) => y.pf + 1e-9 >= floorForDisableKey(e, y.key));
       for (const x of list) {
         if (e.liveTape && x.key.startsWith("sym:") && kept.includes(x.key)) continue;
-        if (x.pf + 1e-9 < minPf) {
+        if (x.pf + 1e-9 < floorForDisableKey(e, x.key)) {
           disabled[x.key] = { pf: x.pf, n: x.n, at: e.tick };
         } else {
           kept.push(x.key);
@@ -3022,7 +3075,7 @@ export function adjustActiveBlocks(
   syncBlockParents(e, conn);
   const counts = liveBlockCounts(block);
   const vr = block.volumeRatio || 0.4;
-  const minPf = block.minRelPf ?? DEFAULT_MIN_PF;
+  const minPf = block.minRelPf ?? minPfFor(e, "block");
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
   const overall = block.overall !== false;
   const overallPause = !overall && block.windows !== false && blockPosPaused(e, evalN);
@@ -4925,15 +4978,19 @@ export function liveShouldExecute(
     if (!t.axis) return false;
     if (e.liveTape) {
       const take = e.closed.filter((c) => c.tactic === "axis").slice(0, 40);
-      if (take.length >= 12 && pfFromPnls(take) + 1e-9 < 1) return false;
+      if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, "axis")) return false;
     }
     return true;
   }
   if (rel.indication === "direction" && e.liveTape) {
     const take = e.closed.filter((c) => c.indication === "direction").slice(0, 40);
-    if (take.length >= 12 && pfFromPnls(take) + 1e-9 < 1) return false;
+    if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, "overall")) return false;
   }
   if (!t.trailing && (rel.tactic === "trailing" || rel.tactic === "hybrid")) return false;
+  if (e.liveTape && (rel.tactic === "trailing" || rel.tactic === "hybrid")) {
+    const take = e.closed.filter((c) => c.tactic === rel.tactic).slice(0, 40);
+    if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, "overall")) return false;
+  }
   if (rel.kind === "normal" || play === "normal") return t.normal;
   return t.normal;
 }

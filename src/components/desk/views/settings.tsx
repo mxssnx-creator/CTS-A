@@ -453,7 +453,10 @@ export function SettingsView() {
           <StatLine k="Ongoing pos N" v={`N${lastNs.ongoing}`} />
           <StatLine k="Next pos N" v={`N${lastNs.next}`} />
           <StatLine k="Combo N" v={`N${lastNs.combos}`} />
-          <StatLine k="Min PF" v={th.minPf.toFixed(2)} />
+          <StatLine k="Overall PF" v={th.minPf.toFixed(2)} />
+          <StatLine k="Base PF" v={(th.basePf ?? 1.1).toFixed(2)} />
+          <StatLine k="Axis PF" v={(th.axisPf ?? 1.5).toFixed(2)} />
+          <StatLine k="Block PF" v={(th.blockPf ?? 1.6).toFixed(2)} />
           <StatLine k="Max DD" v={`${(th.maxMdd * 100).toFixed(0)}%`} />
           <StatLine k="Min WR" v={`${(th.minWr * 100).toFixed(0)}%`} />
           <StatLine k="Min VF" v={th.minVf.toFixed(2)} />
@@ -861,17 +864,52 @@ export function SettingsView() {
             </button>
           }
         >
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <RangeKnob
-              label="Min PF"
+              label="Overall PF"
               value={th.minPf}
-              min={1.8}
+              min={1.1}
               max={3}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setTh({ minPf: n })}
-              ariaLabel="Minimum profit factor"
+              ariaLabel="Overall profit factor"
             />
+            <RangeKnob
+              label="Base PF"
+              value={th.basePf ?? 1.1}
+              min={1}
+              max={2}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setTh({ basePf: n })}
+              ariaLabel="Base profit factor for general configs"
+            />
+            <RangeKnob
+              label="Axis PF"
+              value={th.axisPf ?? 1.5}
+              min={1.1}
+              max={3}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setTh({ axisPf: n })}
+              ariaLabel="Axis profit factor"
+            />
+            <RangeKnob
+              label="Block PF"
+              value={th.blockPf ?? 1.6}
+              min={1.1}
+              max={3}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => {
+                setTh({ blockPf: n });
+                setBlockCfg({ liveDisableMinPf: n, minRelPf: n });
+              }}
+              ariaLabel="Block profit factor"
+            />
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <RangeKnob
               label="Max DD"
               value={th.maxMdd}
@@ -914,9 +952,11 @@ export function SettingsView() {
             />
           </div>
           <p className="mt-3 text-xs text-muted">
-            A lane or combo is positive only if PF, MDD, WR, volume factor (≥ 1.05 hard floor) and
-            drawdown time all clear these gates. All cost × range × tactic × trail combinations are
-            processed; Use best applies the top track. Position unit is 0.15% of equity.
+            Overall PF is the live default (trailing / hybrid / symbols). Base PF validates general
+            configs before Axis / Block overlays (default 1.1). Axis PF (1.5) and Block PF (1.6) are
+            independent and can sit below Overall. Raise Overall to lift the default book; Axis and
+            Block keep their own floors. A lane is live-positive only if its PF, MDD, WR, volume
+            factor (≥ 1.05) and drawdown time all clear. Position unit is 0.15% of equity.
           </p>
         </Panel>
       </div>
@@ -1328,14 +1368,17 @@ export function SettingsView() {
               ariaLabel="Live last N disable"
             />
             <RangeKnob
-              label="Live disable min PF"
-              value={blockCfg.liveDisableMinPf ?? 1.8}
-              min={1.8}
+              label="Block min PF"
+              value={th.blockPf ?? blockCfg.liveDisableMinPf ?? 1.6}
+              min={1.1}
               max={3}
               step={0.05}
               format={(n) => n.toFixed(2)}
-              onChange={(n) => setBlockCfg({ liveDisableMinPf: n })}
-              ariaLabel="Live disable min PF"
+              onChange={(n) => {
+                setTh({ blockPf: n });
+                setBlockCfg({ liveDisableMinPf: n, minRelPf: n });
+              }}
+              ariaLabel="Block min PF"
             />
             <RangeKnob
               label="Eval hours"

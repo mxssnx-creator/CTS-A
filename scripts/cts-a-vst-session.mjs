@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -188,7 +188,7 @@ const BLOCK = {
   evalLastNs: [...LIVE_BLOCK_COUNTS],
   liveLastN: 12,
   liveDisable: true,
-  liveDisableMinPf: LIVE_MIN_PF,
+  liveDisableMinPf: DEFAULT_BLOCK_PF,
   liveDisableMinSamples: 4,
 };
 
@@ -518,7 +518,7 @@ function writeSettingsPick(pick, extra = {}) {
     enabledKinds: [...DEFAULT_ENABLED_KINDS],
     strategyId: "normal",
     minPf: LIVE_MIN_PF,
-    thresholds: { minPf: LIVE_MIN_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
+    thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
     activeConnId: CONN,
     evalHours: [4, 8, 16],
     evalLastNs: [5, 10, 15],
@@ -535,7 +535,7 @@ function writeSettingsPick(pick, extra = {}) {
     strategyToggles: { ...STRAT },
     strategyId: "normal",
     minPf: LIVE_MIN_PF,
-    thresholds: { minPf: LIVE_MIN_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
+    thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
     activeConnId: CONN,
     evalHours: [4, 8, 16],
     evalLastNs: [5, 10, 15],
@@ -1678,6 +1678,23 @@ function applyExecFromSettings(remote) {
   });
 }
 
+function applyPfGates(engine, remote) {
+  const th = remote?.thresholds || {};
+  const overall = Math.max(DEFAULT_MIN_PF, Number(th.minPf) || LIVE_MIN_PF);
+  const base = Math.max(1, Number(th.basePf) || DEFAULT_BASE_PF);
+  const axis = Math.max(1, Number(th.axisPf) || DEFAULT_AXIS_PF);
+  const blockPf = Math.max(1, Number(th.blockPf) || DEFAULT_BLOCK_PF);
+  engine.minPf = overall;
+  engine.basePf = base;
+  engine.axisPf = axis;
+  engine.blockPf = blockPf;
+  engine.blockCfg = {
+    ...(engine.blockCfg || BLOCK),
+    minRelPf: blockPf,
+    liveDisableMinPf: blockPf,
+  };
+}
+
 async function main() {
   const started = Date.now();
   const ends = started + HOURS * 3600 * 1000;
@@ -1690,9 +1707,12 @@ async function main() {
   engine.activeConnId = CONN;
   engine.symbolCount = LIVE_SYMBOLS;
   engine.minPf = LIVE_MIN_PF;
+  engine.basePf = DEFAULT_BASE_PF;
+  engine.axisPf = DEFAULT_AXIS_PF;
+  engine.blockPf = DEFAULT_BLOCK_PF;
   engine.liveTape = true;
   engine.strategyToggles = { ...STRAT };
-  engine.blockCfg = { ...BLOCK, liveDisableMinPf: LIVE_MIN_PF, enabled: STRAT.block };
+  engine.blockCfg = { ...BLOCK, liveDisableMinPf: DEFAULT_BLOCK_PF, minRelPf: DEFAULT_BLOCK_PF, enabled: STRAT.block };
   let seededLosers = 0;
   try {
     const prev = JSON.parse(readFileSync(OVERALL, "utf8"));
@@ -1732,7 +1752,8 @@ async function main() {
 
   let ping = await pingVst();
   applyExecFromSettings(readSettingsPick());
-  const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} sym · minPF ${LIVE_MIN_PF}`];
+  applyPfGates(engine, readSettingsPick());
+  const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} sym · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf}`];
   if (seededLosers) adjustments.push(`seed skip ${seededLosers} loser symbols`);
   if (seededOff) adjustments.push(`seed disable ${seededOff} relations`);
   if (lastExec.n) adjustments.push(`seed exec n=${lastExec.n} PF ${lastExec.pf.toFixed(2)}`);
@@ -1817,7 +1838,6 @@ async function main() {
         const folded = rows.length ? foldExec(rows) : null;
         lastExec = folded && folded.n > 0 ? { ...lastExec, ...folded, ddt: ex0.realized.ddt, mdd: ex0.realized.mdd } : { ...lastExec, ...ex0.realized };
         applyRealizedSymbolStats(engine, rows);
-        engine.minPf = LIVE_MIN_PF;
         engine.stats.trades = lastExec.n;
         engine.stats.pf = lastExec.pf;
         engine.stats.wr = lastExec.wr;
@@ -1999,7 +2019,6 @@ async function main() {
             }
             if (Array.isArray(ex.bySymbol) && ex.bySymbol.length) {
               applyRealizedSymbolStats(engine, deskExecRows(ex.bySymbol));
-              engine.minPf = LIVE_MIN_PF;
             }
             if (lastPnl.length) {
               const n = ingestLivePnls(engine, lastPnl, BLOCK);
@@ -2186,6 +2205,7 @@ async function main() {
     const remote = cachedRemote;
     if (remote) {
       applyExecFromSettings(remote);
+      applyPfGates(engine, remote);
       const nextPhase = remote.sessionPhase || "running";
       if (nextPhase !== hostPhase) {
         hostPhase = nextPhase;

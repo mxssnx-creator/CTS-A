@@ -246,7 +246,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
         symbolEvalHours: 100,
         hourCoord: true,
       },
-      thresholds: { minPf: 1.8, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
+      thresholds: { ...DEFAULT_THRESHOLDS, minPf: 1.8, basePf: 1.1, axisPf: 1.5, blockPf: 1.6, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
       enabledKinds: [...DEFAULT_ENABLED_KINDS],
       liveTape: true,
       comboOnlyPositive: true,
