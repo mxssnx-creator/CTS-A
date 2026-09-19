@@ -238,6 +238,8 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   evalPosCount: 16,
   activeLive: true,
   minActiveLevel: 0,
+  stack: true,
+  windows: true,
 };
 
 export function sharedBlockVolumeRatio(ratio: number, liveCount: number, extraCap = 1) {

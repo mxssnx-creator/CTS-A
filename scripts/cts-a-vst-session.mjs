@@ -63,6 +63,8 @@ const BLOCK = {
   evalPosCount: 16,
   activeLive: true,
   minActiveLevel: 0,
+  stack: true,
+  windows: true,
 };
 
 const GRID = [

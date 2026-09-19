@@ -1645,6 +1645,7 @@ function liveBlockCounts(block: BlockConfig) {
 }
 
 function evalBlockNs(block?: BlockConfig) {
+  if (block && block.windows === false) return [];
   const cap = Math.min(16, Math.max(1, Math.round(block?.evalPosCount || 16)));
   return Array.from({ length: cap }, (_, i) => i + 1);
 }
@@ -1841,7 +1842,7 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
     lane.pauseRemaining[count] -= 1;
     return false;
   }
-  const need = Math.max(5, Math.min(75, Math.round(block.evalPosCount || 12)));
+  const need = Math.max(5, Math.min(24, 8));
   const ring = (lane.pfRing[count] ?? []).slice(-need);
   if (ring.length < need) return true;
   const gp = ring.filter((x) => x > 0).reduce((s, x) => s + x, 0);
@@ -1948,9 +1949,9 @@ export function adjustActiveBlocks(
   const vr = sharedBlockVolumeRatio(block.volumeRatio || 1.25, counts.length, Math.max(0, (block.maxVolumeMultiplier || 2.25) - 1));
   const minPf = 1.85;
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 16)));
-  const overallPause = blockPosPaused(e, evalN);
+  const overallPause = block.windows !== false && blockPosPaused(e, evalN);
 
-  if (block.addOnWin && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
+  if (block.stack !== false && block.addOnWin && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
     const byKey = new Map<string, number>();
     for (const b of collectActiveOrderBlocks(e, conn)) byKey.set(`${b.symbol}:${b.side}`, b.multiple);
     let adds = 0;

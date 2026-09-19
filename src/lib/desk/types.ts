@@ -259,6 +259,10 @@ export interface BlockConfig {
   evalPosCount: number;
   activeLive: boolean;
   minActiveLevel: number;
+  /** Old type: Block # rungs 1–2 (optimal). */
+  stack: boolean;
+  /** New type: last-N pos windows 1–16; a losing window adjusts the next N. */
+  windows: boolean;
 }
 
 export interface BlockAdjustResult {

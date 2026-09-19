@@ -1124,6 +1124,23 @@ describe("VST engine", () => {
     assert.ok(w1.windows >= 16);
   });
 
+  it("old stack 1-2 and new windows 1-16 stay independent", () => {
+    const stackOnly = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: false, maxMultiple: 2, counts: [1, 2], endStageOnly: false };
+    const winOnly = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: false, windows: true, evalPosCount: 16, endStageOnly: false };
+    const both = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: true, maxMultiple: 2, counts: [1, 2], evalPosCount: 16, endStageOnly: false };
+    const a = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: stackOnly });
+    const b = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: winOnly });
+    const c = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: both });
+    assert.ok(a.report.passed && b.report.passed && c.report.passed);
+    finiteNum(a.report.pf, b.report.pf, c.report.pf);
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    for (let i = 0; i < 16; i++) noteBlockPosClose(e, "BTCUSDT", "long", -0.5, winOnly);
+    assert.ok(blockPosPaused(e, 16));
+    const e2 = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    for (let i = 0; i < 16; i++) noteBlockPosClose(e2, "BTCUSDT", "long", -0.5, stackOnly);
+    assert.equal(blockPosPaused(e2, 16), false);
+  });
+
   it("playbook tagging and indications stay independent", () => {
     const e = initVstEngine(CFG, { warmup: 10, symbolCount: 12 });
     const ids = new Set(Object.keys(e.quotes).slice(0, 12).map((id) => classifyIndication(e, id)));

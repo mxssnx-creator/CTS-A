@@ -852,10 +852,10 @@ export function SettingsView() {
       <div id="block" className="scroll-mt-24">
         <Panel title="Block strategy · overall active orders">
           <p className="text-sm text-muted">
-            CTS-G Block: stack on a live parent only (symbol+side overall). Last N closed positions
-            (1–16, default {blockCfg.evalPosCount ?? 16}) are evaluated as a window. If that window’s
-            average is a loss, the next N are adjusted (no Block add; losing symbols skip). Stack rungs
-            stay 1–2 live. Volume cap 2.25× at ratio {(blockCfg.volumeRatio ?? 1.25).toFixed(2)}.
+            CTS-G Block runs two independent types. Old stack (optimal 1–2 rungs on a winning
+            parent). New windows (last 1–16 closed positions; a losing window adjusts the next N —
+            no stack add, losing symbols skip). Both on by default. Volume cap 2.25× at ratio{" "}
+            {(blockCfg.volumeRatio ?? 1.25).toFixed(2)}.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
@@ -865,6 +865,22 @@ export function SettingsView() {
               onClick={() => setBlockCfg({ enabled: !blockCfg.enabled })}
             >
               {blockCfg.enabled ? "Block on" : "Block off"}
+            </Button>
+            <Button
+              size="sm"
+              variant={blockCfg.stack !== false ? "primary" : "secondary"}
+              className="h-11 sm:h-8"
+              onClick={() => setBlockCfg({ stack: !(blockCfg.stack !== false) })}
+            >
+              {blockCfg.stack !== false ? "Stack 1–2" : "Stack off"}
+            </Button>
+            <Button
+              size="sm"
+              variant={blockCfg.windows !== false ? "primary" : "secondary"}
+              className="h-11 sm:h-8"
+              onClick={() => setBlockCfg({ windows: !(blockCfg.windows !== false) })}
+            >
+              {blockCfg.windows !== false ? "Windows 1–16" : "Windows off"}
             </Button>
             <Button
               size="sm"

@@ -200,6 +200,8 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         evalPosCount: Math.min(16, Math.max(1, Math.round(asNum(b.evalPosCount, d.blockConfig.evalPosCount ?? 16)))),
         activeLive: asBool(b.activeLive, d.blockConfig.activeLive ?? true),
         minActiveLevel: Math.min(16, Math.max(0, Math.round(asNum(b.minActiveLevel, d.blockConfig.minActiveLevel ?? 0)))),
+        stack: asBool((b as { stack?: boolean }).stack, d.blockConfig.stack ?? true),
+        windows: asBool((b as { windows?: boolean }).windows, d.blockConfig.windows ?? true),
       };
     })(),
     symbolCount: clampSymbolCount(asNum(raw.symbolCount, d.symbolCount)),
