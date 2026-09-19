@@ -20,6 +20,8 @@ import {
   bookCounts,
   VST_MAX_SYMBOLS,
   VST_TICK_MS,
+  clampSymbolCount,
+  universeSymbols,
   adjustActiveBlocks,
   overallLiveStats,
   overlayExchangeBook,
@@ -28,7 +30,6 @@ import {
   sweepAllConfigs,
   sweepPlaybooks,
   completeComputationsAsync,
-  universeSymbols,
 } from "../src/lib/desk/vst.ts";
 
 const HOURS = Number(process.env.CTS_A_VST_HOURS ?? 12);
@@ -39,12 +40,15 @@ const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CONN = (process.env.CTS_A_CONN || (process.env.CTS_A_X01 === "1" ? "bingx-x01" : "bingx-vst-02")).trim();
 const IS_X01 = CONN === "bingx-x01";
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
-const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
+const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? (IS_X01 ? X01_DEFAULTS.symbolCount : 100));
 const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? (IS_X01 ? X01_DEFAULTS.minPf : 2));
-const UNI = new Set(universeSymbols(VST_MAX_SYMBOLS).map((s) => s.id));
+const LIVE_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? X01_DEFAULTS.symbolCount : VST_MAX_SYMBOLS)));
+const UNI = new Set(universeSymbols(LIVE_SYMBOLS).map((s) => s.id));
 const PREFERRED_RANGES = new Set(["fibonacci", "geometric", "atr"]);
 function isDeskSymbol(sym) {
-  return UNI.has(String(sym || ""));
+  const s = String(sym || "");
+  if (UNI.has(s)) return true;
+  return IS_X01 && Boolean(s);
 }
 function pickCompleteLock(complete) {
   const cells = (complete?.cells || []).filter((c) => c?.ok && Number(c.hours) >= 8 && Number(c.trades || 0) >= 8 && Number(c.pf) >= 1.4);
@@ -249,7 +253,7 @@ function writeSettingsPick(pick, extra = {}) {
     rangeType: pick.range,
     tacticConfig: { ...pick.cfg },
     blockConfig: BLOCK,
-    symbolCount: VST_MAX_SYMBOLS,
+    symbolCount: LIVE_SYMBOLS,
     orderType: "limit",
     lastN: 10,
     lastNs: { picks: 10, lanes: 10, last: 10, ongoing: 10, next: 10, combos: 10 },
@@ -815,6 +819,7 @@ function intenseCheck(e, pick) {
     return "heal nan";
   }
   const book = bookCounts(e);
+  if (lastBook.pos > 0) return null;
   if (e.running && book.orders.live + book.orders.queued === 0 && e.positions.length === 0) {
     requeueFree(e, pick.cfg, pick.tactic, pick.range, CONN);
     return "rearm empty book";
@@ -840,15 +845,15 @@ async function main() {
   const started = Date.now();
   const ends = started + HOURS * 3600 * 1000;
   let pick = pickFromSweep();
-  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: VST_MAX_SYMBOLS, orderType: "limit", arm: false });
+  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: LIVE_SYMBOLS, orderType: "limit", arm: false });
   engine.running = true;
   engine.phase = "running";
   engine.activeConnId = CONN;
-  engine.symbolCount = VST_MAX_SYMBOLS;
+  engine.symbolCount = LIVE_SYMBOLS;
 
   let ping = await pingVst();
   applyExecFromSettings(readSettingsPick());
-  const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${VST_MAX_SYMBOLS} sym`];
+  const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} sym`];
   if (ping.pingOk) adjustments.push(`BingX ${ping.network} ping ok · eq ${ping.equity.toFixed(2)}`);
   else adjustments.push(`BingX ping failed · ${ping.error ?? "auth"} · paper tape`);
   if (ping.pingOk) {
@@ -949,7 +954,7 @@ async function main() {
         freezeIds: lastBook.pos >= LIVE_MAX_POS ? freeze : undefined,
         skipWalk: lastBook.pos >= LIVE_MAX_POS,
         rangeType: pick.range,
-        symbolCount: VST_MAX_SYMBOLS,
+        symbolCount: LIVE_SYMBOLS,
         orderType: "limit",
         block: BLOCK,
       });
@@ -1151,7 +1156,7 @@ async function main() {
     }
     if (
       engine.running &&
-      lastBook.pos < LIVE_MAX_POS &&
+      lastBook.pos === 0 &&
       engine.positions.length === 0 &&
       engine.queue.length === 0 &&
       engine.orders.length === 0 &&

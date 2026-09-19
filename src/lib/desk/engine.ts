@@ -237,7 +237,7 @@ export const X01_DEFAULTS = {
   connId: "bingx-x01" as const,
   network: "mainnet" as const,
   minPf: 1.4,
-  symbolCount: 50,
+  symbolCount: 25,
   slAtrMin: 0.4,
   tpRatioMin: 0.6,
   volumeRatio: 0.08,
