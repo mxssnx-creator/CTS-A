@@ -47,8 +47,8 @@ const DEFAULT_CFG: TacticConfig = {
   dcaDrawdown: 0.8,
   axisSpacing: 0.55,
   axisLevels: 4,
-  slAtr: 1.1,
-  tpRatio: 2.75,
+  slAtr: 1.05,
+  tpRatio: 3,
   maxHoldBars: 3,
   maxHoldTicks: 16,
 };
@@ -953,7 +953,7 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
     trend: pack.trend * 2.2 + Math.abs(chg) * 40 + (aligned ? 0.35 : 0),
     break: pack.break * 2.2 + Math.max(0, span - 1.35) * 1.6 + Math.max(0, axisDist - 2.2) * 0.25,
     active: pack.active * 2.2 + Math.min(1.4, q.vol * 10) + span * 0.06,
-    direction: pack.direction * 2.2 + (!aligned ? Math.abs(chg) * 50 + 0.4 : Math.abs(chg) * 3),
+    direction: pack.direction * 0.55 + (!aligned ? Math.abs(chg) * 8 : Math.abs(chg) * 1),
   };
   const ranked = (Object.entries(scores) as [IndicationId, number][]).sort((a, b) => b[1] - a[1]);
   return ranked[0]?.[0] ?? rankedPack[0]?.[0] ?? "trend";
@@ -963,7 +963,7 @@ function openPlaybook(tactic: TacticKind, indication: IndicationId): string {
   if (tactic === "axis") return "axis";
   if (indication === "active" && tactic === "hybrid") return "normal";
   if (indication === "break") return "axis";
-  if (indication === "direction") return "dca";
+  if (indication === "direction") return "normal";
   if (indication === "active") return "block";
   return "normal";
 }
@@ -1709,6 +1709,22 @@ export function blockPosPaused(e: VstEngine, n = 16) {
 /** This symbol's last-N average was a loss; next N of that symbol are adjusted. */
 export function symbolBlockPaused(e: VstEngine, symbol: string, n = 16) {
   return (e.blockWindowsBySymbol?.[symbol]?.[n]?.pauseLeft || 0) > 0;
+}
+
+export function symbolTapePf(e: VstEngine, symbol: string) {
+  const t = e.symbolStats?.[symbol];
+  if (!t || t.trades < 2) return 99;
+  const gl = Math.max(0, t.loss);
+  const gp = Math.max(0, t.profit);
+  return gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl;
+}
+
+/** Skip new entries on losing last-N windows, PF<1 symbols, or direction indication. */
+export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 16) {
+  if (symbolBlockPaused(e, symbol, evalN)) return true;
+  if (symbolTapePf(e, symbol) + 1e-9 < 1) return true;
+  if (classifyIndication(e, symbol) === "direction") return true;
+  return false;
 }
 
 export function blockWindowSnapshot(e: VstEngine, n = 16) {

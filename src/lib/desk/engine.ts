@@ -212,8 +212,8 @@ export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
   dcaDrawdown: 0.8,
   axisSpacing: 0.55,
   axisLevels: 4,
-  slAtr: 0.4,
-  tpRatio: 2.75,
+  slAtr: 1.05,
+  tpRatio: 3,
   maxHoldBars: 3,
   maxHoldTicks: 16,
 };

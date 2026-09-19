@@ -24,7 +24,7 @@ import {
   overallLiveStats,
   overlayExchangeBook,
   releaseVanished,
-  symbolBlockPaused,
+  skipLiveSymbol,
   sweepAllConfigs,
   sweepPlaybooks,
   completeComputationsAsync,
@@ -687,7 +687,7 @@ async function mirrorToExchange(e, network, cfg) {
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
-    if (symbolBlockPaused(e, f.symbol, Math.round(BLOCK.evalPosCount || 16))) continue;
+    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 16))) continue;
     if (occupied.has(`${f.symbol}:${f.side}`)) {
       mirrored.add(f.id);
       continue;

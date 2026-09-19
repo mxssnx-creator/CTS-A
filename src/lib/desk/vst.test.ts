@@ -60,6 +60,8 @@ import {
   healEngine,
   initVstEngine,
   releaseVanished,
+  skipLiveSymbol,
+  symbolTapePf,
   noteBlockPosClose,
   blockPosPaused,
   symbolBlockPaused,
@@ -1139,6 +1141,13 @@ describe("VST engine", () => {
     const e2 = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     for (let i = 0; i < 16; i++) noteBlockPosClose(e2, "BTCUSDT", "long", -0.5, stackOnly);
     assert.equal(blockPosPaused(e2, 16), false);
+  });
+
+  it("skips direction indication and PF<1 symbols for live entries", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.symbolStats.SOLUSDT = { id: "SOLUSDT", trades: 4, wins: 0, profit: 0.1, loss: 0.8, sl: 4, tp: 0 };
+    assert.ok(symbolTapePf(e, "SOLUSDT") < 1);
+    assert.equal(skipLiveSymbol(e, "SOLUSDT"), true);
   });
 
   it("playbook tagging and indications stay independent", () => {
