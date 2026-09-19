@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO } from "./feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, deskClientPrefix, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders } from "./feed.ts";
 import {
   buildCanonical,
   exchangeMinNotional,
@@ -98,6 +98,68 @@ describe("live feed", () => {
     assert.equal(full?.status, "NEW");
     assert.equal(full?.filled, 0);
     assert.equal(full?.remaining, 2);
+    assert.equal(full?.owned, false);
+  });
+
+  it("tags desk clientOrderId per connection and ignores foreign exchange orders", () => {
+    const a = makeClientOrderId("bingx-x01", "S");
+    const b = makeClientOrderId("bingx-vst-02", "E");
+    assert.ok(a.startsWith(deskClientPrefix("bingx-x01")));
+    assert.ok(b.startsWith(deskClientPrefix("bingx-vst-02")));
+    assert.ok(a.length <= 40 && b.length <= 40);
+    assert.equal(isDeskClientOrderId(a, "bingx-x01"), true);
+    assert.equal(isDeskClientOrderId(a, "bingx-vst-02"), false);
+    assert.equal(isDeskClientOrderId(b, "bingx-x01"), false);
+    assert.equal(isDeskClientOrderId("manual-bot-1", "bingx-x01"), false);
+    const ours = parseOpenOrderRow(
+      {
+        symbol: "ETH-USDT",
+        orderId: "9",
+        positionSide: "LONG",
+        type: "STOP_MARKET",
+        origQty: "0.02",
+        executedQty: "0",
+        clientOrderID: a,
+        status: "NEW",
+      },
+      "bingx-x01",
+    );
+    const foreign = parseOpenOrderRow(
+      {
+        symbol: "ETH-USDT",
+        orderId: "8",
+        positionSide: "LONG",
+        type: "STOP_MARKET",
+        origQty: "0.02",
+        executedQty: "0",
+        clientOrderID: "other-system-1",
+        status: "NEW",
+      },
+      "bingx-x01",
+    );
+    const otherConn = parseOpenOrderRow(
+      {
+        symbol: "BTC-USDT",
+        orderId: "7",
+        positionSide: "SHORT",
+        type: "TAKE_PROFIT_MARKET",
+        origQty: "1",
+        executedQty: "0",
+        clientOrderId: b,
+        status: "NEW",
+      },
+      "bingx-x01",
+    );
+    assert.equal(ours?.owned, true);
+    assert.equal(ours?.clientOrderId, a);
+    assert.equal(foreign?.owned, false);
+    assert.equal(otherConn?.owned, false);
+    assert.equal(isOwnedExchangeOrder(ours, "bingx-x01"), true);
+    assert.equal(isOwnedExchangeOrder(foreign, "bingx-x01"), false);
+    const keys = ownKeysFromOrders([ours, foreign, otherConn].filter(Boolean), "bingx-x01");
+    assert.equal(keys.has("ETHUSDT:long"), true);
+    assert.equal(keys.has("BTCUSDT:short"), false);
+    assert.equal(keys.size, 1);
   });
 
   it("signs with ASCII-sorted keys and no value encoding", () => {

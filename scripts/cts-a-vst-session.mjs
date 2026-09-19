@@ -5,7 +5,7 @@
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h } from "../src/lib/desk/feed.server.ts";
-import { applyLiveTape, BINGX_SYMBOL } from "../src/lib/desk/feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
@@ -55,11 +55,38 @@ const LIVE_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_SYMBOLS ?? (IS_X0
 const UNI = new Set(universeSymbols(LIVE_SYMBOLS).map((s) => s.id));
 const PREFERRED_RANGES = new Set(["fibonacci", "geometric", "atr"]);
 const mirrored = new Set();
-function isDeskSymbol(sym) {
+/** Legs tagged by this connection's clientOrderId. */
+const taggedKeys = new Set();
+function isUniverseSymbol(sym) {
   const s = String(sym || "");
   if (!s) return false;
   if (UNI.has(s)) return true;
   return mirrored.has(`own:${s}:long`) || mirrored.has(`own:${s}:short`) || mirrored.has(`live:${s}:long`) || mirrored.has(`live:${s}:short`);
+}
+function isDeskSymbol(sym) {
+  return isUniverseSymbol(sym);
+}
+function ownKey(symbol, side) {
+  return `${symbol}:${side}`;
+}
+function isOwnedLeg(symbol, side) {
+  const k = ownKey(symbol, side);
+  return taggedKeys.has(k) || mirrored.has(`own:${k}`) || mirrored.has(`live:${k}`) || mirrored.has(`seed:${k}`);
+}
+function isDeskOrder(o) {
+  return isOwnedExchangeOrder(o, CONN) || isDeskClientOrderId(o?.clientOrderId, CONN);
+}
+/** Cancel/replace only tagged desk orders, or untagged leftovers on a fully-legacy owned leg. */
+function mayCancelOrder(o) {
+  if (!o) return false;
+  if (isDeskOrder(o)) return true;
+  const k = ownKey(o.symbol, o.side);
+  return isOwnedLeg(o.symbol, o.side) && !taggedKeys.has(k);
+}
+function refreshTaggedKeys(orders) {
+  taggedKeys.clear();
+  for (const k of ownKeysFromOrders(orders ?? [], CONN)) taggedKeys.add(k);
+  return taggedKeys;
 }
 function pickCompleteLock(complete) {
   const cells = (complete?.cells || []).filter((c) => c?.ok && Number(c.hours) >= 8 && Number(c.trades || 0) >= 8 && Number(c.pf) >= 1.4);
@@ -71,7 +98,7 @@ function pickCompleteLock(complete) {
   const best = cells[0];
   return cells.find((c) => PREFERRED_RANGES.has(c.range) && Number(c.pf) + 1e-9 >= Number(best.pf) * 0.9) || best;
 }
-let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0 };
+let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0, foreignPos: 0, foreignOrd: 0 };
 let lastTrail = { n: 0, ms: 0, at: 0 };
 let lastExec = { n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 };
 let lastPnl = [];
@@ -267,8 +294,10 @@ function snapshot(e, extra) {
     liveOk: lastBook.ok,
     liveSl: lastBook.sl,
     liveTp: lastBook.tp,
-    liveOwned: (lastBook.positions ?? []).filter((p) => mirrored.has(`own:${p.symbol}:${p.side}`) || mirrored.has(`live:${p.symbol}:${p.side}`)).length,
+    liveOwned: (lastBook.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side)).length,
     owned: [...mirrored].filter((k) => typeof k === "string" && (k.startsWith("own:") || k.startsWith("live:") || k.startsWith("seed:"))),
+    foreignPos: lastBook.foreignPos || 0,
+    foreignOrd: lastBook.foreignOrd || 0,
     closedNet: lastExec.n >= 2 ? lastExec.net : e.ledger.profit - e.ledger.loss,
     avgLivePos: bookAvg.n ? bookAvg.pos / bookAvg.n : lastBook.pos,
     avgLiveOrd: bookAvg.n ? bookAvg.ord / bookAvg.n : lastBook.ord,
@@ -475,8 +504,13 @@ function venueOf(id) {
 function ingestExec(ex) {
   if (!ex?.ok) return;
   const income = Array.isArray(ex.income) ? ex.income : [];
+  const allow = new Set();
+  for (const o of ex.orders || []) {
+    if (isDeskClientOrderId(o.info, CONN)) allow.add(String(o.symbol || ""));
+  }
+  for (const k of taggedKeys) allow.add(String(k).split(":")[0]);
   const rows = income
-    .filter((x) => String(x.type || "") === "REALIZED_PNL" && isDeskSymbol(x.symbol))
+    .filter((x) => String(x.type || "") === "REALIZED_PNL" && isDeskSymbol(x.symbol) && (!allow.size || allow.has(String(x.symbol || ""))))
     .map((x) => ({ t: Number(x.time) || 0, v: Number(x.income) || 0, symbol: String(x.symbol || "") }))
     .filter((r) => r.t > 0 && Number.isFinite(r.v));
   if (rows.length) lastPnl = rows;
@@ -636,7 +670,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     if (u.includes("TAKE_PROFIT") || u.includes("TRAILING")) return "tp";
     return "";
   };
+  const owned = (book.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
+  const liveOwnedSet = new Set(owned.map((p) => `${p.symbol}:${p.side}`));
   for (const o of book.orders ?? []) {
+    if (!mayCancelOrder(o)) continue;
     const key = `${o.symbol}:${o.side}`;
     const k = kindOf(o.type);
     if (!k) continue;
@@ -646,29 +683,22 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     cur[k].push(o);
     grouped.set(key, cur);
   }
-  lastBook.sl = countProtect(book.positions ?? [], book.orders ?? []).sl;
-  lastBook.tp = countProtect(book.positions ?? [], book.orders ?? []).tp;
-  const occupied = new Set((book.positions ?? []).filter((p) => isDeskSymbol(p.symbol)).map((p) => `${p.symbol}:${p.side}`));
-  const posQty = new Map((book.positions ?? []).filter((p) => isDeskSymbol(p.symbol)).map((p) => [`${p.symbol}:${p.side}`, p.qty]));
-  const owned = (book.positions ?? []).filter((p) => {
-    const key = `${p.symbol}:${p.side}`;
-    return isDeskSymbol(p.symbol) && (mirrored.has(`own:${key}`) || mirrored.has(`live:${key}`));
-  });
+  lastBook.sl = countProtect(owned, (book.orders ?? []).filter((o) => mayCancelOrder(o))).sl;
+  lastBook.tp = countProtect(owned, (book.orders ?? []).filter((o) => mayCancelOrder(o))).tp;
+  const posQty = new Map(owned.map((p) => [`${p.symbol}:${p.side}`, p.qty]));
   const missing = owned.filter((p) => {
     const key = `${p.symbol}:${p.side}`;
     return !hasSl.has(key) || !hasTp.has(key);
   });
-  const extras = [...grouped.entries()].some(([, g]) => (g.sl?.length ?? 0) > 1 || (g.tp?.length ?? 0) > 1);
-  const gone = (key) =>
-    !occupied.has(key) &&
-    (vanished.has(key) || mirrored.has(`own:${key}`) || mirrored.has(`live:${key}`) || mirrored.has(`sl:${key}`) || mirrored.has(`tp:${key}`));
-  const stray = [...grouped.keys()].some(gone);
+  const extras = [...grouped.entries()].some(([key, g]) => liveOwnedSet.has(key) && ((g.sl?.length ?? 0) > 1 || (g.tp?.length ?? 0) > 1));
+  const stray = [...grouped.keys()].some((key) => !liveOwnedSet.has(key));
   if (!missing.length && !extras && !stray) return null;
   const map = await fetchContractMap(network);
   const notes = [];
   const cancelOne = async (o) => {
     const oid = String(o?.id || "");
     if (!oid || cancelFailed.has(oid)) return { ok: false, id: oid };
+    if (!mayCancelOrder(o)) return { ok: false, id: oid, error: "foreign" };
     const r = await withLiveBusy(() =>
       cancelSwapOrder({
         network,
@@ -686,10 +716,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
 
   const strayJobs = [];
   for (const [key, g] of grouped) {
-    if (!gone(key)) continue;
-    const sym = String(key).split(":")[0];
-    if (!isDeskSymbol(sym)) continue;
-    for (const o of [...(g.sl || []), ...(g.tp || [])]) strayJobs.push({ key, o });
+    if (liveOwnedSet.has(key)) continue;
+    for (const o of [...(g.sl || []), ...(g.tp || [])]) {
+      if (mayCancelOrder(o)) strayJobs.push({ key, o });
+    }
   }
   const strayOut = await mapLimit(strayJobs.slice(0, 24), 8, async (job) => {
     const r = await cancelOne(job.o);
@@ -706,11 +736,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
 
   const extraJobs = [];
   for (const [key, g] of grouped) {
-    if (!occupied.has(key)) continue;
-    if (!isDeskSymbol(String(key).split(":")[0])) continue;
+    if (!liveOwnedSet.has(key)) continue;
     const want = posQty.get(key) ?? 0;
     for (const kind of ["sl", "tp"]) {
-      const list = g[kind];
+      const list = (g[kind] || []).filter((o) => mayCancelOrder(o));
       if (!list || list.length <= 1) continue;
       const tk = `${key}:${kind}`;
       if ((trimHits.get(tk) || 0) >= 3) continue;
@@ -728,7 +757,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   });
   notes.push(...extraOut.filter(Boolean));
 
-  const posByVol = [...(book.positions ?? [])].sort(
+  const posByVol = [...owned].sort(
     (a, b) => vol1hOf(e?.quotes?.[b.symbol]) - vol1hOf(e?.quotes?.[a.symbol]),
   );
   const closeRetry = (err) => /closePosition|close position|available amount|quantity|position/i.test(String(err || ""));
@@ -738,6 +767,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const local = [];
     let n = 0;
     const key = `${p.symbol}:${p.side}`;
+    if (!isOwnedLeg(p.symbol, p.side)) return { notes: local, posts: n };
     const px = p.mark || p.entry || 0;
     if (!(px > 0) || !(p.qty > 0)) return { notes: local, posts: n };
     const spec = map.get(p.venueSymbol);
@@ -820,9 +850,8 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
 
   const need = [];
   for (const p of posByVol) {
-    if (!isDeskSymbol(p.symbol)) continue;
+    if (!isOwnedLeg(p.symbol, p.side)) continue;
     const key = `${p.symbol}:${p.side}`;
-    if (!mirrored.has(`own:${key}`) && !mirrored.has(`live:${key}`)) continue;
     if (!(p.qty > 0) || !((p.mark || p.entry) > 0)) continue;
     const g = grouped.get(key);
     const slQ = Number(g?.sl?.[0]?.remaining ?? g?.sl?.[0]?.qty ?? 0);
@@ -858,7 +887,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const trailNeed = [];
     for (const p of posByVol) {
       if (trailNeed.length >= 16) break;
-      if (!isDeskSymbol(p.symbol)) continue;
+      if (!isOwnedLeg(p.symbol, p.side)) continue;
       const key = `${p.symbol}:${p.side}`;
       if (!hasSl.has(key)) continue;
       const mark = p.mark || p.entry || 0;
@@ -896,6 +925,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const { p, key, spec, cell, mark, next, slOrd } = row;
       const slId = String(slOrd?.id || "");
       if (slId) {
+        if (!mayCancelOrder(slOrd)) return null;
         const c = await cancelOne(slOrd);
         if (!c.ok && !/not exist|filled|nothing to cancel|no need/i.test(String(c.error || ""))) {
           return null;
@@ -979,8 +1009,21 @@ async function mirrorToExchange(e, network, cfg) {
     }
   }
   emptyHold = 0;
-  const deskPos = (book.positions ?? []).filter((p) => isDeskSymbol(p.symbol));
-  const deskOrd = (book.orders ?? []).filter((o) => isDeskSymbol(o.symbol));
+  refreshTaggedKeys(book.orders);
+  const livePosKeys = new Set((book.positions ?? []).map((p) => `${p.symbol}:${p.side}`));
+  let n = 0;
+  for (const k of taggedKeys) {
+    if (!livePosKeys.has(k)) continue;
+    if (!mirrored.has(`own:${k}`)) {
+      mirrored.add(`own:${k}`);
+      mirrored.add(`live:${k}`);
+      n += 1;
+    }
+  }
+  const deskPos = (book.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
+  const deskOrd = (book.orders ?? []).filter((o) => isDeskOrder(o) || mayCancelOrder(o));
+  const foreignPosN = (book.positions ?? []).filter((p) => !isOwnedLeg(p.symbol, p.side)).length;
+  const foreignOrdN = (book.orders ?? []).filter((o) => !isDeskOrder(o) && !mayCancelOrder(o)).length;
   const prot = countProtect(deskPos, deskOrd);
   lastBook = {
     pos: deskPos.length,
@@ -991,6 +1034,8 @@ async function mirrorToExchange(e, network, cfg) {
     tp: prot.tp,
     equity: Number(book.equity) || lastBook.equity || 0,
     latencyMs: Number(book.latencyMs) || 0,
+    foreignPos: foreignPosN,
+    foreignOrd: foreignOrdN,
     positions: deskPos.map((p) => ({
       connId: CONN,
       symbol: p.symbol,
@@ -1016,6 +1061,8 @@ async function mirrorToExchange(e, network, cfg) {
       type: o.type,
       closePosition: Boolean(o.closePosition),
       reduceOnly: Boolean(o.reduceOnly),
+      clientOrderId: o.clientOrderId,
+      owned: Boolean(o.owned || isDeskOrder(o)),
     })),
   };
   try {
@@ -1026,13 +1073,14 @@ async function mirrorToExchange(e, network, cfg) {
   bookAvg.n += 1;
   bookAvg.pos += lastBook.pos;
   bookAvg.ord += lastBook.ord;
-  const occupied = new Set((book.positions ?? []).filter((p) => isDeskSymbol(p.symbol)).map((p) => `${p.symbol}:${p.side}`));
+  const exchangeOccupied = new Set((book.positions ?? []).filter((p) => isUniverseSymbol(p.symbol)).map((p) => `${p.symbol}:${p.side}`));
+  const ownedOccupied = new Set(deskPos.map((p) => `${p.symbol}:${p.side}`));
   const vanished = new Set();
   for (const p of e.positions || []) {
     const k = `${p.symbol}:${p.side}`;
-    if (!occupied.has(k)) vanished.add(k);
+    if (!ownedOccupied.has(k)) vanished.add(k);
   }
-  const dropped = releaseVanished(e, occupied, CONN);
+  const dropped = releaseVanished(e, ownedOccupied, CONN);
   const forget = (key) => {
     mirrored.delete(`own:${key}`);
     mirrored.delete(`live:${key}`);
@@ -1041,41 +1089,31 @@ async function mirrorToExchange(e, network, cfg) {
     mirrored.delete(`seed:${key}`);
     skipUntil.delete(String(key).split(":")[0]);
   };
-  for (const k of vanished) forget(k);
+  for (const k of vanished) {
+    if (!livePosKeys.has(k)) forget(k);
+  }
   for (const tag of [...mirrored]) {
     if (typeof tag !== "string") continue;
     if (tag.startsWith("own:") || tag.startsWith("live:") || tag.startsWith("sl:") || tag.startsWith("tp:") || tag.startsWith("seed:")) {
       const rest = tag.slice(tag.indexOf(":") + 1);
-      if (!occupied.has(rest)) forget(rest);
-    }
-  }
-  let n = 0;
-  for (const p of book.positions ?? []) {
-    if (!isDeskSymbol(p.symbol)) continue;
-    const k = `${p.symbol}:${p.side}`;
-    if (!mirrored.has(`own:${k}`)) {
-      mirrored.add(`own:${k}`);
-      mirrored.add(`live:${k}`);
-      n += 1;
+      if (rest && !livePosKeys.has(rest)) forget(rest);
     }
   }
   if (n) claimed = true;
   const notes = [];
   if (dropped) notes.push(`manual ${dropped}`);
-  if (n) notes.push(`claim ${n}`);
+  if (n) notes.push(`own ${n}`);
+  if (foreignPosN || foreignOrdN) notes.push(`foreign ${foreignPosN}p/${foreignOrdN}o held`);
   const guard = await ensureProtect(network, book, cfg, vanished, e);
   if (guard) notes.push(guard);
   const protectGap = lastBook.pos - Math.min(lastBook.sl, lastBook.tp);
   const paperOpen = new Set((e.positions || []).map((p) => `${p.symbol}:${p.side}`));
   for (const k of paperOpen) mirrored.delete(`seed:${k}`);
-  const ours = book.positions.filter((p) => {
-    const k = `${p.symbol}:${p.side}`;
-    return isDeskSymbol(p.symbol) && (mirrored.has(`own:${k}`) || mirrored.has(`live:${k}`));
-  });
+  const ours = deskPos;
   const openN = ours.length;
-  const accountN = book.positions.filter((p) => isDeskSymbol(p.symbol)).length;
+  const accountN = (book.positions ?? []).filter((p) => isUniverseSymbol(p.symbol)).length;
 
-  if (openN >= liveMaxPos() || accountN >= liveMaxPos()) return notes.length ? notes.join(" · ") : null;
+  if (openN >= liveMaxPos()) return notes.length ? notes.join(" · ") : null;
   if (protectGap > 0) {
     notes.push(`protect gap ${protectGap}`);
     return notes.filter(Boolean).slice(0, 4).join(" · ");
@@ -1095,15 +1133,15 @@ async function mirrorToExchange(e, network, cfg) {
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
     if (deadSymbols.has(f.symbol)) continue;
     if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 6))) continue;
-    if (!isDeskSymbol(f.symbol)) {
+    if (!isUniverseSymbol(f.symbol)) {
       mirrored.add(f.id);
       continue;
     }
-    if (occupied.has(`${f.symbol}:${f.side}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side)) {
+    if (exchangeOccupied.has(`${f.symbol}:${f.side}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side)) {
       mirrored.add(f.id);
       continue;
     }
-    if (openN + fillJobs.length >= liveMaxPos() || accountN + fillJobs.length >= liveMaxPos()) break;
+    if (openN + fillJobs.length >= liveMaxPos()) break;
     if (apiQuiet()) break;
     fillJobs.push(f);
   }
@@ -1152,7 +1190,8 @@ async function mirrorToExchange(e, network, cfg) {
     mirrored.add(f.id);
     mirrored.add(`own:${f.symbol}:${f.side}`);
     mirrored.add(`live:${f.symbol}:${f.side}`);
-    occupied.add(`${f.symbol}:${f.side}`);
+    taggedKeys.add(`${f.symbol}:${f.side}`);
+    exchangeOccupied.add(`${f.symbol}:${f.side}`);
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
   }
@@ -1663,7 +1702,7 @@ async function main() {
               const book = await withTimeout(fetchExchangeBook({ network: ping.network, connId: CONN }), 8000, "stop book");
               for (const p of book?.positions ?? []) {
                 const k = `${p.symbol}:${p.side}`;
-                if (!mirrored.has(`own:${k}`) && !mirrored.has(`live:${k}`)) continue;
+                if (!isOwnedLeg(p.symbol, p.side) && !mirrored.has(`own:${k}`) && !mirrored.has(`live:${k}`)) continue;
                 await withTimeout(closeHit(ping.network, p), 8000, "stop flat");
                 adjustments.push(`stop flat ${p.symbol}`);
               }

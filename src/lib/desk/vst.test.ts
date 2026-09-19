@@ -1024,6 +1024,28 @@ describe("VST engine", () => {
     assert.equal(auditEngine(e).nanCount, 0);
   });
 
+  it("overlay book stats use only the supplied desk legs, not foreign account size", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.liveTape = true;
+    e.activeConnId = "bingx-x01";
+    const ov = overallLiveStats(e);
+    const book = overlayExchangeBook(
+      ov,
+      {
+        positions: [
+          { symbol: "BTCUSDT", side: "long", qty: 1, entry: 100, mark: 101, pnl: 1, venueSymbol: "BTC-USDT", connId: "bingx-x01" },
+        ],
+        orders: [
+          { id: "1", symbol: "BTCUSDT", side: "long", qty: 1, type: "STOP_MARKET", owned: true, connId: "bingx-x01", venueSymbol: "BTC-USDT", price: 0, status: "NEW" },
+        ],
+      } as never,
+      e,
+    );
+    assert.equal(book.open?.n, 1);
+    assert.equal(book.slots, 1);
+    assert.equal(book.avgOrders, 1);
+  });
+
   it("runs DCA and axis handlings on the active session only", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 6 });
     e.queue = [];

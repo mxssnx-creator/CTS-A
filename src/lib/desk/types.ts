@@ -413,6 +413,9 @@ export interface ExchangeOrder {
   type: string;
   closePosition?: boolean;
   reduceOnly?: boolean;
+  clientOrderId?: string;
+  /** True when clientOrderId is tagged for this desk connection. */
+  owned?: boolean;
 }
 
 export interface ExchangeBook {

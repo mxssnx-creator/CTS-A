@@ -102,6 +102,65 @@ export const BINGX_SYMBOL: Record<string, string> = {
 export const LIVE_IDS = Object.keys(BINGX_SYMBOL);
 export const LIVE_SET = new Set(LIVE_IDS);
 
+/** BingX clientOrderID prefix that marks CTS-A tickets for a connection. */
+export const DESK_CLIENT_PREFIX = "CTSA";
+export type DeskClientKind = "E" | "S" | "T" | "C" | "L" | "X";
+
+export function connClientTag(connId: string | undefined | null): string {
+  if (connId === "bingx-vst-01") return "V1";
+  if (connId === "bingx-vst-02") return "V2";
+  if (connId === "bingx-x01") return "X1";
+  return "XX";
+}
+
+export function deskClientPrefix(connId?: string | null): string {
+  return `${DESK_CLIENT_PREFIX}${connClientTag(connId)}_`;
+}
+
+export function makeClientOrderId(connId: string | undefined | null, kind: DeskClientKind = "E"): string {
+  const prefix = `${deskClientPrefix(connId)}${kind}`;
+  const t = Date.now().toString(36).toUpperCase();
+  const r = Math.random().toString(36).slice(2, 10).toUpperCase().replace(/[^A-Z0-9]/g, "X");
+  return `${prefix}${t}${r}`.slice(0, 40);
+}
+
+export function isDeskClientOrderId(id: string | undefined | null, connId?: string | null): boolean {
+  const s = String(id || "").toUpperCase();
+  if (!s.startsWith(DESK_CLIENT_PREFIX)) return false;
+  if (connId) return s.startsWith(deskClientPrefix(connId).toUpperCase());
+  return /^CTSA(V1|V2|X1|XX)_/.test(s);
+}
+
+export function clientOrderKindOf(type: string | undefined, closePosition?: boolean): DeskClientKind {
+  if (closePosition) return "C";
+  const u = String(type || "").toUpperCase();
+  if (u.includes("STOP") && !u.includes("TAKE_PROFIT")) return "S";
+  if (u.includes("TAKE_PROFIT") || u.includes("TRAILING")) return "T";
+  if (u.includes("LIMIT")) return "L";
+  return "E";
+}
+
+export function isOwnedExchangeOrder(
+  o: { clientOrderId?: string; owned?: boolean } | null | undefined,
+  connId?: string | null,
+): boolean {
+  if (!o) return false;
+  if (o.owned === true) return isDeskClientOrderId(o.clientOrderId, connId) || !o.clientOrderId;
+  return isDeskClientOrderId(o.clientOrderId, connId);
+}
+
+export function ownKeysFromOrders(
+  orders: { symbol?: string; side?: string; clientOrderId?: string; owned?: boolean }[] | null | undefined,
+  connId?: string | null,
+): Set<string> {
+  const keys = new Set<string>();
+  for (const o of orders ?? []) {
+    if (!isOwnedExchangeOrder(o, connId)) continue;
+    if (o.symbol && o.side) keys.add(`${o.symbol}:${o.side}`);
+  }
+  return keys;
+}
+
 export function deskIdFromVenue(venueSymbol: string): string | undefined {
   for (const [id, vs] of Object.entries(BINGX_SYMBOL)) {
     if (vs === venueSymbol) return id;
@@ -215,6 +274,7 @@ export const placeBingxOrder = createServerFn({ method: "POST" })
       slAtr?: number;
       tpRatio?: number;
       attachProtect?: boolean;
+      clientOrderId?: string;
     }) => {
       if (!d?.confirmLive) throw new Error("Live confirm required");
       if (d.network !== "mainnet" && d.network !== "testnet") throw new Error("Invalid network");

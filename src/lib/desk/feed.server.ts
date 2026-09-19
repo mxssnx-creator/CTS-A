@@ -4,6 +4,9 @@ import {
   deskIdFromVenue,
   LIVE_IDS,
   MIN_SIZE_RATIO,
+  clientOrderKindOf,
+  isDeskClientOrderId,
+  makeClientOrderId,
   type AccountPing,
   type FeedSnapshot,
   type LiveOrderResult,
@@ -665,6 +668,7 @@ export async function placeSwapOrder(input: {
   tpRatio?: number;
   attachProtect?: boolean;
   equity?: number;
+  clientOrderId?: string;
 }): Promise<LiveOrderResult> {
   if (!input.confirmLive) return { ok: false, error: "Live confirm required" };
   const { apiKey, secret } = resolveKeys(input.connId, input.apiKey, input.secret);
@@ -756,6 +760,11 @@ export async function placeSwapOrder(input: {
     }
     if (input.closePosition) params.closePosition = "true";
     if (input.reduceOnly) params.reduceOnly = "true";
+    const tagged =
+      input.clientOrderId && isDeskClientOrderId(input.clientOrderId, input.connId)
+        ? input.clientOrderId
+        : makeClientOrderId(input.connId, clientOrderKindOf(input.type, input.closePosition));
+    params.clientOrderID = tagged;
     try {
       const url = signedUrl(HOSTS[input.network][0], "/openApi/swap/v2/trade/order", secret, params);
       const out = await getJson(url, {
@@ -842,6 +851,7 @@ export function parseOpenOrderRow(r: Record<string, unknown>, connId: string): E
   const remaining = orig > 0 ? Math.max(0, orig - filled) : Math.max(0, orig);
   const rawStatus = String(r.status ?? "open");
   const status = filled > 1e-12 && remaining > 1e-12 ? "partial" : rawStatus;
+  const clientOrderId = String(r.clientOrderID ?? r.clientOrderId ?? r.clientOid ?? "").trim();
   return {
     connId,
     id: String(r.orderId ?? r.orderID ?? r.id ?? `${symbol}:${r.type}:${r.positionSide}:${r.stopPrice}`),
@@ -857,6 +867,8 @@ export function parseOpenOrderRow(r: Record<string, unknown>, connId: string): E
     type: String(r.type ?? "LIMIT"),
     closePosition: r.closePosition === true || r.closePosition === "true",
     reduceOnly: r.reduceOnly === true || r.reduceOnly === "true",
+    clientOrderId: clientOrderId || undefined,
+    owned: isDeskClientOrderId(clientOrderId, connId),
   };
 }
 
@@ -1055,7 +1067,7 @@ export async function fetchLiveExecutions(input: {
             px: num(r.avgPrice ?? r.price),
             pnl: num(r.profit),
             time: num(r.updateTime ?? r.time),
-            info: String(r.clientOrderId ?? ""),
+            info: String(r.clientOrderId ?? r.clientOrderID ?? r.clientOid ?? ""),
           };
         });
       }
@@ -1082,7 +1094,21 @@ export async function fetchLiveExecutions(input: {
     }
   }
   const since = Number(input.since) || 0;
-  const pnl = income.filter((x) => x.type === "REALIZED_PNL" && (!since || x.time >= since));
+  const ourTagged = orders.filter((o) => isDeskClientOrderId(o.info, input.connId));
+  const ourSym = new Set(ourTagged.map((o) => o.symbol).filter(Boolean));
+  const otherSym = new Set(
+    orders
+      .filter((o) => isDeskClientOrderId(o.info) && !isDeskClientOrderId(o.info, input.connId))
+      .map((o) => o.symbol)
+      .filter((s) => s && !ourSym.has(s)),
+  );
+  const pnl = income.filter((x) => {
+    if (x.type !== "REALIZED_PNL") return false;
+    if (since && x.time < since) return false;
+    if (otherSym.has(x.symbol)) return false;
+    if (ourSym.size && !ourSym.has(x.symbol)) return false;
+    return true;
+  });
   const wins = pnl.filter((x) => x.income > 0);
   const profit = wins.reduce((s, x) => s + x.income, 0);
   const loss = Math.abs(pnl.filter((x) => x.income < 0).reduce((s, x) => s + x.income, 0));
