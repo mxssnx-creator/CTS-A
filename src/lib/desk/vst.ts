@@ -4803,7 +4803,16 @@ export function liveShouldExecute(
   const play = String(rel.playbook || "");
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca) return t.dca;
-  if (rel.kind === "short" || play === "short" || /short/i.test(note)) return t.block || t.trailing || t.axis;
+  if (rel.kind === "short" || play === "short" || /short/i.test(note)) {
+    if (!(t.block || t.trailing || t.axis)) return false;
+    if (t.block && e.blockCfg?.activeLive !== false && e.liveTape) {
+      if (play === "block" || /^Block/i.test(note) || (rel.blockLevel ?? 0) >= 1) return true;
+      if (positionBlockAdjusted(e, rel.symbol, rel.side)) return true;
+      if (winningRelLive(e, rel)) return true;
+      return (e.liveOpenN ?? 0) < 16;
+    }
+    return true;
+  }
   if (t.block && winningRelLive(e, rel)) return true;
   const isBlockFill = play === "block" || /^Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   const isBlock = isBlockFill || positionBlockAdjusted(e, rel.symbol, rel.side);

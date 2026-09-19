@@ -2453,6 +2453,15 @@ describe("VST engine", () => {
     e.strategyToggles = { normal: false, trailing: true, axis: true, block: true, dca: false };
     e.blockCfg = { ...DEFAULT_BLOCK_CONFIG, activeLive: true, enabled: true };
     assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), true);
+    e.liveTape = true;
+    e.liveOpenN = 40;
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), false);
+    assert.equal(
+      liveShouldExecute(e, { symbol: "ETHUSDT", side: "long", playbook: "block", note: "Block 1", blockLevel: 1, tactic: "trailing" }),
+      true,
+    );
+    e.liveTape = false;
+    e.liveOpenN = 0;
     assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "normal", kind: "normal", tactic: "trailing" }), false);
     assert.equal(
       liveShouldExecute(e, { symbol: "ETHUSDT", side: "long", playbook: "block", note: "Block 1", blockLevel: 1, tactic: "trailing" }),
