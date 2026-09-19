@@ -44,7 +44,7 @@ function bookFromSession(session: Record<string, unknown> | null): ExchangeBook 
   const positions = asRows<ExchangeBook["positions"][number]>(session.bookPos);
   const orders = asRows<ExchangeBook["orders"][number]>(session.bookOrd);
   return {
-    connId: "bingx-vst-02",
+    connId: String(session.conn || session.activeConnId || "bingx-x01"),
     ok: pingOk || equity > 0,
     equity: Number.isFinite(equity) ? equity : 0,
     positions,

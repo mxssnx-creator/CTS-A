@@ -408,7 +408,12 @@ export async function ensureLiveAccountMode(input: {
     notes.push(r.ok ? `${marginWant.toLowerCase()} ${venue}` : `margin ${r.error}`);
   }
   const q = await querySymbolLeverage(input.network, input.connId, venue);
+  const known = Boolean((q && q.max > 0) || (Number(input.spec?.maxLeverage) > 0));
   const lev = pickMaxLeverage(input.spec, q);
+  if (!known || !(lev > 0)) {
+    notes.push(`lev wait ${venue}`);
+    return notes.length ? notes.slice(0, 4).join(" · ") : null;
+  }
   const sides = liveExec.hedgeMode ? (["LONG", "SHORT"] as const) : (["BOTH"] as const);
   for (const side of sides) {
     const cur =

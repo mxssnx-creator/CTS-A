@@ -4,7 +4,7 @@
  * Keys from env — never printed.
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps } from "../src/lib/desk/feed.server.ts";
+import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
 import {
@@ -103,17 +103,36 @@ let lastFlattenAt = 0;
 let lastLevWalk = 0;
 let levWalkI = 0;
 const levUniverse = [];
+const levDone = new Set();
+const opsLog = [];
+
+function noteOp(s) {
+  if (!s) return;
+  opsLog.push(String(s));
+  if (opsLog.length > 24) opsLog.splice(0, opsLog.length - 24);
+}
+
+function statusAdjustments(adjustments) {
+  const compute = (adjustments || []).filter((a) => /^compute |^complete /.test(String(a))).slice(-4);
+  const rest = (adjustments || []).filter((a) => !/^compute |^complete /.test(String(a))).slice(-8);
+  return [...new Set([...rest, ...opsLog.slice(-8), ...compute])].slice(-16);
+}
 
 async function raiseOwnedLeverage(network, positions) {
   const owned = (positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
-  const ids = [...new Set(owned.map((p) => p.symbol).filter(Boolean))];
-  if (!ids.length) return null;
+  const ids = [...new Set(owned.map((p) => p.symbol).filter(Boolean))].filter((id) => !levDone.has(id));
+  if (!ids.length) {
+    levDone.clear();
+    return null;
+  }
+  const take = ids.slice(0, 3);
   const current = {};
   for (const p of owned) current[`${p.symbol}:${p.side}`] = Number(p.leverage) || 0;
-  const armed = await armMaxLeverage({ network, connId: CONN, symbols: ids, current });
+  const armed = await armMaxLeverage({ network, connId: CONN, symbols: take, current });
   if (armed.paused) noteApiFail({ error: "100410 frequency limit" });
-  if (armed.raised) return `lev raise ${armed.raised}/${armed.n} · peak ${armed.max}x`;
-  return `lev hold ${armed.n} · peak ${armed.max}x`;
+  else for (const id of take) levDone.add(id);
+  if (armed.raised) return `lev raise ${armed.raised}/${take.length} · peak ${armed.max}x`;
+  return `lev hold ${take.length} · peak ${armed.max}x`;
 }
 
 let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0, foreignPos: 0, foreignOrd: 0 };
@@ -328,6 +347,13 @@ function snapshot(e, extra) {
       const xs = (lastBook.positions ?? []).map((p) => Number(p.leverage) || 0).filter((n) => n > 0);
       return xs.length ? xs.reduce((s, n) => s + n, 0) / xs.length : 0;
     })(),
+    liveLevBelowMax: (lastBook.positions ?? []).filter((p) => {
+      const cur = Number(p.leverage) || 0;
+      if (!(cur > 0) || !p.symbol) return false;
+      const venue = BINGX_SYMBOL[p.symbol] ?? `${String(p.symbol).replace(/USDT$/i, "")}-USDT`;
+      const cap = cachedMaxLeverage(NETWORK_PREF === "mainnet" ? "mainnet" : "testnet", CONN, venue);
+      return cap > 0 && cur + 1e-9 < cap;
+    }).length,
     closedNet: lastExec.n >= 2 ? lastExec.net : e.ledger.profit - e.ledger.loss,
     avgLivePos: bookAvg.n ? bookAvg.pos / bookAvg.n : lastBook.pos,
     avgLiveOrd: bookAvg.n ? bookAvg.ord / bookAvg.n : lastBook.ord,
@@ -673,11 +699,17 @@ async function flattenBelowMinPf(network, book, e) {
     } else noteApiFail(r);
   });
   if (closed) e.lastMsg = `flatten minPF ${floor} ${closed}/${jobs.length}`;
-  return closed ? `flatten minPF ${floor} ${closed}/${jobs.length}` : jobs.length ? `flatten pending ${jobs.length} last ${lastApiError || "wait"}` : null;
+  const msg = closed ? `flatten minPF ${floor} ${closed}/${jobs.length}` : jobs.length ? `flatten pending ${jobs.length} last ${lastApiError || "wait"}` : null;
+  if (msg) noteOp(msg);
+  return msg;
 }
 
 function apiQuiet() {
-  return Date.now() < apiQuietUntil;
+  if (Date.now() >= apiQuietUntil) {
+    if (lastApiError && isRateLimited(lastApiError)) lastApiError = "";
+    return false;
+  }
+  return true;
 }
 
 function isBenignApi(s) {
@@ -1494,7 +1526,7 @@ async function main() {
       tactic: pick.tactic,
       range: pick.range,
       stable: locked,
-      adjustments: adjustments.slice(-16),
+      adjustments: statusAdjustments(adjustments),
       sessionPhase: hostPhase,
       phase: engine.phase,
       computeDone,
@@ -1577,33 +1609,45 @@ async function main() {
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
       }
+      let wroteExchange = false;
       if (!apiQuiet() && ping.pingOk) {
         try {
           const liveNote = await withTimeout(mirrorToExchange(engine, ping.network, pick.cfg), 15000, "live");
-          if (liveNote) adjustments.push(liveNote);
+          if (liveNote) {
+            adjustments.push(liveNote);
+            noteOp(liveNote);
+            if (/flatten|live /i.test(liveNote)) wroteExchange = true;
+          }
         } catch (err) {
           liveBusy = 0;
           noteApiFail(err);
           adjustments.push(`live ${err instanceof Error ? err.message : "fail"}`);
         }
       }
-      if (!apiQuiet() && ping.pingOk && (lastLevBump === 0 || Date.now() - lastLevBump > 180_000) && lastBook.pos > 0) {
+      if (!wroteExchange && !apiQuiet() && ping.pingOk && (lastLevBump === 0 || Date.now() - lastLevBump > 90_000) && lastBook.pos > 0) {
         lastLevBump = Date.now();
         try {
-          const note = await withTimeout(raiseOwnedLeverage(ping.network, lastBook.positions), 25000, "lev-open");
-          if (note) adjustments.push(note);
+          const note = await withTimeout(raiseOwnedLeverage(ping.network, lastBook.positions), 20000, "lev-open");
+          if (note) {
+            adjustments.push(note);
+            noteOp(note);
+            wroteExchange = true;
+          }
         } catch (err) {
           adjustments.push(`lev ${err instanceof Error ? err.message : "fail"}`);
         }
       }
-      if (!apiQuiet() && ping.pingOk && levUniverse.length && Date.now() - lastLevWalk > 2500) {
+      if (!wroteExchange && !apiQuiet() && ping.pingOk && levUniverse.length && Date.now() - lastLevWalk > 4000) {
         lastLevWalk = Date.now();
         const id = levUniverse[levWalkI % levUniverse.length];
         levWalkI += 1;
         try {
           const armed = await withTimeout(armMaxLeverage({ network: ping.network, connId: CONN, symbols: [id] }), 8000, "lev-walk");
           if (armed.paused) noteApiFail({ error: "100410 frequency limit" });
-          if (armed.raised) adjustments.push(`lev ${id} ${armed.max}x`);
+          if (armed.raised) {
+            adjustments.push(`lev ${id} ${armed.max}x`);
+            noteOp(`lev ${id} ${armed.max}x`);
+          }
         } catch {
           /* next symbol */
         }
