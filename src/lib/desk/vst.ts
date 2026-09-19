@@ -52,16 +52,16 @@ const DEFAULT_CFG: TacticConfig = {
   dcaDrawdown: 0.8,
   axisSpacing: 0.7,
   axisLevels: 5,
-  slAtr: 0.6,
+  slAtr: 0.75,
   tpRatio: 1.333,
-  tpAtr: 0.8,
+  tpAtr: 1.0,
   slOfTp: 0.75,
   maxHoldBars: 3,
   maxHoldTicks: 16,
 };
 
 export const TP_SL_RATIO = 1.333;
-export const SL_ATR_MULT = 0.6;
+export const SL_ATR_MULT = 0.75;
 export const VST_MAX_SYMBOLS = 50;
 export const VST_MAX_POSITIONS = 100;
 export const VST_BATCH_SIZE = 20;

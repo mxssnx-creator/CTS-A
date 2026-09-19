@@ -105,7 +105,7 @@ const BLOCK = {
   liveDisableMinSamples: 8,
 };
 
-const LIVE_CFG = { trailingPct: 0.8, tpRatio: tpRatioOf(0.75), dcaCount: 1, slAtr: slAtrOf(0.8, 0.75), tpAtr: 0.8, slOfTp: 0.75, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
+const LIVE_CFG = { trailingPct: 1.2, tpRatio: tpRatioOf(0.75), dcaCount: 1, slAtr: slAtrOf(1.0, 0.75), tpAtr: 1.0, slOfTp: 0.75, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
 const GRID = LIVE_TACTICS.flatMap((tactic) =>
   RANGE_TYPES.map((range) => ({
     tactic,
@@ -116,18 +116,31 @@ const GRID = LIVE_TACTICS.flatMap((tactic) =>
 
 const PROTECT_FILE = process.env.CTS_A_PROTECT ?? "/var/lib/cts-a/protect-grid.json";
 function loadProtectCells() {
+  const floor = allProtectCells().filter((c) =>
+    Number(c.tpAtr) >= 0.7 && Number(c.slOfTp) >= 0.75 && Number(c.slOfTp) <= 1.25 && Number(c.trailPct) >= 0.8 && Number(c.trailPct) <= 2,
+  );
   try {
     const raw = JSON.parse(readFileSync(PROTECT_FILE, "utf8"));
     const cells = Array.isArray(raw?.cells) ? raw.cells : Array.isArray(raw) ? raw : [];
-    const minSl = 0.15;
-    const minTp = 0.57;
     const minPf = IS_X01 ? X01_DEFAULTS.minPf : 1.2;
-    const ok = cells
-      .filter((c) => Number(c.tpRatio) >= minTp && Number(c.slAtr) >= minSl && (c.pf == null || Number(c.pf) >= minPf))
-      .sort((a, b) => Number(b.pf || 0) - Number(a.pf || 0));
-    if (ok.length) return ok.map((c) => ({ slAtr: Number(c.slAtr), tpRatio: Number(c.tpRatio), trailPct: Number(c.trailPct) || 0.8, tpAtr: Number(c.tpAtr) || 0.8, slOfTp: Number(c.slOfTp) || 0.75 }));
+    const ok = cells.filter((c) =>
+      Number(c.tpAtr) >= 0.7 &&
+      Number(c.slOfTp) >= 0.75 &&
+      Number(c.slOfTp) <= 1.25 &&
+      Number(c.trailPct) >= 0.8 &&
+      (c.pf == null || Number(c.pf) >= minPf),
+    );
+    if (ok.length >= 6) {
+      return ok.map((c) => ({
+        slAtr: Number(c.slAtr),
+        tpRatio: Number(c.tpRatio),
+        trailPct: Number(c.trailPct) || 1.2,
+        tpAtr: Number(c.tpAtr),
+        slOfTp: Number(c.slOfTp),
+      }));
+    }
   } catch {}
-  return allProtectCells();
+  return floor;
 }
 let protectCells = loadProtectCells();
 function protectFor(symbol) {

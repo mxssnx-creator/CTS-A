@@ -808,8 +808,8 @@ export function SettingsView() {
             <RangeKnob
               label="Trailing"
               value={cfg.trailingPct}
-              min={0.3}
-              max={2.4}
+              min={0.8}
+              max={2.0}
               step={0.1}
               format={(n) => `${n.toFixed(1)}%`}
               onChange={(n) => setCfg({ trailingPct: n })}
@@ -854,7 +854,7 @@ export function SettingsView() {
                 })}
               </div>
               <span className="text-[11px] text-subtle">
-                SL {cfg.slAtr.toFixed(2)} ATR · R {cfg.tpRatio.toFixed(3)} · 14 TP × 6 SL = 84 combos
+                SL {cfg.slAtr.toFixed(2)} ATR · R {cfg.tpRatio.toFixed(3)} · 10 TP × 3 SL (low ranges off)
               </span>
             </div>
             <RangeKnob
