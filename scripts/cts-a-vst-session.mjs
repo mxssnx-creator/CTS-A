@@ -30,6 +30,7 @@ import {
   releaseVanished,
   skipLiveSymbol,
   applyRealizedSymbolStats,
+  syncLivePartials,
   sweepAllConfigs,
   sweepPlaybooks,
   completeComputationsAsync,
@@ -71,6 +72,7 @@ let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, pos
 let lastTrail = { n: 0, ms: 0, at: 0 };
 const lastPostedSl = new Map();
 const lastPeakPx = new Map();
+const lastProtectQty = new Map();
 const bookAvg = { pos: 0, ord: 0, n: 0 };
 let cachedOverall = null;
 let cachedOverallTick = -1;
@@ -574,7 +576,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   );
   let posts = 0;
   for (const p of posByVol) {
-    if (posts >= 32) break;
+    if (posts >= 40) break;
     if (!isDeskSymbol(p.symbol)) continue;
     const key = `${p.symbol}:${p.side}`;
     if (!mirrored.has(`own:${key}`) && !mirrored.has(`live:${key}`)) continue;
@@ -609,7 +611,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         tpRatio,
         attachProtect: false,
         closePosition: false,
-        reduceOnly: false,
+        reduceOnly: true,
       };
       let r = await withLiveBusy(() => placeSwapOrder(body));
       if (!r.ok) {
@@ -637,22 +639,30 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         noteApiFail(r);
         return `${kind} skip ${p.symbol} ${String(r.error ?? "err").slice(0, 80)}`;
       }
+      lastProtectQty.set(key, qty);
       return `${kind} ${p.symbol}`;
     };
-    if (!hasSl.has(key)) {
-      notes.push(await attach("sl", "STOP_MARKET", `sl:${key}`));
-      if (posts >= 32) break;
+    const wantQ = protectQty();
+    const prevQ = Number(lastProtectQty.get(key) || 0);
+    const qtyDrift = prevQ > 0 && wantQ > 0 && Math.abs(wantQ - prevQ) / Math.max(prevQ, wantQ) > 0.08;
+    if (qtyDrift) {
+      hasSl.delete(key);
+      hasTp.delete(key);
     }
-    if (!hasTp.has(key)) {
-      notes.push(await attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`));
+    const jobs = [];
+    if (!hasSl.has(key)) jobs.push(attach("sl", "STOP_MARKET", `sl:${key}`));
+    if (!hasTp.has(key)) jobs.push(attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`));
+    if (jobs.length) {
+      const out = await Promise.all(jobs);
+      notes.push(...out);
     }
   }
   const trailT0 = Date.now();
   let trailed = 0;
-  if (posts < 32 && !apiQuiet()) {
+  if (posts < 40 && !apiQuiet()) {
     const mode = network === "mainnet" ? "main" : "vst";
     for (const p of posByVol) {
-      if (trailed >= 8 || posts >= 32) break;
+      if (trailed >= 16 || posts >= 40) break;
       if (!isDeskSymbol(p.symbol)) continue;
       const key = `${p.symbol}:${p.side}`;
       if (!hasSl.has(key)) continue;
@@ -674,7 +684,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         peak,
         tp: atEntry.tp,
         sl: atEntry.sl,
-        trailPct: Number(cell.trailPct) || Number(cfg?.trailingPct) || 0.8,
+        trailPct: Number(cell.trailPct) || Number(cfg?.trailingPct) || 1.4,
       });
       next = snapPx(next, spec);
       const slOrd = (grouped.get(key)?.sl || [])[0];
@@ -712,7 +722,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         tpRatio: cell.tpRatio,
         attachProtect: false,
         closePosition: false,
-        reduceOnly: false,
+        reduceOnly: true,
       };
       let r = await withLiveBusy(() => placeSwapOrder(body));
       posts += 1;
@@ -722,6 +732,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       }
       if (r.ok) {
         lastPostedSl.set(key, next);
+        lastProtectQty.set(key, qty);
         hasSl.add(key);
         trailed += 1;
         notes.push(`trail ${p.symbol}`);
@@ -738,7 +749,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
 
 async function mirrorToExchange(e, network, cfg) {
   if (apiQuiet()) return null;
-  if (Date.now() - liveLast < 1200) return;
+  if (Date.now() - liveLast < 350) return;
   liveLast = Date.now();
   const keys = keysForConn(CONN);
   if (!keys.apiKey || !keys.secret) return "live no keys";
@@ -801,6 +812,11 @@ async function mirrorToExchange(e, network, cfg) {
       reduceOnly: Boolean(o.reduceOnly),
     })),
   };
+  try {
+    syncLivePartials(e, lastBook);
+  } catch {
+    /* keep */
+  }
   bookAvg.n += 1;
   bookAvg.pos += lastBook.pos;
   bookAvg.ord += lastBook.ord;
@@ -843,10 +859,7 @@ async function mirrorToExchange(e, network, cfg) {
   if (n) notes.push(`claim ${n}`);
   const guard = await ensureProtect(network, book, cfg, vanished, e);
   if (guard) notes.push(guard);
-  if (lastBook.pos > 0 && (lastBook.sl < lastBook.pos || lastBook.tp < lastBook.pos)) {
-    notes.push(`wait protect ${lastBook.pos - Math.min(lastBook.sl, lastBook.tp)}`);
-    return notes.join(" · ");
-  }
+  const protectGap = lastBook.pos - Math.min(lastBook.sl, lastBook.tp);
   const paperOpen = new Set((e.positions || []).map((p) => `${p.symbol}:${p.side}`));
   for (const k of paperOpen) mirrored.delete(`seed:${k}`);
   const ours = book.positions.filter((p) => {
@@ -857,6 +870,10 @@ async function mirrorToExchange(e, network, cfg) {
   const accountN = book.positions.filter((p) => isDeskSymbol(p.symbol)).length;
 
   if (openN >= liveMaxPos() || accountN >= liveMaxPos()) return notes.length ? notes.join(" · ") : null;
+  if (protectGap > 12) {
+    notes.push(`protect gap ${protectGap}`);
+    return notes.filter(Boolean).slice(0, 4).join(" · ");
+  }
 
   let placed = 0;
   let failed = 0;
@@ -1150,7 +1167,7 @@ async function main() {
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
       }
-      if (!apiQuiet() && liveBusy === 0 && ping.pingOk && engine.tick % 2 === 0) {
+      if (!apiQuiet() && liveBusy === 0 && ping.pingOk) {
         try {
           const liveNote = await withTimeout(mirrorToExchange(engine, ping.network, pick.cfg), 15000, "live");
           if (liveNote) adjustments.push(liveNote);

@@ -82,6 +82,7 @@ export const TICKS_PER_HOUR = 60;
 export const VST_MAX_WORKING_ORDERS = 400;
 export const VST_MAX_QUEUE = 250;
 export const VST_MAX_BATCHES = 12;
+export const VST_FILL_KEEP = 240;
 export const VST_CONN_IDS = ["bingx-vst-01", "bingx-vst-02"] as const;
 export const LIVE_CONN_ID = "bingx-x01";
 export const DESK_CONN_IDS = [...VST_CONN_IDS, LIVE_CONN_ID] as const;
@@ -1276,10 +1277,12 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     px,
     pnl: 0,
     kind,
-    tick: e.tick
+    tick: e.tick,
+    remaining: Math.max(0, o.remaining),
+    planned: o.qty,
   };
   e.fills.unshift(qFill);
-  if (e.fills.length > 200) e.fills.length = 200;
+  if (e.fills.length > VST_FILL_KEEP) e.fills.length = VST_FILL_KEEP;
   if (done) markTerminal(e, o, "filled");
   else o.status = "partial";
 }
@@ -1303,6 +1306,7 @@ function matchOrders(e: VstEngine) {
     if (qty <= 0) continue;
     const px = market ? q.px : o.side === "long" ? Math.min(o.price, q.px) : Math.max(o.price, q.px);
     applyFill(e, o, qty, px, o.filled > 0 ? "partial" : "entry");
+    if ((o.type === "ioc" || o.type === "fok") && o.status === "partial") markTerminal(e, o, "cancelled");
   }
 }
 function cancelLane(e: VstEngine, p: LivePosition) {
@@ -1406,7 +1410,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     kind: reason,
     tick: e.tick
   });
-  if (e.fills.length > 40) e.fills.length = 40;
+  if (e.fills.length > VST_FILL_KEEP) e.fills.length = VST_FILL_KEEP;
   cancelLane(e, p);
 }
 function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
@@ -1626,12 +1630,37 @@ function compactOrders(e: VstEngine) {
   e.queue = [...deskQueue, ...foreignQ];
   e.orders = [...e.orders, ...foreign];
   if (e.batches.length > VST_MAX_BATCHES) e.batches.length = VST_MAX_BATCHES;
-  if (e.fills.length > 40) e.fills.length = 40;
+  if (e.fills.length > VST_FILL_KEEP) e.fills.length = VST_FILL_KEEP;
   if (e.closed.length > 600) e.closed.length = 600;
   for (const id of Object.keys(e.cooldown)) {
     if ((e.cooldown[id] ?? 0) <= e.tick) delete e.cooldown[id];
   }
 }
+
+export function syncLivePartials(
+  e: VstEngine,
+  book: { positions?: { symbol: string; side: Side; qty: number; entry?: number; mark?: number }[] } | null | undefined,
+) {
+  const live = book?.positions ?? [];
+  if (!live.length) return 0;
+  let n = 0;
+  for (const p of live) {
+    if (!(p.qty > 0) || !p.symbol) continue;
+    const pos = e.positions.find((x) => x.connId === e.activeConnId && x.symbol === p.symbol && x.side === p.side);
+    if (!pos) continue;
+    const qty = Number(p.qty);
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+    if (Math.abs(qty - pos.qty) > 1e-12) {
+      pos.qty = qty;
+      n += 1;
+    }
+    if (Number(p.entry) > 0) pos.avgEntry = Number(p.entry);
+    if (Number(p.mark) > 0) pos.mark = Number(p.mark);
+    pos.status = pos.plannedQty > 0 && pos.qty + 1e-12 < pos.plannedQty * 0.98 ? "partial" : "open";
+  }
+  return n;
+}
+
 function recomputeStats(e: VstEngine) {
   const unreal = e.positions.reduce((s, p) => s + p.unrealized, 0);
   const net = e.ledger.profit - e.ledger.loss + unreal;
@@ -2914,13 +2943,9 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
       refreshSymbolHourEval(e, { hours: block.symbolEvalHours ?? SYMBOL_EVAL_HOURS });
     });
   }
-  if ((e.tick % 4 === 0 || (opts?.skipWalk && e.orders.length > 96)) && !over()) {
+  if ((e.tick % 4 === 0 || (opts?.skipWalk && e.orders.length > VST_MAX_WORKING_ORDERS)) && !over()) {
     safeStage(e, "compact", () => {
       compactOrders(e);
-      if (opts?.skipWalk && e.orders.length > 96) {
-        const extra = e.orders.splice(96);
-        for (const o of extra) markTerminal(e, o, "cancelled");
-      }
     });
   }
   if (

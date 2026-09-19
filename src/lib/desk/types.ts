@@ -611,6 +611,8 @@ export interface Fill {
   pnl: number;
   kind: "entry" | "partial" | "sl" | "tp" | "exit" | "time";
   tick: number;
+  remaining?: number;
+  planned?: number;
 }
 
 export interface VstBatch {

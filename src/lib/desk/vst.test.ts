@@ -612,7 +612,7 @@ describe("VST engine", () => {
     assert.ok(e.orders.length <= VST_MAX_WORKING_ORDERS, `orders ${e.orders.length}`);
     assert.ok(e.queue.length <= VST_MAX_QUEUE, `queue ${e.queue.length}`);
     assert.ok(e.positions.length <= VST_MAX_POSITIONS);
-    assert.ok(e.fills.length <= 80);
+    assert.ok(e.fills.length <= 240);
     assert.ok(e.closed.length <= 600);
     assert.ok(e.batches.length <= VST_MAX_BATCHES);
     const audit = auditEngine(e);
@@ -670,6 +670,41 @@ describe("VST engine", () => {
     const px = e.quotes.BTCUSDT.px;
     tickVst(e, CFG, "axis", { skipWalk: true, freezeIds: new Set(["BTCUSDT"]) });
     assert.equal(e.quotes.BTCUSDT.px, px);
+  });
+
+  it("keeps independent working orders and fill tape on live ticks", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 8, arm: false });
+    e.queue = [];
+    e.orders = [];
+    for (let i = 0; i < 140; i++) {
+      const partial = i % 3 === 0;
+      e.orders.push({
+        id: `keep${i}`,
+        connId: e.activeConnId,
+        symbol: "ETHUSDT",
+        side: "long",
+        type: "limit",
+        qty: 2,
+        filled: partial ? 0.5 : 0,
+        remaining: partial ? 1.5 : 2,
+        price: 1,
+        status: partial ? "partial" : "open",
+        rangeType: "atr",
+        level: 1,
+        sl: 0.9,
+        tp: 1.1,
+        slDist: 0.1,
+        tpDist: 0.1,
+        batchId: "b",
+        note: "keep",
+      });
+    }
+    const before = e.orders.length;
+    tickVst(e, CFG, "hybrid", { skipWalk: true, freezeIds: new Set(["ETHUSDT"]) });
+    const live = e.orders.filter((o) => o.status === "open" || o.status === "partial");
+    assert.ok(live.length > 96, `kept ${live.length} of ${before}`);
+    const part = live.find((o) => o.status === "partial");
+    if (part) assert.ok(Math.abs(part.filled + part.remaining - part.qty) < 1e-9);
   });
 
   it("scales live fills with quote volume", () => {
