@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, X01_DEFAULTS, LIVE_BLOCK_COUNTS } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, TACTICS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -40,7 +40,7 @@ const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CONN = (process.env.CTS_A_CONN || (process.env.CTS_A_X01 === "1" ? "bingx-x01" : "bingx-vst-02")).trim();
 const IS_X01 = CONN === "bingx-x01";
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
-const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? (IS_X01 ? X01_DEFAULTS.symbolCount : 100));
+const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
 const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? (IS_X01 ? X01_DEFAULTS.minPf : 2));
 const LIVE_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? X01_DEFAULTS.symbolCount : VST_MAX_SYMBOLS)));
 const UNI = new Set(universeSymbols(LIVE_SYMBOLS).map((s) => s.id));
@@ -80,15 +80,15 @@ const BLOCK = {
   volumeRatio: IS_X01 ? (X01_DEFAULTS.volumeRatio ?? 0.08) : 0.16,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
-  pauseCountRatio: IS_X01 ? 2 : 0,
+  pauseCountRatio: 0,
   evalPosCount: IS_X01 ? 6 : 8,
   activeLive: true,
   minActiveLevel: 0,
-  keepAdjusted: !IS_X01,
+  keepAdjusted: true,
   stack: true,
   windows: true,
   volumeMode: "parallel",
-  sides: IS_X01 ? "one" : "both",
+  sides: "both",
   evalHours: 2,
   autoEval: true,
   relAdditive: true,
@@ -101,38 +101,14 @@ const BLOCK = {
   liveDisableMinSamples: 8,
 };
 
-const GRID = [
-  {
-    tactic: "trailing",
-    range: "geometric",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.4, tpRatio: 1.6, dcaCount: 1, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8 },
-  },
-  {
-    tactic: "hybrid",
-    range: "fibonacci",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.4, tpRatio: 1.6, dcaCount: 1, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8 },
-  },
-  {
-    tactic: "hybrid",
-    range: "atr",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.4, tpRatio: 1.6, dcaCount: 1, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8 },
-  },
-  {
-    tactic: "hybrid",
-    range: "volume",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.7, tpRatio: 1.6, dcaCount: 1, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8 },
-  },
-  {
-    tactic: "trailing",
-    range: "fibonacci",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.4, tpRatio: 2.0, dcaCount: 1, slAtr: 0.7, maxHoldTicks: 20000, maxHoldBars: 8 },
-  },
-  {
-    tactic: "axis",
-    range: "atr",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, trailingPct: 1.4, tpRatio: 1.6, dcaCount: 1, axisLevels: 5, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8 },
-  },
-];
+const LIVE_CFG = { trailingPct: 1.4, tpRatio: 1.6, dcaCount: 1, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
+const GRID = TACTICS.flatMap((tactic) =>
+  RANGE_TYPES.map((range) => ({
+    tactic,
+    range,
+    cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, dcaCount: tactic === "dca" ? 2 : 1 },
+  })),
+);
 
 const PROTECT_FILE = process.env.CTS_A_PROTECT ?? "/var/lib/cts-a/protect-grid.json";
 function loadProtectCells() {
@@ -564,7 +540,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set()) {
   }
   let posts = 0;
   for (const p of book.positions ?? []) {
-    if (posts >= 16) break;
+    if (posts >= 32) break;
     if (!isDeskSymbol(p.symbol)) continue;
     const key = `${p.symbol}:${p.side}`;
     if (!mirrored.has(`own:${key}`) && !mirrored.has(`live:${key}`)) continue;
@@ -631,7 +607,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set()) {
     };
     if (!hasSl.has(key)) {
       notes.push(await attach("sl", "STOP_MARKET", `sl:${key}`));
-      if (posts >= 16) break;
+      if (posts >= 32) break;
     }
     if (!hasTp.has(key)) {
       notes.push(await attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`));
@@ -820,7 +796,7 @@ async function mirrorToExchange(e, network, cfg) {
     occupied.add(`${f.symbol}:${f.side}`);
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
-    if (placed >= 8) break;
+    if (placed >= 16) break;
   }
   return notes.length ? notes.slice(0, 4).join(" · ") : null;
 }
@@ -903,11 +879,13 @@ async function main() {
 
   let lastTape = 0;
   let lastAdjust = started;
-  let locked = true;
+  let locked = false;
   let freeze;
   let hostPhase = "running";
   let lastResetAt = 0;
   let computeDone = false;
+  let gridCursor = 0;
+  let lastCycleAt = Date.now();
 
   try {
     const tape0 = await withTimeout(fetchBingxTape(ping.network), 8000, "tape0");
@@ -943,7 +921,7 @@ async function main() {
   };
 
   writeStatus(snapshot(engine, statusBase()));
-  writeSettingsPick(pick, { rev: 1, locked: true });
+  writeSettingsPick(pick, { rev: 1, locked: false });
 
   let lastTickAt = Date.now();
   let tickBusy = false;
@@ -1113,19 +1091,8 @@ async function main() {
       engine.completeWinner = w;
       cachedOverall = null;
       cachedOverallTick = -1;
-      if (w && w.ok && w.pf >= 1) {
-        if (w.tactic !== pick.tactic || w.range !== pick.range) {
-          pick = { tactic: w.tactic, range: w.range, cfg: pick.cfg };
-          try {
-            healEngine(engine, pick.cfg, pick.tactic, pick.range);
-          } catch {
-            /* keep */
-          }
-          adjustments.push(`live lock ${w.tactic}/${w.range} ${w.hours}h PF ${w.pf.toFixed(2)}`);
-        }
-        locked = true;
-        writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: true });
-      }
+      locked = false;
+      writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: false });
       adjustments.push(
         w
           ? `complete ${complete.cells.length} cells · winner ${w.tactic}/${w.range} ${w.hours}h PF ${w.pf.toFixed(2)} · ${complete.elapsedMs}ms`
@@ -1243,13 +1210,13 @@ async function main() {
               Number(nextCfg.dcaCount) !== Number(pick.cfg.dcaCount) ||
               Number(nextCfg.dcaDrawdown) !== Number(pick.cfg.dcaDrawdown)),
         );
-        if (nextCfg && (nextTactic !== pick.tactic || nextRange !== pick.range || cfgChanged)) {
+        if (nextCfg && cfgChanged) {
           pick = {
-            tactic: nextTactic || pick.tactic,
-            range: nextRange || pick.range,
+            tactic: pick.tactic,
+            range: pick.range,
             cfg: { ...pick.cfg, ...nextCfg },
           };
-          adjustments.push(`settings sync ${pick.tactic}/${pick.range} sl ${pick.cfg.slAtr} tp ${pick.cfg.tpRatio}`);
+          adjustments.push(`settings cfg sl ${pick.cfg.slAtr} tp ${pick.cfg.tpRatio} trail ${pick.cfg.trailingPct}`);
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
         if (remote.blockConfig) Object.assign(BLOCK, remote.blockConfig, { enabled: true });
@@ -1289,15 +1256,17 @@ async function main() {
     }
 
     const now = Date.now();
-    if (now - lastAdjust > 12 * 60 * 1000) {
-      lastAdjust = now;
-      const st = snapshot(engine, statusBase());
-      if (st.trades >= 20 && st.pf >= LIVE_MIN_PF && st.net > 0 && (st.wr >= 0.4 || st.pf >= 1.8) && st.mdd <= 0.18) {
-        locked = true;
-        adjustments.push(`lock ${pick.tactic}/${pick.range} PF ${st.pf.toFixed(2)}`);
-        writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: true });
-        lastSettingsAt = Date.now();
+    if (now - lastCycleAt > 40000) {
+      lastCycleAt = now;
+      gridCursor = (gridCursor + 1) % GRID.length;
+      pick = GRID[gridCursor];
+      try {
+        requeueFree(engine, pick.cfg, pick.tactic, pick.range, CONN);
+      } catch {
+        /* keep */
       }
+      adjustments.push(`cycle ${gridCursor + 1}/${GRID.length} ${pick.tactic}/${pick.range}`);
+      writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: false });
     }
 
     if (wantStatus(false)) writeStatus(snapshot(engine, { ...statusBase(), computeDone }));

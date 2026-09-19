@@ -237,13 +237,13 @@ export const X01_DEFAULTS = {
   connId: "bingx-x01" as const,
   network: "mainnet" as const,
   minPf: 1.4,
-  symbolCount: 25,
+  symbolCount: 50,
   slAtrMin: 0.4,
   tpRatioMin: 0.6,
   volumeRatio: 0.08,
   counts: [1, 2] as number[],
   maxMultiple: 2,
-  sides: "one" as const,
+  sides: "both" as const,
 };
 
 export const LIVE_BLOCK_COUNTS = [1, 2, 4, 8] as const;

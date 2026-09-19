@@ -1,5 +1,5 @@
 [Unit]
-Description=CTS-A BingX x01 mainnet session (25 symbols)
+Description=CTS-A BingX x01 mainnet session (50 symbols, all configs)
 After=network-online.target cts-a-desk.service
 Wants=network-online.target
 StartLimitIntervalSec=180
@@ -23,8 +23,8 @@ Environment=CTS_A_STATUS=/var/lib/cts-a/vst-session.json
 Environment=CTS_A_CONN=bingx-x01
 Environment=CTS_A_NETWORK=mainnet
 Environment=CTS_A_LIVE_MIN_PF=1.4
-Environment=CTS_A_LIVE_MAX_POS=25
-Environment=CTS_A_SYMBOLS=25
+Environment=CTS_A_LIVE_MAX_POS=100
+Environment=CTS_A_SYMBOLS=50
 Environment=CTS_A_TICK_MS=1500
 Environment=NODE_OPTIONS=--max-old-space-size=256
 LimitNOFILE=4096

@@ -1453,7 +1453,8 @@ describe("VST engine", () => {
     assert.equal(snapTpRatio(0.5), 0.6);
     assert.equal(snapSlAtr(0.35), 0.4);
     assert.equal(X01_DEFAULTS.minPf, 1.4);
-    assert.equal(X01_DEFAULTS.symbolCount, 25);
+    assert.equal(X01_DEFAULTS.symbolCount, 50);
+    assert.equal(X01_DEFAULTS.sides, "both");
     assert.equal(X01_DEFAULTS.slAtrMin, 0.4);
     assert.equal(X01_DEFAULTS.tpRatioMin, 0.6);
     assert.equal(DEFAULT_BLOCK_CONFIG.evalHours, 2);
