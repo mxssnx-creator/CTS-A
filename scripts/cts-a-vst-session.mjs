@@ -98,10 +98,10 @@ function refreshTaggedKeys(orders) {
   return taggedKeys;
 }
 function pickCompleteLock(complete) {
-  const cells = (complete?.cells || []).filter((c) => c?.ok && Number(c.hours) >= 8 && Number(c.trades || 0) >= 8 && Number(c.pf) >= 1.4);
+  const cells = (complete?.cells || []).filter((c) => c?.ok && Number(c.hours) >= 4 && Number(c.trades || 0) >= 6 && Number(c.pf) >= 1);
   if (!cells.length) {
     const w = complete?.winner;
-    return w && w.ok && Number(w.hours) >= 8 ? w : null;
+    return w && Number(w.pf) >= 1 && Number(w.trades || 0) >= 6 ? w : null;
   }
   cells.sort((a, b) => Number(b.pf) - Number(a.pf) || Number(b.hours) - Number(a.hours) || Number(b.trades) - Number(a.trades));
   const best = cells[0];
@@ -266,11 +266,16 @@ function gridLive(e) {
   const dis = e?.liveDisabled || {};
   const filtered = GRID.filter((g) => {
     if (g.tactic === "dca" && !(e?.strategyToggles ?? STRAT).dca) return false;
+    if (g.tactic === "axis" && dis[`tac:axis`]) return false;
     if (dis[`tac:${g.tactic}`]) return false;
     if (!g.cfg?.shortRange && dis[`rng:${g.range}`]) return false;
+    if (g.cfg?.shortRange && Number(g.cfg.slOfTp) + 1e-9 < 1.5 && dis[`tac:${g.tactic}`]) return false;
+    if (g.cfg?.shortRange && Number(g.cfg.tpAtr) + 1e-9 < 0.35 && Number(g.cfg.slOfTp) + 1e-9 < 1.5) return false;
     return true;
   });
-  return filtered.length ? filtered : GRID;
+  if (filtered.length) return filtered;
+  const prefer = GRID.filter((g) => g.tactic === "trailing" && Number(g.cfg?.tpAtr) === 0.35 && Number(g.cfg?.slOfTp) === 1.5);
+  return prefer.length ? prefer : GRID.slice(0, 1);
 }
 function persistDisabled(e) {
   try {

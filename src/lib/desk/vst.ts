@@ -2633,7 +2633,7 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
     return e.liveHealth;
   }
   const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
-  const minPf = entryMinPf(e, block);
+  const minPf = e.liveTape ? 1 : entryMinPf(e, block);
   const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
   const disabled: Record<string, { pf: number; n: number; at: number }> = {};
   const kept: string[] = [];
@@ -2646,7 +2646,9 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
       else kept.push(key);
     }
   }
-  const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, Math.max(n * 3, minS));
+  const take = e.closed
+    .filter((c) => isDeskConn(c.connId) && (!e.liveTape || String(c.id || "").startsWith("x:")))
+    .slice(0, Math.max(n * 3, minS));
   if (take.length >= minS) {
     const groups = new Map<string, { pnl: number }[]>();
     const add = (key: string, pnl: number) => {
@@ -2681,12 +2683,15 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
       const anyKept = list.some((x) => x.pf + 1e-9 >= minPf);
       for (const x of list) {
         if (e.liveTape && x.key.startsWith("sym:") && kept.includes(x.key)) continue;
-        if (x.pf + 1e-9 < minPf && (anyKept || x.key.startsWith("sym:") || x.key.startsWith("combo:"))) {
+        if (x.pf + 1e-9 < minPf) {
           disabled[x.key] = { pf: x.pf, n: x.n, at: e.tick };
-        } else if (x.pf + 1e-9 >= minPf) {
+        } else {
           kept.push(x.key);
           delete disabled[x.key];
         }
+      }
+      if (!anyKept && !e.liveTape) {
+        for (const x of list) delete disabled[x.key];
       }
     }
   }
@@ -2710,7 +2715,7 @@ export function liveRelationDisabled(
     playbook?: string;
   },
 ) {
-  if (e.liveTape && (e.liveOpenN ?? 99) < 80) return false;
+  if (e.liveTape && (e.liveOpenN ?? 99) < 12) return false;
   const d = e.liveDisabled;
   if (!d || !Object.keys(d).length) return false;
   const keys = [
@@ -4826,8 +4831,8 @@ export function liveShouldExecute(
     if (t.block && e.blockCfg?.activeLive !== false && e.liveTape) {
       if (play === "block" || /^Block/i.test(note) || (rel.blockLevel ?? 0) >= 1) return true;
       if (positionBlockAdjusted(e, rel.symbol, rel.side)) return true;
-      if (winningRelLive(e, rel)) return true;
-      return (e.liveOpenN ?? 0) < 16;
+      if (winningRelLive(e, rel) && !liveRelationDisabled(e, rel)) return true;
+      return (e.liveOpenN ?? 0) < 12;
     }
     return true;
   }
