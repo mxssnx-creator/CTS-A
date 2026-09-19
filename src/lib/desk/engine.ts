@@ -243,6 +243,7 @@ export const X01_DEFAULTS = {
   volumeRatio: 0.08,
   counts: [1, 2] as number[],
   maxMultiple: 2,
+  sides: "one" as const,
 };
 
 export const LIVE_BLOCK_COUNTS = [1, 2, 4, 8] as const;
