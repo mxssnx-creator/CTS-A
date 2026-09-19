@@ -97,7 +97,7 @@ export const T0 = 1_725_000_000_000;
 export const BAR_MS = 15 * 60 * 1000;
 
 export const COST_STEPS: number[] = Array.from({ length: 28 }, (_, i) => i + 3);
-export const LAST_N_OPTIONS = [3, 5, 10, 15, 20, 50] as const;
+export const LAST_N_OPTIONS = [3, 5, 10, 12, 15, 20, 50] as const;
 export type LastNChoice = (typeof LAST_N_OPTIONS)[number];
 
 /** Auto-eval historic stages (hours). */
@@ -111,6 +111,7 @@ export const STAGE_META: { id: StageId; hours: StageHour; label: string; blurb: 
 ];
 /** Automated last-N pos evals for lanes / live mirror. */
 export const LANE_EVAL_NS = [5, 10, 15] as const;
+export const LIVE_DISABLE_N = 12;
 
 export const LAST_N_STAGE_META: { id: LastNStage; label: string; blurb: string; usedFor: string }[] = [
   {
@@ -282,6 +283,10 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   relVolumeRatio: 0.4,
   minRelPf: 1.25,
   evalLastNs: [1, 2, 3, 4, 5, 6],
+  liveLastN: 12,
+  liveDisable: true,
+  liveDisableMinPf: 1,
+  liveDisableMinSamples: 4,
 };
 
 /** Additive: each count uses `ratio`. Shared (old): extra/n when n>2. */

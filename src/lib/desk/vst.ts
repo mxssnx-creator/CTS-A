@@ -669,6 +669,8 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.blockRelBest = e.blockRelBest ?? {};
   e.lastRelEvalTick = e.lastRelEvalTick ?? 0;
   e.relVolumeFactor = e.relVolumeFactor ?? 0;
+  e.liveDisabled = e.liveDisabled ?? {};
+  e.liveHealth = e.liveHealth ?? { n: 12, at: 0, disabled: [], kept: [] };
   for (const lane of Object.values(e.blockLanes)) {
     lane.active = lane.active ?? true;
     lane.pauseRemaining = lane.pauseRemaining ?? {};
@@ -722,6 +724,8 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     blockRelBest: {},
     lastRelEvalTick: 0,
     relVolumeFactor: 0,
+    liveDisabled: {},
+    liveHealth: { n: 12, at: 0, disabled: [], kept: [] },
     blockCfg: opts.block ?? DEFAULT_BLOCK_CONFIG,
   };
   if (opts.arm !== false) armUniverse(engine, cfg, "hybrid");
@@ -850,6 +854,18 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           { symbol: s.id, side, indication: ind, kind, tactic: e.lastTactic, rangeType: range, playbook: book },
           winN,
         )
+      )
+        continue;
+      if (
+        liveRelationDisabled(e, {
+          symbol: s.id,
+          side,
+          indication: ind,
+          kind,
+          tactic: e.lastTactic,
+          rangeType: range,
+          playbook: book,
+        })
       )
         continue;
       if (qn >= VST_MAX_QUEUE || pn >= VST_MAX_POSITIONS) break;
@@ -1871,6 +1887,7 @@ export function symbolTapePf(e: VstEngine, symbol: string) {
 export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (symbolBlockPaused(e, symbol, evalN)) return true;
   if (symbolTapePf(e, symbol) + 1e-9 < 1) return true;
+  if (e.liveDisabled?.[`sym:${symbol}`]) return true;
   if (classifyIndication(e, symbol) === "direction") return true;
   return false;
 }
@@ -1937,7 +1954,99 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
   e.relVolumeFactor = block.relAdditive === false ? 0 : used.length * vr;
   e.lastRelEvalTick = e.tick;
   pruneBlockRelWindows(e);
+  refreshLiveDisable(e, block);
   return { picks: used, winners: used.length, factor: e.relVolumeFactor || 0, at: e.tick, candidates: uniq.length };
+}
+
+function pfRows(rows: { pnl: number }[]) {
+  const gp = rows.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
+  const gl = Math.abs(rows.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
+  return {
+    n: rows.length,
+    net: rows.reduce((s, c) => s + c.pnl, 0),
+    pf: gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl,
+  };
+}
+
+export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg ?? DEFAULT_BLOCK_CONFIG) {
+  if (block.liveDisable === false) {
+    e.liveDisabled = {};
+    e.liveHealth = { n: block.liveLastN || 12, at: e.tick, disabled: [], kept: [] };
+    return e.liveHealth;
+  }
+  const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
+  const minPf = block.liveDisableMinPf ?? 1;
+  const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
+  const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, n);
+  const groups = new Map<string, { pnl: number }[]>();
+  const add = (key: string, pnl: number) => {
+    if (!key || key.endsWith(":block") || key === "book:block") return;
+    const arr = groups.get(key);
+    if (arr) arr.push({ pnl });
+    else groups.set(key, [{ pnl }]);
+  };
+  for (const c of take) {
+    add(`ind:${c.indication ?? "trend"}`, c.pnl);
+    add(`kind:${c.kind ?? "normal"}`, c.pnl);
+    add(`tac:${c.tactic ?? e.lastTactic}`, c.pnl);
+    add(`rng:${c.rangeType ?? e.lastRange}`, c.pnl);
+    add(`book:${c.playbook ?? "normal"}`, c.pnl);
+    add(`side:${c.side}`, c.pnl);
+    add(`sym:${c.symbol}`, c.pnl);
+    add(`combo:${c.indication ?? "trend"}:${c.kind ?? "normal"}:${c.tactic ?? e.lastTactic}:${c.rangeType ?? e.lastRange}:${c.side}`, c.pnl);
+  }
+  const byAxis = new Map<string, { key: string; pf: number; n: number }[]>();
+  for (const [key, rows] of groups) {
+    if (rows.length < minS) continue;
+    const sc = pfRows(rows);
+    const axis = key.split(":")[0] ?? "x";
+    const list = byAxis.get(axis) ?? [];
+    list.push({ key, pf: sc.pf, n: sc.n });
+    byAxis.set(axis, list);
+  }
+  const disabled: Record<string, { pf: number; n: number; at: number }> = {};
+  const kept: string[] = [];
+  for (const list of byAxis.values()) {
+    list.sort((a, b) => b.pf - a.pf || b.n - a.n);
+    const best = list[0];
+    if (best) kept.push(best.key);
+    for (const x of list) {
+      if (best && x.key === best.key) continue;
+      if (x.pf + 1e-9 < minPf) disabled[x.key] = { pf: x.pf, n: x.n, at: e.tick };
+    }
+  }
+  e.liveDisabled = disabled;
+  e.liveHealth = { n, at: e.tick, disabled: Object.keys(disabled), kept };
+  return e.liveHealth;
+}
+
+export function liveRelationDisabled(
+  e: VstEngine,
+  rel: {
+    symbol: string;
+    side: Side;
+    indication?: IndicationId;
+    kind?: StrategyKind;
+    tactic?: TacticKind;
+    rangeType?: RangeType;
+    playbook?: string;
+  },
+) {
+  const d = e.liveDisabled;
+  if (!d || !Object.keys(d).length) return false;
+  const keys = [
+    `sym:${rel.symbol}`,
+    `side:${rel.side}`,
+    rel.indication ? `ind:${rel.indication}` : "",
+    rel.kind ? `kind:${rel.kind}` : "",
+    rel.tactic ? `tac:${rel.tactic}` : "",
+    rel.rangeType ? `rng:${rel.rangeType}` : "",
+    rel.playbook && rel.playbook !== "block" ? `book:${rel.playbook}` : "",
+    rel.indication && rel.kind && rel.tactic && rel.rangeType
+      ? `combo:${rel.indication}:${rel.kind}:${rel.tactic}:${rel.rangeType}:${rel.side}`
+      : "",
+  ].filter(Boolean);
+  return keys.some((k) => Boolean(d[k]));
 }
 
 function pruneBlockRelWindows(e: VstEngine, max = 256) {
@@ -2194,7 +2303,7 @@ export function adjustActiveBlocks(
   const overallPause = !overall && block.windows !== false && blockPosPaused(e, evalN);
   const volModes = liveVolumeModes(block);
 
-  if (block.stack !== false && block.addOnWin && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
+  if (block.stack !== false && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
     let adds = 0;
     const addCap = Math.min(8, Math.max(4, volModes.length * 2));
     for (const p of e.positions) {
@@ -2323,6 +2432,11 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   if (block.autoEval !== false && block.enabled && e.tick > 0 && e.tick % evalEvery === 0 && !over()) {
     safeStage(e, "block-eval", () => {
       evalBlockRelations(e, block);
+    });
+  }
+  if (block.liveDisable !== false && e.tick % 30 === 0 && e.closed.length >= (block.liveLastN || 12) && !over()) {
+    safeStage(e, "live-disable", () => {
+      refreshLiveDisable(e, block);
     });
   }
   if ((e.tick % 4 === 0 || (opts?.skipWalk && e.orders.length > 96)) && !over()) {

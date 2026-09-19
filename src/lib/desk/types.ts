@@ -275,6 +275,10 @@ export interface BlockConfig {
   relVolumeRatio?: number;
   minRelPf?: number;
   evalLastNs?: number[];
+  liveLastN?: number;
+  liveDisable?: boolean;
+  liveDisableMinPf?: number;
+  liveDisableMinSamples?: number;
 }
 
 export interface BlockAdjustResult {
@@ -893,6 +897,8 @@ export interface VstEngine {
   blockRelBest?: Record<string, { key: string; n: number; pf: number; net: number; vol: number; major: boolean }>;
   lastRelEvalTick?: number;
   relVolumeFactor?: number;
+  liveDisabled?: Record<string, { pf: number; n: number; at: number }>;
+  liveHealth?: { n: number; at: number; disabled: string[]; kept: string[] };
   blockCfg?: BlockConfig;
 }
 

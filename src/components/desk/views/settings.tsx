@@ -854,7 +854,8 @@ export function SettingsView() {
           <p className="text-sm text-muted">
             Stack uses counts <strong>1–2</strong>. Windows use last-N <strong>1,2,3,4,5,6</strong> (step 1)
             independently. <strong>Overall Block</strong> adds volume additively on every winning position,
-            independent of lanes, indications, and strategies. Order ids, partials, and blockQty are tracked.
+            independent of lanes, indications, and strategies. Live last-N (default 12) disables
+            non-performing configs/types from live results. Order ids, partials, and blockQty are tracked.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
@@ -937,6 +938,14 @@ export function SettingsView() {
             >
               {blockCfg.relAdditive !== false ? "Rel vol additive" : "Rel vol off"}
             </Button>
+            <Button
+              size="sm"
+              variant={blockCfg.liveDisable !== false ? "primary" : "secondary"}
+              className="h-11 sm:h-8"
+              onClick={() => setBlockCfg({ liveDisable: !(blockCfg.liveDisable !== false) })}
+            >
+              {blockCfg.liveDisable !== false ? "Live last-N disable" : "Live disable off"}
+            </Button>
           </div>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <RangeKnob
@@ -978,6 +987,26 @@ export function SettingsView() {
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ relVolumeRatio: n })}
               ariaLabel="Relation additive volume ratio"
+            />
+            <RangeKnob
+              label="Live last N"
+              value={blockCfg.liveLastN ?? 12}
+              min={4}
+              max={40}
+              step={1}
+              format={(n) => String(n)}
+              onChange={(n) => setBlockCfg({ liveLastN: n })}
+              ariaLabel="Live last N disable"
+            />
+            <RangeKnob
+              label="Live disable min PF"
+              value={blockCfg.liveDisableMinPf ?? 1}
+              min={0.5}
+              max={2}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setBlockCfg({ liveDisableMinPf: n })}
+              ariaLabel="Live disable min PF"
             />
             <RangeKnob
               label="Eval hours"

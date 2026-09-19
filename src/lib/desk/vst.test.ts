@@ -78,6 +78,8 @@ import {
   sweepAllConfigs,
   sweepBlockRelations,
   evalBlockRelations,
+  refreshLiveDisable,
+  liveRelationDisabled,
   blockRelationKeys,
   blockRelPaused,
   blockComboPaused,
@@ -934,6 +936,7 @@ describe("VST engine", () => {
     const { STAGE_HOURS, LANE_EVAL_NS } = await import("./engine.ts");
     assert.deepEqual([...STAGE_HOURS], [4, 8, 16]);
     assert.deepEqual([...LANE_EVAL_NS], [5, 10, 15]);
+    assert.equal((await import("./engine.ts")).LIVE_DISABLE_N, 12);
     const bundle = evaluateStages({
       hours: [...STAGE_HOURS],
       lastNs: [...LANE_EVAL_NS],
@@ -1119,7 +1122,7 @@ describe("VST engine", () => {
 
   it("block on vs off: adds rungs when enabled and stays inert when disabled", () => {
     const off = { ...DEFAULT_BLOCK_CONFIG, enabled: false };
-    const on = { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false, cadence: 4, addOnWin: true, flattenConflict: false, sides: "both" as const, windows: false };
+    const on = { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false, cadence: 4, addOnWin: false, flattenConflict: false, sides: "both" as const, windows: false, liveDisable: false };
     const a = simulateHours(12, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: on });
     const b = simulateHours(12, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: off });
     assert.ok(a.report.passed, a.report.issues.join("; "));
@@ -1326,6 +1329,54 @@ describe("VST engine", () => {
     assert.ok(ev.picks.some((p) => p.major));
     assert.ok(ev.picks.some((p) => p.n >= 2), "prefers last-N ≥ 2 when samples exist");
     assert.equal(e.lastRelEvalTick, e.tick);
+  });
+
+  it("disables non-performing live relations from last 12 pos and keeps the best", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.closed = [];
+    for (let i = 0; i < 12; i++) {
+      e.closed.push({
+        id: `c-t${i}`,
+        connId: VST_DEFAULT_CONN,
+        symbol: "BTCUSDT",
+        side: "long",
+        pnl: 1,
+        qty: 1,
+        entry: 100,
+        exit: 101,
+        reason: "tp",
+        tick: i,
+        r: 1,
+        tactic: "hybrid",
+        rangeType: "fibonacci",
+        kind: "trend",
+        indication: "trend",
+        playbook: "normal",
+      } as never);
+      e.closed.push({
+        id: `c-a${i}`,
+        connId: VST_DEFAULT_CONN,
+        symbol: "ETHUSDT",
+        side: "short",
+        pnl: -1,
+        qty: 1,
+        entry: 100,
+        exit: 99,
+        reason: "sl",
+        tick: i,
+        r: -1,
+        tactic: "axis",
+        rangeType: "linear",
+        kind: "active",
+        indication: "active",
+        playbook: "axis",
+      } as never);
+    }
+    const h = refreshLiveDisable(e, { ...DEFAULT_BLOCK_CONFIG, liveLastN: 12, liveDisable: true, liveDisableMinPf: 1, liveDisableMinSamples: 4 });
+    assert.ok(h.disabled.some((k) => k.includes("active") || k.includes("axis") || k.includes("linear")), `disabled ${h.disabled.join(",")}`);
+    assert.ok(h.kept.some((k) => k.includes("trend") || k.includes("hybrid") || k.includes("fibonacci")), `kept ${h.kept.join(",")}`);
+    assert.equal(liveRelationDisabled(e, { symbol: "ETHUSDT", side: "short", indication: "active", kind: "active", tactic: "axis", rangeType: "linear", playbook: "axis" }), true);
+    assert.equal(liveRelationDisabled(e, { symbol: "BTCUSDT", side: "long", indication: "trend", kind: "trend", tactic: "hybrid", rangeType: "fibonacci", playbook: "normal" }), false);
   });
 
   it("24h × 20 symbols Block 0.4 with auto-eval stays finite and positive", () => {

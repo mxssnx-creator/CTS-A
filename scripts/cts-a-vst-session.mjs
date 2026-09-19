@@ -73,6 +73,10 @@ const BLOCK = {
   relVolumeRatio: 0.4,
   minRelPf: 1.25,
   evalLastNs: [1, 2, 3, 4, 5, 6],
+  liveLastN: 12,
+  liveDisable: true,
+  liveDisableMinPf: 1,
+  liveDisableMinSamples: 4,
 };
 
 const GRID = [
