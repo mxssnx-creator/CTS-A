@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, allShortTpSlCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -190,13 +190,23 @@ const BLOCK = {
 };
 
 const LIVE_CFG = { trailingPct: 1.4, tpRatio: tpRatioOf(1), dcaCount: 1, slAtr: slAtrOf(1.0, 1), tpAtr: 1.0, slOfTp: 1, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
-const GRID = LIVE_TACTICS.flatMap((tactic) =>
+const BASE_GRID = LIVE_TACTICS.flatMap((tactic) =>
   RANGE_TYPES.map((range) => ({
     tactic,
     range,
     cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, dcaCount: 1 },
   })),
 );
+const SHORT_GRID = allShortTpSlCombos().flatMap((s) =>
+  LIVE_TACTICS.map((tactic) => ({
+    tactic,
+    range: "atr",
+    cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, ...s, dcaCount: 1, maxHoldTicks: 16 },
+  })),
+);
+let GRID = [...BASE_GRID, ...SHORT_GRID];
+let currentPick = GRID[0];
+const DISABLED_FILE = process.env.CTS_A_DISABLED ?? "/var/lib/cts-a/live-disabled.json";
 
 const PROTECT_FILE = process.env.CTS_A_PROTECT ?? "/var/lib/cts-a/protect-grid.json";
 function loadProtectCells() {
@@ -230,7 +240,41 @@ function loadProtectCells() {
 }
 let protectCells = loadProtectCells();
 function protectFor(symbol) {
-  return pickProtectCell(String(symbol || "BTCUSDT"), protectCells);
+  const cells = cfgUsesShortRange(currentPick?.cfg) ? shortProtectCells() : protectCells;
+  return pickProtectCell(String(symbol || "BTCUSDT"), cells);
+}
+function shortProtectCells() {
+  return allShortTpSlCombos().map((c) => ({
+    slAtr: c.slAtr,
+    tpRatio: c.tpRatio,
+    trailPct: Number(currentPick?.cfg?.trailingPct) || 1.4,
+    tpAtr: c.tpAtr,
+    slOfTp: c.slOfTp,
+  }));
+}
+function gridLive(e) {
+  const dis = e?.liveDisabled || {};
+  const filtered = GRID.filter((g) => {
+    if (dis[`tac:${g.tactic}`]) return false;
+    if (!g.cfg?.shortRange && dis[`rng:${g.range}`]) return false;
+    return true;
+  });
+  return filtered.length ? filtered : GRID;
+}
+function persistDisabled(e) {
+  try {
+    const body = {
+      at: Date.now(),
+      minPf: LIVE_MIN_PF,
+      disabled: e.liveDisabled || {},
+      kept: e.liveHealth?.kept || [],
+      factor: e.relVolumeFactor || 0,
+      winners: Object.keys(e.blockRelBest || {}),
+    };
+    writeFileSync(DISABLED_FILE, JSON.stringify(body, null, 2));
+  } catch {
+    /* keep */
+  }
 }
 
 function applyTape(e, tickers) {
@@ -262,8 +306,15 @@ function pickFromSweep() {
   return GRID[0];
 }
 
-function gridIndex(pick) {
-  const i = GRID.findIndex((g) => g.tactic === pick.tactic && g.range === pick.range);
+function gridIndex(pick, list = GRID) {
+  const i = list.findIndex(
+    (g) =>
+      g.tactic === pick.tactic &&
+      g.range === pick.range &&
+      Boolean(g.cfg?.shortRange) === Boolean(pick.cfg?.shortRange) &&
+      Number(g.cfg?.tpAtr || 0) === Number(pick.cfg?.tpAtr || 0) &&
+      Number(g.cfg?.slOfTp || 0) === Number(pick.cfg?.slOfTp || 0),
+  );
   return i < 0 ? 0 : i;
 }
 
@@ -393,6 +444,9 @@ function snapshot(e, extra) {
       skipped: (e.hourCoord?.skipped || []).length,
       indRange: e.indRangeBest || {},
       indTactic: e.indTacticBest || {},
+      grid: GRID.length,
+      short: SHORT_GRID.length,
+      liveGrid: gridLive(e).length,
     },
     indMix: (() => {
       const mix = { trend: 0, break: 0, active: 0, direction: 0 };
@@ -426,7 +480,22 @@ function writeSettingsPick(pick, extra = {}) {
     comboOnlyPositive: true,
     comboTactic: "all",
     comboRange: "all",
-    enabledKinds: ["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block"],
+    enabledKinds: ["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block", "short"],
+    strategyId: "normal",
+    minPf: LIVE_MIN_PF,
+    thresholds: { minPf: LIVE_MIN_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
+    activeConnId: CONN,
+    evalHours: [4, 8, 16],
+    evalLastNs: [5, 10, 15],
+    sessionPhase: extra.sessionPhase ?? "running",
+    hedgeMode: true,
+    marginMode: "cross",
+    useMaxLeverage: true,
+    leverage: 0,
+    minSizeRatio: 1.08,
+    shortRange: true,
+    liveGrid: GRID.length,
+    shortGrid: SHORT_GRID.length,
     strategyId: "normal",
     minPf: LIVE_MIN_PF,
     thresholds: { minPf: LIVE_MIN_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
@@ -657,9 +726,18 @@ function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
   return Math.max(eq * 0.002, 1);
 }
+function liveNotional(e, f, equity) {
+  const base = sizeNotional(equity);
+  let mul = 1 + Math.max(0, Number(e?.relVolumeFactor) || 0);
+  if (/Block/i.test(String(f?.note || f?.playbook || "")) || f?.playbook === "block") {
+    mul += Math.max(0.08, Number(BLOCK.volumeRatio) || 0.08) * Math.max(1, Number(f.level) || 1);
+  }
+  if (cfgUsesShortRange(currentPick?.cfg)) mul *= 0.85;
+  return base * Math.min(2.2, mul);
+}
 
 function liveMaxPos() {
-  if (lastExec.n >= 8 && lastExec.pf + 1e-9 < LIVE_MIN_PF) return Math.min(LIVE_MAX_POS, lastBook.pos || 0);
+  if (pfGateClosed()) return Math.min(LIVE_MAX_POS, Math.max(lastBook.pos || 0, 25));
   return LIVE_MAX_POS;
 }
 
@@ -1397,7 +1475,7 @@ async function mirrorToExchange(e, network, cfg) {
           quantity: 0,
           type: "MARKET",
           price: f.px,
-          notional: sizeNotional(book.equity),
+          notional: liveNotional(e, f, book.equity),
           confirmLive: true,
           slAtr: protectFor(f.symbol).slAtr,
           tpRatio: protectFor(f.symbol).tpRatio,
@@ -1471,6 +1549,7 @@ async function main() {
   const started = Date.now();
   const ends = started + HOURS * 3600 * 1000;
   let pick = pickFromSweep();
+  currentPick = pick;
   const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK });
   engine.running = true;
   engine.phase = "running";
@@ -1660,7 +1739,7 @@ async function main() {
     try {
       tickVst(engine, pick.cfg, pick.tactic, {
         freezeIds: lastBook.pos >= liveMaxPos() ? freeze : undefined,
-        skipWalk: lastBook.pos >= liveMaxPos() || pfGateClosed(),
+        skipWalk: lastBook.pos >= liveMaxPos(),
         rangeType: pick.range,
         symbolCount: LIVE_SYMBOLS,
         orderType: "limit",
@@ -1784,6 +1863,7 @@ async function main() {
               const n = ingestLivePnls(engine, lastPnl, BLOCK);
               if (n) {
                 const ev = evalBlockRelations(engine, BLOCK);
+                persistDisabled(engine);
                 adjustments.push(
                   `eval live +${n} · rel ${ev.winners} · vol×${Number(ev.factor || 0).toFixed(2)} · off ${Object.keys(engine.liveDisabled ?? {}).length}`,
                 );
@@ -2057,14 +2137,17 @@ async function main() {
     const now = Date.now();
     if (now - lastCycleAt > 40000) {
       lastCycleAt = now;
-      gridCursor = (gridCursor + 1) % GRID.length;
-      pick = GRID[gridCursor];
+      const live = gridLive(engine);
+      gridCursor = (gridIndex(pick, live) + 1) % live.length;
+      pick = live[gridCursor];
+      currentPick = pick;
       try {
         requeueFree(engine, pick.cfg, pick.tactic, pick.range, CONN);
       } catch {
         /* keep */
       }
-      adjustments.push(`cycle ${gridCursor + 1}/${GRID.length} ${pick.tactic}/${pick.range}`);
+      const short = cfgUsesShortRange(pick.cfg) ? ` short ${pick.cfg.tpAtr}/${pick.cfg.slOfTp}` : "";
+      adjustments.push(`cycle ${gridCursor + 1}/${live.length} ${pick.tactic}/${pick.range}${short}`);
       writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: false });
     }
 

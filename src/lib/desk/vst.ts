@@ -2608,9 +2608,9 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
   const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
   const minPf = entryMinPf(e, block);
   const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
+  const disabled: Record<string, { pf: number; n: number; at: number }> = {};
+  const kept: string[] = [];
   if (e.liveTape) {
-    const disabled: Record<string, { pf: number; n: number; at: number }> = {};
-    const kept: string[] = [];
     for (const [id, t] of Object.entries(e.symbolStats ?? {})) {
       if (!t || t.trades < 2) continue;
       const pf = profitFactor(t.profit, t.loss);
@@ -2618,55 +2618,53 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
       if (pf + 1e-9 < minPf) disabled[key] = { pf, n: t.trades, at: e.tick };
       else kept.push(key);
     }
-    e.liveDisabled = disabled;
-    e.liveHealth = { n, at: e.tick, disabled: Object.keys(disabled), kept };
-    return e.liveHealth;
   }
-  const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, Math.max(n, minS));
-  if (take.length < minS) {
-    e.liveHealth = { n, at: e.tick, disabled: Object.keys(e.liveDisabled ?? {}), kept: e.liveHealth?.kept ?? [] };
-    return e.liveHealth;
-  }
-  const groups = new Map<string, { pnl: number }[]>();
-  const add = (key: string, pnl: number) => {
-    if (!key || key.endsWith(":block") || key === "book:block") return;
-    const arr = groups.get(key);
-    if (arr) arr.push({ pnl });
-    else groups.set(key, [{ pnl }]);
-  };
-  for (const c of take) {
-    add(`ind:${c.indication ?? "trend"}`, c.pnl);
-    add(`kind:${c.kind ?? "normal"}`, c.pnl);
-    add(`tac:${c.tactic ?? e.lastTactic}`, c.pnl);
-    add(`rng:${c.rangeType ?? e.lastRange}`, c.pnl);
-    add(`book:${c.playbook ?? "normal"}`, c.pnl);
-    add(`side:${c.side}`, c.pnl);
-    add(`sym:${c.symbol}`, c.pnl);
-    add(`combo:${c.indication ?? "trend"}:${c.kind ?? "normal"}:${c.tactic ?? e.lastTactic}:${c.rangeType ?? e.lastRange}:${c.side}`, c.pnl);
-  }
-  const byAxis = new Map<string, { key: string; pf: number; n: number }[]>();
-  for (const [key, rows] of groups) {
-    if (rows.length < minS) continue;
-    const sc = pfRows(rows);
-    const axis = key.split(":")[0] ?? "x";
-    const list = byAxis.get(axis) ?? [];
-    list.push({ key, pf: sc.pf, n: sc.n });
-    byAxis.set(axis, list);
-  }
-  const disabled: Record<string, { pf: number; n: number; at: number }> = { ...(e.liveDisabled ?? {}) };
-  const kept: string[] = [];
-  for (const list of byAxis.values()) {
-    list.sort((a, b) => b.pf - a.pf || b.n - a.n);
-    for (const x of list) {
-      if (x.pf + 1e-9 < minPf) disabled[x.key] = { pf: x.pf, n: x.n, at: e.tick };
-      else {
-        kept.push(x.key);
-        delete disabled[x.key];
+  const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, Math.max(n * 3, minS));
+  if (take.length >= minS) {
+    const groups = new Map<string, { pnl: number }[]>();
+    const add = (key: string, pnl: number) => {
+      if (!key || key.endsWith(":block") || key === "book:block") return;
+      const arr = groups.get(key);
+      if (arr) arr.push({ pnl });
+      else groups.set(key, [{ pnl }]);
+    };
+    for (const c of take) {
+      add(`ind:${c.indication ?? "trend"}`, c.pnl);
+      add(`kind:${c.kind ?? "normal"}`, c.pnl);
+      add(`tac:${c.tactic ?? e.lastTactic}`, c.pnl);
+      add(`rng:${c.rangeType ?? e.lastRange}`, c.pnl);
+      add(`book:${c.playbook ?? "normal"}`, c.pnl);
+      add(`sym:${c.symbol}`, c.pnl);
+      add(
+        `combo:${c.indication ?? "trend"}:${c.kind ?? "normal"}:${c.tactic ?? e.lastTactic}:${c.rangeType ?? e.lastRange}:${c.side}`,
+        c.pnl,
+      );
+    }
+    const byAxis = new Map<string, { key: string; pf: number; n: number }[]>();
+    for (const [key, rows] of groups) {
+      if (rows.length < minS) continue;
+      const sc = pfRows(rows);
+      const axis = key.split(":")[0] ?? "x";
+      const list = byAxis.get(axis) ?? [];
+      list.push({ key, pf: sc.pf, n: sc.n });
+      byAxis.set(axis, list);
+    }
+    for (const list of byAxis.values()) {
+      list.sort((a, b) => b.pf - a.pf || b.n - a.n);
+      const anyKept = list.some((x) => x.pf + 1e-9 >= minPf);
+      for (const x of list) {
+        if (e.liveTape && x.key.startsWith("sym:") && kept.includes(x.key)) continue;
+        if (x.pf + 1e-9 < minPf && (anyKept || x.key.startsWith("sym:") || x.key.startsWith("combo:"))) {
+          disabled[x.key] = { pf: x.pf, n: x.n, at: e.tick };
+        } else if (x.pf + 1e-9 >= minPf) {
+          kept.push(x.key);
+          delete disabled[x.key];
+        }
       }
     }
   }
   e.liveDisabled = disabled;
-  e.liveHealth = { n, at: e.tick, disabled: Object.keys(disabled), kept };
+  e.liveHealth = { n, at: e.tick, disabled: Object.keys(disabled), kept: [...new Set(kept)] };
   return e.liveHealth;
 }
 
