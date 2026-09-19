@@ -748,7 +748,6 @@ function liveNotional(e, f, equity, rel) {
 }
 
 function liveMaxPos() {
-  if (pfGateClosed()) return Math.min(LIVE_MAX_POS, Math.max(lastBook.pos || 0, 25));
   return LIVE_MAX_POS;
 }
 
@@ -756,65 +755,8 @@ function pfGateClosed() {
   return lastExec.n >= 8 && lastExec.pf + 1e-9 < LIVE_MIN_PF;
 }
 
-async function flattenBelowMinPf(network, book, e) {
-  if (apiQuiet()) return null;
-  if (Date.now() - lastFlattenAt < 25_000) return null;
-  const floor = LIVE_MIN_PF;
-  const overallBad = pfGateClosed();
-  const jobs = [];
-  for (const p of book?.positions ?? []) {
-    if (!isOwnedLeg(p.symbol, p.side)) continue;
-    const st = e.symbolStats?.[p.symbol];
-    const n = st?.trades || 0;
-    const pf = n >= 2 ? profitFactor(st.profit, st.loss) : 0;
-    const keep = n >= 2 && pf + 1e-9 >= floor && st.profit > st.loss;
-    if (keep) continue;
-    if (n >= 2 || overallBad) jobs.push(p);
-  }
-  if (!jobs.length) return null;
-  lastFlattenAt = Date.now();
-  const take = jobs.slice(0, 2);
-  let closed = 0;
-  await mapLimit(take, 1, async (p) => {
-    if (apiQuiet()) return;
-    const key = `${p.symbol}:${p.side}`;
-    const orders = (book.orders ?? []).filter(
-      (o) => o.symbol === p.symbol && mayCancelOrder(o) && (o.closePosition || o.side === p.side || /STOP|TAKE_PROFIT/i.test(String(o.type || ""))),
-    );
-    await mapLimit(orders.slice(0, 4), 4, async (o) => {
-      const r = await withLiveBusy(() =>
-        cancelSwapOrder({ network, connId: CONN, symbol: o.venueSymbol || o.symbol, orderId: String(o.id) }),
-      );
-      if (!r.ok) noteApiFail(r);
-    });
-    const r = await withLiveBusy(() =>
-      placeSwapOrder({
-        network,
-        connId: CONN,
-        symbol: p.symbol,
-        side: p.side === "long" ? "SELL" : "BUY",
-        positionSide: p.side === "long" ? "LONG" : "SHORT",
-        quantity: p.qty,
-        type: "MARKET",
-        closePosition: true,
-        confirmLive: true,
-        notional: Math.max(Number(p.qty) * Math.max(Number(p.mark) || Number(p.entry) || 0, 1e-8), 1),
-        price: Number(p.mark) || Number(p.entry) || 0,
-      }),
-    );
-    if (r.ok) {
-      closed += 1;
-      mirrored.delete(`own:${key}`);
-      mirrored.delete(`live:${key}`);
-      mirrored.delete(`sl:${key}`);
-      mirrored.delete(`tp:${key}`);
-      mirrored.delete(`seed:${key}`);
-    } else noteApiFail(r);
-  });
-  if (closed) e.lastMsg = `flatten minPF ${floor} ${closed}/${jobs.length}`;
-  const msg = closed ? `flatten minPF ${floor} ${closed}/${jobs.length}` : jobs.length ? `flatten pending ${jobs.length} last ${lastApiError || "wait"}` : null;
-  if (msg) noteOp(msg);
-  return msg;
+async function flattenBelowMinPf(_network, _book, _e) {
+  return null;
 }
 
 function apiQuiet() {

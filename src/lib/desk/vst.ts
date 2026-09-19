@@ -2265,7 +2265,7 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   const tape = symbolTapePf(e, symbol);
   if (tape != null && tape + 1e-9 < 1) return true;
   if (st && st.trades >= 6 && st.profit + 1e-12 <= st.loss) return true;
-  const thin = Boolean(e.liveTape && (e.liveOpenN ?? 99) < 8);
+  const thin = Boolean(e.liveTape && (e.liveOpenN ?? 99) < 80);
   if (!thin && e.liveDisabled?.[`sym:${symbol}`]) return true;
   if (e.liveTape && !thin) {
     let liveN = 0;
@@ -2693,7 +2693,7 @@ export function liveRelationDisabled(
     playbook?: string;
   },
 ) {
-  if (e.liveTape && (e.liveOpenN ?? 99) < 8) return false;
+  if (e.liveTape && (e.liveOpenN ?? 99) < 80) return false;
   const d = e.liveDisabled;
   if (!d || !Object.keys(d).length) return false;
   const keys = [
