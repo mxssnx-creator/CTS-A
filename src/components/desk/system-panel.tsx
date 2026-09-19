@@ -139,6 +139,20 @@ export function SystemPanel({
               <StatLine k="Sel active" v={fmtNum(ind.active, 2)} />
               <StatLine k="Sel dir" v={fmtNum(ind.direction, 2)} />
             </div>
+            {(() => {
+              const ev = (liveSnap.session as { evals?: { factor?: number; winners?: string[]; disabled?: number; hourInd?: string; hourTac?: string; performing?: number } } | null)?.evals;
+              return (
+                <>
+                  <h3 className="mt-5 text-xs font-medium uppercase tracking-widest text-subtle">Evals · adjustments</h3>
+                  <div className="mt-2 grid grid-cols-2 gap-x-6 sm:grid-cols-4">
+                    <StatLine k="Rel vol" v={`×${fmtNum(ev?.factor ?? 0, 2)}`} />
+                    <StatLine k="Winners" v={String(ev?.winners?.length ?? 0)} />
+                    <StatLine k="Disabled" v={String(ev?.disabled ?? 0)} />
+                    <StatLine k="Hour" v={`${ev?.hourInd || "—"}/${ev?.hourTac || "—"}`} />
+                  </div>
+                </>
+              );
+            })()}
           </>
         );
       })()}

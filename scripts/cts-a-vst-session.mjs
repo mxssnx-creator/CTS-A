@@ -34,6 +34,8 @@ import {
   openPlaybook,
   kindFromIndication,
   applyRealizedSymbolStats,
+  ingestLivePnls,
+  evalBlockRelations,
   overlayLiveExecutions,
   syncLivePartials,
   sweepAllConfigs,
@@ -378,6 +380,20 @@ function snapshot(e, extra) {
     minPf: LIVE_MIN_PF,
     pfGate: pfGateClosed(),
     liveDisabled: Object.keys(e.liveDisabled ?? {}).length,
+    evals: {
+      at: e.lastRelEvalTick || 0,
+      factor: Number(e.relVolumeFactor || 0),
+      winners: Object.keys(e.blockRelBest || {}).slice(0, 8),
+      disabled: e.liveHealth?.disabled?.length ?? Object.keys(e.liveDisabled ?? {}).length,
+      kept: e.liveHealth?.kept?.length ?? 0,
+      hour: e.hourCoord?.hour ?? 0,
+      hourInd: e.hourCoord?.bestInd || "",
+      hourTac: e.hourCoord?.bestTac || "",
+      performing: (e.hourCoord?.performing || e.performingSymbols || []).length,
+      skipped: (e.hourCoord?.skipped || []).length,
+      indRange: e.indRangeBest || {},
+      indTactic: e.indTacticBest || {},
+    },
     indMix: (() => {
       const mix = { trend: 0, break: 0, active: 0, direction: 0 };
       for (const p of lastBook.positions ?? []) {
@@ -577,13 +593,8 @@ function venueOf(id) {
 function ingestExec(ex) {
   if (!ex?.ok) return;
   const income = Array.isArray(ex.income) ? ex.income : [];
-  const allow = new Set();
-  for (const o of ex.orders || []) {
-    if (isDeskClientOrderId(o.info, CONN)) allow.add(String(o.symbol || ""));
-  }
-  for (const k of taggedKeys) allow.add(String(k).split(":")[0]);
   const rows = income
-    .filter((x) => String(x.type || "") === "REALIZED_PNL" && isDeskSymbol(x.symbol) && (!allow.size || allow.has(String(x.symbol || ""))))
+    .filter((x) => String(x.type || "") === "REALIZED_PNL" && isDeskSymbol(x.symbol))
     .map((x) => ({ t: Number(x.time) || 0, v: Number(x.income) || 0, symbol: String(x.symbol || "") }))
     .filter((r) => r.t > 0 && Number.isFinite(r.v));
   if (rows.length) lastPnl = rows;
@@ -1768,6 +1779,15 @@ async function main() {
             if (Array.isArray(ex.bySymbol) && ex.bySymbol.length) {
               applyRealizedSymbolStats(engine, deskExecRows(ex.bySymbol));
               engine.minPf = LIVE_MIN_PF;
+            }
+            if (lastPnl.length) {
+              const n = ingestLivePnls(engine, lastPnl, BLOCK);
+              if (n) {
+                const ev = evalBlockRelations(engine, BLOCK);
+                adjustments.push(
+                  `eval live +${n} · rel ${ev.winners} · vol×${Number(ev.factor || 0).toFixed(2)} · off ${Object.keys(engine.liveDisabled ?? {}).length}`,
+                );
+              }
             }
             let prev = {};
             try {

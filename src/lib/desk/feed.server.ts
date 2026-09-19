@@ -1298,7 +1298,6 @@ export async function fetchLiveExecutions(input: {
     if (x.type !== "REALIZED_PNL") return false;
     if (since && x.time < since) return false;
     if (otherSym.has(x.symbol)) return false;
-    if (ourSym.size && !ourSym.has(x.symbol)) return false;
     return true;
   });
   const wins = pnl.filter((x) => x.income > 0);

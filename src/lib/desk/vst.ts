@@ -1575,7 +1575,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const ownTactic: TacticKind =
       p.tactic === "axis" || p.tactic === "trailing" || p.tactic === "hybrid" || p.tactic === "dca" ? p.tactic : tactic;
     const partial = ownTactic === "axis" ? false : p.status === "partial" || fillRatio < 0.55;
-    if (!opts?.liveTape && ownTactic === "dca" && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
+    if (ownTactic === "dca" && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid") handleAxis(e, p, cfg);
     if (ownTactic === "trailing" || ownTactic === "hybrid" || Boolean(opts?.liveTape && ownTactic !== "axis")) {
       const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
@@ -2124,6 +2124,66 @@ export function symbolBlockPaused(e: VstEngine, symbol: string, n?: number) {
   if (!map) return false;
   if (n != null) return (map[n]?.pauseLeft || 0) > 0;
   return Object.values(map).some((w) => (w.pauseLeft || 0) > 0);
+}
+
+/** Fold BingX realized PnL into closed tape + block windows so live evals are real. */
+export function ingestLivePnls(
+  e: VstEngine,
+  rows: { t: number; v: number; symbol: string }[],
+  block: BlockConfig = e.blockCfg ?? DEFAULT_BLOCK_CONFIG,
+) {
+  if (!rows?.length) return 0;
+  const have = new Set(
+    e.closed.filter((c) => (c.id || "").startsWith("x:")).map((c) => c.id),
+  );
+  let n = 0;
+  const sorted = [...rows].sort((a, b) => Number(a.t) - Number(b.t));
+  for (const r of sorted) {
+    const symbol = String(r.symbol || "");
+    const t = Number(r.t) || 0;
+    const pnl = Number(r.v) || 0;
+    if (!symbol || !(t > 0) || !Number.isFinite(pnl)) continue;
+    const id = `x:${symbol}:${t}:${pnl.toFixed(6)}`;
+    if (have.has(id)) continue;
+    have.add(id);
+    const indication = classifyIndication(e, symbol);
+    const tactic = tacticForIndication(indication);
+    const playbook = openPlaybook(tactic, indication);
+    const kind = kindFromIndication(indication, playbook, tactic);
+    e.closed.unshift({
+      id,
+      connId: e.activeConnId,
+      symbol,
+      side: pnl >= 0 ? "long" : "short",
+      pnl,
+      qty: 0,
+      entry: 0,
+      exit: 0,
+      reason: pnl >= 0 ? "tp" : "sl",
+      tick: e.tick,
+      at: t,
+      r: 0,
+      tactic,
+      rangeType: pickIndicationRange(e, indication, e.lastRange),
+      kind,
+      indication,
+      playbook,
+    });
+    noteBlockPosClose(e, symbol, pnl >= 0 ? "long" : "short", pnl, block, {
+      indication,
+      kind,
+      tactic,
+      rangeType: pickIndicationRange(e, indication, e.lastRange),
+      playbook,
+    });
+    n += 1;
+  }
+  if (e.closed.length > 800) e.closed.length = 800;
+  if (n) {
+    e.liveTape = true;
+    refreshLiveDisable(e, block);
+  }
+  return n;
 }
 
 export function symbolTapePf(e: VstEngine, symbol: string): number | null {
@@ -3016,7 +3076,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   });
   if (e.tick % 2 === 0) safeStage(e, "indications", () => refreshLiveIndications(e.quotes));
   safeStage(e, "batch", () => processBatches(e));
-  safeStage(e, "match", () => matchOrders(e));
+  if (!opts?.skipWalk) safeStage(e, "match", () => matchOrders(e));
   safeStage(e, "positions", () => managePositions(e, tactic, cfg, { minHold: opts?.skipWalk ? 80 : 1, liveTape: Boolean(opts?.skipWalk) }));
   if (e.tick % 8 === 0 && !over()) safeStage(e, "coord", () => applySessionCoord(e));
   const block = opts?.block ?? e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
@@ -3032,7 +3092,9 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
       adjustActiveBlocks(e, cfg, tactic, block, opts?.rangeType, { endStage: opts?.endStage || e.tick >= endTick });
     });
   }
-  const evalEvery = Math.max(TICKS_PER_HOUR, Math.round((block.evalHours || 2) * TICKS_PER_HOUR));
+  const evalEvery = e.liveTape
+    ? 30
+    : Math.max(TICKS_PER_HOUR, Math.round((block.evalHours || 2) * TICKS_PER_HOUR));
   if (block.autoEval !== false && block.enabled && e.tick > 0 && e.tick % evalEvery === 0 && !over()) {
     safeStage(e, "block-eval", () => {
       evalBlockRelations(e, block);
@@ -3054,6 +3116,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
     });
   }
   if (
+    !opts?.skipWalk &&
     e.tick % 24 === 0 &&
     !over() &&
     e.queue.filter((o) => o.connId === e.activeConnId).length < 30 &&

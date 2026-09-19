@@ -106,6 +106,8 @@ import {
   classifyIndication,
   openPlaybook,
   tacticForIndication,
+  ingestLivePnls,
+  evalBlockRelations,
   indicationProtect,
   pickIndicationRange,
   playbookOf,
@@ -116,7 +118,6 @@ import {
   simulateHours,
   sweepAllConfigs,
   sweepBlockRelations,
-  evalBlockRelations,
   refreshLiveDisable,
   liveRelationDisabled,
   blockRelationKeys,
@@ -1245,6 +1246,25 @@ describe("VST engine", () => {
     tickVst(e, CFG, "trailing", { skipWalk: true });
     const a = e.positions.find((p) => p.id === "p-axis")!;
     assert.ok(a.tp <= 104, `axis still tightens under trailing cycle tp=${a.tp}`);
+  });
+
+  it("live evals ingest realized PnL and skipWalk does not paper-arm", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.liveTape = true;
+    const q0 = e.queue.length;
+    for (let i = 0; i < 26; i++) tickVst(e, CFG, "trailing", { skipWalk: true, rangeType: "atr" });
+    assert.equal(e.queue.length, q0, "pf-gate / skipWalk must not queue paper ladders");
+    const n = ingestLivePnls(e, [
+      { t: Date.now() - 3600_000, v: 1.2, symbol: "BTCUSDT" },
+      { t: Date.now() - 1800_000, v: -0.4, symbol: "ETHUSDT" },
+      { t: Date.now() - 900_000, v: 0.8, symbol: "BTCUSDT" },
+      { t: Date.now() - 60_000, v: -0.2, symbol: "SOLUSDT" },
+    ]);
+    assert.ok(n >= 4);
+    assert.ok(e.closed.some((c) => c.id.startsWith("x:") && c.symbol === "BTCUSDT"));
+    const ev = evalBlockRelations(e, { ...DEFAULT_BLOCK_CONFIG, enabled: true, autoEval: true, liveDisable: true });
+    assert.ok(Number.isFinite(ev.factor));
+    assert.ok((e.lastRelEvalTick ?? 0) > 0);
   });
 
   it("short-range holds, timings and activity relations stay correct", () => {
