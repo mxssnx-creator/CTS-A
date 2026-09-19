@@ -1,7 +1,7 @@
 export type Venue = "bingx" | "bybit";
 export type RangeType = "linear" | "geometric" | "atr" | "volume" | "fibonacci";
 export type TacticKind = "trailing" | "dca" | "axis" | "hybrid";
-export type StrategyKind = "normal" | "trend" | "mean" | "breakout" | "volume" | "hybrid" | "active" | "block";
+export type StrategyKind = "normal" | "trend" | "mean" | "breakout" | "volume" | "hybrid" | "active" | "block" | "short";
 export type IndicationId = "trend" | "break" | "active" | "direction";
 export type Side = "long" | "short";
 export type LaneStatus = "validated" | "candidate" | "rejected";
@@ -444,6 +444,7 @@ export interface TacticConfig {
   tpRatio: number;
   tpAtr?: number;
   slOfTp?: number;
+  shortRange?: boolean;
   maxHoldBars?: number;
   maxHoldTicks?: number;
 }

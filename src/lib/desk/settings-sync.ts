@@ -14,6 +14,11 @@ import {
   snapSlOfTp,
   snapTrailPct,
   slAtrOf,
+  snapShortTpAtr,
+  snapShortSlOfTp,
+  shortSlAtrOf,
+  shortTpRatioOf,
+  cfgUsesShortRange,
   tpRatioOf,
   STAGE_HOURS,
   STRATEGY_KINDS,
@@ -178,6 +183,25 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     },
     tacticConfig: (() => {
       const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;
+      const short = asBool(cfg.shortRange, false) || cfgUsesShortRange(cfg);
+      if (short) {
+        const slOfTp = snapShortSlOfTp(asNum(cfg.slOfTp, 1));
+        const tpAtr = snapShortTpAtr(asNum(cfg.tpAtr, 0.3));
+        return {
+          trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.4)),
+          dcaCount: 1,
+          dcaDrawdown: Math.max(0.3, asNum(cfg.dcaDrawdown, d.tacticConfig.dcaDrawdown)),
+          axisSpacing: Math.max(0.2, asNum(cfg.axisSpacing, d.tacticConfig.axisSpacing)),
+          axisLevels: Math.max(2, Math.round(asNum(cfg.axisLevels, d.tacticConfig.axisLevels))),
+          slAtr: shortSlAtrOf(tpAtr, slOfTp),
+          tpRatio: shortTpRatioOf(slOfTp),
+          tpAtr,
+          slOfTp,
+          shortRange: true,
+          maxHoldBars: Math.min(8, Math.max(1, Math.round(asNum(cfg.maxHoldBars, 2)))),
+          maxHoldTicks: Math.min(20_000, Math.max(4, Math.round(asNum(cfg.maxHoldTicks, 12)))),
+        };
+      }
       const slOfTp = snapSlOfTp(asNum(cfg.slOfTp, hasPair ? 1 : 1 / Math.max(0.5, asNum(cfg.tpRatio, d.tacticConfig.tpRatio))));
       const tpAtr = snapTpAtr(
         asNum(cfg.tpAtr, hasPair ? 1 : asNum(cfg.slAtr, d.tacticConfig.slAtr) / Math.max(0.5, slOfTp)),
@@ -192,6 +216,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       tpRatio: tpRatioOf(slOfTp),
       tpAtr,
       slOfTp,
+      shortRange: false,
       maxHoldBars: Math.min(8, Math.max(1, Math.round(asNum(cfg.maxHoldBars, d.tacticConfig.maxHoldBars ?? 3)))),
       maxHoldTicks: Math.min(20_000, Math.max(4, Math.round(asNum(cfg.maxHoldTicks, d.tacticConfig.maxHoldTicks ?? 16)))),
       };

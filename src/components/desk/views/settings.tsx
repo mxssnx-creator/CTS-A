@@ -34,6 +34,12 @@ import {
   tpRatioOf,
   snapTpAtr,
   snapSlOfTp,
+  SHORT_TP_ATR,
+  SHORT_SL_OF_TP,
+  snapShortTpAtr,
+  snapShortSlOfTp,
+  shortSlAtrOf,
+  shortTpRatioOf,
   volumeCoord,
   WARMUP,
   orderTypesForVenue,
@@ -854,6 +860,87 @@ export function SettingsView() {
               </div>
               <span className="text-[11px] text-subtle">
                 SL {cfg.slAtr.toFixed(2)} ATR · R {cfg.tpRatio.toFixed(3)} · TP≥0.8 · SL≥1.0×TP · trail 1.4–1.5
+              </span>
+            </div>
+            <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
+              <span className="text-xs font-medium text-muted">Short-range strategy (TP 0.2–0.4 · SL 0.5–1.5×TP)</span>
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  aria-pressed={Boolean(cfg.shortRange)}
+                  onClick={() => {
+                    if (cfg.shortRange) {
+                      setCfg({ shortRange: false, tpAtr: 1, slOfTp: 1, slAtr: slAtrOf(1, 1), tpRatio: tpRatioOf(1) });
+                    } else {
+                      const tpAtr = snapShortTpAtr(cfg.tpAtr ?? 0.3);
+                      const slOfTp = snapShortSlOfTp(cfg.slOfTp ?? 1);
+                      setCfg({
+                        shortRange: true,
+                        tpAtr,
+                        slOfTp,
+                        slAtr: shortSlAtrOf(tpAtr, slOfTp),
+                        tpRatio: shortTpRatioOf(slOfTp),
+                        maxHoldBars: 2,
+                        maxHoldTicks: 12,
+                      });
+                    }
+                    applyLive();
+                  }}
+                  className={`${chip} ${cfg.shortRange ? chipOn : chipOff}`}
+                >
+                  {cfg.shortRange ? "Short on" : "Short off"}
+                </button>
+                {SHORT_TP_ATR.map((t) => {
+                  const on = Boolean(cfg.shortRange) && snapShortTpAtr(cfg.tpAtr ?? 0) === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => {
+                        const slOfTp = snapShortSlOfTp(cfg.slOfTp ?? 1);
+                        setCfg({
+                          shortRange: true,
+                          tpAtr: t,
+                          slOfTp,
+                          slAtr: shortSlAtrOf(t, slOfTp),
+                          tpRatio: shortTpRatioOf(slOfTp),
+                        });
+                        applyLive();
+                      }}
+                      className={`${chip} min-w-11 ${on ? chipOn : chipOff}`}
+                    >
+                      TP {t.toFixed(2)}
+                    </button>
+                  );
+                })}
+                {SHORT_SL_OF_TP.map((r) => {
+                  const on = Boolean(cfg.shortRange) && snapShortSlOfTp(cfg.slOfTp ?? 0) === r;
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => {
+                        const tpAtr = snapShortTpAtr(cfg.tpAtr && cfg.tpAtr <= 0.45 ? cfg.tpAtr : 0.3);
+                        setCfg({
+                          shortRange: true,
+                          tpAtr,
+                          slOfTp: r,
+                          slAtr: shortSlAtrOf(tpAtr, r),
+                          tpRatio: shortTpRatioOf(r),
+                        });
+                        applyLive();
+                      }}
+                      className={`${chip} min-w-11 ${on ? chipOn : chipOff}`}
+                    >
+                      SL {r.toFixed(1)}×
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="text-[11px] text-subtle">
+                5 TP × 3 SL = 15 short combos, validated independently with Block
               </span>
             </div>
             <RangeKnob

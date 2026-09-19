@@ -216,6 +216,65 @@ export function allTpSlCombos(): { tpAtr: number; slOfTp: number; slAtr: number;
   return out;
 }
 
+/** Short-range strategy: TP 0.2–0.4 step 0.05 ATR, SL 0.5 / 1.0 / 1.5 of TP. Independent of live floors. */
+export const SHORT_TP_ATR = [0.2, 0.25, 0.3, 0.35, 0.4] as const;
+export const SHORT_SL_OF_TP = [0.5, 1, 1.5] as const;
+export type ShortSlOfTp = (typeof SHORT_SL_OF_TP)[number];
+
+export function snapShortTpAtr(n: number): number {
+  if (!Number.isFinite(n)) return 0.3;
+  let best = SHORT_TP_ATR[0]!;
+  let dist = Infinity;
+  for (const t of SHORT_TP_ATR) {
+    const d = Math.abs(t - n);
+    if (d < dist) {
+      dist = d;
+      best = t;
+    }
+  }
+  return best;
+}
+export function snapShortSlOfTp(n: number): ShortSlOfTp {
+  if (!Number.isFinite(n)) return 1;
+  let best: ShortSlOfTp = 1;
+  let dist = Infinity;
+  for (const r of SHORT_SL_OF_TP) {
+    const d = Math.abs(r - n);
+    if (d < dist) {
+      dist = d;
+      best = r;
+    }
+  }
+  return best;
+}
+export function shortSlAtrOf(tpAtr: number, slOfTp: number): number {
+  return Math.round(snapShortTpAtr(tpAtr) * snapShortSlOfTp(slOfTp) * 1000) / 1000;
+}
+export function shortTpRatioOf(slOfTp: number): number {
+  return Math.round((1 / snapShortSlOfTp(slOfTp)) * 1000) / 1000;
+}
+export function allShortTpSlCombos(): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
+  const out: { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] = [];
+  for (const tpAtr of SHORT_TP_ATR) {
+    for (const slOfTp of SHORT_SL_OF_TP) {
+      out.push({
+        tpAtr,
+        slOfTp,
+        slAtr: shortSlAtrOf(tpAtr, slOfTp),
+        tpRatio: shortTpRatioOf(slOfTp),
+        shortRange: true,
+      });
+    }
+  }
+  return out;
+}
+export function cfgUsesShortRange(cfg: { shortRange?: boolean; tpAtr?: number } | undefined | null): boolean {
+  if (!cfg) return false;
+  if (cfg.shortRange === true) return true;
+  const tp = Number(cfg.tpAtr);
+  return Number.isFinite(tp) && tp >= 0.2 && tp <= 0.45;
+}
+
 export function allProtectCells(): ProtectCell[] {
   const out: ProtectCell[] = [];
   for (const c of allTpSlCombos()) {
@@ -323,6 +382,7 @@ export const STRATEGY_KINDS: { id: StrategyKind; label: string; blurb: string }[
   { id: "hybrid", label: "Hybrid", blurb: "Confluence of independent confirms" },
   { id: "active", label: "Active", blurb: "High-frequency activity and ranging changes" },
   { id: "block", label: "Block", blurb: "Book-level block adjust of overall active orders — independent of lanes" },
+  { id: "short", label: "Short", blurb: "Short-range TP 0.2–0.4 ATR × SL 0.5–1.5 of TP" },
 ];
 
 export const DEFAULT_ENABLED_KINDS: StrategyKind[] = STRATEGY_KINDS.map((k) => k.id);
@@ -406,6 +466,7 @@ export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
   tpRatio: tpRatioOf(1),
   tpAtr: 1.0,
   slOfTp: 1,
+  shortRange: false,
   maxHoldBars: 3,
   maxHoldTicks: 16,
 };
@@ -1082,6 +1143,17 @@ export const STRATEGIES: StrategyDef[] = [
     indicators: [
       { id: "vwap", label: "VWAP", params: {} },
       { id: "adx", label: "ADX", params: { period: 14, threshold: 16 } },
+      { id: "vol", label: "Volume SMA", params: { period: 8 } },
+    ],
+  },
+  {
+    id: "short-range",
+    name: "Short Range",
+    kind: "short",
+    thesis: "Tight TP 0.2–0.4 ATR with SL 0.5–1.5 of TP. Independent short-range strategy.",
+    indicators: [
+      { id: "atr", label: "ATR", params: { period: 7, multiplier: 0.3 } },
+      { id: "ema", label: "EMA fast", params: { period: 8 } },
       { id: "vol", label: "Volume SMA", params: { period: 8 } },
     ],
   },

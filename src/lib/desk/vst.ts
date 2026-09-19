@@ -42,6 +42,8 @@ import {
   profitFactor,
   pfFromPnls,
   allTpSlCombos,
+  allShortTpSlCombos,
+  cfgUsesShortRange,
   trailStopFromPeak,
   symbolIndications,
   symbolSideSet,
@@ -453,21 +455,21 @@ function hash(s: string): number {
 function rand(tick: number, salt: string): number {
   return hash(`${tick}:${salt}`) % 1e4 / 1e4;
 }
-function slDist(atr: number, spacing: number, slAtr: number): number {
-  const mul = snapSlAtr(slAtr);
+function slDist(atr: number, spacing: number, slAtr: number, raw = false): number {
+  const mul = raw ? Math.max(0.05, Number(slAtr) || 0.05) : snapSlAtr(slAtr);
   const want = Math.max(atr * mul, 1e-12);
   if (spacing > 0 && spacing * 0.9 < want * 0.5) return want;
   return want;
 }
-function tpDistFromSl(sl: number, ratio = TP_SL_RATIO): number {
-  return sl * snapTpRatio(ratio);
+function tpDistFromSl(sl: number, ratio = TP_SL_RATIO, raw = false): number {
+  return sl * (raw ? Math.max(0.3, Number(ratio) || 1) : snapTpRatio(ratio));
 }
 function clampPx(n: number, floor: number): number {
   if (!Number.isFinite(n)) return floor;
   return Math.max(n, floor * .25);
 }
-function protectLevels(entry: number, side: Side, sl0: number, tp0: number, ratio = TP_SL_RATIO) {
-  const r = snapTpRatio(ratio);
+function protectLevels(entry: number, side: Side, sl0: number, tp0: number, ratio = TP_SL_RATIO, raw = false) {
+  const r = raw ? Math.max(0.3, Number(ratio) || 1) : snapTpRatio(ratio);
   const floor = Math.max(entry * 1e-6, 1e-12);
   let sl = side === "long" ? entry - sl0 : entry + sl0;
   let tp = side === "long" ? entry + tp0 : entry - tp0;
@@ -913,8 +915,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       }
     }
     const dual = trySides.length === 2;
-    const book = openPlaybook(e.lastTactic, ind);
-    const kind = kindFromIndication(ind, book, e.lastTactic);
+    const book = cfgUsesShortRange(cfg) ? "short" : openPlaybook(e.lastTactic, ind);
+    const kind = cfgUsesShortRange(cfg) ? "short" : kindFromIndication(ind, book, e.lastTactic);
     const range = pickIndicationRange(e, ind, rangeType ?? e.lastRange ?? "atr");
     if (!dual && e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     for (const side of trySides) {
@@ -945,15 +947,16 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         if (busyLegs.has(`${s.id}:${side}`)) continue;
       } else if (busy.has(s.id) || busyLegs.has(`${s.id}:${side}`)) continue;
       const hi = pickRange(q, cfg, range);
-      const prot = indicationProtect(ind);
+      const short = cfgUsesShortRange(cfg);
+      const prot = short ? { slMul: 1, tpMul: 1, holdMul: 0.7 } : indicationProtect(ind);
       const pxHint = meanSide === "long" || !axisTactic
         ? (side === "long" ? q.axis - (hi.levels[0] || hi.spacing) : q.axis + (hi.levels[0] || hi.spacing))
         : side === "long"
           ? q.axis - (hi.levels[0] || hi.spacing)
           : q.axis + (hi.levels[0] || hi.spacing);
-      const axisLv = axisTactic ? axisProtect(pxHint > 0 ? pxHint : q.px, side, q, hi.spacing, cfg) : null;
-      const sl0 = axisLv ? axisLv.slDist : slDist(q.atr, hi.spacing, (cfg.slAtr ?? SL_ATR_MULT) * prot.slMul);
-      const tp0 = axisLv ? axisLv.tpDist : tpDistFromSl(sl0, snapTpRatio((cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul));
+      const axisLv = axisTactic && !short ? axisProtect(pxHint > 0 ? pxHint : q.px, side, q, hi.spacing, cfg) : null;
+      const sl0 = axisLv ? axisLv.slDist : slDist(q.atr, hi.spacing, (cfg.slAtr ?? SL_ATR_MULT) * prot.slMul, short);
+      const tp0 = axisLv ? axisLv.tpDist : tpDistFromSl(sl0, (cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul, short);
       const volMul = Math.min(1.4, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
       if (rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
       const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul;
@@ -963,7 +966,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const px = side === "long" ? q.axis - offset : q.axis + offset;
         if (px <= 0) return;
         const qty = notional / px;
-        const lv = axisTactic ? axisProtect(px, side, q, hi.spacing, cfg) : protectLevels(px, side, sl0, tp0, snapTpRatio((cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul));
+        const lv = axisTactic && !short ? axisProtect(px, side, q, hi.spacing, cfg) : protectLevels(px, side, sl0, tp0, (cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul, short);
         e.queue.push({
           id: nextId(e, "q"),
           connId,
@@ -1121,6 +1124,7 @@ export function openPlaybook(tactic: TacticKind, indication: IndicationId): stri
 
 export function kindFromIndication(id: IndicationId, playbook: string, tactic: TacticKind): StrategyKind {
   if (playbook === "block") return "block";
+  if (playbook === "short") return "short";
   if (id === "trend") return "trend";
   if (id === "break") return "breakout";
   if (id === "active") return "active";
@@ -1421,8 +1425,8 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   const px = p.side === "long" ? Math.max(q.px - offset, q.px * 0.5) : q.px + offset;
   if (!(px > 0)) return;
   const qty = Math.max(positionNotional(e.stats.equity || 1e4, e.costStep || 10) / px, 1e-8);
-  const sl0 = slDist(q.atr, p.rangeSpacing || q.atr, cfg.slAtr ?? SL_ATR_MULT);
-  const lv = protectLevels(px, p.side, sl0, tpDistFromSl(sl0, cfg.tpRatio), cfg.tpRatio);
+  const sl0 = slDist(q.atr, p.rangeSpacing || q.atr, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg));
+  const lv = protectLevels(px, p.side, sl0, tpDistFromSl(sl0, cfg.tpRatio, cfgUsesShortRange(cfg)), cfg.tpRatio, cfgUsesShortRange(cfg));
   e.queue.push({
     id: nextId(e, "d"),
     connId: p.connId,
@@ -2733,8 +2737,8 @@ export function adjustActiveBlocks(
           const qty = step + extra;
           if (!(qty > 0)) continue;
           const hi = pickRange(q, cfg, rangeType);
-          const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);
-          const tp0 = tpDistFromSl(sl0, cfg.tpRatio);
+          const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg));
+          const tp0 = tpDistFromSl(sl0, cfg.tpRatio, cfgUsesShortRange(cfg));
           const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
           if (px <= 0) continue;
           const lv = protectLevels(px, p.side, sl0, tp0, cfg.tpRatio);
@@ -3316,6 +3320,7 @@ export type ConfigCell = {
   slOfTp?: number;
   slAtr?: number;
   tpRatio?: number;
+  shortRange?: boolean;
 };
 
 function pnlBucket(rows: { pnl: number }[], key = "all"): OverallBucket {
@@ -3989,6 +3994,80 @@ export function completeComputations(
   return foldComplete(cells, hours, playbooks, t0, symbolCount);
 }
 
+export function sweepShortRange(
+  hours = 24,
+  symbolCount = 20,
+  base: TacticConfig = DEFAULT_CFG,
+): {
+  hours: number;
+  symbolCount: number;
+  at: number;
+  cells: (ConfigCell & { block: boolean; set: "short" })[];
+  winner: (ConfigCell & { block: boolean; set: "short" }) | null;
+  withBlock: { pf: number; n: number; ok: number };
+  withoutBlock: { pf: number; n: number; ok: number };
+} {
+  const cells: (ConfigCell & { block: boolean; set: "short" })[] = [];
+  const tactics: TacticKind[] = ["trailing", "hybrid"];
+  const blockOn = { ...DEFAULT_BLOCK_CONFIG, enabled: true, volumeMode: "parallel" as const, sides: "both" as const };
+  const blockOff = { ...DEFAULT_BLOCK_CONFIG, enabled: false };
+  for (const tactic of tactics) {
+    for (const prot of allShortTpSlCombos()) {
+      for (const block of [true, false]) {
+        const cfg = {
+          ...base,
+          trailingPct: 1.4,
+          slAtr: prot.slAtr,
+          tpRatio: prot.tpRatio,
+          tpAtr: prot.tpAtr,
+          slOfTp: prot.slOfTp,
+          shortRange: true,
+          maxHoldTicks: 12,
+          maxHoldBars: 2,
+        };
+        const { report } = simulateHours(hours, cfg, tactic, {
+          symbolCount,
+          rangeType: "atr",
+          block: block ? blockOn : blockOff,
+        });
+        cells.push({
+          tactic,
+          range: "atr",
+          pf: report.pf,
+          wr: report.wr,
+          net: report.net,
+          trades: report.trades,
+          ok: report.pf >= 1 && report.net > 0 && report.trades >= 8,
+          tpAtr: prot.tpAtr,
+          slOfTp: prot.slOfTp,
+          slAtr: prot.slAtr,
+          tpRatio: prot.tpRatio,
+          shortRange: true,
+          block,
+          set: "short",
+        });
+      }
+    }
+  }
+  const winner = [...cells].filter((c) => c.ok).sort((a, b) => b.pf - a.pf || b.net - a.net)[0]
+    ?? [...cells].sort((a, b) => b.pf - a.pf || b.net - a.net)[0]
+    ?? null;
+  const avg = (xs: typeof cells) => ({
+    pf: xs.length ? xs.reduce((s, c) => s + c.pf, 0) / xs.length : 0,
+    n: xs.reduce((s, c) => s + c.trades, 0),
+    ok: xs.filter((c) => c.ok).length,
+  });
+  return {
+    hours,
+    symbolCount,
+    at: Date.now(),
+    cells,
+    winner,
+    withBlock: avg(cells.filter((c) => c.block)),
+    withoutBlock: avg(cells.filter((c) => !c.block)),
+  };
+}
+
 export async function completeComputationsAsync(
   cfg: TacticConfig = DEFAULT_CFG,
   opts?: {
@@ -4005,7 +4084,8 @@ export async function completeComputationsAsync(
   const t0 = Date.now();
   const cells: CompleteCell[] = [];
   const combos = opts?.protect === false ? [] : allTpSlCombos();
-  const total = LIVE_TACTICS.length * RANGE_TYPES.length * hours.length + combos.length * LIVE_TACTICS.length;
+  const shorts = opts?.protect === false ? [] : allShortTpSlCombos();
+  const total = LIVE_TACTICS.length * RANGE_TYPES.length * hours.length + (combos.length + shorts.length) * LIVE_TACTICS.length;
   let i = 0;
   for (const tactic of LIVE_TACTICS) {
     for (const range of RANGE_TYPES) {
@@ -4024,6 +4104,18 @@ export async function completeComputationsAsync(
       const batch = completeCellsForPair(cfg2, tactic, "atr", [4], Math.min(8, symbolCount));
       for (const cell of batch) {
         cells.push({ ...cell, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp, slAtr: prot.slAtr, tpRatio: prot.tpRatio });
+        i += 1;
+        opts?.onCell?.(cell, i, total);
+      }
+      await yieldFn();
+    }
+  }
+  for (const tactic of LIVE_TACTICS) {
+    for (const prot of shorts) {
+      const cfg2 = { ...cfg, slAtr: prot.slAtr, tpRatio: prot.tpRatio, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp, shortRange: true };
+      const batch = completeCellsForPair(cfg2, tactic, "atr", [4], Math.min(8, symbolCount));
+      for (const cell of batch) {
+        cells.push({ ...cell, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp, slAtr: prot.slAtr, tpRatio: prot.tpRatio, shortRange: true });
         i += 1;
         opts?.onCell?.(cell, i, total);
       }

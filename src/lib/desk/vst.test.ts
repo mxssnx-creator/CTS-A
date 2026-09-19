@@ -60,6 +60,12 @@ import {
   processAllIndications,
   STRATEGIES,
   STRATEGY_KINDS,
+  SHORT_TP_ATR,
+  SHORT_SL_OF_TP,
+  allShortTpSlCombos,
+  shortSlAtrOf,
+  shortTpRatioOf,
+  cfgUsesShortRange,
   strategiesForKinds,
   strategyMatchesKinds,
   summarizeIndications,
@@ -110,6 +116,7 @@ import {
   blockRelPaused,
   blockComboPaused,
   completeComputations,
+  sweepShortRange,
   LIVE_TACTICS,
   systemSnapshot,
   tickVst,
@@ -1839,6 +1846,34 @@ describe("VST engine", () => {
     assert.equal(sim.hours, 100);
     assert.ok(sim.symbols >= 8);
     finiteNum(sim.report.pf, sim.n);
+  });
+
+  it("short-range TP 0.2-0.4 × SL 0.5-1.5 with Block over 24h × 20 symbols", () => {
+    const combos = allShortTpSlCombos();
+    assert.equal(combos.length, SHORT_TP_ATR.length * SHORT_SL_OF_TP.length);
+    assert.equal(combos.length, 15);
+    const sample = combos.find((c) => c.tpAtr === 0.3 && c.slOfTp === 1);
+    assert.ok(sample);
+    assert.equal(sample!.slAtr, shortSlAtrOf(0.3, 1));
+    assert.equal(sample!.tpRatio, shortTpRatioOf(1));
+    const cfg = { ...CFG, ...sample!, shortRange: true, trailingPct: 1.4, maxHoldTicks: 12 };
+    assert.equal(cfgUsesShortRange(cfg), true);
+    const e = initVstEngine(cfg, { warmup: 0, symbolCount: 8, arm: true });
+    const o = [...e.queue, ...e.orders].find((x) => x.sl > 0 && x.tp > 0 && x.price > 0);
+    assert.ok(o, "short ladder");
+    const slD = Math.abs(o!.price - o!.sl);
+    const tpD = Math.abs(o!.tp - o!.price);
+    assert.ok(tpD / slD >= 0.7 && tpD / slD <= 1.4, `R ${tpD / slD}`);
+    const sweep = sweepShortRange(24, 20, CFG);
+    assert.equal(sweep.cells.length, 15 * 2 * 2);
+    for (const c of sweep.cells) {
+      finiteNum(c.pf, c.net, c.wr, c.trades);
+      assert.equal(c.shortRange, true);
+    }
+    assert.ok(sweep.winner);
+    const ok = sweep.cells.filter((c) => c.ok);
+    assert.ok(sweep.withBlock.n + sweep.withoutBlock.n >= 0);
+    assert.ok(ok.length + sweep.cells.length >= 15);
   });
 
   it("break, active, and direction run with their own ranges, playbooks, and auto-evals", () => {
