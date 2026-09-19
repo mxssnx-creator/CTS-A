@@ -4,7 +4,7 @@
  * Keys from env — never printed.
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode } from "../src/lib/desk/feed.server.ts";
+import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, snapPx } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS } from "../src/lib/desk/engine.ts";
 import {
@@ -61,7 +61,9 @@ function pickCompleteLock(complete) {
   const best = cells[0];
   return cells.find((c) => PREFERRED_RANGES.has(c.range) && Number(c.pf) + 1e-9 >= Number(best.pf) * 0.9) || best;
 }
-let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [] };
+let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0 };
+let lastTrail = { n: 0, ms: 0, at: 0 };
+const lastPostedSl = new Map();
 const bookAvg = { pos: 0, ord: 0, n: 0 };
 let cachedOverall = null;
 let cachedOverallTick = -1;
@@ -229,6 +231,9 @@ function snapshot(e, extra) {
     bookPos: lastBook.positions ?? [],
     bookOrd: lastBook.orders ?? [],
     lastApi: lastApiError,
+    bookMs: lastBook.latencyMs || 0,
+    trailN: lastTrail.n,
+    trailMs: lastTrail.ms,
     at: Date.now(),
     tick: e.tick,
   };
@@ -614,13 +619,93 @@ async function ensureProtect(network, book, cfg, vanished = new Set()) {
       notes.push(await attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`));
     }
   }
+  const trailT0 = Date.now();
+  let trailed = 0;
+  if (posts < 32 && !apiQuiet()) {
+    const mode = network === "mainnet" ? "main" : "vst";
+    for (const p of book.positions ?? []) {
+      if (trailed >= 8 || posts >= 32) break;
+      if (!isDeskSymbol(p.symbol)) continue;
+      const key = `${p.symbol}:${p.side}`;
+      if (!hasSl.has(key)) continue;
+      const mark = p.mark || p.entry || 0;
+      const entry = p.entry || mark;
+      if (!(mark > 0) || !(entry > 0) || !(p.qty > 0)) continue;
+      const profit = p.side === "long" ? mark - entry : entry - mark;
+      if (!(profit > 0)) continue;
+      const spec = map.get(p.venueSymbol);
+      const cell = protectFor(p.symbol);
+      const atEntry = liveProtectPrices(entry, p.side, cell.slAtr, cell.tpRatio, spec, mode);
+      const slDist = Math.abs(atEntry.sl - entry);
+      if (profit + 1e-12 < slDist * 0.95) continue;
+      const pct = Math.max(0.4, Number(cell.trailPct) || Number(cfg?.trailingPct) || 1.4) / 100;
+      const trailGap = slDist * (1 + (pct - 0.008) * 6);
+      let next = p.side === "long" ? mark - trailGap : mark + trailGap;
+      if (p.side === "long") next = Math.min(next, mark - slDist * 0.25);
+      else next = Math.max(next, mark + slDist * 0.25);
+      next = snapPx(next, spec);
+      const slOrd = (grouped.get(key)?.sl || [])[0];
+      const cur = Number(lastPostedSl.get(key) || slOrd?.stopPrice || 0);
+      const tick = spec?.pxPrec != null ? Math.pow(10, -Math.max(0, spec.pxPrec)) : mark * 1e-4;
+      const minMove = Math.max(tick * 3, mark * 0.0004);
+      const improved = p.side === "long" ? next > cur + minMove : next < cur - minMove;
+      if (!improved || !(next > 0)) continue;
+      if (p.side === "long" && !(next < mark)) continue;
+      if (p.side === "short" && !(next > mark)) continue;
+      const slId = String(slOrd?.id || "");
+      if (slId) {
+        const c = await withLiveBusy(() => cancelSwapOrder({ network, connId: CONN, symbol: slOrd.venueSymbol || p.symbol, orderId: slId }));
+        posts += 1;
+        if (!c.ok && !/not exist|filled|nothing to cancel|no need/i.test(String(c.error || ""))) {
+          noteApiFail(c);
+          continue;
+        }
+        hasSl.delete(key);
+      }
+      const qty = snapQtyDown(p.qty, spec);
+      const body = {
+        network,
+        connId: CONN,
+        symbol: p.symbol,
+        side: p.side === "long" ? "SELL" : "BUY",
+        positionSide: p.side === "long" ? "LONG" : "SHORT",
+        quantity: qty,
+        type: "STOP_MARKET",
+        price: mark,
+        stopPrice: next,
+        notional: Math.max(1, qty * mark),
+        confirmLive: true,
+        slAtr: cell.slAtr,
+        tpRatio: cell.tpRatio,
+        attachProtect: false,
+        closePosition: false,
+        reduceOnly: false,
+      };
+      let r = await withLiveBusy(() => placeSwapOrder(body));
+      posts += 1;
+      if (!r.ok) {
+        r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: true }));
+        posts += 1;
+      }
+      if (r.ok) {
+        lastPostedSl.set(key, next);
+        hasSl.add(key);
+        trailed += 1;
+        notes.push(`trail ${p.symbol}`);
+      } else {
+        noteApiFail(r);
+        notes.push(`trail skip ${p.symbol} ${String(r.error || "err").slice(0, 60)}`);
+      }
+    }
+  }
+  lastTrail = { n: trailed, ms: Date.now() - trailT0, at: Date.now() };
   if (notes.length) return notes.filter(Boolean).slice(0, 4).join(" · ");
   return null;
 }
 
 async function mirrorToExchange(e, network, cfg) {
   if (apiQuiet()) return null;
-  if (Date.now() - liveLast < 4000) return;
+  if (Date.now() - liveLast < 1200) return;
   liveLast = Date.now();
   const keys = keysForConn(CONN);
   if (!keys.apiKey || !keys.secret) return "live no keys";
@@ -657,6 +742,7 @@ async function mirrorToExchange(e, network, cfg) {
     sl: lastBook.sl,
     tp: lastBook.tp,
     equity: Number(book.equity) || lastBook.equity || 0,
+    latencyMs: Number(book.latencyMs) || 0,
     positions: deskPos.map((p) => ({
       connId: CONN,
       symbol: p.symbol,

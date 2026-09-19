@@ -25,7 +25,7 @@ Environment=CTS_A_NETWORK=mainnet
 Environment=CTS_A_LIVE_MIN_PF=1.4
 Environment=CTS_A_LIVE_MAX_POS=100
 Environment=CTS_A_SYMBOLS=50
-Environment=CTS_A_TICK_MS=1500
+Environment=CTS_A_TICK_MS=1000
 Environment=NODE_OPTIONS=--max-old-space-size=256
 LimitNOFILE=4096
 MemoryHigh=320M
