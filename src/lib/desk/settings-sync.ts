@@ -215,7 +215,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
           : [...(d.blockConfig.evalLastNs ?? [1, 2, 3, 4, 5, 6])],
         liveLastN: Math.min(40, Math.max(4, Math.round(asNum(b.liveLastN, d.blockConfig.liveLastN ?? 12)))),
         liveDisable: asBool(b.liveDisable, d.blockConfig.liveDisable ?? true),
-        liveDisableMinPf: Math.min(3, Math.max(0.5, asNum(b.liveDisableMinPf, d.blockConfig.liveDisableMinPf ?? 2))),
+        liveDisableMinPf: Math.min(3, Math.max(0.5, asNum(b.liveDisableMinPf, d.blockConfig.liveDisableMinPf ?? 1.1))),
         liveDisableMinSamples: Math.min(12, Math.max(3, Math.round(asNum(b.liveDisableMinSamples, d.blockConfig.liveDisableMinSamples ?? 4)))),
       };
     })(),

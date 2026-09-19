@@ -1403,6 +1403,8 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.08);
     assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.08);
     assert.equal(DEFAULT_THRESHOLDS.minPf, 2);
+    assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 1.1);
+    assert.equal(DEFAULT_BLOCK_CONFIG.liveLastN, 12);
     assert.equal(DEFAULT_BLOCK_CONFIG.evalHours, 2);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2]);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.evalLastNs, [1, 2, 3, 4, 5, 6]);
@@ -1467,7 +1469,7 @@ describe("VST engine", () => {
         playbook: "axis",
       } as never);
     }
-    const h = refreshLiveDisable(e, { ...DEFAULT_BLOCK_CONFIG, liveLastN: 12, liveDisable: true, liveDisableMinPf: 1, liveDisableMinSamples: 4 });
+    const h = refreshLiveDisable(e, { ...DEFAULT_BLOCK_CONFIG, liveLastN: 12, liveDisable: true, liveDisableMinPf: 1.1, liveDisableMinSamples: 4 });
     assert.ok(h.disabled.some((k) => k.includes("active") || k.includes("axis") || k.includes("linear")), `disabled ${h.disabled.join(",")}`);
     assert.ok(h.kept.some((k) => k.includes("trend") || k.includes("hybrid") || k.includes("fibonacci")), `kept ${h.kept.join(",")}`);
     assert.equal(liveRelationDisabled(e, { symbol: "ETHUSDT", side: "short", indication: "active", kind: "active", tactic: "axis", rangeType: "linear", playbook: "axis" }), true);

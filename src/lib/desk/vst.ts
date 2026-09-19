@@ -1975,7 +1975,7 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
     return e.liveHealth;
   }
   const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
-  const minPf = block.liveDisableMinPf ?? 2;
+  const minPf = block.liveDisableMinPf ?? 1.1;
   const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
   const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, n);
   const groups = new Map<string, { pnl: number }[]>();

@@ -286,7 +286,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   evalLastNs: [1, 2, 3, 4, 5, 6],
   liveLastN: 12,
   liveDisable: true,
-  liveDisableMinPf: 2,
+  liveDisableMinPf: 1.1,
   liveDisableMinSamples: 4,
 };
 
