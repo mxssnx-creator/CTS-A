@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, deskClientPrefix, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders } from "./feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, deskClientPrefix, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect } from "./feed.ts";
 import {
   buildCanonical,
   configureLiveExecution,
@@ -173,6 +173,22 @@ describe("live feed", () => {
     assert.equal(keys.has("ETHUSDT:long"), true);
     assert.equal(keys.has("BTCUSDT:short"), false);
     assert.equal(keys.size, 1);
+  });
+
+  it("common protect uses the widest SL and TP among partials", () => {
+    const long = pickWidestProtect("long", 100, [
+      { sl: 99.2, tp: 100.8 },
+      { sl: 98.4, tp: 101.2 },
+      { sl: 99.6, tp: 100.5 },
+    ]);
+    assert.equal(long.sl, 98.4);
+    assert.equal(long.tp, 101.2);
+    const short = pickWidestProtect("short", 100, [
+      { sl: 100.8, tp: 99.2 },
+      { sl: 101.6, tp: 98.8 },
+    ]);
+    assert.equal(short.sl, 101.6);
+    assert.equal(short.tp, 98.8);
   });
 
   it("signs with ASCII-sorted keys and no value encoding", () => {

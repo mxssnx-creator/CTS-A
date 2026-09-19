@@ -786,6 +786,47 @@ describe("VST engine", () => {
     if (fill) assert.ok(Math.abs((fill.qty ?? 0) + (fill.remaining ?? 0) - (fill.planned ?? fill.qty)) < 1e-6 || fill.planned == null);
   });
 
+  it("merged partials keep the widest SL and TP, not the tightest", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.queue = [];
+    e.orders = [];
+    e.positions = [];
+    e.fills = [];
+    const q = e.quotes.BTCUSDT;
+    q.vol = 0.08;
+    q.lo = q.px * 0.99;
+    q.hi = q.px * 1.01;
+    const px = q.px;
+    const mk = (id: string, slPct: number, tpPct: number) => ({
+      id,
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      type: "limit" as const,
+      qty: 1,
+      filled: 0,
+      remaining: 1,
+      price: px,
+      status: "open" as const,
+      rangeType: "atr" as const,
+      level: 1,
+      sl: px * (1 - slPct),
+      tp: px * (1 + tpPct),
+      slDist: px * slPct,
+      tpDist: px * tpPct,
+      batchId: "w",
+      note: "wide",
+    });
+    e.orders.push(mk("tight", 0.004, 0.006), mk("wide", 0.016, 0.02));
+    tickVst(e, CFG, "trailing", { skipWalk: true, freezeIds: new Set(["BTCUSDT"]) });
+    const pos = e.positions.find((p) => p.symbol === "BTCUSDT" && p.side === "long");
+    assert.ok(pos, "position opened");
+    assert.ok(pos!.slDist + 1e-9 >= px * 0.016 * 0.98, `slDist ${pos!.slDist} want >= ${px * 0.016}`);
+    assert.ok(pos!.tpDist + 1e-9 >= px * 0.02 * 0.98, `tpDist ${pos!.tpDist} want >= ${px * 0.02}`);
+    assert.ok(pos!.sl <= px * (1 - 0.015), `sl ${pos!.sl} should be the wide stop`);
+    assert.ok(pos!.tp >= px * (1 + 0.018), `tp ${pos!.tp} should be the wide target`);
+  });
+
   it("scales live fills with quote volume", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 8, orderType: "limit" });
     e.queue = [];

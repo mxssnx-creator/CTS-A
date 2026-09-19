@@ -1267,18 +1267,18 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     pos.playbook = pos.playbook === "block" ? "block" : "dca";
   }
   if (!created) {
-    const slUse = Math.max(o.slDist, pos.slDist, 1e-12);
-    const tpUse = Math.max(o.tpDist, pos.tpDist, slUse * snapTpRatio(e.tpRatio));
-    const lv = protectLevels(pos.avgEntry, pos.side, slUse, tpUse, e.tpRatio);
+    const slUse = Math.max(Number(o.slDist) || 0, Number(pos.slDist) || 0, 1e-12);
+    const tpUse = Math.max(Number(o.tpDist) || 0, Number(pos.tpDist) || 0, 1e-12);
+    const entry = pos.avgEntry;
     if (pos.side === "long") {
-      pos.sl = Math.max(pos.sl, lv.sl);
-      pos.tp = Math.max(pos.tp, lv.tp);
+      pos.sl = Math.min(pos.sl, entry - slUse);
+      pos.tp = Math.max(pos.tp, entry + tpUse);
     } else {
-      pos.sl = Math.min(pos.sl, lv.sl);
-      pos.tp = Math.min(pos.tp, lv.tp);
+      pos.sl = Math.max(pos.sl, entry + slUse);
+      pos.tp = Math.min(pos.tp, entry - tpUse);
     }
-    pos.slDist = Math.abs(pos.sl - pos.avgEntry);
-    pos.tpDist = Math.abs(pos.tp - pos.avgEntry);
+    pos.slDist = Math.abs(pos.sl - entry);
+    pos.tpDist = Math.abs(pos.tp - entry);
   }
   const otherWorking = e.orders.some(
     (x) =>

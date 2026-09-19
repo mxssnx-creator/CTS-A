@@ -162,6 +162,34 @@ export function ownKeysFromOrders(
   return keys;
 }
 
+/** Common SL/TP: farthest stop and farthest target among independent partials. */
+export function pickWidestProtect(
+  side: "long" | "short",
+  entry: number,
+  cands: { sl?: number; tp?: number }[],
+): { sl: number; tp: number; slDist: number; tpDist: number } {
+  const px = Number(entry) || 0;
+  const sls: number[] = [];
+  const tps: number[] = [];
+  for (const c of cands) {
+    const sl = Number(c?.sl) || 0;
+    const tp = Number(c?.tp) || 0;
+    if (sl > 0 && (side === "long" ? sl < px : sl > px)) sls.push(sl);
+    if (tp > 0 && (side === "long" ? tp > px : tp < px)) tps.push(tp);
+  }
+  const sl = sls.length ? (side === "long" ? Math.min(...sls) : Math.max(...sls)) : 0;
+  const tp = tps.length ? (side === "long" ? Math.max(...tps) : Math.min(...tps)) : 0;
+  return { sl, tp, slDist: sl && px ? Math.abs(px - sl) : 0, tpDist: tp && px ? Math.abs(tp - px) : 0 };
+}
+
+export function protectIsTighter(side: "long" | "short", entry: number, cur: number, want: number): boolean {
+  if (!(cur > 0) || !(want > 0) || !(entry > 0)) return false;
+  const curD = Math.abs(cur - entry);
+  const wantD = Math.abs(want - entry);
+  if (side === "long") return cur > want && curD + 1e-12 < wantD;
+  return cur < want && curD + 1e-12 < wantD;
+}
+
 export function deskIdFromVenue(venueSymbol: string): string | undefined {
   for (const [id, vs] of Object.entries(BINGX_SYMBOL)) {
     if (vs === venueSymbol) return id;
