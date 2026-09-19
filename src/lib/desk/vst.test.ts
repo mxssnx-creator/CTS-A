@@ -1046,7 +1046,7 @@ describe("VST engine", () => {
         { endStage: true },
       );
       finiteNum(add.added, add.blocks);
-      const blockOrder = sized.queue.find((o) => /^Block #/.test(o.note));
+      const blockOrder = sized.queue.find((o) => /^Block /.test(o.note));
       if (blockOrder) {
         assert.ok(blockOrder.qty < parent.qty * 1.01, "block add is a rung, not a full parent");
         assert.ok(blockOrder.level >= 1);
@@ -1071,16 +1071,16 @@ describe("VST engine", () => {
 
   it("block on vs off: adds rungs when enabled and stays inert when disabled", () => {
     const off = { ...DEFAULT_BLOCK_CONFIG, enabled: false };
-    const on = { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false, cadence: 4, addOnWin: true, flattenConflict: false };
-    const a = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "atr", block: on });
-    const b = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "atr", block: off });
+    const on = { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false, cadence: 4, addOnWin: true, flattenConflict: false, sides: "both" as const };
+    const a = simulateHours(12, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: on });
+    const b = simulateHours(12, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: off });
     assert.ok(a.report.passed, a.report.issues.join("; "));
     assert.ok(b.report.passed, b.report.issues.join("; "));
     finiteNum(a.report.pf, b.report.pf, a.report.net, b.report.net);
     const blockCloses = a.engine.closed.filter((c) => c.playbook === "block").length;
     const offCloses = b.engine.closed.filter((c) => c.playbook === "block").length;
     assert.equal(offCloses, 0);
-    assert.ok(a.engine.lastBlockAt > 0 || blockCloses > 0 || a.engine.queue.some((o) => /^Block #/.test(o.note)) || a.engine.positions.some((p) => p.playbook === "block"));
+    assert.ok(a.engine.lastBlockAt > 0 || blockCloses > 0 || a.engine.queue.some((o) => /^Block /.test(o.note)) || a.engine.positions.some((p) => p.playbook === "block"));
     assert.equal(b.engine.lastBlockAt ?? 0, 0);
   });
 
@@ -1169,16 +1169,56 @@ describe("VST engine", () => {
   it("Block long, short, and both sides run independent vs old stack", () => {
     const old = { ...DEFAULT_BLOCK_CONFIG, stack: true, windows: false, volumeMode: "shared" as const, counts: [1, 2], maxMultiple: 2 };
     const neu = { ...DEFAULT_BLOCK_CONFIG, stack: true, windows: true, volumeMode: "shared" as const, counts: [1, 2], maxMultiple: 2, evalPosCount: 6 };
-    for (const sides of ["long", "short", "both"] as const) {
+    for (const sides of ["long", "short", "both", "mixed"] as const) {
       const a = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: { ...old, sides } });
       const b = simulateHours(8, CFG, "hybrid", { symbolCount: 6, rangeType: "fibonacci", block: { ...neu, sides } });
       assert.ok(a.report.passed && b.report.passed, `${sides} passed`);
       finiteNum(a.report.pf, b.report.pf);
-      if (sides !== "both") {
+      if (sides === "long" || sides === "short") {
         assert.ok(a.engine.closed.every((c) => c.side === sides) || a.engine.closed.length === 0);
         assert.ok(b.engine.closed.every((c) => c.side === sides) || b.engine.closed.length === 0);
       }
+      if (sides === "both") {
+        const seen = new Set(b.engine.closed.map((c) => c.side));
+        assert.ok(seen.has("long") && seen.has("short") || b.engine.closed.length < 4);
+      }
+      if (sides === "mixed") {
+        const mix = bookCounts(b.engine).positions;
+        assert.ok((mix.longOnly ?? 0) + (mix.shortOnly ?? 0) + (mix.both ?? 0) >= 0);
+      }
     }
+  });
+
+  it("mixed overall book has long-only, short-only, and both-side symbols", () => {
+    const { report, engine } = simulateHours(12, CFG, "hybrid", {
+      symbolCount: 12,
+      rangeType: "fibonacci",
+      block: { ...DEFAULT_BLOCK_CONFIG, sides: "mixed", stack: true, windows: true, volumeMode: "shared" },
+    });
+    assert.ok(report.passed);
+    finiteNum(report.pf);
+    const mix = bookCounts(engine).positions;
+    const closedSym = new Map<string, Set<string>>();
+    for (const c of engine.closed) {
+      const set = closedSym.get(c.symbol) ?? new Set();
+      set.add(c.side);
+      closedSym.set(c.symbol, set);
+    }
+    for (const p of engine.positions) {
+      const set = closedSym.get(p.symbol) ?? new Set();
+      set.add(p.side);
+      closedSym.set(p.symbol, set);
+    }
+    let longOnly = 0, shortOnly = 0, both = 0;
+    for (const sides of closedSym.values()) {
+      if (sides.has("long") && sides.has("short")) both += 1;
+      else if (sides.has("long")) longOnly += 1;
+      else if (sides.has("short")) shortOnly += 1;
+    }
+    assert.ok(longOnly >= 1, `long-only ${longOnly}`);
+    assert.ok(shortOnly >= 1, `short-only ${shortOnly}`);
+    assert.ok(both >= 1, `both ${both}`);
+    finiteNum(mix.longOnly ?? 0, mix.shortOnly ?? 0, mix.both ?? 0);
   });
 
   it("windows shared vs additive run with stack 1-2 additionally", () => {
@@ -1248,7 +1288,7 @@ describe("VST engine", () => {
         "atr",
         { endStage: true },
       );
-      const blockOrder = e.queue.find((o) => /^Block #/.test(o.note));
+      const blockOrder = e.queue.find((o) => /^Block /.test(o.note));
       if (blockOrder) {
         assert.equal(playbookOf(e, blockOrder), "block");
         assert.ok(add.added >= 1);

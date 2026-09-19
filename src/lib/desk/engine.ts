@@ -275,6 +275,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   stack: true,
   windows: true,
   volumeMode: "shared",
+  sides: "mixed",
 };
 
 /** Additive: each count uses `ratio`. Shared (old): extra/n when n>2. */
@@ -366,6 +367,18 @@ export function hashStr(s: string): number {
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
+}
+
+export function symbolSideSet(symbol: string, mode?: "long" | "short" | "both" | "mixed", signal?: "long" | "short"): ("long" | "short")[] {
+  if (mode === "long" || mode === "short") return [mode];
+  if (mode === "both") return ["long", "short"];
+  if (mode === "mixed") {
+    const h = hashStr(symbol) % 3;
+    if (h === 0) return ["long"];
+    if (h === 1) return ["short"];
+    return ["long", "short"];
+  }
+  return [signal === "short" ? "short" : "long"];
 }
 
 function sma(src: number[], period: number): number[] {

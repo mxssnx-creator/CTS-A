@@ -66,6 +66,7 @@ const BLOCK = {
   stack: true,
   windows: true,
   volumeMode: "shared",
+  sides: "mixed",
 };
 
 const GRID = [

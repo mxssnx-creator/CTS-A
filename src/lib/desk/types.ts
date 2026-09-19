@@ -266,7 +266,7 @@ export interface BlockConfig {
   /** additive: each count adds ratio×base. shared: old split/cap. parallel: both independent. */
   volumeMode?: "additive" | "shared" | "parallel";
   /** Restrict Block/arm to one side or hedge both. */
-  sides?: "long" | "short" | "both";
+  sides?: "long" | "short" | "both" | "mixed";
 }
 
 export interface BlockAdjustResult {

@@ -37,6 +37,7 @@ import {
   RANGE_TYPES,
   snapTpRatio,
   symbolIndications,
+  symbolSideSet,
   STAGE_HOURS,
 } from "./engine.ts";
 
@@ -788,6 +789,9 @@ export function bookCounts(e: VstEngine) {
       long,
       short,
       symbols: symbols.size,
+      longOnly: [...symbols].filter((id) => keys.has(`${id}:long`) && !keys.has(`${id}:short`)).length,
+      shortOnly: [...symbols].filter((id) => keys.has(`${id}:short`) && !keys.has(`${id}:long`)).length,
+      both: [...symbols].filter((id) => keys.has(`${id}:long`) && keys.has(`${id}:short`)).length,
       legs: e.positions.length,
       maxSlots: e.symbolCount * 2,
       maxLegs: VST_MAX_POSITIONS
@@ -824,12 +828,13 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     if (e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     if (pn >= VST_MAX_POSITIONS) return;
     const mode = e.blockCfg?.sides;
-    const trySides: Side[] = mode === "long" || mode === "short" ? [mode] : mode === "both" ? ["long", "short"] : [direction(q)];
+    const trySides = symbolSideSet(s.id, mode, direction(q));
+    const dual = trySides.length === 2;
     for (const side of trySides) {
       if (qn >= VST_MAX_QUEUE || pn >= VST_MAX_POSITIONS) break;
-      if (mode === "both") {
+      if (dual) {
         if (busyLegs.has(`${s.id}:${side}`)) continue;
-      } else if (busy.has(s.id)) continue;
+      } else if (busy.has(s.id) || busyLegs.has(`${s.id}:${side}`)) continue;
       const hi = pickRange(q, cfg, rangeType);
       const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);
       const tp0 = tpDistFromSl(sl0, cfg.tpRatio);
@@ -2018,8 +2023,8 @@ export function adjustActiveBlocks(
       if (adds >= addCap) break;
       if (!ownedByDesk(p, conn)) continue;
       if (p.qty <= 0) continue;
-      if (block.sides === "long" && p.side !== "long") continue;
-      if (block.sides === "short" && p.side !== "short") continue;
+      const allow = symbolSideSet(p.symbol, block.sides, p.side);
+      if (!allow.includes(p.side)) continue;
       const move = p.unrealized / Math.max(p.avgEntry * p.qty, 1e-9);
       if (block.addOnWin && move <= 0) continue;
       if (block.activeLive !== false && move < 0.004) continue;
