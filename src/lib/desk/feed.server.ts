@@ -138,8 +138,15 @@ export async function fetchContractMap(network: "mainnet" | "testnet"): Promise<
         const step = num(r.size) || Math.pow(10, -Math.max(0, qtyPrec));
         const minQty = Math.max(num(r.tradeMinQuantity), num(r.tradeMinVolume), num(r.minQty), step, 0);
         const minUsdt = Math.max(num(r.tradeMinUSDT), num(r.minNotional), 0);
-        const parsedLev = Math.max(num(r.maxLongLeverage), num(r.maxShortLeverage), num(r.maxLeverage), num(r.leverage));
-        const maxLev = parsedLev > 0 ? parsedLev : 125;
+        const parsedLev = Math.max(
+          num(r.maxLongLeverage),
+          num(r.maxShortLeverage),
+          num(r.maxLeverage),
+          num(r.leverage),
+          num(r.tradeMaxLeverage),
+          num(r.maxLvg),
+        );
+        const maxLev = parsedLev > 0 ? parsedLev : 0;
         map.set(symbol, {
           symbol,
           minQty,
@@ -147,7 +154,7 @@ export async function fetchContractMap(network: "mainnet" | "testnet"): Promise<
           qtyPrec,
           pxPrec: num(r.pricePrecision),
           minUsdt: minUsdt > 0 ? minUsdt : 2,
-          maxLeverage: Math.max(1, maxLev),
+          maxLeverage: maxLev > 0 ? Math.max(1, Math.round(maxLev)) : undefined,
         });
       }
       if (map.size) break;
@@ -208,7 +215,7 @@ let liveExec: LiveExecConfig = {
   hedgeMode: true,
   marginMode: "cross",
   useMaxLeverage: true,
-  leverage: 125,
+  leverage: 0,
   minSizeRatio: MIN_SIZE_RATIO,
 };
 
@@ -217,9 +224,14 @@ export function configureLiveExecution(p: Partial<LiveExecConfig>) {
     hedgeMode: p.hedgeMode ?? liveExec.hedgeMode,
     marginMode: p.marginMode === "isolated" ? "isolated" : p.marginMode === "cross" ? "cross" : liveExec.marginMode,
     useMaxLeverage: true,
-    leverage: Math.min(150, Math.max(1, Math.round(Number(p.leverage ?? liveExec.leverage) || liveExec.leverage))),
+    leverage: 0,
     minSizeRatio: Math.min(2, Math.max(1, Number(p.minSizeRatio ?? liveExec.minSizeRatio) || liveExec.minSizeRatio)),
   };
+}
+
+export function maxLeverageOf(spec?: ContractSpec | null): number {
+  const n = Math.round(Number(spec?.maxLeverage) || 0);
+  return n > 0 ? n : 125;
 }
 
 export function liveExecutionConfig(): LiveExecConfig {
@@ -290,7 +302,7 @@ export async function ensureLiveAccountMode(input: {
     if (r.ok) marginArmed.add(mk);
     notes.push(r.ok ? `${marginWant.toLowerCase()} ${venue}` : `margin ${r.error}`);
   }
-  const maxLev = Math.max(1, input.spec?.maxLeverage ?? 125);
+  const maxLev = maxLeverageOf(input.spec);
   const lev = maxLev;
   const sides = liveExec.hedgeMode ? (["LONG", "SHORT"] as const) : (["BOTH"] as const);
   for (const side of sides) {
@@ -305,6 +317,24 @@ export async function ensureLiveAccountMode(input: {
     notes.push(r.ok ? `lev ${side} ${lev}x` : `lev ${r.error}`);
   }
   return notes.length ? notes.slice(0, 3).join(" · ") : null;
+}
+
+export async function armMaxLeverage(
+  input: { network: "mainnet" | "testnet"; connId?: string; symbols: string[] },
+): Promise<{ n: number; max: number; notes: string[] }> {
+  const map = await fetchContractMap(input.network);
+  const notes: string[] = [];
+  let n = 0;
+  let max = 0;
+  for (const id of input.symbols) {
+    const venue = BINGX_SYMBOL[id] ?? (id.includes("-") ? id : `${id.replace(/USDT$/i, "")}-USDT`);
+    const spec = map.get(venue) ?? { symbol: venue, minQty: 0, step: 1, qtyPrec: 0, pxPrec: 4, minUsdt: 2, maxLeverage: 125 };
+    max = Math.max(max, maxLeverageOf(spec));
+    const msg = await ensureLiveAccountMode({ network: input.network, connId: input.connId, venueSymbol: venue, spec });
+    if (msg) notes.push(msg);
+    n += 1;
+  }
+  return { n, max, notes: notes.slice(0, 8) };
 }
 
 export function liftQtyToMin(
@@ -685,7 +715,7 @@ export async function placeSwapOrder(input: {
   }
   if (!(qty > 0) && !input.closePosition) return { ok: false, error: "Quantity below exchange minimum" };
 
-  if (!input.closePosition && input.type === "MARKET") {
+  if (!input.closePosition) {
     await ensureLiveAccountMode({ network: input.network, connId: input.connId, venueSymbol, spec });
   }
 

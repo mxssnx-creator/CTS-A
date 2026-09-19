@@ -340,7 +340,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   hedgeMode: true,
   marginMode: "cross" as const,
   useMaxLeverage: true,
-  leverage: 125,
+  leverage: 0,
   minSizeRatio: 1.08,
   activePresetId: "",
   userPresets: [] as SettingsPreset[],
@@ -448,7 +448,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       hedgeMode: true,
       marginMode: "cross" as const,
       useMaxLeverage: true,
-      leverage: 125,
+      leverage: 0,
       minSizeRatio: 1.08,
       activePresetId: "",
     });
@@ -1000,7 +1000,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       hedgeMode: p.hedgeMode ?? get().hedgeMode,
       marginMode: p.marginMode ?? get().marginMode,
       useMaxLeverage: true,
-      leverage: p.leverage != null ? Math.min(150, Math.max(1, Math.round(p.leverage))) : get().leverage,
+      leverage: 0,
       minSizeRatio: p.minSizeRatio != null ? Math.min(2, Math.max(1, p.minSizeRatio)) : get().minSizeRatio,
     });
     get().syncSettings();

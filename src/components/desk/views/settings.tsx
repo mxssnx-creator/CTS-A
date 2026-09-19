@@ -231,8 +231,7 @@ export function SettingsView() {
   const setEvalLastNs = useDesk((s) => s.setEvalLastNs);
   const hedgeMode = useDesk((s) => s.hedgeMode);
   const marginMode = useDesk((s) => s.marginMode);
-  const useMaxLeverage = useDesk((s) => s.useMaxLeverage);
-  const leverage = useDesk((s) => s.leverage);
+
   const minSizeRatio = useDesk((s) => s.minSizeRatio);
   const setLiveExec = useDesk((s) => s.setLiveExec);
   const runStageEval = useDesk((s) => s.runStageEval);
@@ -1526,7 +1525,7 @@ export function SettingsView() {
             <StatLine k="Min size ratio" v={`${minSizeRatio.toFixed(2)}×`} />
             <StatLine k="Margin" v={marginMode} />
             <StatLine k="Position mode" v={hedgeMode ? "hedge L+S" : "one-way"} />
-            <StatLine k="Leverage" v={useMaxLeverage ? "max / contract" : `${leverage}x`} />
+            <StatLine k="Leverage" v="max / contract" />
             <StatLine k="Research unit base" v={fmtUsd(BASE_EQUITY, 0)} />
             <StatLine k="Unit notional" v={fmtUsd(UNIT_NOTIONAL, 0)} />
             <StatLine k="Cost steps" v={`${COST_STEPS.length} (${COST_STEPS[0]}–${COST_STEPS[COST_STEPS.length - 1]})`} />
@@ -1569,18 +1568,6 @@ export function SettingsView() {
                 options={[{ id: "max", label: "Max / contract" }]}
               />
             </Field>
-            <Field label="Max per contract">
-              <input
-                aria-label="Leverage"
-                type="number"
-                min={1}
-                max={150}
-                disabled
-                className="h-10 border border-border bg-surface px-3 text-sm"
-                value={leverage}
-                readOnly
-              />
-            </Field>
             <Field label="Min size ratio">
               <input
                 aria-label="Min size ratio"
@@ -1595,7 +1582,7 @@ export function SettingsView() {
             </Field>
           </div>
           <p className="mt-3 text-sm text-muted">
-            Entries always lift to the exchange min quantity / min USDT. Cross + hedge (both directions) and max leverage are applied on the live BingX account.
+            Entries always lift to the exchange min quantity / min USDT. Cross + hedge and each contract’s max leverage are applied on every live BingX order.
           </p>
         </Panel>
       </div>

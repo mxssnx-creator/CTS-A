@@ -4,7 +4,7 @@
  * Keys from env — never printed.
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, snapPx, fetchVol1h } from "../src/lib/desk/feed.server.ts";
+import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak } from "../src/lib/desk/engine.ts";
 import {
@@ -293,7 +293,7 @@ function writeSettingsPick(pick, extra = {}) {
     hedgeMode: true,
     marginMode: "cross",
     useMaxLeverage: true,
-    leverage: 125,
+    leverage: 0,
     minSizeRatio: 1.08,
     ...extra,
   };
@@ -949,7 +949,7 @@ function applyExecFromSettings(remote) {
     hedgeMode: true,
     marginMode: remote.marginMode === "isolated" ? "isolated" : "cross",
     useMaxLeverage: true,
-    leverage: 125,
+    leverage: 0,
     minSizeRatio: Number(remote.minSizeRatio) || 1.08,
   });
 }
@@ -990,6 +990,13 @@ async function main() {
       if (mode) adjustments.push(mode);
     } catch (err) {
       adjustments.push(`mode ${err instanceof Error ? err.message : "fail"}`);
+    }
+    try {
+      const ids = universeSymbols(LIVE_SYMBOLS).map((s) => s.id);
+      const armed = await withTimeout(armMaxLeverage({ network: ping.network, connId: CONN, symbols: ids }), 45000, "lev");
+      adjustments.push(`max lev ${armed.n} symbols · peak ${armed.max}x`);
+    } catch (err) {
+      adjustments.push(`lev ${err instanceof Error ? err.message : "fail"}`);
     }
   }
 

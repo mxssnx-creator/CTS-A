@@ -50,7 +50,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       hedgeMode: true,
       marginMode: "cross",
       useMaxLeverage: true,
-      leverage: 125,
+      leverage: 0,
       sessionPhase: "running",
       comboOnlyPositive: true,
     },

@@ -8,6 +8,7 @@ import {
   fetchExchangeBook,
   isMinSizeError,
   liftQtyToMin,
+  maxLeverageOf,
   parseBingxJson,
   parseAvailableUsdt,
   signQuery,
@@ -40,6 +41,9 @@ describe("live feed", () => {
     assert.ok(tiny.qty + 1e-12 >= 0.01);
     assert.ok(isMinSizeError("order quantity is below min quantity"));
     assert.ok(isMinSizeError("notional too small"));
+    assert.equal(maxLeverageOf({ symbol: "BTC-USDT", minQty: 0.001, step: 0.001, qtyPrec: 3, pxPrec: 1, minUsdt: 5, maxLeverage: 150 }), 150);
+    assert.equal(maxLeverageOf({ symbol: "PEPE-USDT", minQty: 1, step: 1, qtyPrec: 0, pxPrec: 6, minUsdt: 5, maxLeverage: 50 }), 50);
+    assert.equal(maxLeverageOf(null), 125);
     assert.equal(isMinSizeError("insufficient margin"), false);
     const down = snapQtyDown(1.0, { symbol: "SOL-USDT", minQty: 0.01, step: 0.01, qtyPrec: 2, pxPrec: 3, minUsdt: 5 });
     assert.ok(down <= 1);
