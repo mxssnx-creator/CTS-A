@@ -1,0 +1,2089 @@
+{
+  "hours": 48,
+  "symbols": 50,
+  "trails": [
+    1.7
+  ],
+  "near": 12,
+  "at": 1789844788205,
+  "scout": [
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "atr",
+      "tpAtr": 0.35,
+      "slOfTp": 1.5,
+      "mode": "base",
+      "pf": 1.123,
+      "wr": 0.655,
+      "n": 113,
+      "net": 1.731,
+      "sl": 95,
+      "tp": 18,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 142
+    },
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "atr",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.057,
+      "wr": 0.655,
+      "n": 113,
+      "net": 0.212,
+      "sl": 96,
+      "tp": 17,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 86
+    },
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "atr",
+      "tpAtr": 0.55,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 2.075,
+      "wr": 0.692,
+      "n": 133,
+      "net": 4.653,
+      "sl": 113,
+      "tp": 20,
+      "mdd": 0.0001,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 91
+    },
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "atr",
+      "tpAtr": 0.65,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.886,
+      "wr": 0.698,
+      "n": 129,
+      "net": 5.752,
+      "sl": 105,
+      "tp": 24,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 92
+    },
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "atr",
+      "tpAtr": 0.75,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 2.075,
+      "wr": 0.692,
+      "n": 133,
+      "net": 4.653,
+      "sl": 113,
+      "tp": 20,
+      "mdd": 0.0001,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 57
+    },
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "atr",
+      "tpAtr": 0.8,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 2.59,
+      "wr": 0.755,
+      "n": 147,
+      "net": 6.569,
+      "sl": 117,
+      "tp": 30,
+      "mdd": 0.0001,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 72
+    },
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "tpAtr": 0.35,
+      "slOfTp": 1.5,
+      "mode": "base",
+      "pf": 1.222,
+      "wr": 0.634,
+      "n": 112,
+      "net": 16.276,
+      "sl": 98,
+      "tp": 14,
+      "mdd": 0.0003,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 44
+    },
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.137,
+      "wr": 0.638,
+      "n": 116,
+      "net": 1.152,
+      "sl": 99,
+      "tp": 17,
+      "mdd": 0.0001,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 68
+    },
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "tpAtr": 0.55,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 2.119,
+      "wr": 0.698,
+      "n": 129,
+      "net": 21.01,
+      "sl": 111,
+      "tp": 18,
+      "mdd": 0.0003,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 46
+    },
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "tpAtr": 0.65,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.808,
+      "wr": 0.71,
+      "n": 124,
+      "net": 20.201,
+      "sl": 104,
+      "tp": 20,
+      "mdd": 0.0003,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 47
+    },
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "tpAtr": 0.75,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 2.119,
+      "wr": 0.698,
+      "n": 129,
+      "net": 21.01,
+      "sl": 111,
+      "tp": 18,
+      "mdd": 0.0003,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 44
+    },
+    {
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "tpAtr": 0.8,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 2.642,
+      "wr": 0.732,
+      "n": 138,
+      "net": 21.831,
+      "sl": 117,
+      "tp": 21,
+      "mdd": 0.0003,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 49
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "atr",
+      "tpAtr": 0.35,
+      "slOfTp": 1.5,
+      "mode": "base",
+      "pf": 0.856,
+      "wr": 0.495,
+      "n": 103,
+      "net": -0.482,
+      "sl": 99,
+      "tp": 4,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 39
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "atr",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 0.78,
+      "wr": 0.485,
+      "n": 103,
+      "net": -0.79,
+      "sl": 100,
+      "tp": 3,
+      "mdd": 0.0003,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 38
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "atr",
+      "tpAtr": 0.55,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 1.262,
+      "wr": 0.492,
+      "n": 118,
+      "net": 1.146,
+      "sl": 115,
+      "tp": 3,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 40
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "atr",
+      "tpAtr": 0.65,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.108,
+      "wr": 0.492,
+      "n": 120,
+      "net": 2.497,
+      "sl": 115,
+      "tp": 5,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 43
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "atr",
+      "tpAtr": 0.75,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 1.262,
+      "wr": 0.492,
+      "n": 118,
+      "net": 1.146,
+      "sl": 115,
+      "tp": 3,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 42
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "atr",
+      "tpAtr": 0.8,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.858,
+      "wr": 0.568,
+      "n": 125,
+      "net": 3.433,
+      "sl": 118,
+      "tp": 7,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 43
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "tpAtr": 0.35,
+      "slOfTp": 1.5,
+      "mode": "base",
+      "pf": 0.847,
+      "wr": 0.467,
+      "n": 107,
+      "net": -0.525,
+      "sl": 102,
+      "tp": 5,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 42
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 0.814,
+      "wr": 0.477,
+      "n": 107,
+      "net": -0.654,
+      "sl": 103,
+      "tp": 4,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 39
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "tpAtr": 0.55,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 1.252,
+      "wr": 0.496,
+      "n": 119,
+      "net": 1.12,
+      "sl": 116,
+      "tp": 3,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 40
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "tpAtr": 0.65,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.038,
+      "wr": 0.492,
+      "n": 120,
+      "net": 2.172,
+      "sl": 114,
+      "tp": 6,
+      "mdd": 0.0001,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 43
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "tpAtr": 0.75,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 1.252,
+      "wr": 0.496,
+      "n": 119,
+      "net": 1.12,
+      "sl": 116,
+      "tp": 3,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 41
+    },
+    {
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "tpAtr": 0.8,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.866,
+      "wr": 0.548,
+      "n": 126,
+      "net": 3.26,
+      "sl": 120,
+      "tp": 6,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 43
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "atr",
+      "tpAtr": 0.35,
+      "slOfTp": 1.5,
+      "mode": "base",
+      "pf": 1.237,
+      "wr": 0.482,
+      "n": 56,
+      "net": 0.336,
+      "sl": 52,
+      "tp": 4,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 38
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "atr",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.163,
+      "wr": 0.491,
+      "n": 55,
+      "net": 0.242,
+      "sl": 51,
+      "tp": 4,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 37
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "atr",
+      "tpAtr": 0.55,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 2.124,
+      "wr": 0.51,
+      "n": 49,
+      "net": 1.954,
+      "sl": 46,
+      "tp": 3,
+      "mdd": 0.0003,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 37
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "atr",
+      "tpAtr": 0.65,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.413,
+      "wr": 0.533,
+      "n": 45,
+      "net": 2.852,
+      "sl": 42,
+      "tp": 3,
+      "mdd": 0.0001,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 44
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "atr",
+      "tpAtr": 0.75,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 2.124,
+      "wr": 0.51,
+      "n": 49,
+      "net": 1.954,
+      "sl": 46,
+      "tp": 3,
+      "mdd": 0.0003,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 41
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "atr",
+      "tpAtr": 0.8,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 9.052,
+      "wr": 0.647,
+      "n": 51,
+      "net": 4.458,
+      "sl": 46,
+      "tp": 5,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 38
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "fibonacci",
+      "tpAtr": 0.35,
+      "slOfTp": 1.5,
+      "mode": "base",
+      "pf": 1.248,
+      "wr": 0.491,
+      "n": 57,
+      "net": 0.351,
+      "sl": 52,
+      "tp": 5,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 37
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "fibonacci",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.154,
+      "wr": 0.5,
+      "n": 56,
+      "net": 0.233,
+      "sl": 51,
+      "tp": 5,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 58
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "fibonacci",
+      "tpAtr": 0.55,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 2.038,
+      "wr": 0.51,
+      "n": 49,
+      "net": 1.89,
+      "sl": 46,
+      "tp": 3,
+      "mdd": 0.0003,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 42
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "fibonacci",
+      "tpAtr": 0.65,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 1.397,
+      "wr": 0.533,
+      "n": 45,
+      "net": 2.832,
+      "sl": 42,
+      "tp": 3,
+      "mdd": 0.0001,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 38
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "fibonacci",
+      "tpAtr": 0.75,
+      "slOfTp": 1,
+      "mode": "base",
+      "pf": 2.038,
+      "wr": 0.51,
+      "n": 49,
+      "net": 1.89,
+      "sl": 46,
+      "tp": 3,
+      "mdd": 0.0003,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 37
+    },
+    {
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "fibonacci",
+      "tpAtr": 0.8,
+      "slOfTp": 1.25,
+      "mode": "base",
+      "pf": 8.445,
+      "wr": 0.647,
+      "n": 51,
+      "net": 4.431,
+      "sl": 46,
+      "tp": 5,
+      "mdd": 0.0002,
+      "blockN": 0,
+      "blockPf": 0,
+      "relF": 0,
+      "ms": 36
+    }
+  ],
+  "full": [
+    {
+      "key": "t1.7 hybrid/atr tp0.45/sl1.25",
+      "scoutPf": 0.78,
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "atr",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "modes": {
+        "base": {
+          "pf": 0.941,
+          "wr": 0.51,
+          "n": 308,
+          "net": 13.992,
+          "sl": 292,
+          "tp": 16,
+          "mdd": 0.0005,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 256
+        },
+        "axis": {
+          "pf": 1.501,
+          "wr": 0.532,
+          "n": 190,
+          "net": 2.385,
+          "sl": 149,
+          "tp": 41,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 223
+        },
+        "block-shared": {
+          "pf": 1.129,
+          "wr": 0.52,
+          "n": 325,
+          "net": 15.963,
+          "sl": 304,
+          "tp": 21,
+          "mdd": 0.0005,
+          "blockN": 325,
+          "blockPf": 1.129,
+          "relF": 0,
+          "ms": 439
+        },
+        "block-additive": {
+          "pf": 1.303,
+          "wr": 0.514,
+          "n": 346,
+          "net": 18.368,
+          "sl": 326,
+          "tp": 20,
+          "mdd": 0.0006,
+          "blockN": 346,
+          "blockPf": 1.303,
+          "relF": 0.64,
+          "ms": 413
+        },
+        "block-both": {
+          "pf": 1.409,
+          "wr": 0.515,
+          "n": 363,
+          "net": 22.016,
+          "sl": 344,
+          "tp": 19,
+          "mdd": 0.0007,
+          "blockN": 363,
+          "blockPf": 1.409,
+          "relF": 0.64,
+          "ms": 478
+        },
+        "axis+block-both": {
+          "pf": 2.057,
+          "wr": 0.515,
+          "n": 200,
+          "net": 9.786,
+          "sl": 158,
+          "tp": 42,
+          "mdd": 0.0005,
+          "blockN": 200,
+          "blockPf": 2.057,
+          "relF": 0.64,
+          "ms": 379
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0.56,
+          "dNet": -11.607,
+          "better": false
+        },
+        "block-shared": {
+          "dPf": 0.188,
+          "dNet": 1.971,
+          "better": true
+        },
+        "block-additive": {
+          "dPf": 0.362,
+          "dNet": 4.376,
+          "better": true
+        },
+        "block-both": {
+          "dPf": 0.468,
+          "dNet": 8.024,
+          "better": true
+        },
+        "axis+block-both": {
+          "dPf": 1.116,
+          "dNet": -4.206,
+          "better": false
+        }
+      }
+    },
+    {
+      "key": "t1.7 hybrid/fibonacci tp0.45/sl1.25",
+      "scoutPf": 0.814,
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "modes": {
+        "base": {
+          "pf": 0.926,
+          "wr": 0.533,
+          "n": 306,
+          "net": -0.792,
+          "sl": 288,
+          "tp": 18,
+          "mdd": 0.0004,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 252
+        },
+        "axis": {
+          "pf": 1.44,
+          "wr": 0.522,
+          "n": 182,
+          "net": 2.149,
+          "sl": 147,
+          "tp": 35,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 222
+        },
+        "block-shared": {
+          "pf": 1.047,
+          "wr": 0.521,
+          "n": 305,
+          "net": 15.111,
+          "sl": 293,
+          "tp": 12,
+          "mdd": 0.0005,
+          "blockN": 305,
+          "blockPf": 1.047,
+          "relF": 0,
+          "ms": 430
+        },
+        "block-additive": {
+          "pf": 1.173,
+          "wr": 0.496,
+          "n": 335,
+          "net": 2.33,
+          "sl": 323,
+          "tp": 12,
+          "mdd": 0.0005,
+          "blockN": 335,
+          "blockPf": 1.173,
+          "relF": 0.64,
+          "ms": 398
+        },
+        "block-both": {
+          "pf": 1.396,
+          "wr": 0.513,
+          "n": 347,
+          "net": 6.084,
+          "sl": 334,
+          "tp": 13,
+          "mdd": 0.0007,
+          "blockN": 347,
+          "blockPf": 1.396,
+          "relF": 0.64,
+          "ms": 519
+        },
+        "axis+block-both": {
+          "pf": 2.023,
+          "wr": 0.5,
+          "n": 196,
+          "net": 9.65,
+          "sl": 159,
+          "tp": 37,
+          "mdd": 0.0006,
+          "blockN": 196,
+          "blockPf": 2.023,
+          "relF": 0.64,
+          "ms": 359
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0.514,
+          "dNet": 2.941,
+          "better": true
+        },
+        "block-shared": {
+          "dPf": 0.121,
+          "dNet": 15.903,
+          "better": true
+        },
+        "block-additive": {
+          "dPf": 0.247,
+          "dNet": 3.122,
+          "better": true
+        },
+        "block-both": {
+          "dPf": 0.47,
+          "dNet": 6.876,
+          "better": true
+        },
+        "axis+block-both": {
+          "dPf": 1.097,
+          "dNet": 10.442,
+          "better": true
+        }
+      }
+    },
+    {
+      "key": "t1.7 trailing/fibonacci tp0.45/sl1.25",
+      "scoutPf": 1.137,
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "modes": {
+        "base": {
+          "pf": 1.148,
+          "wr": 0.671,
+          "n": 343,
+          "net": 17.596,
+          "sl": 284,
+          "tp": 59,
+          "mdd": 0.0007,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 318
+        },
+        "axis": {
+          "pf": 1.44,
+          "wr": 0.522,
+          "n": 182,
+          "net": 2.149,
+          "sl": 147,
+          "tp": 35,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 210
+        },
+        "block-shared": {
+          "pf": 1.275,
+          "wr": 0.677,
+          "n": 362,
+          "net": 19.429,
+          "sl": 297,
+          "tp": 65,
+          "mdd": 0.0006,
+          "blockN": 362,
+          "blockPf": 1.275,
+          "relF": 0,
+          "ms": 447
+        },
+        "block-additive": {
+          "pf": 1.509,
+          "wr": 0.667,
+          "n": 369,
+          "net": 22.311,
+          "sl": 302,
+          "tp": 67,
+          "mdd": 0.0006,
+          "blockN": 369,
+          "blockPf": 1.509,
+          "relF": 0.64,
+          "ms": 443
+        },
+        "block-both": {
+          "pf": 1.49,
+          "wr": 0.68,
+          "n": 410,
+          "net": 22.895,
+          "sl": 328,
+          "tp": 82,
+          "mdd": 0.0008,
+          "blockN": 410,
+          "blockPf": 1.49,
+          "relF": 0.64,
+          "ms": 525
+        },
+        "axis+block-both": {
+          "pf": 2.023,
+          "wr": 0.5,
+          "n": 196,
+          "net": 9.65,
+          "sl": 159,
+          "tp": 37,
+          "mdd": 0.0006,
+          "blockN": 196,
+          "blockPf": 2.023,
+          "relF": 0.64,
+          "ms": 362
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0.292,
+          "dNet": -15.447,
+          "better": false
+        },
+        "block-shared": {
+          "dPf": 0.127,
+          "dNet": 1.833,
+          "better": true
+        },
+        "block-additive": {
+          "dPf": 0.361,
+          "dNet": 4.715,
+          "better": true
+        },
+        "block-both": {
+          "dPf": 0.342,
+          "dNet": 5.299,
+          "better": true
+        },
+        "axis+block-both": {
+          "dPf": 0.875,
+          "dNet": -7.946,
+          "better": false
+        }
+      }
+    },
+    {
+      "key": "t1.7 hybrid/atr tp0.35/sl1.5",
+      "scoutPf": 0.856,
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "atr",
+      "tpAtr": 0.35,
+      "slOfTp": 1.5,
+      "modes": {
+        "base": {
+          "pf": 0.986,
+          "wr": 0.527,
+          "n": 296,
+          "net": -0.133,
+          "sl": 280,
+          "tp": 16,
+          "mdd": 0.0004,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 239
+        },
+        "axis": {
+          "pf": 1.538,
+          "wr": 0.516,
+          "n": 190,
+          "net": 2.359,
+          "sl": 152,
+          "tp": 38,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 217
+        },
+        "block-shared": {
+          "pf": 1.033,
+          "wr": 0.53,
+          "n": 321,
+          "net": 1.708,
+          "sl": 300,
+          "tp": 21,
+          "mdd": 0.0004,
+          "blockN": 321,
+          "blockPf": 1.033,
+          "relF": 0,
+          "ms": 424
+        },
+        "block-additive": {
+          "pf": 1.15,
+          "wr": 0.512,
+          "n": 330,
+          "net": 21.704,
+          "sl": 309,
+          "tp": 21,
+          "mdd": 0.0006,
+          "blockN": 330,
+          "blockPf": 1.15,
+          "relF": 0.64,
+          "ms": 428
+        },
+        "block-both": {
+          "pf": 1.452,
+          "wr": 0.514,
+          "n": 358,
+          "net": 21.202,
+          "sl": 337,
+          "tp": 21,
+          "mdd": 0.0006,
+          "blockN": 358,
+          "blockPf": 1.452,
+          "relF": 0.64,
+          "ms": 504
+        },
+        "axis+block-both": {
+          "pf": 1.841,
+          "wr": 0.531,
+          "n": 207,
+          "net": 7.864,
+          "sl": 161,
+          "tp": 46,
+          "mdd": 0.0005,
+          "blockN": 207,
+          "blockPf": 1.841,
+          "relF": 0.64,
+          "ms": 370
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0.552,
+          "dNet": 2.492,
+          "better": true
+        },
+        "block-shared": {
+          "dPf": 0.047,
+          "dNet": 1.841,
+          "better": false
+        },
+        "block-additive": {
+          "dPf": 0.164,
+          "dNet": 21.837,
+          "better": true
+        },
+        "block-both": {
+          "dPf": 0.466,
+          "dNet": 21.335,
+          "better": true
+        },
+        "axis+block-both": {
+          "dPf": 0.855,
+          "dNet": 7.997,
+          "better": true
+        }
+      }
+    },
+    {
+      "key": "t1.7 hybrid/fibonacci tp0.35/sl1.5",
+      "scoutPf": 0.847,
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "tpAtr": 0.35,
+      "slOfTp": 1.5,
+      "modes": {
+        "base": {
+          "pf": 0.953,
+          "wr": 0.547,
+          "n": 296,
+          "net": 15.689,
+          "sl": 277,
+          "tp": 19,
+          "mdd": 0.0004,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 252
+        },
+        "axis": {
+          "pf": 1.432,
+          "wr": 0.516,
+          "n": 182,
+          "net": 1.998,
+          "sl": 148,
+          "tp": 34,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 220
+        },
+        "block-shared": {
+          "pf": 1.008,
+          "wr": 0.516,
+          "n": 308,
+          "net": 16.621,
+          "sl": 293,
+          "tp": 15,
+          "mdd": 0.0005,
+          "blockN": 308,
+          "blockPf": 1.008,
+          "relF": 0,
+          "ms": 422
+        },
+        "block-additive": {
+          "pf": 1.199,
+          "wr": 0.525,
+          "n": 324,
+          "net": 17.12,
+          "sl": 312,
+          "tp": 12,
+          "mdd": 0.0006,
+          "blockN": 324,
+          "blockPf": 1.199,
+          "relF": 0.64,
+          "ms": 419
+        },
+        "block-both": {
+          "pf": 1.222,
+          "wr": 0.503,
+          "n": 332,
+          "net": 18.035,
+          "sl": 319,
+          "tp": 13,
+          "mdd": 0.0006,
+          "blockN": 332,
+          "blockPf": 1.222,
+          "relF": 0.64,
+          "ms": 485
+        },
+        "axis+block-both": {
+          "pf": 1.759,
+          "wr": 0.505,
+          "n": 200,
+          "net": 7.424,
+          "sl": 160,
+          "tp": 40,
+          "mdd": 0.0005,
+          "blockN": 200,
+          "blockPf": 1.759,
+          "relF": 0.64,
+          "ms": 371
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0.479,
+          "dNet": -13.691,
+          "better": false
+        },
+        "block-shared": {
+          "dPf": 0.055,
+          "dNet": 0.932,
+          "better": false
+        },
+        "block-additive": {
+          "dPf": 0.246,
+          "dNet": 1.431,
+          "better": true
+        },
+        "block-both": {
+          "dPf": 0.269,
+          "dNet": 2.346,
+          "better": true
+        },
+        "axis+block-both": {
+          "dPf": 0.806,
+          "dNet": -8.265,
+          "better": false
+        }
+      }
+    },
+    {
+      "key": "t1.7 trailing/atr tp0.45/sl1.25",
+      "scoutPf": 1.057,
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "atr",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "modes": {
+        "base": {
+          "pf": 1.337,
+          "wr": 0.677,
+          "n": 378,
+          "net": 19.572,
+          "sl": 305,
+          "tp": 73,
+          "mdd": 0.0007,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 300
+        },
+        "axis": {
+          "pf": 1.501,
+          "wr": 0.532,
+          "n": 190,
+          "net": 2.385,
+          "sl": 149,
+          "tp": 41,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 229
+        },
+        "block-shared": {
+          "pf": 1.493,
+          "wr": 0.676,
+          "n": 383,
+          "net": 21.644,
+          "sl": 312,
+          "tp": 71,
+          "mdd": 0.0008,
+          "blockN": 383,
+          "blockPf": 1.493,
+          "relF": 0,
+          "ms": 535
+        },
+        "block-additive": {
+          "pf": 1.377,
+          "wr": 0.655,
+          "n": 380,
+          "net": 19.612,
+          "sl": 310,
+          "tp": 70,
+          "mdd": 0.0008,
+          "blockN": 380,
+          "blockPf": 1.377,
+          "relF": 0.64,
+          "ms": 492
+        },
+        "block-both": {
+          "pf": 1.682,
+          "wr": 0.664,
+          "n": 396,
+          "net": 26.091,
+          "sl": 323,
+          "tp": 73,
+          "mdd": 0.0006,
+          "blockN": 396,
+          "blockPf": 1.682,
+          "relF": 0.64,
+          "ms": 558
+        },
+        "axis+block-both": {
+          "pf": 2.057,
+          "wr": 0.515,
+          "n": 200,
+          "net": 9.786,
+          "sl": 158,
+          "tp": 42,
+          "mdd": 0.0005,
+          "blockN": 200,
+          "blockPf": 2.057,
+          "relF": 0.64,
+          "ms": 383
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0.164,
+          "dNet": -17.187,
+          "better": false
+        },
+        "block-shared": {
+          "dPf": 0.156,
+          "dNet": 2.072,
+          "better": true
+        },
+        "block-additive": {
+          "dPf": 0.04,
+          "dNet": 0.04,
+          "better": false
+        },
+        "block-both": {
+          "dPf": 0.345,
+          "dNet": 6.519,
+          "better": true
+        },
+        "axis+block-both": {
+          "dPf": 0.72,
+          "dNet": -9.786,
+          "better": false
+        }
+      }
+    },
+    {
+      "key": "t1.7 hybrid/atr tp0.65/sl1.25",
+      "scoutPf": 1.108,
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "atr",
+      "tpAtr": 0.65,
+      "slOfTp": 1.25,
+      "modes": {
+        "base": {
+          "pf": 1.023,
+          "wr": 0.547,
+          "n": 344,
+          "net": 18.676,
+          "sl": 314,
+          "tp": 30,
+          "mdd": 0.0006,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 262
+        },
+        "axis": {
+          "pf": 1.52,
+          "wr": 0.544,
+          "n": 182,
+          "net": 3.356,
+          "sl": 143,
+          "tp": 39,
+          "mdd": 0.0003,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 216
+        },
+        "block-shared": {
+          "pf": 1.075,
+          "wr": 0.53,
+          "n": 355,
+          "net": 19.551,
+          "sl": 323,
+          "tp": 32,
+          "mdd": 0.0006,
+          "blockN": 115,
+          "blockPf": 1.632,
+          "relF": 0,
+          "ms": 355
+        },
+        "block-additive": {
+          "pf": 1.116,
+          "wr": 0.509,
+          "n": 375,
+          "net": 32.44,
+          "sl": 344,
+          "tp": 30,
+          "mdd": 0.0009,
+          "blockN": 120,
+          "blockPf": 1.758,
+          "relF": 0.64,
+          "ms": 364
+        },
+        "block-both": {
+          "pf": 1.732,
+          "wr": 0.528,
+          "n": 411,
+          "net": 35.381,
+          "sl": 370,
+          "tp": 40,
+          "mdd": 0.0005,
+          "blockN": 118,
+          "blockPf": 2.836,
+          "relF": 0.64,
+          "ms": 432
+        },
+        "axis+block-both": {
+          "pf": 1.109,
+          "wr": 0.515,
+          "n": 202,
+          "net": 2.945,
+          "sl": 156,
+          "tp": 45,
+          "mdd": 0.0014,
+          "blockN": 85,
+          "blockPf": 1.159,
+          "relF": 0.64,
+          "ms": 324
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0.497,
+          "dNet": -15.32,
+          "better": false
+        },
+        "block-shared": {
+          "dPf": 0.052,
+          "dNet": 0.875,
+          "better": false
+        },
+        "block-additive": {
+          "dPf": 0.093,
+          "dNet": 13.764,
+          "better": true
+        },
+        "block-both": {
+          "dPf": 0.709,
+          "dNet": 16.705,
+          "better": true
+        },
+        "axis+block-both": {
+          "dPf": 0.086,
+          "dNet": -15.731,
+          "better": false
+        }
+      }
+    },
+    {
+      "key": "t1.7 axis/fibonacci tp0.45/sl1.25",
+      "scoutPf": 1.154,
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "fibonacci",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "modes": {
+        "base": {
+          "pf": 1.44,
+          "wr": 0.522,
+          "n": 182,
+          "net": 2.149,
+          "sl": 147,
+          "tp": 35,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 221
+        },
+        "axis": {
+          "pf": 1.44,
+          "wr": 0.522,
+          "n": 182,
+          "net": 2.149,
+          "sl": 147,
+          "tp": 35,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 219
+        },
+        "block-shared": {
+          "pf": 1.867,
+          "wr": 0.524,
+          "n": 189,
+          "net": 4.217,
+          "sl": 154,
+          "tp": 35,
+          "mdd": 0.0003,
+          "blockN": 189,
+          "blockPf": 1.867,
+          "relF": 0,
+          "ms": 328
+        },
+        "block-additive": {
+          "pf": 1.652,
+          "wr": 0.503,
+          "n": 189,
+          "net": 5.55,
+          "sl": 155,
+          "tp": 34,
+          "mdd": 0.0004,
+          "blockN": 189,
+          "blockPf": 1.652,
+          "relF": 0.64,
+          "ms": 326
+        },
+        "block-both": {
+          "pf": 2.023,
+          "wr": 0.5,
+          "n": 196,
+          "net": 9.65,
+          "sl": 159,
+          "tp": 37,
+          "mdd": 0.0006,
+          "blockN": 196,
+          "blockPf": 2.023,
+          "relF": 0.64,
+          "ms": 371
+        },
+        "axis+block-both": {
+          "pf": 2.023,
+          "wr": 0.5,
+          "n": 196,
+          "net": 9.65,
+          "sl": 159,
+          "tp": 37,
+          "mdd": 0.0006,
+          "blockN": 196,
+          "blockPf": 2.023,
+          "relF": 0.64,
+          "ms": 366
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0,
+          "dNet": 0,
+          "better": false
+        },
+        "block-shared": {
+          "dPf": 0.427,
+          "dNet": 2.068,
+          "better": true
+        },
+        "block-additive": {
+          "dPf": 0.212,
+          "dNet": 3.401,
+          "better": true
+        },
+        "block-both": {
+          "dPf": 0.583,
+          "dNet": 7.501,
+          "better": true
+        },
+        "axis+block-both": {
+          "dPf": 0.583,
+          "dNet": 7.501,
+          "better": true
+        }
+      }
+    },
+    {
+      "key": "t1.7 axis/atr tp0.45/sl1.25",
+      "scoutPf": 1.163,
+      "trail": 1.7,
+      "tactic": "axis",
+      "range": "atr",
+      "tpAtr": 0.45,
+      "slOfTp": 1.25,
+      "modes": {
+        "base": {
+          "pf": 1.501,
+          "wr": 0.532,
+          "n": 190,
+          "net": 2.385,
+          "sl": 149,
+          "tp": 41,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 247
+        },
+        "axis": {
+          "pf": 1.501,
+          "wr": 0.532,
+          "n": 190,
+          "net": 2.385,
+          "sl": 149,
+          "tp": 41,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 236
+        },
+        "block-shared": {
+          "pf": 1.799,
+          "wr": 0.521,
+          "n": 192,
+          "net": 4.073,
+          "sl": 155,
+          "tp": 37,
+          "mdd": 0.0003,
+          "blockN": 192,
+          "blockPf": 1.799,
+          "relF": 0,
+          "ms": 337
+        },
+        "block-additive": {
+          "pf": 1.666,
+          "wr": 0.524,
+          "n": 185,
+          "net": 5.399,
+          "sl": 148,
+          "tp": 37,
+          "mdd": 0.0003,
+          "blockN": 185,
+          "blockPf": 1.666,
+          "relF": 0.64,
+          "ms": 322
+        },
+        "block-both": {
+          "pf": 2.057,
+          "wr": 0.515,
+          "n": 200,
+          "net": 9.786,
+          "sl": 158,
+          "tp": 42,
+          "mdd": 0.0005,
+          "blockN": 200,
+          "blockPf": 2.057,
+          "relF": 0.64,
+          "ms": 413
+        },
+        "axis+block-both": {
+          "pf": 2.057,
+          "wr": 0.515,
+          "n": 200,
+          "net": 9.786,
+          "sl": 158,
+          "tp": 42,
+          "mdd": 0.0005,
+          "blockN": 200,
+          "blockPf": 2.057,
+          "relF": 0.64,
+          "ms": 359
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0,
+          "dNet": 0,
+          "better": false
+        },
+        "block-shared": {
+          "dPf": 0.298,
+          "dNet": 1.688,
+          "better": true
+        },
+        "block-additive": {
+          "dPf": 0.165,
+          "dNet": 3.014,
+          "better": true
+        },
+        "block-both": {
+          "dPf": 0.556,
+          "dNet": 7.401,
+          "better": true
+        },
+        "axis+block-both": {
+          "dPf": 0.556,
+          "dNet": 7.401,
+          "better": true
+        }
+      }
+    },
+    {
+      "key": "t1.7 trailing/atr tp0.35/sl1.5",
+      "scoutPf": 1.123,
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "atr",
+      "tpAtr": 0.35,
+      "slOfTp": 1.5,
+      "modes": {
+        "base": {
+          "pf": 1.346,
+          "wr": 0.682,
+          "n": 371,
+          "net": 4.907,
+          "sl": 299,
+          "tp": 72,
+          "mdd": 0.0004,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 278
+        },
+        "axis": {
+          "pf": 1.538,
+          "wr": 0.516,
+          "n": 190,
+          "net": 2.359,
+          "sl": 152,
+          "tp": 38,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 213
+        },
+        "block-shared": {
+          "pf": 1.411,
+          "wr": 0.684,
+          "n": 383,
+          "net": 6.466,
+          "sl": 308,
+          "tp": 75,
+          "mdd": 0.0005,
+          "blockN": 383,
+          "blockPf": 1.411,
+          "relF": 0,
+          "ms": 449
+        },
+        "block-additive": {
+          "pf": 1.333,
+          "wr": 0.668,
+          "n": 388,
+          "net": 8.411,
+          "sl": 316,
+          "tp": 72,
+          "mdd": 0.0004,
+          "blockN": 388,
+          "blockPf": 1.333,
+          "relF": 0.64,
+          "ms": 455
+        },
+        "block-both": {
+          "pf": 1.403,
+          "wr": 0.676,
+          "n": 407,
+          "net": 20.933,
+          "sl": 334,
+          "tp": 73,
+          "mdd": 0.0007,
+          "blockN": 407,
+          "blockPf": 1.403,
+          "relF": 0.64,
+          "ms": 535
+        },
+        "axis+block-both": {
+          "pf": 1.841,
+          "wr": 0.531,
+          "n": 207,
+          "net": 7.864,
+          "sl": 161,
+          "tp": 46,
+          "mdd": 0.0005,
+          "blockN": 207,
+          "blockPf": 1.841,
+          "relF": 0.64,
+          "ms": 378
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0.192,
+          "dNet": -2.548,
+          "better": false
+        },
+        "block-shared": {
+          "dPf": 0.065,
+          "dNet": 1.559,
+          "better": false
+        },
+        "block-additive": {
+          "dPf": -0.013,
+          "dNet": 3.504,
+          "better": false
+        },
+        "block-both": {
+          "dPf": 0.057,
+          "dNet": 16.026,
+          "better": false
+        },
+        "axis+block-both": {
+          "dPf": 0.495,
+          "dNet": 2.957,
+          "better": true
+        }
+      }
+    },
+    {
+      "key": "t1.7 hybrid/fibonacci tp0.65/sl1.25",
+      "scoutPf": 1.038,
+      "trail": 1.7,
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "tpAtr": 0.65,
+      "slOfTp": 1.25,
+      "modes": {
+        "base": {
+          "pf": 0.943,
+          "wr": 0.523,
+          "n": 325,
+          "net": 16.394,
+          "sl": 297,
+          "tp": 28,
+          "mdd": 0.0004,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 319
+        },
+        "axis": {
+          "pf": 1.414,
+          "wr": 0.547,
+          "n": 181,
+          "net": 2.859,
+          "sl": 141,
+          "tp": 39,
+          "mdd": 0.0003,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 256
+        },
+        "block-shared": {
+          "pf": 0.997,
+          "wr": 0.51,
+          "n": 359,
+          "net": 19.64,
+          "sl": 330,
+          "tp": 28,
+          "mdd": 0.0004,
+          "blockN": 111,
+          "blockPf": 1.491,
+          "relF": 0,
+          "ms": 590
+        },
+        "block-additive": {
+          "pf": 1.097,
+          "wr": 0.525,
+          "n": 360,
+          "net": 20.458,
+          "sl": 325,
+          "tp": 35,
+          "mdd": 0.0007,
+          "blockN": 115,
+          "blockPf": 1.416,
+          "relF": 0.64,
+          "ms": 576
+        },
+        "block-both": {
+          "pf": 1.145,
+          "wr": 0.503,
+          "n": 378,
+          "net": 36.219,
+          "sl": 350,
+          "tp": 27,
+          "mdd": 0.001,
+          "blockN": 117,
+          "blockPf": 1.475,
+          "relF": 0.64,
+          "ms": 528
+        },
+        "axis+block-both": {
+          "pf": 1.205,
+          "wr": 0.503,
+          "n": 197,
+          "net": 5.101,
+          "sl": 156,
+          "tp": 39,
+          "mdd": 0.0014,
+          "blockN": 87,
+          "blockPf": 1.283,
+          "relF": 0.64,
+          "ms": 363
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0.471,
+          "dNet": -13.535,
+          "better": false
+        },
+        "block-shared": {
+          "dPf": 0.054,
+          "dNet": 3.246,
+          "better": false
+        },
+        "block-additive": {
+          "dPf": 0.154,
+          "dNet": 4.064,
+          "better": true
+        },
+        "block-both": {
+          "dPf": 0.202,
+          "dNet": 19.825,
+          "better": true
+        },
+        "axis+block-both": {
+          "dPf": 0.262,
+          "dNet": -11.293,
+          "better": false
+        }
+      }
+    },
+    {
+      "key": "t1.7 trailing/fibonacci tp0.35/sl1.5",
+      "scoutPf": 1.222,
+      "trail": 1.7,
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "tpAtr": 0.35,
+      "slOfTp": 1.5,
+      "modes": {
+        "base": {
+          "pf": 1.323,
+          "wr": 0.686,
+          "n": 347,
+          "net": 8.263,
+          "sl": 286,
+          "tp": 61,
+          "mdd": 0.0003,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 256
+        },
+        "axis": {
+          "pf": 1.432,
+          "wr": 0.516,
+          "n": 182,
+          "net": 1.998,
+          "sl": 148,
+          "tp": 34,
+          "mdd": 0.0002,
+          "blockN": 0,
+          "blockPf": 0,
+          "relF": 0,
+          "ms": 211
+        },
+        "block-shared": {
+          "pf": 1.285,
+          "wr": 0.653,
+          "n": 349,
+          "net": 4.373,
+          "sl": 287,
+          "tp": 62,
+          "mdd": 0.0005,
+          "blockN": 349,
+          "blockPf": 1.285,
+          "relF": 0,
+          "ms": 430
+        },
+        "block-additive": {
+          "pf": 1.397,
+          "wr": 0.679,
+          "n": 386,
+          "net": 6.477,
+          "sl": 314,
+          "tp": 72,
+          "mdd": 0.0005,
+          "blockN": 386,
+          "blockPf": 1.397,
+          "relF": 0.64,
+          "ms": 471
+        },
+        "block-both": {
+          "pf": 1.345,
+          "wr": 0.63,
+          "n": 373,
+          "net": 21.334,
+          "sl": 310,
+          "tp": 63,
+          "mdd": 0.0006,
+          "blockN": 373,
+          "blockPf": 1.345,
+          "relF": 0.64,
+          "ms": 529
+        },
+        "axis+block-both": {
+          "pf": 1.759,
+          "wr": 0.505,
+          "n": 200,
+          "net": 7.424,
+          "sl": 160,
+          "tp": 40,
+          "mdd": 0.0005,
+          "blockN": 200,
+          "blockPf": 1.759,
+          "relF": 0.64,
+          "ms": 374
+        }
+      },
+      "lift": {
+        "axis": {
+          "dPf": 0.109,
+          "dNet": -6.265,
+          "better": false
+        },
+        "block-shared": {
+          "dPf": -0.038,
+          "dNet": -3.89,
+          "better": false
+        },
+        "block-additive": {
+          "dPf": 0.074,
+          "dNet": -1.786,
+          "better": false
+        },
+        "block-both": {
+          "dPf": 0.022,
+          "dNet": 13.071,
+          "better": false
+        },
+        "axis+block-both": {
+          "dPf": 0.436,
+          "dNet": -0.839,
+          "better": false
+        }
+      }
+    }
+  ]
+}
