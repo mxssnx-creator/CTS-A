@@ -241,12 +241,12 @@ export const X01_DEFAULTS = {
   slAtrMin: 0.4,
   tpRatioMin: 0.6,
   volumeRatio: 0.08,
-  counts: [1, 2] as number[],
-  maxMultiple: 2,
+  counts: [1, 2, 3, 4, 5, 6] as number[],
+  maxMultiple: 6,
   sides: "both" as const,
 };
 
-export const LIVE_BLOCK_COUNTS = [1, 2, 4, 8] as const;
+export const LIVE_BLOCK_COUNTS = [1, 2, 3, 4, 5, 6] as const;
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
   minPf: 2,
@@ -268,13 +268,13 @@ export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
   maxHoldTicks: 16,
 };
 
-export const BLOCK_POS_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+export const BLOCK_POS_COUNTS = [1, 2, 3, 4, 5, 6] as const;
 export const BLOCK_STACK_COUNTS = [1, 2] as const;
 export const BLOCK_COUNTS = [...BLOCK_STACK_COUNTS];
 
 export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   enabled: true,
-  maxMultiple: 8,
+  maxMultiple: 6,
   minMultiple: 1,
   addOnWin: true,
   flattenConflict: false,
@@ -286,7 +286,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: 0,
-  evalPosCount: 8,
+  evalPosCount: 6,
   activeLive: true,
   minActiveLevel: 0,
   keepAdjusted: true,
@@ -299,7 +299,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   relAdditive: true,
   relVolumeRatio: 0.08,
   minRelPf: 1.6,
-  evalLastNs: [1, 2, 4, 8],
+  evalLastNs: [1, 2, 3, 4, 5, 6],
   liveLastN: 12,
   liveDisable: true,
   liveDisableMinPf: 1.1,
@@ -324,7 +324,7 @@ export function additiveBlockQty(
   relVolumeRatio = 0,
 ) {
   const vr = Math.max(0, volumeRatio);
-  const live = [...new Set(counts.map((n) => Math.round(n)).filter((n) => n >= 1 && n <= 8))].sort((a, b) => a - b);
+  const live = [...new Set(counts.map((n) => Math.round(n)).filter((n) => n >= 1 && n <= 6))].sort((a, b) => a - b);
   const step = baseQty * vr;
   const steps = live.map((n) => ({ n, step, cap: n * vr * baseQty }));
   const totalSteps = live.length * step;

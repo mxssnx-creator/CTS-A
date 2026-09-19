@@ -72,7 +72,7 @@ for (const vr of [0.4, 0.8]) {
       const block = {
         ...DEFAULT_BLOCK_CONFIG,
         counts: COUNTS,
-        maxMultiple: 8,
+        maxMultiple: 6,
         volumeRatio: vr,
         relVolumeRatio: vr,
         pauseCountRatio: pause,

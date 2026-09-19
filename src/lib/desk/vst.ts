@@ -1801,14 +1801,14 @@ function blockModeOf(o: { note?: string }): "shared" | "additive" {
 }
 
 function liveBlockCounts(block: BlockConfig) {
-  const cap = Math.max(1, Math.min(16, Math.round(block.maxMultiple || 2)));
-  const raw = Array.isArray(block.counts) && block.counts.length ? block.counts : [1, 2];
+  const cap = Math.max(1, Math.min(6, Math.round(block.maxMultiple || 2)));
+  const raw = Array.isArray(block.counts) && block.counts.length ? block.counts : [1, 2, 3];
   return [...new Set(raw.map((n) => Math.round(n)).filter((n) => n >= 1 && n <= cap))].sort((a, b) => a - b);
 }
 
 function evalBlockNs(block?: BlockConfig) {
   if (block && block.windows === false) return [];
-  const cap = Math.min(16, Math.max(1, Math.round(block?.evalPosCount || 6)));
+  const cap = Math.min(6, Math.max(1, Math.round(block?.evalPosCount || 6)));
   return Array.from({ length: cap }, (_, i) => i + 1);
 }
 
@@ -2008,7 +2008,7 @@ const MINOR_REL = new Set(["cfg", "sub", "combo"]);
 
 export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BLOCK_CONFIG) {
   const ns = (block.evalLastNs?.length ? block.evalLastNs : [1, 2, 3, 4, 5, 6])
-    .map((n) => Math.max(1, Math.min(8, Math.round(n))));
+    .map((n) => Math.max(1, Math.min(6, Math.round(n))));
   const minPf = block.minRelPf ?? 1.6;
   const vr = Math.min(2, Math.max(0.05, block.relVolumeRatio ?? block.volumeRatio ?? 0.4));
   const maps = e.blockRelWindows ?? {};
@@ -2326,6 +2326,13 @@ function recordBlockClose(e: VstEngine, p: LivePosition, pnl: number) {
   }
 }
 
+function blockCountPositive(e: VstEngine, n: number, minPf: number) {
+  if (n < 1 || n > 6) return false;
+  const w = e.blockWindows?.[n];
+  if (!w || w.closed < Math.max(3, n)) return n <= 3;
+  return w.lastPf + 1e-9 >= minPf;
+}
+
 function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minPf: number) {
   if ((lane.pauseRemaining[count] || 0) > 0) {
     lane.pauseRemaining[count] -= 1;
@@ -2479,6 +2486,7 @@ export function adjustActiveBlocks(
         for (const next of counts) {
           if (adds >= addCap || modeAdds >= counts.length) break;
           if (next < minM || next > maxM) continue;
+          if (!blockCountPositive(e, next, minPf)) continue;
           if (next <= (block.minActiveLevel || 0)) continue;
           if (lane.satisfied[next] || liveLevels.has(next) || lane.pending === next) continue;
           if (lane.confirmedAdd + 1e-12 >= lane.baseQty * (mode === "additive" ? next * vr : blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 1.8, mode))) continue;

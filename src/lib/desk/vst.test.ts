@@ -1458,10 +1458,10 @@ describe("VST engine", () => {
     assert.equal(X01_DEFAULTS.slAtrMin, 0.4);
     assert.equal(X01_DEFAULTS.tpRatioMin, 0.6);
     assert.equal(DEFAULT_BLOCK_CONFIG.evalHours, 2);
-    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2, 4, 8]);
-    assert.deepEqual(DEFAULT_BLOCK_CONFIG.evalLastNs, [1, 2, 4, 8]);
-    assert.equal(DEFAULT_BLOCK_CONFIG.maxMultiple, 8);
-    assert.equal(DEFAULT_BLOCK_CONFIG.evalPosCount, 8);
+    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(DEFAULT_BLOCK_CONFIG.evalLastNs, [1, 2, 3, 4, 5, 6]);
+    assert.equal(DEFAULT_BLOCK_CONFIG.maxMultiple, 6);
+    assert.equal(DEFAULT_BLOCK_CONFIG.evalPosCount, 6);
     assert.equal(DEFAULT_BLOCK_CONFIG.pauseCountRatio, 0);
     assert.equal(DEFAULT_BLOCK_CONFIG.keepAdjusted, true);
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
@@ -1556,13 +1556,13 @@ describe("VST engine", () => {
     assert.ok(winOnly.engine.blockWindows[6].closed >= 0);
   });
 
-  it("all Block counts 1-8 additive pause/keep volume are independent", () => {
-    assert.deepEqual([...BLOCK_POS_COUNTS], [1, 2, 3, 4, 5, 6, 7, 8]);
+  it("all Block counts 1-6 additive pause/keep volume are independent", () => {
+    assert.deepEqual([...BLOCK_POS_COUNTS], [1, 2, 3, 4, 5, 6]);
     for (const vr of [0.4, 0.8]) {
       const q = additiveBlockQty(1.2, BLOCK_POS_COUNTS, vr, 3, vr);
-      assert.equal(q.n, 8);
+      assert.equal(q.n, 6);
       assert.ok(Math.abs(q.step - 1.2 * vr) < 1e-9, `step ${q.step}`);
-      assert.ok(Math.abs(q.totalSteps - 8 * 1.2 * vr) < 1e-9, `steps ${q.totalSteps}`);
+      assert.ok(Math.abs(q.totalSteps - 6 * 1.2 * vr) < 1e-9, `steps ${q.totalSteps}`);
       assert.ok(Math.abs(q.relExtra - 3 * vr * 1.2) < 1e-9, `rel ${q.relExtra}`);
       for (const s of q.steps) {
         assert.ok(Math.abs(s.step - 1.2 * vr) < 1e-9);
@@ -1587,14 +1587,14 @@ describe("VST engine", () => {
           block: {
             ...DEFAULT_BLOCK_CONFIG,
             counts: [...BLOCK_POS_COUNTS],
-            maxMultiple: 8,
+            maxMultiple: 6,
             volumeRatio: vr,
             relVolumeRatio: vr,
             pauseCountRatio: 1,
             keepAdjusted: keep,
             volumeMode: "additive",
-            evalPosCount: 8,
-            evalLastNs: [1, 2, 3, 4, 5, 6, 7, 8],
+            evalPosCount: 6,
+            evalLastNs: [1, 2, 3, 4, 5, 6],
           },
         });
         assert.ok(r.report.passed, `vr ${vr} keep ${keep}`);
