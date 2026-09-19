@@ -19,9 +19,12 @@ import type { StrategyKind } from "@/lib/desk/types";
 import { fmtNum, fmtUsd } from "@/lib/utils";
 import { EquityChart } from "../charts";
 import { Field, fmtMdd, fmtPf, fmtWr, Panel, pfTone, Pill, Segmented, StatLine } from "../widgets";
+import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
 import { LiveBookStrip } from "../live-book-strip";
 
 export function StrategiesView() {
+  usePreserveScroll();
+  const liveSnap = useLiveSnapshot();
   const symbol = useDesk((s) => s.symbol);
   const strategyId = useDesk((s) => s.strategyId);
   const setStrategy = useDesk((s) => s.setStrategy);
@@ -72,6 +75,42 @@ export function StrategiesView() {
       </div>
 
       <LiveBookStrip />
+
+      {(() => {
+        const live = liveSnap.overall as {
+          byTactic?: { key: string; n: number; pf: number; openN?: number }[];
+          byPlaybook?: { key: string; n: number; pf: number; openN?: number }[];
+        } | null;
+        const tacs = ["trailing", "axis", "hybrid"] as const;
+        const books = ["normal", "axis", "block"] as const;
+        return (
+          <Panel title="Live tactics · independent">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {tacs.map((k) => {
+                const b = (live?.byTactic ?? []).find((r) => r.key === k);
+                return (
+                  <div key={k} className="border border-border bg-surface-muted/40 p-3">
+                    <div className="text-xs uppercase tracking-widest text-subtle">{k}</div>
+                    <div className="mt-1 text-lg font-semibold tabular">{fmtPf(b?.pf ?? 0)}</div>
+                    <div className="text-xs text-muted">open {b?.openN ?? 0} · n {b?.n ?? 0}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {books.map((k) => {
+                const b = (live?.byPlaybook ?? []).find((r) => r.key === k);
+                return (
+                  <Pill key={k} tone={(b?.openN ?? 0) > 0 ? "up" : "neutral"}>
+                    {k} open {b?.openN ?? 0}
+                  </Pill>
+                );
+              })}
+              <Pill>DCA off</Pill>
+            </div>
+          </Panel>
+        );
+      })()}
 
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-subtle">Strategy types</p>

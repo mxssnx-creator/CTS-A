@@ -105,6 +105,7 @@ import {
   isDeskConn,
   classifyIndication,
   openPlaybook,
+  tacticForIndication,
   indicationProtect,
   pickIndicationRange,
   playbookOf,
@@ -1195,6 +1196,55 @@ describe("VST engine", () => {
       seen.add(classifyIndication(e, id));
     }
     assert.ok(seen.size >= 3, `kinds ${[...seen]}`);
+  });
+
+  it("applies trailing, axis and hybrid independently of the cycle tactic", () => {
+    assert.equal(openPlaybook("axis", "trend"), "axis");
+    assert.equal(openPlaybook("trailing", "trend"), "normal");
+    assert.equal(openPlaybook("hybrid", "break"), "normal");
+    assert.equal(openPlaybook("dca", "active"), "dca");
+    assert.equal(tacticForIndication("direction"), "axis");
+    assert.equal(tacticForIndication("trend"), "trailing");
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    const q = e.quotes.BTCUSDT;
+    q.px = 100;
+    q.axis = 100;
+    q.atr = 1;
+    q.hi = 103;
+    q.lo = 99;
+    q.chg = 0.01;
+    const trail = {
+      id: "p-trail",
+      connId: VST_DEFAULT_CONN,
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      qty: 1,
+      plannedQty: 1,
+      avgEntry: 100,
+      mark: 100,
+      sl: 99,
+      tp: 102,
+      slDist: 1,
+      tpDist: 2,
+      realized: 0,
+      unrealized: 0,
+      legs: [{ orderId: "o1", qty: 1, px: 100 }],
+      controllingRange: "atr" as const,
+      rangeSpacing: 1,
+      status: "open" as const,
+      openedTick: 0,
+      tactic: "trailing" as const,
+      playbook: "normal",
+      peakPx: 100,
+    };
+    const axis = { ...trail, id: "p-axis", tactic: "axis" as const, playbook: "axis", sl: 98.5, tp: 104, peakPx: 100 };
+    e.positions.push(trail, axis);
+    tickVst(e, { ...CFG, trailingPct: 1.2 }, "axis", { skipWalk: true });
+    const t = e.positions.find((p) => p.id === "p-trail")!;
+    assert.ok(t.sl >= 99, `trailing still trails under axis cycle sl=${t.sl}`);
+    tickVst(e, CFG, "trailing", { skipWalk: true });
+    const a = e.positions.find((p) => p.id === "p-axis")!;
+    assert.ok(a.tp <= 104, `axis still tightens under trailing cycle tp=${a.tp}`);
   });
 
   it("short-range holds, timings and activity relations stay correct", () => {

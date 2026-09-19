@@ -998,6 +998,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           indication: ind,
           kind,
           playbook: book,
+          tactic: e.lastTactic,
         });
         qn += 1;
         countPlaced(e);
@@ -1118,12 +1119,18 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
 }
 
 export function openPlaybook(tactic: TacticKind, indication: IndicationId): string {
-  if (tactic === "dca") return "normal";
+  if (tactic === "dca") return "dca";
   if (tactic === "axis") return "axis";
   if (indication === "break") return "normal";
   if (indication === "active") return "normal";
-  if (indication === "direction") return "normal";
+  if (indication === "direction") return "axis";
   return "normal";
+}
+
+export function tacticForIndication(id: IndicationId): TacticKind {
+  if (id === "direction") return "axis";
+  if (id === "break" || id === "active") return "hybrid";
+  return "trailing";
 }
 
 export function kindFromIndication(id: IndicationId, playbook: string, tactic: TacticKind): StrategyKind {
@@ -1132,7 +1139,7 @@ export function kindFromIndication(id: IndicationId, playbook: string, tactic: T
   if (id === "trend") return "trend";
   if (id === "break") return "breakout";
   if (id === "active") return "active";
-  if (id === "direction") return "hybrid";
+  if (id === "direction") return "mean";
   if (tactic === "hybrid") return "hybrid";
   if (tactic === "axis") return "mean";
   if (tactic === "dca") return "volume";
@@ -1208,7 +1215,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       rangeSpacing: Math.abs(o.price - (e.quotes[o.symbol]?.axis ?? o.price)),
       status: "partial",
       openedTick: e.tick,
-      tactic: e.lastTactic,
+      tactic: o.tactic ?? e.lastTactic,
       indication: o.indication ?? classifyIndication(e, o.symbol),
       kind: o.kind ?? kindFromIndication(o.indication ?? classifyIndication(e, o.symbol), playbookOf(e, o), e.lastTactic),
       playbook: o.playbook ?? playbookOf(e, o),
@@ -1565,10 +1572,12 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const signed = p.side === "long" ? 1 : -1;
     p.unrealized = (q.px - p.avgEntry) * p.qty * signed;
     const fillRatio = p.plannedQty > 0 ? p.qty / p.plannedQty : 1;
-    const partial = tactic === "axis" ? false : p.status === "partial" || fillRatio < 0.55;
-    if (tactic === "dca" && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
-    if (tactic === "axis" && (p.tactic === "axis" || p.playbook === "axis")) handleAxis(e, p, cfg);
-    if (tactic === "trailing" || tactic === "hybrid") {
+    const ownTactic: TacticKind =
+      p.tactic === "axis" || p.tactic === "trailing" || p.tactic === "hybrid" || p.tactic === "dca" ? p.tactic : tactic;
+    const partial = ownTactic === "axis" ? false : p.status === "partial" || fillRatio < 0.55;
+    if (!opts?.liveTape && ownTactic === "dca" && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
+    if (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid") handleAxis(e, p, cfg);
+    if (ownTactic === "trailing" || ownTactic === "hybrid" || Boolean(opts?.liveTape && ownTactic !== "axis")) {
       const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
       p.peakPx = p.peakPx && p.peakPx > 0
         ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
@@ -3863,14 +3872,16 @@ export function overlayExchangeBook(
     stats.maxOrders = Math.max(Number(stats.maxOrders) || 0, orders.length);
   }
   const openRows = pos.map((p) => {
-    const indication = classifyIndication(e, p.symbol);
-    const playbook = openPlaybook(e.lastTactic ?? "hybrid", indication);
+    const enginePos = e.positions.find((x) => x.symbol === p.symbol && x.side === p.side);
+    const indication = enginePos?.indication ?? classifyIndication(e, p.symbol);
+    const tactic = enginePos?.tactic ?? tacticForIndication(indication);
+    const playbook = enginePos?.playbook ?? openPlaybook(tactic, indication);
     return {
       indication,
-      kind: kindFromIndication(indication, playbook, e.lastTactic),
+      kind: enginePos?.kind ?? kindFromIndication(indication, playbook, tactic),
       playbook,
-      tactic: e.lastTactic,
-      rangeType: e.lastRange,
+      tactic,
+      rangeType: enginePos?.controllingRange ?? pickIndicationRange(e, indication, e.lastRange),
       pnl: Number(p.pnl) || 0,
       symbol: p.symbol,
     };

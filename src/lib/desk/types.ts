@@ -397,6 +397,10 @@ export interface ExchangePosition {
   mark: number;
   pnl: number;
   leverage?: number;
+  tactic?: TacticKind;
+  indication?: IndicationId;
+  playbook?: string;
+  kind?: StrategyKind;
 }
 
 export interface ExchangeOrder {
@@ -575,6 +579,7 @@ export interface LiveOrder {
   indication?: IndicationId;
   kind?: StrategyKind;
   playbook?: string;
+  tactic?: TacticKind;
 }
 
 export interface LivePosition {

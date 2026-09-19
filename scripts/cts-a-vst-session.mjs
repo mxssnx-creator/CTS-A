@@ -30,6 +30,9 @@ import {
   releaseVanished,
   skipLiveSymbol,
   classifyIndication,
+  tacticForIndication,
+  openPlaybook,
+  kindFromIndication,
   applyRealizedSymbolStats,
   overlayLiveExecutions,
   syncLivePartials,
@@ -141,6 +144,7 @@ let lastTrail = { n: 0, ms: 0, at: 0 };
 let lastExec = { n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 };
 let lastPnl = [];
 const lastPostedSl = new Map();
+const lastPostedTp = new Map();
 const lastPeakPx = new Map();
 const lastProtectQty = new Map();
 const bookAvg = { pos: 0, ord: 0, n: 0 };
@@ -1110,6 +1114,77 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       }
     }
   }
+  if (e && posts < 48 && !apiQuiet() && protectGapNow === 0) {
+    const axisNeed = [];
+    for (const p of posByVol) {
+      if (axisNeed.length >= 8) break;
+      if (!isOwnedLeg(p.symbol, p.side)) continue;
+      const q = e.quotes?.[p.symbol];
+      if (!q || !(q.px > 0)) continue;
+      const indication = classifyIndication(e, p.symbol);
+      const tactic = tacticForIndication(indication);
+      if (tactic !== "axis" && tactic !== "hybrid") continue;
+      const key = `${p.symbol}:${p.side}`;
+      if (!hasTp.has(key)) continue;
+      const mark = p.mark || p.entry || q.px;
+      const entry = p.entry || mark;
+      if (!(mark > 0) || !(entry > 0)) continue;
+      const spec = map.get(p.venueSymbol);
+      const spacing = Math.max(q.atr * 0.5, entry * 0.001);
+      const axis = q.axis > 0 ? q.axis : q.px;
+      const risk = Math.max(spacing, Math.abs(entry - mark) * 0.5, q.atr * 0.45);
+      let want = p.side === "long"
+        ? Math.max(axis + spacing * 0.2, entry + risk * 0.95)
+        : Math.min(axis - spacing * 0.2, entry - risk * 0.95);
+      want = snapPx(want, spec);
+      const tpOrd = (grouped.get(key)?.tp || [])[0];
+      const cur = Number(lastPostedTp.get(key) || tpOrd?.price || tpOrd?.stopPrice || 0);
+      const tick = spec?.pxPrec != null ? Math.pow(10, -Math.max(0, spec.pxPrec)) : mark * 1e-4;
+      const minMove = Math.max(tick * 3, mark * 0.0004);
+      const tighter = p.side === "long" ? want < cur - minMove : want > cur + minMove;
+      if (!tighter || !(want > 0)) continue;
+      if (p.side === "long" && !(want > mark)) continue;
+      if (p.side === "short" && !(want < mark)) continue;
+      axisNeed.push({ p, key, spec, mark, want, tpOrd });
+    }
+    const axisOut = await mapLimit(axisNeed, 4, async (row) => {
+      const { p, key, spec, mark, want, tpOrd } = row;
+      const tpId = String(tpOrd?.id || "");
+      if (tpId) {
+        if (!mayCancelOrder(tpOrd)) return null;
+        const c = await cancelOne(tpOrd);
+        if (!c.ok && !/not exist|filled|nothing to cancel|no need/i.test(String(c.error || ""))) return null;
+        hasTp.delete(key);
+      }
+      const qty = snapQtyDown(p.qty, spec);
+      const r = await withLiveBusy(() =>
+        placeSwapOrder({
+          network,
+          connId: CONN,
+          symbol: p.symbol,
+          side: p.side === "long" ? "SELL" : "BUY",
+          positionSide: p.side === "long" ? "LONG" : "SHORT",
+          quantity: qty,
+          type: "TAKE_PROFIT_MARKET",
+          stopPrice: want,
+          workingType: "MARK_PRICE",
+          closePosition: true,
+          reduceOnly: true,
+          confirmLive: true,
+          notional: qty * mark,
+          price: mark,
+        }),
+      );
+      if (r.ok) {
+        lastPostedTp.set(key, want);
+        hasTp.add(key);
+        return `axis tp ${p.symbol}`;
+      }
+      noteApiFail(r);
+      return null;
+    });
+    for (const t of axisOut) if (t) notes.push(t);
+  }
   lastTrail = { n: trailed, ms: Date.now() - trailT0, at: Date.now() };
   const prot = countProtect(lastBook.positions ?? book.positions ?? [], lastBook.orders ?? book.orders ?? []);
   lastBook.sl = prot.sl;
@@ -1175,17 +1250,26 @@ async function mirrorToExchange(e, network, cfg) {
     latencyMs: Number(book.latencyMs) || 0,
     foreignPos: foreignPosN,
     foreignOrd: foreignOrdN,
-    positions: deskPos.map((p) => ({
-      connId: CONN,
-      symbol: p.symbol,
-      venueSymbol: p.venueSymbol,
-      side: p.side,
-      qty: p.qty,
-      entry: p.entry,
-      mark: p.mark,
-      pnl: p.pnl,
-      leverage: Number(p.leverage) || 0,
-    })),
+    positions: deskPos.map((p) => {
+      const indication = e ? classifyIndication(e, p.symbol) : "trend";
+      const tactic = e ? tacticForIndication(indication) : "trailing";
+      const playbook = openPlaybook(tactic, indication);
+      return {
+        connId: CONN,
+        symbol: p.symbol,
+        venueSymbol: p.venueSymbol,
+        side: p.side,
+        qty: p.qty,
+        entry: p.entry,
+        mark: p.mark,
+        pnl: p.pnl,
+        leverage: Number(p.leverage) || 0,
+        indication,
+        tactic,
+        playbook,
+        kind: kindFromIndication(indication, playbook, tactic),
+      };
+    }),
     orders: deskOrd.slice(0, 250).map((o) => ({
       connId: CONN,
       id: String(o.id ?? ""),
