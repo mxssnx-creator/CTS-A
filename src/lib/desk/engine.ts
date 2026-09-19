@@ -274,22 +274,34 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   minActiveLevel: 0,
   stack: true,
   windows: true,
+  volumeMode: "additive",
 };
 
-/** Per-count ratio; never split across live counts. Each valid block adds `ratio` independently. */
-export function sharedBlockVolumeRatio(ratio: number, _liveCount = 1, _extraCap = 1) {
-  return Math.min(5, Math.max(0.05, ratio || 1));
+/** Additive: each count uses `ratio`. Shared (old): extra/n when n>2. */
+export function sharedBlockVolumeRatio(ratio: number, liveCount = 1, extraCap = 1, mode: "additive" | "shared" = "additive") {
+  const vr = Math.min(5, Math.max(0.05, ratio || 1));
+  if (mode !== "shared") return vr;
+  const extra = Math.max(0, extraCap);
+  const n = Math.max(1, liveCount | 0);
+  if (n > 2 && extra > 0 && vr + 1e-12 >= extra) return extra / n;
+  return extra > 0 ? Math.min(vr, extra) : vr;
 }
 
-/** Extra volume units after `count` independent adds: count × ratio. */
 export function blockVolumeIncrement(count: number, volumeRatio: number) {
   if (!(count > 0) || !(volumeRatio > 0)) return 0;
   return Math.trunc(count) * volumeRatio;
 }
 
-/** Cumulative extra / base after `maxStack` independent adds (no shared cap). */
-export function blockMaxAdditionalRatio(maxStack: number, volumeRatio: number, _maxMultiplier = 2.25) {
-  return blockVolumeIncrement(maxStack, volumeRatio);
+export function blockMaxAdditionalRatio(
+  maxStack: number,
+  volumeRatio: number,
+  maxMultiplier = 2.25,
+  mode: "additive" | "shared" = "additive",
+) {
+  const inc = blockVolumeIncrement(maxStack, volumeRatio);
+  if (mode !== "shared") return inc;
+  const cap = Math.min(3, Math.max(1, maxMultiplier || 2.25)) - 1;
+  return Math.min(cap, inc);
 }
 
 export function blockMinimumProfitFactor(defaultMinPf: number, blockPfRatio: number, volumeIncrement: number) {
@@ -298,13 +310,33 @@ export function blockMinimumProfitFactor(defaultMinPf: number, blockPfRatio: num
   return 1 + Math.max(0, defaultMinPf - 1) * bounded * volumeIncrement;
 }
 
-/** Qty for one block count: ratio × base, independent of other counts. */
-export function blockStepQty(baseQty: number, count: number, volumeRatio: number, _maxMultiplier = 2.25, _liveCount = 2, minQty = 0) {
+export function blockStepQty(
+  baseQty: number,
+  count: number,
+  volumeRatio: number,
+  maxMultiplier = 2.25,
+  liveCount = 2,
+  minQty = 0,
+  mode: "additive" | "shared" = "additive",
+) {
   if (!(baseQty > 0) || !(count > 0)) return 0;
-  const vr = sharedBlockVolumeRatio(volumeRatio);
   const floor = Math.max(0, minQty) * 1.08;
-  let step = baseQty * vr;
-  if (step > 0 && floor > 0 && step < floor) step = floor;
+  if (mode !== "shared") {
+    let step = baseQty * sharedBlockVolumeRatio(volumeRatio);
+    if (step > 0 && floor > 0 && step < floor) step = floor;
+    return step;
+  }
+  const vr = sharedBlockVolumeRatio(volumeRatio, liveCount, Math.max(0, maxMultiplier - 1), "shared");
+  let ratio = vr;
+  if (floor > 0 && baseQty > 0) {
+    const need = floor / baseQty;
+    if (need > ratio) ratio = need;
+  }
+  const n = Math.max(1, Math.trunc(count));
+  const cur = baseQty * blockMaxAdditionalRatio(n, ratio, maxMultiplier, "shared");
+  const prev = n <= 1 ? 0 : baseQty * blockMaxAdditionalRatio(n - 1, ratio, maxMultiplier, "shared");
+  const step = Math.max(0, cur - prev);
+  if (step > 0 && floor > 0 && step < floor) return floor;
   return step;
 }
 export const DEFAULT_MAX_HOLD_BARS = 3;

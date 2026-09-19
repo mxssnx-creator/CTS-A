@@ -1015,7 +1015,9 @@ describe("VST engine", () => {
     assert.ok(ladder >= 0);
 
     assert.equal(sharedBlockVolumeRatio(1, 4, 1), 1);
+    assert.equal(sharedBlockVolumeRatio(1, 4, 1, "shared"), 0.25);
     assert.equal(blockMaxAdditionalRatio(3, 1), 3);
+    assert.equal(blockMaxAdditionalRatio(6, 0.25, 2, "shared"), 1);
     assert.equal(blockStepQty(1.2, 1, 1), 1.2);
     assert.equal(blockStepQty(1.2, 2, 1), 1.2);
     assert.equal(blockStepQty(1.2, 3, 1), 1.2);

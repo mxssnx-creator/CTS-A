@@ -1819,7 +1819,7 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   lane.confirmedAdd += take;
   const n = Math.max(1, o.level || lane.pending || 1);
   const vr = DEFAULT_BLOCK_CONFIG.volumeRatio || 1.25;
-  const target = lane.baseQty * blockMaxAdditionalRatio(n, vr);
+  const target = lane.baseQty * blockMaxAdditionalRatio(n, vr, DEFAULT_BLOCK_CONFIG.maxVolumeMultiplier, DEFAULT_BLOCK_CONFIG.volumeMode === "shared" ? "shared" : "additive");
   if (lane.confirmedAdd + 1e-12 >= target) lane.satisfied[n] = true;
   lane.pending = undefined;
   e.lastBlockAt = e.tick;
@@ -1989,7 +1989,8 @@ export function adjustActiveBlocks(
           c >= minM &&
           c > (block.minActiveLevel || 0) &&
           !lane.satisfied[c] &&
-          lane.confirmedAdd + 1e-12 < lane.baseQty * blockMaxAdditionalRatio(c, vr),
+          lane.confirmedAdd + 1e-12 <
+            lane.baseQty * blockMaxAdditionalRatio(c, vr, block.maxVolumeMultiplier || 2.25, block.volumeMode === "shared" ? "shared" : "additive"),
       );
       if (!next) continue;
       if (!blockPfOk(lane, next, block, minPf)) continue;
@@ -2014,7 +2015,15 @@ export function adjustActiveBlocks(
       const q = e.quotes[p.symbol];
       if (!q || finiteOr(q.vol, 0) < MIN_QUOTE_VOL) continue;
       if ((e.cooldown[cooldownKey(conn, p.symbol)] ?? 0) > e.tick) continue;
-      const qty = blockStepQty(lane.baseQty, next, vr);
+      const qty = blockStepQty(
+        lane.baseQty,
+        next,
+        vr,
+        block.maxVolumeMultiplier || 2.25,
+        counts.length,
+        0,
+        block.volumeMode === "shared" ? "shared" : "additive",
+      );
       if (!(qty > 0)) continue;
       const hi = pickRange(q, cfg, rangeType);
       const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);

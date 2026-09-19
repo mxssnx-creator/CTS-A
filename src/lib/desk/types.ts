@@ -263,6 +263,8 @@ export interface BlockConfig {
   stack: boolean;
   /** New type: last-N pos windows 1–16; a losing window adjusts the next N. */
   windows: boolean;
+  /** additive: each count adds ratio×base. shared: old split/cap. */
+  volumeMode?: "additive" | "shared";
 }
 
 export interface BlockAdjustResult {
