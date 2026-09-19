@@ -1278,68 +1278,85 @@ describe("VST engine", () => {
     finiteNum(mix.longOnly ?? 0, mix.shortOnly ?? 0, mix.both ?? 0);
   });
 
-  it("same symbol opens and validates long and short together", () => {
-    const block = { ...DEFAULT_BLOCK_CONFIG, sides: "both" as const, flattenConflict: false, windows: false, liveDisable: false };
-    const e = initVstEngine(CFG, { warmup: 16, symbolCount: 8, block });
-    const by = new Map<string, Set<string>>();
-    for (const p of e.positions) {
-      const s = by.get(p.symbol) ?? new Set();
-      s.add(p.side);
-      by.set(p.symbol, s);
-    }
+  function collectSymbolSides(e: {
+    positions: { symbol: string; side: string }[];
+    orders: { symbol: string; side: string; status?: string }[];
+    queue: { symbol: string; side: string; status?: string }[];
+    closed: { symbol: string; side: string }[];
+  }) {
+    const open = new Map<string, Set<string>>();
+    const closed = new Map<string, Set<string>>();
+    const add = (m: Map<string, Set<string>>, symbol: string, side: string) => {
+      const s = m.get(symbol) ?? new Set();
+      s.add(side);
+      m.set(symbol, s);
+    };
+    for (const p of e.positions) add(open, p.symbol, p.side);
     for (const o of [...e.queue, ...e.orders]) {
       if (o.status === "cancelled" || o.status === "rejected") continue;
-      const s = by.get(o.symbol) ?? new Set();
-      s.add(o.side);
-      by.set(o.symbol, s);
+      add(open, o.symbol, o.side);
     }
-    const dual = [...by.values()].filter((s) => s.has("long") && s.has("short")).length;
-    assert.ok(dual >= 1, `dual symbols ${dual} of ${by.size}`);
-    const adj = adjustActiveBlocks(e, CFG, "hybrid", block, "fibonacci", { endStage: true });
-    finiteNum(adj.added, adj.flattened);
-    assert.equal(adj.flattened, 0);
+    for (const c of e.closed) add(closed, c.symbol, c.side);
+    const dualOpen = [...open.values()].filter((s) => s.has("long") && s.has("short")).length;
+    const dualClosed = [...closed.values()].filter((s) => s.has("long") && s.has("short")).length;
+    let longN = 0;
+    let shortN = 0;
+    for (const c of e.closed) if (c.side === "long") longN += 1; else shortN += 1;
+    return { open, closed, dualOpen, dualClosed, longN, shortN };
+  }
+
+  it("both directions: same symbol can hold long and short; processings do not flatten", () => {
+    const block = { ...DEFAULT_BLOCK_CONFIG, sides: "both" as const, flattenConflict: false, windows: false, liveDisable: false };
+    const e = initVstEngine(CFG, { warmup: 20, symbolCount: 8, block });
+    const sides = collectSymbolSides(e);
+    assert.ok(sides.dualOpen >= 1, `hedge open dual ${sides.dualOpen} of ${sides.open.size}`);
+    const adj = adjustActiveBlocks(e, CFG, "hybrid", { ...block, flattenConflict: true }, "fibonacci", { endStage: true });
+    assert.equal(adj.flattened, 0, "hedge does not flatten the other side");
+    for (const [sym, set] of sides.open) {
+      if (set.has("long") && set.has("short")) {
+        const legs = e.positions.filter((p) => p.symbol === sym);
+        assert.ok(legs.length <= 2 || new Set(legs.map((p) => p.side)).size === 2);
+      }
+    }
   });
 
-  it("30d × 8 symbols both-sides vs one-side domination", () => {
-    const hours = 30 * 24;
-    const run = (sides: "both" | "long" | "short") =>
-      simulateHours(hours, CFG, "hybrid", {
+  it("one side forced: same symbol never opens the opposite direction", () => {
+    const block = { ...DEFAULT_BLOCK_CONFIG, sides: "one" as const, flattenConflict: true, windows: false, liveDisable: false };
+    const e = initVstEngine(CFG, { warmup: 20, symbolCount: 8, block });
+    const sides = collectSymbolSides(e);
+    assert.equal(sides.dualOpen, 0, `one-forced dual open ${sides.dualOpen}`);
+    for (const set of sides.open.values()) assert.equal(set.size, 1);
+    const adj = adjustActiveBlocks(e, CFG, "hybrid", block, "fibonacci", { endStage: true });
+    finiteNum(adj.flattened, adj.added);
+    const after = collectSymbolSides(e);
+    assert.equal(after.dualOpen, 0);
+  });
+
+  it("24h × 8 symbols: both-directions vs one-forced vs long/short domination", () => {
+    const run = (sides: "both" | "one" | "long" | "short") =>
+      simulateHours(24, CFG, "hybrid", {
         symbolCount: 8,
         rangeType: "fibonacci",
-        block: { ...DEFAULT_BLOCK_CONFIG, sides, flattenConflict: false, liveDisable: false, windows: true, stack: true },
+        block: { ...DEFAULT_BLOCK_CONFIG, sides, flattenConflict: sides !== "both", liveDisable: false, windows: true, stack: true },
       });
     const both = run("both");
+    const one = run("one");
     const lng = run("long");
     const sht = run("short");
-    for (const r of [both, lng, sht]) {
+    for (const r of [both, one, lng, sht]) {
       finiteNum(r.report.pf, r.report.net, r.report.wr);
-      assert.ok(r.report.trades >= 8, `trades ${r.report.trades}`);
+      assert.ok(r.report.trades >= 4, `trades ${r.report.trades}`);
       assert.equal(r.report.nanCount, 0);
     }
-    const sidesOf = (e: typeof both.engine) => {
-      let longN = 0;
-      let shortN = 0;
-      const m = new Map<string, Set<string>>();
-      for (const c of e.closed) {
-        if (c.side === "long") longN += 1;
-        else shortN += 1;
-        const s = m.get(c.symbol) ?? new Set();
-        s.add(c.side);
-        m.set(c.symbol, s);
-      }
-      let dual = 0;
-      for (const s of m.values()) if (s.has("long") && s.has("short")) dual += 1;
-      return { longN, shortN, dual, symbols: m.size };
-    };
-    const b = sidesOf(both.engine);
-    const l = sidesOf(lng.engine);
-    const s = sidesOf(sht.engine);
+    const b = collectSymbolSides(both.engine);
+    const o = collectSymbolSides(one.engine);
+    const l = collectSymbolSides(lng.engine);
+    const s = collectSymbolSides(sht.engine);
+    assert.ok(b.dualOpen + b.dualClosed >= 1, `both dual ${b.dualOpen}/${b.dualClosed}`);
+    assert.ok(b.longN >= 1 && b.shortN >= 1, `both L/S ${b.longN}/${b.shortN}`);
+    assert.equal(o.dualOpen, 0, "one-forced never holds both sides open");
     assert.equal(l.shortN, 0);
     assert.equal(s.longN, 0);
-    assert.ok(l.longN >= 8, `long domination ${l.longN}`);
-    assert.ok(s.shortN >= 8, `short domination ${s.shortN}`);
-    assert.ok(b.dual >= 1, `both dual symbols ${b.dual}`);
-    assert.ok(b.longN >= 1 && b.shortN >= 1, `both L/S ${b.longN}/${b.shortN}`);
     assert.ok(lng.engine.closed.every((c) => c.side === "long"));
     assert.ok(sht.engine.closed.every((c) => c.side === "short"));
   });

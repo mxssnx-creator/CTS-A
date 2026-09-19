@@ -265,8 +265,8 @@ export interface BlockConfig {
   windows: boolean;
   /** additive: each count adds ratio×base. shared: old split/cap. parallel: both independent. */
   volumeMode?: "additive" | "shared" | "parallel";
-  /** Restrict Block/arm to one side or hedge both. */
-  sides?: "long" | "short" | "both" | "mixed";
+  /** both = hedge same symbol L+S. one = force a single side. long/short = that side only. mixed = hash split. */
+  sides?: "long" | "short" | "both" | "mixed" | "one";
   /** Recalc relation evals every N hours. */
   evalHours?: number;
   autoEval?: boolean;

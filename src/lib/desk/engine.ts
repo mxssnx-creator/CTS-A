@@ -381,7 +381,7 @@ export function hashStr(s: string): number {
   return h >>> 0;
 }
 
-export function symbolSideSet(symbol: string, mode?: "long" | "short" | "both" | "mixed", signal?: "long" | "short"): ("long" | "short")[] {
+export function symbolSideSet(symbol: string, mode?: "long" | "short" | "both" | "mixed" | "one", signal?: "long" | "short"): ("long" | "short")[] {
   if (mode === "long" || mode === "short") return [mode];
   if (mode === "both") return ["long", "short"];
   if (mode === "mixed") {
@@ -391,6 +391,10 @@ export function symbolSideSet(symbol: string, mode?: "long" | "short" | "both" |
     return ["long", "short"];
   }
   return [signal === "short" ? "short" : "long"];
+}
+
+export function sidesAreHedge(mode?: "long" | "short" | "both" | "mixed" | "one") {
+  return mode === "both" || mode === "mixed";
 }
 
 function sma(src: number[], period: number): number[] {

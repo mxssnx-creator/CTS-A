@@ -916,6 +916,26 @@ export function SettingsView() {
             </Button>
             <Button
               size="sm"
+              variant="primary"
+              className="h-11 sm:h-8"
+              onClick={() => {
+                const order = ["both", "one", "mixed", "long", "short"] as const;
+                const i = order.indexOf((blockCfg.sides as (typeof order)[number]) || "both");
+                setBlockCfg({ sides: order[(i + 1) % order.length] });
+              }}
+            >
+              {blockCfg.sides === "one"
+                ? "One side forced"
+                : blockCfg.sides === "long"
+                  ? "Long only"
+                  : blockCfg.sides === "short"
+                    ? "Short only"
+                    : blockCfg.sides === "mixed"
+                      ? "Mixed hedge"
+                      : "Both directions"}
+            </Button>
+            <Button
+              size="sm"
               variant={blockCfg.activeLive !== false ? "primary" : "secondary"}
               className="h-11 sm:h-8"
               onClick={() => setBlockCfg({ activeLive: !(blockCfg.activeLive !== false) })}

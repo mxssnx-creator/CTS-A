@@ -2265,7 +2265,7 @@ export function adjustActiveBlocks(
     }
   };
 
-  if (block.flattenConflict && block.sides !== "both") {
+  if (block.flattenConflict && block.sides !== "both" && block.sides !== "mixed") {
     const bySym = new Map<string, { long?: (typeof blocks)[0]; short?: (typeof blocks)[0] }>();
     for (const b of blocks) {
       const row = bySym.get(b.symbol) ?? {};
