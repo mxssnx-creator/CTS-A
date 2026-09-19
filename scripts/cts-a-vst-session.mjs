@@ -1096,6 +1096,24 @@ async function main() {
       applyRealizedSymbolStats(engine, rows);
       seededLosers = rows.filter((r) => Number(r.n || r.trades) >= 2 && Number(r.pf) + 1e-9 < LIVE_MIN_PF).length;
     }
+    const rz = prev?.executions?.realized;
+    if (rz && Number(rz.n) > 0) {
+      lastExec = {
+        n: Number(rz.n) || 0,
+        wins: Number(rz.wins) || 0,
+        pf: Number(rz.pf) || 0,
+        wr: Number(rz.wr) || 0,
+        net: Number(rz.net) || 0,
+        ddt: Number(rz.ddt) || 0,
+        mdd: Number(rz.mdd) || 0,
+      };
+      engine.stats.trades = lastExec.n;
+      engine.stats.pf = lastExec.pf;
+      engine.stats.wr = lastExec.wr;
+      engine.stats.net = lastExec.net;
+      engine.ledger.trades = lastExec.n;
+      engine.ledger.wins = lastExec.wins;
+    }
   } catch {
     /* first run */
   }
@@ -1104,6 +1122,7 @@ async function main() {
   applyExecFromSettings(readSettingsPick());
   const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} sym · minPF ${LIVE_MIN_PF}`];
   if (seededLosers) adjustments.push(`seed skip ${seededLosers} loser symbols`);
+  if (lastExec.n) adjustments.push(`seed exec n=${lastExec.n} PF ${lastExec.pf.toFixed(2)}`);
   if (ping.pingOk) adjustments.push(`BingX ${ping.network} ping ok · eq ${ping.equity.toFixed(2)}`);
   else adjustments.push(`BingX ping failed · ${ping.error ?? "auth"} · paper tape`);
   if (ping.pingOk) {
@@ -1173,6 +1192,25 @@ async function main() {
     }
   } catch (err) {
     adjustments.push(`tape first ${err instanceof Error ? err.message : "fail"}`);
+  }
+  if (ping.pingOk) {
+    try {
+      const ex0 = await withTimeout(fetchLiveExecutions({ network: ping.network, connId: CONN, since: started - 3 * 86400000 }), 8000, "exec0");
+      if (ex0.ok && ex0.realized?.n > 0) {
+        lastExec = { ...lastExec, ...ex0.realized };
+        applyRealizedSymbolStats(engine, ex0.bySymbol || []);
+        engine.minPf = LIVE_MIN_PF;
+        engine.stats.trades = lastExec.n;
+        engine.stats.pf = lastExec.pf;
+        engine.stats.wr = lastExec.wr;
+        engine.stats.net = lastExec.net;
+        engine.ledger.trades = lastExec.n;
+        engine.ledger.wins = lastExec.wins;
+        adjustments.push(`exec n=${lastExec.n} PF ${Number(lastExec.pf).toFixed(2)} net ${Number(lastExec.net).toFixed(3)}`);
+      }
+    } catch (err) {
+      adjustments.push(`exec first ${err instanceof Error ? err.message : "fail"}`);
+    }
   }
   requeueFree(engine, pick.cfg, pick.tactic, pick.range, CONN);
   adjustments.push("arm after live tape");
