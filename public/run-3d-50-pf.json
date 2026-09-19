@@ -1,14 +1,14 @@
 {
   "hours": 72,
   "symbols": 50,
-  "ms": 19252,
+  "ms": 18302,
   "thresholds": {
-    "minPf": 1.8,
-    "basePf": 1.1,
-    "axisPf": 1.5,
-    "blockPf": 1.6,
-    "shortPf": 1.2,
-    "shortBasePf": 0.8,
+    "minPf": 1.35,
+    "basePf": 1,
+    "axisPf": 1.15,
+    "blockPf": 1.2,
+    "shortPf": 0.95,
+    "shortBasePf": 0.7,
     "maxMdd": 0.12,
     "minWr": 0.55,
     "minVf": 1.12,
@@ -20,37 +20,37 @@
       "label": "hybrid atr",
       "tactic": "hybrid",
       "range": "atr",
-      "ms": 1349,
-      "pf": 1.008,
-      "wr": 43.7,
-      "n": 387,
-      "net": 27.648,
-      "mdd": 0.0087,
+      "ms": 1153,
+      "pf": 1.267,
+      "wr": 41.1,
+      "n": 411,
+      "net": 52.727,
+      "mdd": 0.01,
       "ddt": 4037,
-      "sl": 357,
-      "tp": 27,
-      "avgOpenPos": 3.46,
-      "avgOrders": 108.15,
-      "avgPartialOrders": 0.9,
-      "avgPartialPos": 3.43,
-      "avgExtraRungs": 78.65,
-      "peakPos": 26,
+      "sl": 376,
+      "tp": 31,
+      "avgOpenPos": 2.95,
+      "avgOrders": 104.24,
+      "avgPartialOrders": 2.43,
+      "avgPartialPos": 2.92,
+      "avgExtraRungs": 74.13,
+      "peakPos": 23,
       "peakOrd": 305,
       "peakPartialOrders": 47,
-      "totalPartialOrders": 1214,
-      "totalExtraRungs": 1276,
+      "totalPartialOrders": 1252,
+      "totalExtraRungs": 1303,
       "relEval": 4320,
       "relVol": 3.2,
       "disabled": 0,
-      "performing": 21,
+      "performing": 31,
       "lastN12": {
         "n": 12,
-        "pf": 0.311,
-        "net": -0.468
+        "pf": 1.867,
+        "net": 0.434
       },
       "lastN40": {
         "n": 40,
-        "pf": 1.451
+        "pf": 2.69
       },
       "h4": {
         "n": 1,
@@ -63,51 +63,51 @@
       "byInd": [
         {
           "k": "trend",
-          "n": 21,
-          "pf": 2.93,
-          "net": 17.674
+          "n": 20,
+          "pf": 1.564,
+          "net": 16.438
         },
         {
           "k": "break",
           "n": 2,
           "pf": 0,
-          "net": -0.505
+          "net": -0.369
         },
         {
           "k": "active",
-          "n": 336,
-          "pf": 0.815,
-          "net": -14.971
+          "n": 359,
+          "pf": 1.172,
+          "net": 8.216
         },
         {
           "k": "direction",
-          "n": 28,
-          "pf": 0.104,
-          "net": -1.475
+          "n": 30,
+          "pf": 0.031,
+          "net": -2.838
         }
       ],
       "byPlay": [
         {
           "k": "block",
-          "n": 387,
-          "pf": 1.008,
-          "net": 0.723
+          "n": 411,
+          "pf": 1.267,
+          "net": 21.447
         }
       ],
       "byTac": [
         {
           "k": "hybrid",
-          "n": 387,
-          "pf": 1.008
+          "n": 411,
+          "pf": 1.267
         }
       ],
       "gates": {
-        "overall": 1.8,
-        "base": 1.1,
-        "axis": 1.5,
-        "block": 1.6,
-        "short": 1.2,
-        "shortBase": 0.8,
+        "overall": 1.35,
+        "base": 1,
+        "axis": 1.15,
+        "block": 1.2,
+        "short": 0.95,
+        "shortBase": 0.7,
         "axisPartial": 1
       }
     },
@@ -115,88 +115,94 @@
       "label": "hybrid fib",
       "tactic": "hybrid",
       "range": "fibonacci",
-      "ms": 977,
-      "pf": 1.584,
-      "wr": 41.1,
-      "n": 404,
-      "net": 161.529,
-      "mdd": 0.0187,
-      "ddt": 4045,
-      "sl": 368,
-      "tp": 36,
-      "avgOpenPos": 3.55,
-      "avgOrders": 112.65,
-      "avgPartialOrders": 5.57,
-      "avgPartialPos": 3.53,
-      "avgExtraRungs": 79.19,
-      "peakPos": 29,
+      "ms": 943,
+      "pf": 1.252,
+      "wr": 41.8,
+      "n": 433,
+      "net": 75.871,
+      "mdd": 0.0231,
+      "ddt": 3907,
+      "sl": 382,
+      "tp": 49,
+      "avgOpenPos": 2,
+      "avgOrders": 101.47,
+      "avgPartialOrders": 4.14,
+      "avgPartialPos": 1.98,
+      "avgExtraRungs": 69.69,
+      "peakPos": 25,
       "peakOrd": 304,
-      "peakPartialOrders": 46,
-      "totalPartialOrders": 1211,
-      "totalExtraRungs": 1218,
+      "peakPartialOrders": 51,
+      "totalPartialOrders": 1270,
+      "totalExtraRungs": 1247,
       "relEval": 4320,
-      "relVol": 2,
+      "relVol": 3.2,
       "disabled": 0,
-      "performing": 19,
+      "performing": 27,
       "lastN12": {
         "n": 12,
-        "pf": 1.145,
-        "net": 0.08
+        "pf": 2.834,
+        "net": 0.821
       },
       "lastN40": {
         "n": 40,
-        "pf": 0.332
+        "pf": 0.064
       },
       "h4": {
-        "n": 2,
-        "pf": 0
+        "n": 1,
+        "pf": 4
       },
       "h12": {
-        "n": 2,
-        "pf": 0
+        "n": 1,
+        "pf": 4
       },
       "byInd": [
         {
           "k": "trend",
-          "n": 22,
-          "pf": 3.914,
-          "net": 63.348
+          "n": 23,
+          "pf": 1.828,
+          "net": 43.232
+        },
+        {
+          "k": "break",
+          "n": 1,
+          "pf": 0,
+          "net": -0.177
         },
         {
           "k": "active",
-          "n": 348,
-          "pf": 0.932,
-          "net": -5.059
+          "n": 371,
+          "pf": 0.819,
+          "net": -11.035
         },
         {
           "k": "direction",
-          "n": 34,
-          "pf": 0.222,
-          "net": -1.067
+          "n": 38,
+          "pf": 0.089,
+          "net": -2.669
         }
       ],
       "byPlay": [
         {
           "k": "block",
-          "n": 404,
-          "pf": 1.584,
-          "net": 57.222
+          "n": 433,
+          "pf": 1.252,
+          "net": 29.35
         }
       ],
       "byTac": [
         {
           "k": "hybrid",
-          "n": 404,
-          "pf": 1.584
+          "n": 433,
+          "pf": 1.252
         }
       ],
       "gates": {
-        "overall": 1.8,
-        "base": 1.1,
-        "axis": 1.5,
-        "block": 1.6,
-        "short": 1.2,
-        "shortBase": 0.8,
+        "overall": 1.35,
+        "base": 1,
+        "axis": 1.15,
+        "block": 1.2,
+        "short": 0.95,
+        "shortBase": 0.7,
         "axisPartial": 1
       }
     },
@@ -204,99 +210,99 @@
       "label": "axis atr",
       "tactic": "axis",
       "range": "atr",
-      "ms": 612,
-      "pf": 2.028,
-      "wr": 51,
-      "n": 202,
-      "net": 75.488,
-      "mdd": 0.0235,
+      "ms": 685,
+      "pf": 0.816,
+      "wr": 45.8,
+      "n": 264,
+      "net": -29.219,
+      "mdd": 0.0263,
       "ddt": 3849,
-      "sl": 156,
-      "tp": 43,
-      "avgOpenPos": 1.21,
-      "avgOrders": 61.54,
-      "avgPartialOrders": 0.84,
-      "avgPartialPos": 1.21,
+      "sl": 198,
+      "tp": 62,
+      "avgOpenPos": 1.24,
+      "avgOrders": 61.5,
+      "avgPartialOrders": 0.77,
+      "avgPartialPos": 1.24,
       "avgExtraRungs": 43.39,
-      "peakPos": 14,
+      "peakPos": 13,
       "peakOrd": 284,
       "peakPartialOrders": 44,
-      "totalPartialOrders": 807,
-      "totalExtraRungs": 1032,
+      "totalPartialOrders": 868,
+      "totalExtraRungs": 1220,
       "relEval": 4320,
       "relVol": 3.2,
       "disabled": 0,
-      "performing": 10,
+      "performing": 24,
       "lastN12": {
         "n": 12,
-        "pf": 3.231,
-        "net": 20.795
+        "pf": 0.221,
+        "net": -0.443
       },
       "lastN40": {
         "n": 40,
-        "pf": 2.77
+        "pf": 1.165
       },
       "h4": {
         "n": 0,
         "pf": 0
       },
       "h12": {
-        "n": 0,
-        "pf": 0
+        "n": 7,
+        "pf": 0.774
       },
       "byInd": [
         {
           "k": "trend",
-          "n": 19,
-          "pf": 8.373,
-          "net": 56.197
+          "n": 18,
+          "pf": 5.571,
+          "net": 50.36
         },
         {
           "k": "break",
-          "n": 15,
-          "pf": 0.104,
-          "net": -1.336
+          "n": 27,
+          "pf": 0.124,
+          "net": -1.733
         },
         {
           "k": "active",
-          "n": 153,
-          "pf": 1.347,
-          "net": 21.8
+          "n": 202,
+          "pf": 0.469,
+          "net": -76.664
         },
         {
           "k": "direction",
-          "n": 15,
-          "pf": 0.202,
-          "net": -1.173
+          "n": 17,
+          "pf": 0.225,
+          "net": -1.182
         }
       ],
       "byPlay": [
         {
           "k": "block",
-          "n": 202,
-          "pf": 2.028,
-          "net": 75.488
+          "n": 264,
+          "pf": 0.816,
+          "net": -29.219
         }
       ],
       "byTac": [
         {
           "k": "axis",
-          "n": 131,
-          "pf": 0.332
+          "n": 193,
+          "pf": 0.312
         },
         {
           "k": "hybrid",
           "n": 71,
-          "pf": 2.311
+          "pf": 0.863
         }
       ],
       "gates": {
-        "overall": 1.8,
-        "base": 1.1,
-        "axis": 1.5,
-        "block": 1.6,
-        "short": 1.2,
-        "shortBase": 0.8,
+        "overall": 1.35,
+        "base": 1,
+        "axis": 1.15,
+        "block": 1.2,
+        "short": 0.95,
+        "shortBase": 0.7,
         "axisPartial": 1
       }
     },
@@ -304,99 +310,99 @@
       "label": "axis fib",
       "tactic": "axis",
       "range": "fibonacci",
-      "ms": 568,
-      "pf": 0.503,
-      "wr": 50.8,
-      "n": 193,
-      "net": -119.592,
-      "mdd": 0.0295,
-      "ddt": 4064,
-      "sl": 150,
-      "tp": 40,
-      "avgOpenPos": 0.72,
-      "avgOrders": 58.99,
-      "avgPartialOrders": 0.83,
-      "avgPartialPos": 0.72,
-      "avgExtraRungs": 40.83,
+      "ms": 609,
+      "pf": 1.31,
+      "wr": 45.4,
+      "n": 260,
+      "net": 24.624,
+      "mdd": 0.0124,
+      "ddt": 4063,
+      "sl": 197,
+      "tp": 60,
+      "avgOpenPos": 0.74,
+      "avgOrders": 59.18,
+      "avgPartialOrders": 0.93,
+      "avgPartialPos": 0.74,
+      "avgExtraRungs": 41.04,
       "peakPos": 11,
       "peakOrd": 289,
       "peakPartialOrders": 44,
-      "totalPartialOrders": 740,
-      "totalExtraRungs": 943,
+      "totalPartialOrders": 865,
+      "totalExtraRungs": 1195,
       "relEval": 4320,
       "relVol": 3.2,
       "disabled": 0,
-      "performing": 7,
+      "performing": 25,
       "lastN12": {
         "n": 12,
-        "pf": 1.95,
-        "net": 9.955
+        "pf": 0.234,
+        "net": -0.419
       },
       "lastN40": {
         "n": 40,
-        "pf": 1.51
+        "pf": 1.513
       },
       "h4": {
         "n": 0,
         "pf": 0
       },
       "h12": {
-        "n": 0,
-        "pf": 0
+        "n": 7,
+        "pf": 0.784
       },
       "byInd": [
         {
           "k": "trend",
           "n": 19,
-          "pf": 3.093,
-          "net": 44.263
+          "pf": 4.029,
+          "net": 42.826
         },
         {
           "k": "break",
-          "n": 15,
-          "pf": 0.096,
-          "net": -1.546
+          "n": 27,
+          "pf": 0.12,
+          "net": -1.786
         },
         {
           "k": "active",
-          "n": 144,
-          "pf": 0.255,
-          "net": -160.913
+          "n": 197,
+          "pf": 0.75,
+          "net": -15.45
         },
         {
           "k": "direction",
-          "n": 15,
-          "pf": 0.158,
-          "net": -1.396
+          "n": 17,
+          "pf": 0.297,
+          "net": -0.966
         }
       ],
       "byPlay": [
         {
           "k": "block",
-          "n": 193,
-          "pf": 0.503,
-          "net": -119.592
+          "n": 260,
+          "pf": 1.31,
+          "net": 24.624
         }
       ],
       "byTac": [
         {
           "k": "axis",
-          "n": 122,
-          "pf": 0.223
+          "n": 189,
+          "pf": 0.202
         },
         {
           "k": "hybrid",
           "n": 71,
-          "pf": 0.514
+          "pf": 1.521
         }
       ],
       "gates": {
-        "overall": 1.8,
-        "base": 1.1,
-        "axis": 1.5,
-        "block": 1.6,
-        "short": 1.2,
-        "shortBase": 0.8,
+        "overall": 1.35,
+        "base": 1,
+        "axis": 1.15,
+        "block": 1.2,
+        "short": 0.95,
+        "shortBase": 0.7,
         "axisPartial": 1
       }
     },
@@ -404,99 +410,99 @@
       "label": "trailing atr",
       "tactic": "trailing",
       "range": "atr",
-      "ms": 900,
-      "pf": 1.448,
-      "wr": 58.9,
-      "n": 433,
-      "net": 141.601,
-      "mdd": 0.014,
+      "ms": 876,
+      "pf": 1.679,
+      "wr": 60.2,
+      "n": 490,
+      "net": 148.531,
+      "mdd": 0.0156,
       "ddt": 3907,
-      "sl": 339,
-      "tp": 89,
-      "avgOpenPos": 5.74,
-      "avgOrders": 124.01,
-      "avgPartialOrders": 7.14,
-      "avgPartialPos": 5.71,
-      "avgExtraRungs": 89.96,
-      "peakPos": 26,
+      "sl": 367,
+      "tp": 119,
+      "avgOpenPos": 5.11,
+      "avgOrders": 118.78,
+      "avgPartialOrders": 10.07,
+      "avgPartialPos": 5.07,
+      "avgExtraRungs": 85.04,
+      "peakPos": 24,
       "peakOrd": 305,
-      "peakPartialOrders": 51,
-      "totalPartialOrders": 1404,
-      "totalExtraRungs": 1434,
+      "peakPartialOrders": 56,
+      "totalPartialOrders": 1484,
+      "totalExtraRungs": 1444,
       "relEval": 4320,
       "relVol": 3.2,
       "disabled": 0,
-      "performing": 23,
+      "performing": 34,
       "lastN12": {
         "n": 12,
-        "pf": 3.415,
-        "net": 1.04
+        "pf": 0.276,
+        "net": -0.425
       },
       "lastN40": {
         "n": 40,
-        "pf": 6.153
+        "pf": 3.447
       },
       "h4": {
         "n": 1,
         "pf": 0
       },
       "h12": {
-        "n": 5,
-        "pf": 0.115
+        "n": 1,
+        "pf": 0
       },
       "byInd": [
         {
           "k": "trend",
           "n": 22,
-          "pf": 1.942,
-          "net": 34.08
+          "pf": 4.585,
+          "net": 59.497
         },
         {
           "k": "break",
-          "n": 3,
-          "pf": 0.828,
-          "net": -0.035
+          "n": 2,
+          "pf": 0,
+          "net": -0.379
         },
         {
           "k": "active",
-          "n": 377,
-          "pf": 1.156,
-          "net": 8.843
+          "n": 430,
+          "pf": 1.079,
+          "net": 5.94
         },
         {
           "k": "direction",
-          "n": 31,
-          "pf": 0.376,
-          "net": -0.747
+          "n": 36,
+          "pf": 0.4,
+          "net": -1.217
         }
       ],
       "byPlay": [
         {
           "k": "block",
-          "n": 433,
-          "pf": 1.448,
-          "net": 42.141
+          "n": 490,
+          "pf": 1.679,
+          "net": 63.841
         }
       ],
       "byTac": [
         {
           "k": "trailing",
-          "n": 362,
-          "pf": 0.568
+          "n": 419,
+          "pf": 0.532
         },
         {
           "k": "hybrid",
           "n": 71,
-          "pf": 1.791
+          "pf": 2.201
         }
       ],
       "gates": {
-        "overall": 1.8,
-        "base": 1.1,
-        "axis": 1.5,
-        "block": 1.6,
-        "short": 1.2,
-        "shortBase": 0.8,
+        "overall": 1.35,
+        "base": 1,
+        "axis": 1.15,
+        "block": 1.2,
+        "short": 0.95,
+        "shortBase": 0.7,
         "axisPartial": 1
       }
     },
@@ -504,99 +510,99 @@
       "label": "trailing fib",
       "tactic": "trailing",
       "range": "fibonacci",
-      "ms": 899,
-      "pf": 0.384,
-      "wr": 60.1,
-      "n": 476,
-      "net": -20.767,
-      "mdd": 0.02,
-      "ddt": 3653,
-      "sl": 361,
-      "tp": 113,
-      "avgOpenPos": 4.95,
-      "avgOrders": 123.91,
-      "avgPartialOrders": 10.72,
-      "avgPartialPos": 4.92,
-      "avgExtraRungs": 90.77,
-      "peakPos": 28,
+      "ms": 876,
+      "pf": 1.264,
+      "wr": 57.9,
+      "n": 485,
+      "net": 124.333,
+      "mdd": 0.0078,
+      "ddt": 2062,
+      "sl": 365,
+      "tp": 118,
+      "avgOpenPos": 4.06,
+      "avgOrders": 119.9,
+      "avgPartialOrders": 10.84,
+      "avgPartialPos": 4.03,
+      "avgExtraRungs": 84.33,
+      "peakPos": 25,
       "peakOrd": 304,
-      "peakPartialOrders": 45,
-      "totalPartialOrders": 1468,
-      "totalExtraRungs": 1436,
+      "peakPartialOrders": 46,
+      "totalPartialOrders": 1476,
+      "totalExtraRungs": 1443,
       "relEval": 4320,
       "relVol": 3.2,
       "disabled": 0,
-      "performing": 24,
+      "performing": 30,
       "lastN12": {
         "n": 12,
-        "pf": 0.558,
-        "net": -0.196
+        "pf": 0.499,
+        "net": -0.38
       },
       "lastN40": {
         "n": 40,
-        "pf": 1.955
+        "pf": 1.348
       },
       "h4": {
         "n": 1,
-        "pf": 4
+        "pf": 0
       },
       "h12": {
-        "n": 1,
-        "pf": 4
+        "n": 2,
+        "pf": 0.789
       },
       "byInd": [
         {
           "k": "trend",
-          "n": 22,
-          "pf": 0.168,
-          "net": -155.799
+          "n": 23,
+          "pf": 2.457,
+          "net": 23.234
         },
         {
           "k": "break",
-          "n": 2,
+          "n": 1,
           "pf": 0,
-          "net": -0.317
+          "net": -0.202
         },
         {
           "k": "active",
-          "n": 409,
-          "pf": 1.278,
-          "net": 12.605
+          "n": 421,
+          "pf": 1.019,
+          "net": 1.48
         },
         {
           "k": "direction",
-          "n": 43,
-          "pf": 0.365,
-          "net": -0.982
+          "n": 40,
+          "pf": 1.298,
+          "net": 0.472
         }
       ],
       "byPlay": [
         {
           "k": "block",
-          "n": 476,
-          "pf": 0.384,
-          "net": -144.492
+          "n": 485,
+          "pf": 1.264,
+          "net": 24.984
         }
       ],
       "byTac": [
         {
           "k": "trailing",
-          "n": 405,
-          "pf": 0.539
+          "n": 414,
+          "pf": 0.523
         },
         {
           "k": "hybrid",
           "n": 71,
-          "pf": 0.367
+          "pf": 1.579
         }
       ],
       "gates": {
-        "overall": 1.8,
-        "base": 1.1,
-        "axis": 1.5,
-        "block": 1.6,
-        "short": 1.2,
-        "shortBase": 0.8,
+        "overall": 1.35,
+        "base": 1,
+        "axis": 1.15,
+        "block": 1.2,
+        "short": 0.95,
+        "shortBase": 0.7,
         "axisPartial": 1
       }
     }
@@ -606,250 +612,250 @@
       "tactic": "axis",
       "range": "geometric",
       "hours": 72,
-      "pf": 3.201,
-      "n": 189,
-      "net": 120.728,
-      "wr": 0.524,
+      "pf": 2.248,
+      "n": 268,
+      "net": 92.432,
+      "wr": 0.448,
       "ok": true
     },
     {
       "tactic": "axis",
       "range": "volume",
       "hours": 72,
-      "pf": 3.004,
-      "n": 187,
-      "net": 93.877,
-      "wr": 0.513,
-      "ok": true
-    },
-    {
-      "tactic": "axis",
-      "range": "atr",
-      "hours": 72,
-      "pf": 2.028,
-      "n": 202,
-      "net": 75.488,
-      "wr": 0.51,
+      "pf": 2.161,
+      "n": 260,
+      "net": 68.47,
+      "wr": 0.438,
       "ok": true
     },
     {
       "tactic": "trailing",
-      "range": "geometric",
+      "range": "atr",
       "hours": 72,
-      "pf": 1.971,
-      "n": 471,
-      "net": 134.714,
-      "wr": 0.594,
+      "pf": 1.679,
+      "n": 490,
+      "net": 148.531,
+      "wr": 0.602,
       "ok": true
     },
     {
-      "tactic": "hybrid",
-      "range": "volume",
+      "tactic": "trailing",
+      "range": "linear",
       "hours": 72,
-      "pf": 1.695,
-      "n": 436,
-      "net": 102.838,
-      "wr": 0.381,
+      "pf": 1.458,
+      "n": 459,
+      "net": 105.902,
+      "wr": 0.549,
       "ok": true
     },
     {
       "tactic": "hybrid",
       "range": "linear",
       "hours": 72,
-      "pf": 1.601,
-      "n": 409,
-      "net": 105.353,
-      "wr": 0.379,
+      "pf": 1.314,
+      "n": 402,
+      "net": 79.352,
+      "wr": 0.383,
       "ok": true
     },
     {
-      "tactic": "trailing",
-      "range": "volume",
+      "tactic": "axis",
+      "range": "fibonacci",
       "hours": 72,
-      "pf": 1.588,
-      "n": 494,
-      "net": 161.149,
-      "wr": 0.581,
+      "pf": 1.31,
+      "n": 260,
+      "net": 24.624,
+      "wr": 0.454,
       "ok": true
     },
     {
       "tactic": "hybrid",
-      "range": "fibonacci",
+      "range": "atr",
       "hours": 72,
-      "pf": 1.584,
-      "n": 404,
-      "net": 161.529,
+      "pf": 1.267,
+      "n": 411,
+      "net": 52.727,
       "wr": 0.411,
       "ok": true
     },
     {
-      "tactic": "axis",
-      "range": "linear",
-      "hours": 72,
-      "pf": 1.45,
-      "n": 192,
-      "net": 26.809,
-      "wr": 0.474,
-      "ok": true
-    },
-    {
       "tactic": "trailing",
-      "range": "atr",
+      "range": "fibonacci",
       "hours": 72,
-      "pf": 1.448,
-      "n": 433,
-      "net": 141.601,
-      "wr": 0.589,
+      "pf": 1.264,
+      "n": 485,
+      "net": 124.333,
+      "wr": 0.579,
       "ok": true
     },
     {
       "tactic": "hybrid",
-      "range": "atr",
+      "range": "fibonacci",
       "hours": 72,
-      "pf": 1.008,
-      "n": 387,
-      "net": 27.648,
-      "wr": 0.437,
+      "pf": 1.252,
+      "n": 433,
+      "net": 75.871,
+      "wr": 0.418,
+      "ok": true
+    },
+    {
+      "tactic": "axis",
+      "range": "linear",
+      "hours": 72,
+      "pf": 1.241,
+      "n": 254,
+      "net": 15.484,
+      "wr": 0.433,
       "ok": true
     },
     {
       "tactic": "hybrid",
       "range": "geometric",
       "hours": 72,
-      "pf": 0.977,
-      "n": 424,
-      "net": 26.203,
-      "wr": 0.427,
+      "pf": 1.201,
+      "n": 421,
+      "net": 54.626,
+      "wr": 0.413,
+      "ok": true
+    },
+    {
+      "tactic": "hybrid",
+      "range": "volume",
+      "hours": 72,
+      "pf": 1.021,
+      "n": 408,
+      "net": 18.65,
+      "wr": 0.392,
       "ok": true
     },
     {
       "tactic": "trailing",
-      "range": "linear",
+      "range": "geometric",
       "hours": 72,
-      "pf": 0.785,
-      "n": 426,
-      "net": 40.855,
-      "wr": 0.566,
-      "ok": false
-    },
-    {
-      "tactic": "axis",
-      "range": "fibonacci",
-      "hours": 72,
-      "pf": 0.503,
-      "n": 193,
-      "net": -119.592,
-      "wr": 0.508,
-      "ok": false
+      "pf": 0.978,
+      "n": 456,
+      "net": 61.446,
+      "wr": 0.583,
+      "ok": true
     },
     {
       "tactic": "trailing",
-      "range": "fibonacci",
+      "range": "volume",
       "hours": 72,
-      "pf": 0.384,
-      "n": 476,
-      "net": -20.767,
-      "wr": 0.601,
+      "pf": 0.961,
+      "n": 460,
+      "net": 77.953,
+      "wr": 0.587,
+      "ok": true
+    },
+    {
+      "tactic": "axis",
+      "range": "atr",
+      "hours": 72,
+      "pf": 0.816,
+      "n": 264,
+      "net": -29.219,
+      "wr": 0.458,
       "ok": false
     }
   ],
   "winner": {
-    "label": "axis atr",
-    "tactic": "axis",
+    "label": "trailing atr",
+    "tactic": "trailing",
     "range": "atr",
-    "ms": 612,
-    "pf": 2.028,
-    "wr": 51,
-    "n": 202,
-    "net": 75.488,
-    "mdd": 0.0235,
-    "ddt": 3849,
-    "sl": 156,
-    "tp": 43,
-    "avgOpenPos": 1.21,
-    "avgOrders": 61.54,
-    "avgPartialOrders": 0.84,
-    "avgPartialPos": 1.21,
-    "avgExtraRungs": 43.39,
-    "peakPos": 14,
-    "peakOrd": 284,
-    "peakPartialOrders": 44,
-    "totalPartialOrders": 807,
-    "totalExtraRungs": 1032,
+    "ms": 876,
+    "pf": 1.679,
+    "wr": 60.2,
+    "n": 490,
+    "net": 148.531,
+    "mdd": 0.0156,
+    "ddt": 3907,
+    "sl": 367,
+    "tp": 119,
+    "avgOpenPos": 5.11,
+    "avgOrders": 118.78,
+    "avgPartialOrders": 10.07,
+    "avgPartialPos": 5.07,
+    "avgExtraRungs": 85.04,
+    "peakPos": 24,
+    "peakOrd": 305,
+    "peakPartialOrders": 56,
+    "totalPartialOrders": 1484,
+    "totalExtraRungs": 1444,
     "relEval": 4320,
     "relVol": 3.2,
     "disabled": 0,
-    "performing": 10,
+    "performing": 34,
     "lastN12": {
       "n": 12,
-      "pf": 3.231,
-      "net": 20.795
+      "pf": 0.276,
+      "net": -0.425
     },
     "lastN40": {
       "n": 40,
-      "pf": 2.77
+      "pf": 3.447
     },
     "h4": {
-      "n": 0,
+      "n": 1,
       "pf": 0
     },
     "h12": {
-      "n": 0,
+      "n": 1,
       "pf": 0
     },
     "byInd": [
       {
         "k": "trend",
-        "n": 19,
-        "pf": 8.373,
-        "net": 56.197
+        "n": 22,
+        "pf": 4.585,
+        "net": 59.497
       },
       {
         "k": "break",
-        "n": 15,
-        "pf": 0.104,
-        "net": -1.336
+        "n": 2,
+        "pf": 0,
+        "net": -0.379
       },
       {
         "k": "active",
-        "n": 153,
-        "pf": 1.347,
-        "net": 21.8
+        "n": 430,
+        "pf": 1.079,
+        "net": 5.94
       },
       {
         "k": "direction",
-        "n": 15,
-        "pf": 0.202,
-        "net": -1.173
+        "n": 36,
+        "pf": 0.4,
+        "net": -1.217
       }
     ],
     "byPlay": [
       {
         "k": "block",
-        "n": 202,
-        "pf": 2.028,
-        "net": 75.488
+        "n": 490,
+        "pf": 1.679,
+        "net": 63.841
       }
     ],
     "byTac": [
       {
-        "k": "axis",
-        "n": 131,
-        "pf": 0.332
+        "k": "trailing",
+        "n": 419,
+        "pf": 0.532
       },
       {
         "k": "hybrid",
         "n": 71,
-        "pf": 2.311
+        "pf": 2.201
       }
     ],
     "gates": {
-      "overall": 1.8,
-      "base": 1.1,
-      "axis": 1.5,
-      "block": 1.6,
-      "short": 1.2,
-      "shortBase": 0.8,
+      "overall": 1.35,
+      "base": 1,
+      "axis": 1.15,
+      "block": 1.2,
+      "short": 0.95,
+      "shortBase": 0.7,
       "axisPartial": 1
     }
   }

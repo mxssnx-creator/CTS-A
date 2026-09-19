@@ -454,9 +454,9 @@ export function SettingsView() {
           <StatLine k="Next pos N" v={`N${lastNs.next}`} />
           <StatLine k="Combo N" v={`N${lastNs.combos}`} />
           <StatLine k="Overall PF" v={th.minPf.toFixed(2)} />
-          <StatLine k="Base PF" v={(th.basePf ?? 1.1).toFixed(2)} />
-          <StatLine k="Axis PF" v={(th.axisPf ?? 1.5).toFixed(2)} />
-          <StatLine k="Block PF" v={(th.blockPf ?? 1.6).toFixed(2)} />
+          <StatLine k="Base PF" v={(th.basePf ?? 1).toFixed(2)} />
+          <StatLine k="Axis PF" v={(th.axisPf ?? 1.15).toFixed(2)} />
+          <StatLine k="Block PF" v={(th.blockPf ?? 1.2).toFixed(2)} />
           <StatLine k="Max DD" v={`${(th.maxMdd * 100).toFixed(0)}%`} />
           <StatLine k="Min WR" v={`${(th.minWr * 100).toFixed(0)}%`} />
           <StatLine k="Min VF" v={th.minVf.toFixed(2)} />
@@ -879,7 +879,7 @@ export function SettingsView() {
             <RangeKnob
               label="Overall PF"
               value={th.minPf}
-              min={1.1}
+              min={1}
               max={3}
               step={0.05}
               format={(n) => n.toFixed(2)}
@@ -888,8 +888,8 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Base PF"
-              value={th.basePf ?? 1.1}
-              min={1}
+              value={th.basePf ?? 1}
+              min={0.8}
               max={2}
               step={0.05}
               format={(n) => n.toFixed(2)}
@@ -898,8 +898,8 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Axis PF"
-              value={th.axisPf ?? 1.5}
-              min={1.1}
+              value={th.axisPf ?? 1.15}
+              min={0.9}
               max={3}
               step={0.05}
               format={(n) => n.toFixed(2)}
@@ -908,8 +908,8 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Block PF"
-              value={th.blockPf ?? 1.6}
-              min={1.1}
+              value={th.blockPf ?? 1.2}
+              min={0.9}
               max={3}
               step={0.05}
               format={(n) => n.toFixed(2)}
@@ -921,8 +921,8 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Short overall PF"
-              value={th.shortPf ?? 1.2}
-              min={0.8}
+              value={th.shortPf ?? 0.95}
+              min={0.6}
               max={2.5}
               step={0.05}
               format={(n) => n.toFixed(2)}
@@ -931,7 +931,7 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Short base PF"
-              value={th.shortBasePf ?? 0.8}
+              value={th.shortBasePf ?? 0.7}
               min={0.5}
               max={1.5}
               step={0.05}
@@ -1114,13 +1114,13 @@ export function SettingsView() {
                 })}
               </div>
               <span className="text-[11px] text-subtle">
-                5 TP × 3 SL = 15 short combos · overall PF {th.shortPf?.toFixed(2) ?? "1.20"} · base PF {th.shortBasePf?.toFixed(2) ?? "0.80"}
+                5 TP × 3 SL = 15 short combos · overall PF {th.shortPf?.toFixed(2) ?? "0.95"} · base PF {th.shortBasePf?.toFixed(2) ?? "0.70"}
               </span>
             </div>
             <RangeKnob
               label="Short overall PF"
-              value={th.shortPf ?? 1.2}
-              min={0.8}
+              value={th.shortPf ?? 0.95}
+              min={0.6}
               max={2.5}
               step={0.05}
               format={(n) => n.toFixed(2)}
@@ -1130,7 +1130,7 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Short base PF"
-              value={th.shortBasePf ?? 0.8}
+              value={th.shortBasePf ?? 0.7}
               min={0.5}
               max={1.5}
               step={0.05}

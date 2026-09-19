@@ -2380,7 +2380,10 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   const tape = symbolTapePf(e, symbol);
   const thin = Boolean(e.liveTape && (e.liveOpenN ?? 99) < 12);
   if (!thin && tape != null && tape + 1e-9 < liveFloor) return true;
-  if (!thin && st && st.trades >= 6 && st.profit + 1e-12 <= st.loss) return true;
+  if (!thin && st && st.trades >= 6) {
+    const stPf = profitFactor(st.profit, st.loss);
+    if (stPf + 1e-9 < liveFloor) return true;
+  }
   if (!thin && e.liveDisabled?.[`sym:${symbol}`] && (tape == null || tape + 1e-9 < liveFloor)) return true;
   if (e.liveTape && !thin) {
     let liveN = 0;
@@ -2398,7 +2401,7 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
       if (!st || st.trades < 4) return true;
       const pf = tape ?? profitFactor(st.profit, st.loss);
       if (pf + 1e-9 < liveFloor) return true;
-      if (st.profit + 1e-12 <= st.loss) return true;
+      if (st.trades >= 6 && pf + 1e-9 < liveFloor) return true;
     } else if (liveN >= 8 && (!st || st.trades < 2)) {
       return true;
     }
@@ -2420,17 +2423,17 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
     if (last != null && last + 1e-9 < floor) return true;
   }
   const perf = e.performingSymbols;
+  const skipped = e.hourCoord?.skipped ?? [];
+  if (!thin && skipped.includes(symbol)) return true;
   if (!thin && perf && perf.length > 0 && !perf.includes(symbol)) {
-    if (!e.liveTape) return true;
-    if (!st || st.trades < 4) return true;
-    const pf = tape ?? profitFactor(st.profit, st.loss);
-    if (pf + 1e-9 < floor) return true;
+    const pf = tape ?? (st ? profitFactor(st.profit, st.loss) : null);
+    if (st && st.trades >= 4 && pf != null && pf + 1e-9 < floor) return true;
+    if (e.liveTape && st && st.trades >= 4 && pf != null && pf + 1e-9 < floor) return true;
   }
-  if (!thin && (perf?.length ?? 0) > 0 && e.symbolEval?.[symbol]?.hourOk === false) {
-    if (!e.liveTape) return true;
-    if (!st || st.trades < 4) return true;
-    const pf = tape ?? profitFactor(st.profit, st.loss);
-    if (pf + 1e-9 < floor) return true;
+  if (!thin && e.symbolEval?.[symbol]?.hourOk === false) {
+    const pf = tape ?? (st ? profitFactor(st.profit, st.loss) : null);
+    if (pf != null && pf + 1e-9 < floor) return true;
+    if (!e.liveTape && (st?.trades ?? 0) >= 4 && pf != null && pf + 1e-9 < floor) return true;
   }
   if (e.liveDisabled?.[`ind:trend`]) {
     try {
@@ -2493,7 +2496,7 @@ export function refreshSymbolHourEval(
   opts?: { hours?: number; minPf?: number; minN?: number; now?: Date },
 ) {
   const hours = Math.max(4, Math.round(opts?.hours ?? e.blockCfg?.symbolEvalHours ?? SYMBOL_EVAL_HOURS));
-  const minPf = opts?.minPf ?? e.blockCfg?.liveDisableMinPf ?? DEFAULT_MIN_PF;
+  const minPf = opts?.minPf ?? (e.shortRange ? minPfFor(e, "short") : minPfFor(e, "overall"));
   const minN = Math.max(3, Math.round(opts?.minN ?? 6));
   const nowHour = (opts?.now ?? new Date()).getUTCHours();
   const rows = windowHours(e.closed.filter((c) => isDeskConn(c.connId)), e.tick, hours);

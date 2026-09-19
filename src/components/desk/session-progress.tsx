@@ -462,27 +462,27 @@ export function SessionProgress({
           />
         </label>
         <label className="flex min-w-0 flex-col gap-1">
-          <span className="text-xs font-medium text-muted">Axis PF {(th.axisPf ?? 1.5).toFixed(2)}</span>
+          <span className="text-xs font-medium text-muted">Axis PF {(th.axisPf ?? 1.15).toFixed(2)}</span>
           <input
             aria-label="Axis profit factor"
             type="range"
             min={1.1}
             max={3}
             step={0.05}
-            value={th.axisPf ?? 1.5}
+            value={th.axisPf ?? 1.15}
             onChange={(e) => setTh({ axisPf: Number(e.target.value) })}
             className="h-11 sm:h-8"
           />
         </label>
         <label className="flex min-w-0 flex-col gap-1">
-          <span className="text-xs font-medium text-muted">Block PF {(th.blockPf ?? 1.6).toFixed(2)}</span>
+          <span className="text-xs font-medium text-muted">Block PF {(th.blockPf ?? 1.2).toFixed(2)}</span>
           <input
             aria-label="Block profit factor"
             type="range"
             min={1.1}
             max={3}
             step={0.05}
-            value={th.blockPf ?? 1.6}
+            value={th.blockPf ?? 1.2}
             onChange={(e) => setTh({ blockPf: Number(e.target.value) })}
             className="h-11 sm:h-8"
           />
@@ -580,7 +580,7 @@ export function SessionProgress({
             {st.trades} closed · {st.partials} partial
           </Pill>
           <Pill>
-            TP/SL {cfg.tpRatio.toFixed(2)}R · PF {th.minPf}/{th.axisPf ?? 1.5}/{th.blockPf ?? 1.6} · VF≥{th.minVf} · DDT≤{th.maxDdt}
+            TP/SL {cfg.tpRatio.toFixed(2)}R · PF {th.minPf}/{th.axisPf ?? 1.15}/{th.blockPf ?? 1.2} · VF≥{th.minVf} · DDT≤{th.maxDdt}
           </Pill>
         </div>
       </div>

@@ -620,33 +620,33 @@ export function PerformanceView() {
               onChange={(e) => setTh({ minPf: Number(e.target.value) })}
             />
           </Field>
-          <Field label={`Base PF ${(th.basePf ?? 1.1).toFixed(2)}`}>
+          <Field label={`Base PF ${(th.basePf ?? 1).toFixed(2)}`}>
             <input
               type="range"
               min={1}
               max={2}
               step={0.05}
-              value={th.basePf ?? 1.1}
+              value={th.basePf ?? 1}
               onChange={(e) => setTh({ basePf: Number(e.target.value) })}
             />
           </Field>
-          <Field label={`Axis PF ${(th.axisPf ?? 1.5).toFixed(2)}`}>
+          <Field label={`Axis PF ${(th.axisPf ?? 1.15).toFixed(2)}`}>
             <input
               type="range"
               min={1.1}
               max={3}
               step={0.05}
-              value={th.axisPf ?? 1.5}
+              value={th.axisPf ?? 1.15}
               onChange={(e) => setTh({ axisPf: Number(e.target.value) })}
             />
           </Field>
-          <Field label={`Block PF ${(th.blockPf ?? 1.6).toFixed(2)}`}>
+          <Field label={`Block PF ${(th.blockPf ?? 1.2).toFixed(2)}`}>
             <input
               type="range"
               min={1.1}
               max={3}
               step={0.05}
-              value={th.blockPf ?? 1.6}
+              value={th.blockPf ?? 1.2}
               onChange={(e) => setTh({ blockPf: Number(e.target.value) })}
             />
           </Field>

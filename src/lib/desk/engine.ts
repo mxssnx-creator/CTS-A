@@ -478,12 +478,12 @@ export const TACTIC_META: Record<TacticKind, { label: string; blurb: string }> =
   hybrid: { label: "Hybrid", blurb: "Axis entry, DCA fills, trailing exit" },
 };
 
-export const DEFAULT_MIN_PF = 1.8;
-export const DEFAULT_BASE_PF = 1.1;
-export const DEFAULT_AXIS_PF = 1.5;
-export const DEFAULT_BLOCK_PF = 1.6;
-export const DEFAULT_SHORT_PF = 1.2;
-export const DEFAULT_SHORT_BASE_PF = 0.8;
+export const DEFAULT_MIN_PF = 1.35;
+export const DEFAULT_BASE_PF = 1;
+export const DEFAULT_AXIS_PF = 1.15;
+export const DEFAULT_BLOCK_PF = 1.2;
+export const DEFAULT_SHORT_PF = 0.95;
+export const DEFAULT_SHORT_BASE_PF = 0.7;
 export const DEFAULT_BLOCK_VOLUME_RATIO = 0.4;
 export const BLOCK_VOLUME_RATIO_MIN = 0.4;
 export const BLOCK_VOLUME_RATIO_MAX = 1;
