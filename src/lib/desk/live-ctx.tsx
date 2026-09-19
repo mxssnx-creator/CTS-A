@@ -36,6 +36,9 @@ export type LiveNumbers = {
   slots: number;
   liveLong: number;
   liveShort: number;
+  liveLevMin: number;
+  liveLevMax: number;
+  liveLevAvg: number;
   at: number;
   hasLive: boolean;
   conn: string;
@@ -147,6 +150,9 @@ export function liveNumbers(
     slots: num(session?.slots) || livePos,
     liveLong,
     liveShort,
+    liveLevMin: num(session?.liveLevMin),
+    liveLevMax: num(session?.liveLevMax),
+    liveLevAvg: num(session?.liveLevAvg),
     at: payload?.at ?? Date.now(),
     hasLive: Boolean(session || (exchange && exchange.ok)),
     conn,
@@ -186,9 +192,8 @@ function sameSnap(a: LiveNumbers, b: LiveNumbers) {
     a.occupied === b.occupied &&
     a.conn === b.conn &&
     a.network === b.network &&
-    a.tactic === b.tactic &&
-    a.range === b.range &&
-    a.hasLive === b.hasLive &&
+    a.liveLevMax === b.liveLevMax &&
+    a.liveLevMin === b.liveLevMin &&
     a.lastMsg === b.lastMsg
   );
 }

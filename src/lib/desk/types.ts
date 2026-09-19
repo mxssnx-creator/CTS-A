@@ -396,6 +396,7 @@ export interface ExchangePosition {
   entry: number;
   mark: number;
   pnl: number;
+  leverage?: number;
 }
 
 export interface ExchangeOrder {

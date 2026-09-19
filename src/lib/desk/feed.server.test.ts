@@ -12,6 +12,8 @@ import {
   parseBingxJson,
   parseAvailableUsdt,
   parseOpenOrderRow,
+  parsePositionLeverage,
+  pickMaxLeverage,
   signQuery,
   snapQty,
   snapQtyDown,
@@ -45,6 +47,11 @@ describe("live feed", () => {
     assert.equal(maxLeverageOf({ symbol: "BTC-USDT", minQty: 0.001, step: 0.001, qtyPrec: 3, pxPrec: 1, minUsdt: 5, maxLeverage: 150 }), 150);
     assert.equal(maxLeverageOf({ symbol: "PEPE-USDT", minQty: 1, step: 1, qtyPrec: 0, pxPrec: 6, minUsdt: 5, maxLeverage: 50 }), 50);
     assert.equal(maxLeverageOf(null), 125);
+    assert.equal(pickMaxLeverage({ symbol: "BTC-USDT", minQty: 0, step: 1, qtyPrec: 0, pxPrec: 1, minUsdt: 2, maxLeverage: 125 }, { maxLong: 500, maxShort: 500 }), 500);
+    assert.equal(pickMaxLeverage(null, { maxLongLeverage: 75, maxShortLeverage: 50 }), 75);
+    assert.equal(pickMaxLeverage(null, null), 125);
+    assert.equal(parsePositionLeverage({ leverage: "125" }), 125);
+    assert.equal(parsePositionLeverage({ positionLeverage: 75 }), 75);
     assert.equal(isMinSizeError("insufficient margin"), false);
     const down = snapQtyDown(1.0, { symbol: "SOL-USDT", minQty: 0.01, step: 0.01, qtyPrec: 2, pxPrec: 3, minUsdt: 5 });
     assert.ok(down <= 1);

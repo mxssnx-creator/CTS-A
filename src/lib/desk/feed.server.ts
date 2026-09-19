@@ -237,6 +237,38 @@ export function maxLeverageOf(spec?: ContractSpec | null): number {
   return n > 0 ? n : 125;
 }
 
+export type SymbolLeverage = {
+  symbol: string;
+  long: number;
+  short: number;
+  maxLong: number;
+  maxShort: number;
+  max: number;
+};
+
+const levQueryCache = new Map<string, { at: number; row: SymbolLeverage }>();
+const LEV_QUERY_TTL = 15 * 60_000;
+
+export function pickMaxLeverage(
+  spec?: ContractSpec | null,
+  queried?: { max?: number; maxLong?: number; maxShort?: number; maxLongLeverage?: number; maxShortLeverage?: number } | null,
+): number {
+  const q = Math.max(
+    Number(queried?.max) || 0,
+    Number(queried?.maxLong) || 0,
+    Number(queried?.maxShort) || 0,
+    Number(queried?.maxLongLeverage) || 0,
+    Number(queried?.maxShortLeverage) || 0,
+  );
+  if (q > 0) return Math.round(q);
+  return maxLeverageOf(spec);
+}
+
+export function parsePositionLeverage(r: Record<string, unknown>): number {
+  const n = Math.round(num(r.leverage ?? r.positionLeverage ?? r.initialLeverage));
+  return n > 0 ? n : 0;
+}
+
 export function liveExecutionConfig(): LiveExecConfig {
   return { ...liveExec };
 }
@@ -305,39 +337,64 @@ export async function ensureLiveAccountMode(input: {
     if (r.ok) marginArmed.add(mk);
     notes.push(r.ok ? `${marginWant.toLowerCase()} ${venue}` : `margin ${r.error}`);
   }
-  const maxLev = maxLeverageOf(input.spec);
-  const lev = maxLev;
+  const q = await querySymbolLeverage(input.network, input.connId, venue);
+  const lev = pickMaxLeverage(input.spec, q);
   const sides = liveExec.hedgeMode ? (["LONG", "SHORT"] as const) : (["BOTH"] as const);
   for (const side of sides) {
+    const cur = side === "SHORT" ? (q?.short ?? 0) : side === "LONG" ? (q?.long ?? 0) : Math.min(q?.long ?? 0, q?.short ?? 0);
     const lk = `${venue}:${side}:${lev}`;
+    if (cur >= lev && lev > 0) {
+      levArmed.add(lk);
+      continue;
+    }
     if (levArmed.has(lk)) continue;
     const r = await signedTrade(input.network, input.connId, "/openApi/swap/v2/trade/leverage", {
       symbol: venue,
       side,
       leverage: lev,
     });
-    if (r.ok) levArmed.add(lk);
-    notes.push(r.ok ? `lev ${side} ${lev}x` : `lev ${r.error}`);
+    if (r.ok) {
+      levArmed.add(lk);
+      if (q) {
+        if (side === "SHORT" || side === "BOTH") q.short = lev;
+        if (side === "LONG" || side === "BOTH") q.long = lev;
+      }
+    }
+    notes.push(r.ok ? `lev ${side} ${cur || 0}→${lev}x` : `lev ${r.error}`);
   }
   return notes.length ? notes.slice(0, 3).join(" · ") : null;
 }
 
 export async function armMaxLeverage(
   input: { network: "mainnet" | "testnet"; connId?: string; symbols: string[] },
-): Promise<{ n: number; max: number; notes: string[] }> {
+): Promise<{ n: number; max: number; raised: number; notes: string[] }> {
   const map = await fetchContractMap(input.network);
   const notes: string[] = [];
   let n = 0;
   let max = 0;
-  for (const id of input.symbols) {
-    const venue = BINGX_SYMBOL[id] ?? (id.includes("-") ? id : `${id.replace(/USDT$/i, "")}-USDT`);
-    const spec = map.get(venue) ?? { symbol: venue, minQty: 0, step: 1, qtyPrec: 0, pxPrec: 4, minUsdt: 2, maxLeverage: 125 };
-    max = Math.max(max, maxLeverageOf(spec));
-    const msg = await ensureLiveAccountMode({ network: input.network, connId: input.connId, venueSymbol: venue, spec });
-    if (msg) notes.push(msg);
-    n += 1;
+  let raised = 0;
+  const conc = 6;
+  for (let i = 0; i < input.symbols.length; i += conc) {
+    const chunk = input.symbols.slice(i, i + conc);
+    const out = await Promise.all(
+      chunk.map(async (id) => {
+        const venue = BINGX_SYMBOL[id] ?? (id.includes("-") ? id : `${id.replace(/USDT$/i, "")}-USDT`);
+        const spec = map.get(venue) ?? { symbol: venue, minQty: 0, step: 1, qtyPrec: 0, pxPrec: 4, minUsdt: 2, maxLeverage: 125 };
+        const msg = await ensureLiveAccountMode({ network: input.network, connId: input.connId, venueSymbol: venue, spec });
+        const q = await querySymbolLeverage(input.network, input.connId, venue);
+        const cap = pickMaxLeverage(spec, q);
+        const from = Math.min(q?.long || cap, q?.short || cap);
+        return { msg, cap, raised: Boolean(msg && /→/.test(msg)), from };
+      }),
+    );
+    for (const row of out) {
+      n += 1;
+      max = Math.max(max, row.cap);
+      if (row.raised) raised += 1;
+      if (row.msg) notes.push(row.msg);
+    }
   }
-  return { n, max, notes: notes.slice(0, 8) };
+  return { n, max, raised, notes: notes.slice(0, 8) };
 }
 
 export function liftQtyToMin(
@@ -876,6 +933,7 @@ async function signedJson(
   network: "mainnet" | "testnet",
   connId: string,
   path: string,
+  extra?: Record<string, string | number>,
 ): Promise<{ ok: boolean; data?: unknown; ms: number; error?: string }> {
   const { apiKey, secret } = resolveKeys(connId, undefined, undefined);
   if (!apiKey || !secret) return { ok: false, ms: 0, error: "API key and secret required" };
@@ -883,7 +941,7 @@ async function signedJson(
   let ms = 0;
   for (const host of HOSTS[network]) {
     try {
-      const params = { recvWindow: 5000, timestamp: Date.now() };
+      const params = { recvWindow: 5000, timestamp: Date.now(), ...(extra ?? {}) };
       const url = signedUrl(host, path, secret, params);
       const out = await getJson(url, { headers: { "X-BX-APIKEY": apiKey } });
       ms = out.ms;
@@ -895,6 +953,37 @@ async function signedJson(
     }
   }
   return { ok: false, ms, error: last };
+}
+
+export async function querySymbolLeverage(
+  network: "mainnet" | "testnet",
+  connId: string | undefined,
+  venueSymbol: string,
+  opts?: { fresh?: boolean },
+): Promise<SymbolLeverage | null> {
+  const venue = venueSymbol;
+  if (!venue) return null;
+  const ck = `${network}:${connId ?? ""}:${venue}`;
+  const hit = levQueryCache.get(ck);
+  if (!opts?.fresh && hit && Date.now() - hit.at < LEV_QUERY_TTL) return hit.row;
+  const res = await signedJson(network, connId ?? "", "/openApi/swap/v2/trade/leverage", { symbol: venue });
+  if (!res.ok || !res.data || typeof res.data !== "object") return hit?.row ?? null;
+  const d = res.data as Record<string, unknown>;
+  const row: SymbolLeverage = {
+    symbol: venue,
+    long: Math.max(0, Math.round(num(d.longLeverage))),
+    short: Math.max(0, Math.round(num(d.shortLeverage))),
+    maxLong: Math.max(0, Math.round(num(d.maxLongLeverage))),
+    maxShort: Math.max(0, Math.round(num(d.maxShortLeverage))),
+    max: 0,
+  };
+  row.max = pickMaxLeverage(null, row);
+  levQueryCache.set(ck, { at: Date.now(), row });
+  if (row.max > 0 && contractCache?.map.has(venue)) {
+    const spec = contractCache.map.get(venue);
+    if (spec) spec.maxLeverage = row.max;
+  }
+  return row;
 }
 
 export async function fetchExchangeBook(input: {
@@ -946,6 +1035,7 @@ export async function fetchExchangeBook(input: {
         entry: num(r.avgPrice ?? r.entryPrice),
         mark: num(r.markPrice ?? r.avgPrice),
         pnl: num(r.unrealizedProfit ?? r.unrealisedPnl ?? r.pnl),
+        leverage: parsePositionLeverage(r) || undefined,
       });
     }
   }

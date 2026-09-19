@@ -104,7 +104,7 @@ export function PositionsView() {
           <StatLine k="Equity" v={liveSnap.equity ? fmtUsd(liveSnap.equity) : "—"} />
           <StatLine k="Exchange pos" v={String(liveSnap.livePos)} />
           <StatLine k="Exchange orders" v={String(liveSnap.liveOrd)} />
-          <StatLine k="Ping" v={liveSnap.pingOk ? (liveSnap.latencyMs ? `${liveSnap.latencyMs} ms` : "session ok") : "connecting"} />
+          <StatLine k="Leverage" v={liveSnap.liveLevMax ? `${Math.round(liveSnap.liveLevMin)}–${Math.round(liveSnap.liveLevMax)}x` : "max / contract"} />
         </div>
         {!liveSnap.hasLive ? (
           <p className="mt-3 text-sm text-muted">Waiting for BingX account book. Keys stay on the host.</p>
@@ -117,6 +117,7 @@ export function PositionsView() {
                 <span className="font-mono text-xs">{p.symbol.replace("USDT", "")}</span>
                 <span className="capitalize">{p.side}</span>
                 <span className="text-muted">{p.qty}</span>
+                <span className="text-muted">{p.leverage ? `${p.leverage}x` : ""}</span>
                 <span className={clsPnl(p.pnl)}>{fmtUsd(p.pnl)}</span>
               </li>
             ))}

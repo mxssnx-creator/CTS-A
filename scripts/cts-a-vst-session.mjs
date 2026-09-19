@@ -98,6 +98,16 @@ function pickCompleteLock(complete) {
   const best = cells[0];
   return cells.find((c) => PREFERRED_RANGES.has(c.range) && Number(c.pf) + 1e-9 >= Number(best.pf) * 0.9) || best;
 }
+let lastLevBump = 0;
+
+async function raiseOwnedLeverage(network, positions) {
+  const ids = [...new Set((positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side)).map((p) => p.symbol).filter(Boolean))];
+  if (!ids.length) return null;
+  const armed = await armMaxLeverage({ network, connId: CONN, symbols: ids });
+  if (armed.raised) return `lev raise ${armed.raised}/${armed.n} · peak ${armed.max}x`;
+  return `lev hold ${armed.n} · peak ${armed.max}x`;
+}
+
 let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0, foreignPos: 0, foreignOrd: 0 };
 let lastTrail = { n: 0, ms: 0, at: 0 };
 let lastExec = { n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 };
@@ -298,6 +308,18 @@ function snapshot(e, extra) {
     owned: [...mirrored].filter((k) => typeof k === "string" && (k.startsWith("own:") || k.startsWith("live:") || k.startsWith("seed:"))),
     foreignPos: lastBook.foreignPos || 0,
     foreignOrd: lastBook.foreignOrd || 0,
+    liveLevMin: (() => {
+      const xs = (lastBook.positions ?? []).map((p) => Number(p.leverage) || 0).filter((n) => n > 0);
+      return xs.length ? Math.min(...xs) : 0;
+    })(),
+    liveLevMax: (() => {
+      const xs = (lastBook.positions ?? []).map((p) => Number(p.leverage) || 0).filter((n) => n > 0);
+      return xs.length ? Math.max(...xs) : 0;
+    })(),
+    liveLevAvg: (() => {
+      const xs = (lastBook.positions ?? []).map((p) => Number(p.leverage) || 0).filter((n) => n > 0);
+      return xs.length ? xs.reduce((s, n) => s + n, 0) / xs.length : 0;
+    })(),
     closedNet: lastExec.n >= 2 ? lastExec.net : e.ledger.profit - e.ledger.loss,
     avgLivePos: bookAvg.n ? bookAvg.pos / bookAvg.n : lastBook.pos,
     avgLiveOrd: bookAvg.n ? bookAvg.ord / bookAvg.n : lastBook.ord,
@@ -1045,6 +1067,7 @@ async function mirrorToExchange(e, network, cfg) {
       entry: p.entry,
       mark: p.mark,
       pnl: p.pnl,
+      leverage: Number(p.leverage) || 0,
     })),
     orders: deskOrd.slice(0, 250).map((o) => ({
       connId: CONN,
@@ -1292,8 +1315,8 @@ async function main() {
     }
     try {
       const ids = universeSymbols(LIVE_SYMBOLS).map((s) => s.id);
-      const armed = await withTimeout(armMaxLeverage({ network: ping.network, connId: CONN, symbols: ids }), 45000, "lev");
-      adjustments.push(`max lev ${armed.n} symbols · peak ${armed.max}x`);
+      const armed = await withTimeout(armMaxLeverage({ network: ping.network, connId: CONN, symbols: ids }), 90000, "lev");
+      adjustments.push(`max lev ${armed.n} symbols · peak ${armed.max}x · raised ${armed.raised ?? 0}`);
     } catch (err) {
       adjustments.push(`lev ${err instanceof Error ? err.message : "fail"}`);
     }
@@ -1485,6 +1508,15 @@ async function main() {
           liveBusy = 0;
           noteApiFail(err);
           adjustments.push(`live ${err instanceof Error ? err.message : "fail"}`);
+        }
+      }
+      if (!apiQuiet() && ping.pingOk && Date.now() - lastLevBump > 180_000) {
+        lastLevBump = Date.now();
+        try {
+          const note = await withTimeout(raiseOwnedLeverage(ping.network, lastBook.positions), 20000, "lev-open");
+          if (note) adjustments.push(note);
+        } catch (err) {
+          adjustments.push(`lev ${err instanceof Error ? err.message : "fail"}`);
         }
       }
       if (!apiQuiet() && ping.pingOk && engine.tick % 40 === 0) {

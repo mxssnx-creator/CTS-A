@@ -13,6 +13,7 @@ export function LiveBookStrip({ title }: { title?: string }) {
         <StatLine k="Net" v={fmtUsd(live.net)} tone={live.net >= 0 ? "up" : "down"} />
         <StatLine k="Positions" v={String(live.livePos)} />
         <StatLine k="Orders" v={String(live.liveOrd)} />
+        <StatLine k="Leverage" v={live.liveLevMax ? `${Math.round(live.liveLevMin)}–${Math.round(live.liveLevMax)}x` : "max / contract"} />
         <StatLine k="Closed" v={String(live.trades)} />
         <StatLine
           k="Ping"
