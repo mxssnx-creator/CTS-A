@@ -70,6 +70,7 @@ function pickCompleteLock(complete) {
 }
 let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0 };
 let lastTrail = { n: 0, ms: 0, at: 0 };
+let lastExec = { n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 };
 const lastPostedSl = new Map();
 const lastPeakPx = new Map();
 const lastProtectQty = new Map();
@@ -199,10 +200,26 @@ function snapshot(e, extra) {
     cachedOverallTick = e.tick;
   }
   const overall = overlayExchangeBook(structuredClone(cachedOverall), lastBook, e);
+  if (lastExec.n >= 2) {
+    overall.overall = {
+      key: "closed",
+      n: lastExec.n,
+      wins: lastExec.wins,
+      pf: lastExec.pf,
+      wr: lastExec.wr,
+      net: lastExec.net,
+      ddt: lastExec.ddt,
+      mdd: lastExec.mdd,
+    };
+    overall.pf = lastExec.pf;
+    overall.wr = lastExec.wr;
+    overall.net = lastExec.net;
+    overall.trades = lastExec.n;
+  }
   const last12 = overall.lastN?.["12"] ?? null;
-  const tapeReady = e.ledger.trades >= 4 && Number(e.stats.pf) > 0;
-  const rawLive = last12?.n >= 4 ? last12.pf : e.stats.pf;
-  const rawPf = e.stats.pf;
+  const tapeReady = (lastExec.n >= 2) || (e.ledger.trades >= 4 && Number(e.stats.pf) > 0);
+  const rawLive = lastExec.n >= 2 ? lastExec.pf : last12?.n >= 4 ? last12.pf : e.stats.pf;
+  const rawPf = lastExec.n >= 2 ? lastExec.pf : e.stats.pf;
   const clampPf = (v, n) => {
     const x = Number(v);
     if (!Number.isFinite(x) || x <= 0) return 0;
@@ -220,8 +237,8 @@ function snapshot(e, extra) {
     wr,
     net,
     mdd: e.stats.mdd,
-    trades: e.ledger.trades,
-    wins: e.ledger.wins,
+    trades: lastExec.n >= 2 ? lastExec.n : e.ledger.trades,
+    wins: lastExec.n >= 2 ? lastExec.wins : e.ledger.wins,
     slots: lastBook.pos || book.positions.slots,
     legs: lastBook.pos || (lastBook.positions ?? []).length,
     long: (lastBook.positions ?? []).filter((p) => p.side === "long").length,
@@ -399,6 +416,16 @@ let lastApiError = "";
 const cancelFailed = new Set();
 const skipUntil = new Map();
 const skippedFills = new Set();
+const deadSymbols = new Set();
+function markDeadSymbol(symbol, err) {
+  const id = String(symbol || "");
+  if (!id) return false;
+  const msg = String(err || "");
+  if (!/offline currently|not in api|does not exist|invalid symbol|symbol not exist/i.test(msg)) return false;
+  deadSymbols.add(id);
+  skipUntil.set(id, Date.now() + 86_400_000);
+  return true;
+}
 const trimHits = new Map();
 function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
@@ -937,7 +964,7 @@ async function mirrorToExchange(e, network, cfg) {
   const accountN = book.positions.filter((p) => isDeskSymbol(p.symbol)).length;
 
   if (openN >= liveMaxPos() || accountN >= liveMaxPos()) return notes.length ? notes.join(" · ") : null;
-  if (protectGap > 12) {
+  if (protectGap > 0) {
     notes.push(`protect gap ${protectGap}`);
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
@@ -954,6 +981,7 @@ async function mirrorToExchange(e, network, cfg) {
       continue;
     }
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
+    if (deadSymbols.has(f.symbol)) continue;
     if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 6))) continue;
     if (!isDeskSymbol(f.symbol)) {
       mirrored.add(f.id);
@@ -997,12 +1025,14 @@ async function mirrorToExchange(e, network, cfg) {
     if (!r?.ok) {
       skippedFills.add(f.id);
       const err = String(r?.error ?? "err");
-      if (!/min notional exceeds|TP Price|SL Price|must be (greater|lower)/i.test(err)) {
+      const dead = markDeadSymbol(f.symbol, err);
+      if (!dead && !/min notional exceeds|TP Price|SL Price|must be (greater|lower)/i.test(err)) {
         skipUntil.set(f.symbol, Date.now() + (isRateLimited(r?.error) ? 480_000 : 90_000));
       }
       const quiet = noteApiFail(r);
       failed += 1;
-      notes.push(`skip ${f.symbol} ${err.slice(0, 80)}`);
+      if (dead) notes.push(`offline ${f.symbol}`);
+      else notes.push(`skip ${f.symbol} ${err.slice(0, 80)}`);
       if (threw) return `live throw ${err}`;
       if (quiet || failed >= 4) break;
       continue;
@@ -1254,21 +1284,24 @@ async function main() {
       }
       if (!apiQuiet() && ping.pingOk && engine.tick % 40 === 0) {
         try {
-          const ex = await withTimeout(fetchLiveExecutions({ network: ping.network, connId: CONN, since: started }), 8000, "exec");
+          const ex = await withTimeout(fetchLiveExecutions({ network: ping.network, connId: CONN, since: started - 3 * 86400000 }), 8000, "exec");
           if (ex.ok) {
+            if (ex.realized?.n > 0) {
+              lastExec = { ...lastExec, ...ex.realized };
+              engine.ledger.trades = Math.max(engine.ledger.trades || 0, ex.realized.n);
+              engine.ledger.wins = Math.max(engine.ledger.wins || 0, ex.realized.wins);
+              engine.stats.trades = engine.ledger.trades;
+              engine.stats.pf = Number(ex.realized.pf) || 0;
+              engine.stats.wr = ex.realized.wr || engine.stats.wr;
+              if (Number.isFinite(ex.realized.net)) engine.stats.net = ex.realized.net;
+              engine.stats.mdd = ex.realized.mdd || engine.stats.mdd;
+              if (Number.isFinite(ex.realized.net) && ex.realized.net > 0) {
+                engine.ledger.profit = Math.max(engine.ledger.profit || 0, ex.realized.net);
+              }
+            }
             if (Array.isArray(ex.bySymbol) && ex.bySymbol.length) {
               applyRealizedSymbolStats(engine, ex.bySymbol);
               engine.minPf = LIVE_MIN_PF;
-            }
-            if (ex.realized?.n > 0 && Number(ex.realized.pf) > 0) {
-              engine.ledger.trades = Math.max(engine.ledger.trades || 0, ex.realized.n);
-              engine.ledger.wins = Math.max(engine.ledger.wins || 0, ex.realized.wins);
-              engine.ledger.profit = Math.max(engine.ledger.profit || 0, Math.max(0, ex.realized.net));
-              engine.stats.trades = engine.ledger.trades;
-              engine.stats.pf = ex.realized.pf;
-              engine.stats.wr = ex.realized.wr || engine.stats.wr;
-              if (Number.isFinite(ex.realized.net) && ex.realized.net !== 0) engine.stats.net = ex.realized.net;
-              engine.stats.mdd = ex.realized.mdd || engine.stats.mdd;
             }
             let prev = {};
             try {

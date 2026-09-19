@@ -281,10 +281,10 @@ export const VST_SYMBOLS: VstSymbol[] = [
     .015
   ],
   [
-    "MKRUSDT",
-    "MKR",
-    1680,
-    .014
+    "TONUSDT",
+    "TON",
+    5.42,
+    .018
   ],
   [
     "CRVUSDT",
@@ -341,10 +341,10 @@ export const VST_SYMBOLS: VstSymbol[] = [
     .018
   ],
   [
-    "FTMUSDT",
-    "FTM",
-    .582,
-    .02
+    "ENAUSDT",
+    "ENA",
+    0.62,
+    .022
   ],
   [
     "ALGOUSDT",
@@ -3586,6 +3586,7 @@ type SeedableStats = {
 };
 
 export function seedStatsFromComplete(stats: SeedableStats, e: VstEngine): SeedableStats {
+  if (e?.liveTape) return stats;
   const winner = (e as { completeWinner?: CompleteCell }).completeWinner;
   const cells = (e as { completeCells?: CompleteCell[] }).completeCells ?? [];
   if (!winner && !cells.length) return stats;
@@ -3833,6 +3834,21 @@ export function overlayExchangeBook(
     }
   }
   if (pos.length) {
+    const wins = pos.filter((p) => (Number(p.pnl) || 0) > 0).length;
+    const profit = pos.filter((p) => (Number(p.pnl) || 0) > 0).reduce((s, p) => s + (Number(p.pnl) || 0), 0);
+    const loss = Math.abs(pos.filter((p) => (Number(p.pnl) || 0) < 0).reduce((s, p) => s + (Number(p.pnl) || 0), 0));
+    const net = pos.reduce((s, p) => s + (Number(p.pnl) || 0), 0);
+    stats.open = {
+      key: "open",
+      n: pos.length,
+      wins,
+      pf: profitFactor(profit, loss),
+      wr: pos.length ? wins / pos.length : 0,
+      net,
+      ddt: 0,
+      mdd: 0,
+      openN: pos.length,
+    };
     const map = new Map((stats.bySymbol ?? []).map((s) => [s.key, { ...s }]));
     for (const p of pos) {
       const cur = map.get(p.symbol) ?? { key: p.symbol, n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 };

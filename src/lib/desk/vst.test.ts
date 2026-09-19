@@ -94,6 +94,7 @@ import {
   refreshSymbolHourEval,
   validateSymbols100h,
   symbolTapePf,
+  overlayExchangeBook,
   noteBlockPosClose,
   blockPosPaused,
   symbolBlockPaused,
@@ -2118,6 +2119,22 @@ describe("VST engine", () => {
     assert.ok(ov.hours["50"].pf >= 1);
     assert.ok(ov.lastN["12"].pf >= 1);
     assert.ok(ov.pf >= 2);
+    e.liveTape = true;
+    const liveOv = overallLiveStats(e);
+    assert.equal(liveOv.hours["1"].n, 0);
+    const book = overlayExchangeBook(liveOv, {
+      positions: [
+        { symbol: "BTCUSDT", side: "long", qty: 1, entry: 100, mark: 101, pnl: 1, venueSymbol: "BTC-USDT", connId: "bingx-x01" },
+        { symbol: "ETHUSDT", side: "short", qty: 1, entry: 10, mark: 11, pnl: -1, venueSymbol: "ETH-USDT", connId: "bingx-x01" },
+      ],
+      orders: [],
+    } as never, e);
+    assert.equal(book.open?.n, 2);
+    assert.ok(Math.abs((book.open?.net ?? 0) - 0) < 1e-9);
+    const ids = universeSymbols(50).map((s) => s.id);
+    assert.ok(ids.includes("TONUSDT") && ids.includes("ENAUSDT"));
+    assert.equal(ids.includes("MKRUSDT"), false);
+    assert.equal(ids.includes("FTMUSDT"), false);
   });
 
   it("self-heals NaN books, empty running books, and coordinator faults", () => {
