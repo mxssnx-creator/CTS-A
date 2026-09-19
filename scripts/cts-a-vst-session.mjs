@@ -496,6 +496,7 @@ function writeSettingsPick(pick, extra = {}) {
     shortRange: true,
     liveGrid: GRID.length,
     shortGrid: SHORT_GRID.length,
+    activePresetId: extra.activePresetId ?? "short-block-live",
     strategyId: "normal",
     minPf: LIVE_MIN_PF,
     thresholds: { minPf: LIVE_MIN_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },

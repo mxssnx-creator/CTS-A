@@ -2436,7 +2436,9 @@ describe("VST engine", () => {
     const presets = allPresets([]);
     assert.ok(presets.length >= 5);
     assert.ok(findPreset("x01-live", [])?.patch.tactic === "trailing");
-    assert.ok(findPreset("vst-paper", [])?.patch.activeConnId === "bingx-vst-02");
+    assert.ok(findPreset("short-block-live", [])?.patch.tacticConfig?.shortRange === true);
+    assert.ok((findPreset("short-block-live", [])?.patch.blockConfig?.counts ?? []).length === 6);
+    assert.ok(findPreset("short-block-live", [])?.patch.enabledKinds?.includes("short"));
     const saved = sanitizeUserPresets([{ id: "user-a", label: "Mine", blurb: "x", builtin: false, patch: { tactic: "axis" } }, { id: "" }]);
     assert.equal(saved.length, 1);
     assert.equal(saved[0]?.label, "Mine");

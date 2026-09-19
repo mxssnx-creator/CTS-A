@@ -1504,10 +1504,12 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const name = label.trim().slice(0, 40) || "Saved";
     const id = presetIdOf(name);
     const snap = collectDeskSettings(get());
+    const short = snap.tacticConfig?.shortRange ? " short" : "";
+    const counts = (snap.blockConfig?.counts ?? []).join("-") || "off";
     const preset: SettingsPreset = {
       id,
       label: name,
-      blurb: `${snap.tactic}/${snap.rangeType} · ${snap.symbolCount} sym`,
+      blurb: `${snap.tactic}/${snap.rangeType}${short} · Block ${counts} · PF ${snap.thresholds.minPf} · ${snap.symbolCount} sym`,
       builtin: false,
       patch: snap,
     };
