@@ -281,6 +281,10 @@ export interface BlockConfig {
   liveDisable?: boolean;
   liveDisableMinPf?: number;
   liveDisableMinSamples?: number;
+  /** Per-symbol auto-validation lookback in hours. */
+  symbolEvalHours?: number;
+  /** Coordinate entries by UTC-hour / sim-hour situation. */
+  hourCoord?: boolean;
 }
 
 export interface BlockAdjustResult {
@@ -874,6 +878,31 @@ export interface StageEvalBundle {
 
 export type EnginePhase = "idle" | "running" | "paused" | "stopped";
 
+export interface SymbolHourRow {
+  n: number;
+  pf: number;
+  wr: number;
+  net: number;
+  ok: boolean;
+  hourOk: boolean;
+  byHour: Record<string, { n: number; pf: number; net: number }>;
+  byWindow: Record<string, { n: number; pf: number; net: number; ok: boolean }>;
+  bestInd?: string;
+  bestSide?: string;
+  bestTac?: string;
+  bestHour?: number;
+}
+
+export interface HourCoord {
+  hour: number;
+  performing: string[];
+  skipped: string[];
+  bestInd?: string;
+  bestSide?: string;
+  bestTac?: string;
+  at: number;
+}
+
 export interface VstEngine {
   quotes: Record<string, VstQuote>;
   queue: LiveOrder[];
@@ -915,6 +944,9 @@ export interface VstEngine {
   indRangeBest?: Partial<Record<IndicationId, RangeType>>;
   indTacticBest?: Partial<Record<IndicationId, TacticKind>>;
   blockCfg?: BlockConfig;
+  symbolEval?: Record<string, SymbolHourRow>;
+  performingSymbols?: string[];
+  hourCoord?: HourCoord;
 }
 
 export interface BlockLaneState {

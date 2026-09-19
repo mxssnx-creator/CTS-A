@@ -237,6 +237,8 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         liveDisable: asBool(b.liveDisable, d.blockConfig.liveDisable ?? true),
         liveDisableMinPf: Math.min(3, Math.max(0.5, asNum(b.liveDisableMinPf, d.blockConfig.liveDisableMinPf ?? 1.1))),
         liveDisableMinSamples: Math.min(12, Math.max(3, Math.round(asNum(b.liveDisableMinSamples, d.blockConfig.liveDisableMinSamples ?? 8)))),
+        symbolEvalHours: Math.min(168, Math.max(24, Math.round(asNum(b.symbolEvalHours, d.blockConfig.symbolEvalHours ?? 100)))),
+        hourCoord: asBool(b.hourCoord, d.blockConfig.hourCoord ?? true),
       };
     })(),
     symbolCount: clampSymbolCount(asNum(raw.symbolCount, d.symbolCount)),

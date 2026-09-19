@@ -33,6 +33,9 @@ import {
   sweepPlaybooks,
   completeComputationsAsync,
   LIVE_TACTICS,
+  validateSymbols100h,
+  mergeSymbolHourEval,
+  refreshSymbolHourEval,
 } from "../src/lib/desk/vst.ts";
 
 const HOURS = Number(process.env.CTS_A_VST_HOURS ?? 12);
@@ -1228,6 +1231,20 @@ async function main() {
           : "complete compute empty",
       );
       computeDone = true;
+      try {
+        const scored = validateSymbols100h(pick.cfg, pick.tactic, {
+          symbolCount: Math.min(16, LIVE_SYMBOLS),
+          rangeType: pick.range,
+          minPf: Number(LIVE_MIN_PF) || 1.4,
+        });
+        const kept = mergeSymbolHourEval(engine, scored.engine);
+        refreshSymbolHourEval(engine, { hours: 100, minPf: Number(LIVE_MIN_PF) || 1.4 });
+        adjustments.push(
+          `symbol 100h · ${kept.length} performing · skip ${scored.skipped.length} · hour ${scored.hour} ${scored.engine.hourCoord?.bestInd || ""}/${scored.engine.hourCoord?.bestTac || ""}`,
+        );
+      } catch (err3) {
+        adjustments.push(`symbol 100h skip ${err3 instanceof Error ? err3.message : "err"}`);
+      }
     } catch (err) {
       adjustments.push(`compute skip ${err instanceof Error ? err.message : "err"}`);
       try {

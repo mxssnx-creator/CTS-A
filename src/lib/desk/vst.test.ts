@@ -83,6 +83,8 @@ import {
   armUniverse,
   releaseVanished,
   skipLiveSymbol,
+  refreshSymbolHourEval,
+  validateSymbols100h,
   symbolTapePf,
   noteBlockPosClose,
   blockPosPaused,
@@ -1791,6 +1793,52 @@ describe("VST engine", () => {
     assert.equal(skipLiveSymbol(e, "SOLUSDT"), true);
     e.symbolStats.ETHUSDT = { id: "ETHUSDT", trades: 4, wins: 3, profit: 1.2, loss: 0.2, sl: 1, tp: 3 };
     assert.equal(skipLiveSymbol(e, "ETHUSDT"), false);
+  });
+
+  it("auto-validates each symbol last 100h and selects only performing hour coords", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 8, arm: false });
+    const now = new Date("2026-09-19T15:00:00Z");
+    const hour = now.getUTCHours();
+    const mk = (symbol: string, pnl: number, h = hour, i = 0): (typeof e.closed)[number] => ({
+      id: `${symbol}${i}`,
+      connId: e.activeConnId,
+      symbol,
+      side: "long",
+      pnl,
+      qty: 1,
+      entry: 1,
+      exit: 1,
+      reason: pnl > 0 ? "tp" : "sl",
+      tick: 100,
+      at: Date.UTC(2026, 8, 19, h, i, 0),
+      r: 1,
+      tactic: "trailing",
+      rangeType: "atr",
+      indication: "active",
+      playbook: "normal",
+      kind: "normal",
+    });
+    const ids = universeSymbols(8).map((s) => s.id);
+    const win = ids[0]!;
+    const lose = ids[1]!;
+    const hourLose = ids[2]!;
+    for (let i = 0; i < 8; i++) e.closed.push(mk(win, 0.4, hour, i));
+    for (let i = 0; i < 8; i++) e.closed.push(mk(lose, -0.3, hour, i));
+    for (let i = 0; i < 8; i++) e.closed.push(mk(hourLose, i < 4 ? 0.5 : -0.6, i < 4 ? (hour + 3) % 24 : hour, i));
+    e.tick = 20 * 60;
+    const scored = refreshSymbolHourEval(e, { hours: 100, minPf: 1.4, minN: 6, now });
+    assert.ok(scored.performing.includes(win), `win ${scored.performing.join(",")}`);
+    assert.ok(!scored.performing.includes(lose));
+    assert.equal(skipLiveSymbol(e, lose), true);
+    assert.equal(skipLiveSymbol(e, win), false);
+    assert.equal(e.symbolEval?.[hourLose]?.hourOk, false);
+    assert.equal(skipLiveSymbol(e, hourLose), true);
+    const ranked = rankUniverse(e).map((s) => s.id);
+    assert.equal(ranked[0], win);
+    const sim = validateSymbols100h(CFG, "trailing", { symbolCount: 8, rangeType: "atr", minPf: 1.4 });
+    assert.equal(sim.hours, 100);
+    assert.ok(sim.symbols >= 8);
+    finiteNum(sim.report.pf, sim.n);
   });
 
   it("break, active, and direction run with their own ranges, playbooks, and auto-evals", () => {

@@ -24,6 +24,8 @@ import type {
   VstSymbol,
   BlockLaneState,
   BlockPosWindow,
+  SymbolHourRow,
+  HourCoord,
 } from "./types.ts";
 import {
   DEFAULT_BLOCK_CONFIG,
@@ -44,6 +46,8 @@ import {
   symbolIndications,
   symbolSideSet,
   STAGE_HOURS,
+  SYMBOL_EVAL_HOURS,
+  SYMBOL_HOUR_WINDOWS,
 } from "./engine.ts";
 
 const DEFAULT_CFG: TacticConfig = {
@@ -426,7 +430,13 @@ function symbolScore(e: VstEngine, id: string): number {
 }
 
 export function rankUniverse(e: VstEngine): VstSymbol[] {
+  const perf = new Set(e.performingSymbols ?? []);
   return [...universeSymbols(e.symbolCount)].sort((a, b) => {
+    if (perf.size) {
+      const pa = perf.has(a.id) ? 1 : 0;
+      const pb = perf.has(b.id) ? 1 : 0;
+      if (pa !== pb) return pb - pa;
+    }
     const dv = vol1hOf(e.quotes[b.id]) - vol1hOf(e.quotes[a.id]);
     if (Math.abs(dv) > 1e-8) return dv;
     return symbolScore(e, b.id) - symbolScore(e, a.id);
@@ -700,6 +710,9 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.relVolumeFactor = e.relVolumeFactor ?? 0;
   e.liveDisabled = e.liveDisabled ?? {};
   e.liveHealth = e.liveHealth ?? { n: 12, at: 0, disabled: [], kept: [] };
+  e.symbolEval = e.symbolEval ?? {};
+  e.performingSymbols = e.performingSymbols ?? [];
+  e.hourCoord = e.hourCoord ?? { hour: 0, performing: [], skipped: [], at: 0 };
   for (const lane of Object.values(e.blockLanes)) {
     lane.active = lane.active ?? true;
     lane.pauseRemaining = lane.pauseRemaining ?? {};
@@ -758,6 +771,9 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     indRangeBest: {},
     indTacticBest: {},
     blockCfg: opts.block ?? DEFAULT_BLOCK_CONFIG,
+    symbolEval: {},
+    performingSymbols: [],
+    hourCoord: { hour: 0, performing: [], skipped: [], at: 0 },
   };
   if (opts.arm !== false) armUniverse(engine, cfg, "hybrid");
   const warm = opts.arm === false ? 0 : (opts.warmup ?? 12);
@@ -864,11 +880,12 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   const busy = occupiedSymbols(e, connId);
   const busyLegs = occupiedLegs(e, connId);
   const universe = rankUniverse(e);
+  const winN = Math.min(16, Math.max(1, Math.round(e.blockCfg?.evalPosCount || 6)));
   universe.forEach((s, rank) => {
     const q = e.quotes[s.id];
     if (!q || !(q.px > 0)) return;
+    if (skipLiveSymbol(e, s.id, winN)) return;
     if ((e.cooldown[cooldownKey(connId, s.id)] ?? 0) > e.tick) return;
-    const winN = Math.min(16, Math.max(1, Math.round(e.blockCfg?.evalPosCount || 6)));
     if (pn >= VST_MAX_POSITIONS) return;
     const mode = e.blockCfg?.sides ?? "both";
     const axisTactic = e.lastTactic === "axis";
@@ -2023,6 +2040,9 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   const tape = symbolTapePf(e, symbol);
   if (tape != null && tape + 1e-9 < 1) return true;
   if (e.liveDisabled?.[`sym:${symbol}`]) return true;
+  const perf = e.performingSymbols;
+  if (perf && perf.length > 0 && !perf.includes(symbol)) return true;
+  if ((perf?.length ?? 0) > 0 && e.symbolEval?.[symbol]?.hourOk === false) return true;
   if (e.liveDisabled?.[`ind:trend`]) {
     try {
       if (classifyIndication(e, symbol) === "trend") return true;
@@ -2042,6 +2062,158 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
     }
   }
   return false;
+}
+
+function sitHour(c: { tick: number; at?: number }): number {
+  const at = Number(c.at);
+  if (at > 1e12) return new Date(at).getUTCHours();
+  return Math.floor(Math.max(0, c.tick) / TICKS_PER_HOUR) % 24;
+}
+
+function bucketPnls(rows: { pnl: number }[]) {
+  const n = rows.length;
+  const wins = rows.filter((r) => r.pnl > 0).length;
+  const gp = rows.filter((r) => r.pnl > 0).reduce((s, r) => s + r.pnl, 0);
+  const gl = Math.abs(rows.filter((r) => r.pnl < 0).reduce((s, r) => s + r.pnl, 0));
+  return { n, pf: profitFactor(gp, gl), wr: n ? wins / n : 0, net: rows.reduce((s, r) => s + r.pnl, 0) };
+}
+
+function bestKeyOf(m: Map<string, { pnl: number }[]>, minPf: number) {
+  let best: { k: string; pf: number } | null = null;
+  for (const [k, list] of m) {
+    if (list.length < 3) continue;
+    const sc = bucketPnls(list);
+    if (sc.pf + 1e-9 < minPf) continue;
+    if (!best || sc.pf > best.pf) best = { k, pf: sc.pf };
+  }
+  return best?.k;
+}
+
+export function refreshSymbolHourEval(
+  e: VstEngine,
+  opts?: { hours?: number; minPf?: number; minN?: number; now?: Date },
+) {
+  const hours = Math.max(4, Math.round(opts?.hours ?? e.blockCfg?.symbolEvalHours ?? SYMBOL_EVAL_HOURS));
+  const minPf = opts?.minPf ?? e.blockCfg?.liveDisableMinPf ?? 1.4;
+  const minN = Math.max(3, Math.round(opts?.minN ?? 6));
+  const nowHour = (opts?.now ?? new Date()).getUTCHours();
+  const rows = windowHours(e.closed.filter((c) => isDeskConn(c.connId)), e.tick, hours);
+  const bySym = new Map<string, typeof rows>();
+  for (const c of rows) {
+    const arr = bySym.get(c.symbol) ?? [];
+    arr.push(c);
+    bySym.set(c.symbol, arr);
+  }
+  const evalMap: Record<string, SymbolHourRow> = {};
+  const performing: string[] = [];
+  const skipped: string[] = [];
+  const hourRows = rows.filter((c) => sitHour(c) === nowHour);
+  const hourInd = new Map<string, { pnl: number }[]>();
+  const hourSide = new Map<string, { pnl: number }[]>();
+  const hourTac = new Map<string, { pnl: number }[]>();
+  for (const c of hourRows) {
+    const ik = c.indication ?? "trend";
+    const sk = c.side;
+    const tk = String(c.tactic ?? e.lastTactic);
+    (hourInd.get(ik) ?? (hourInd.set(ik, []), hourInd.get(ik)!)).push({ pnl: c.pnl });
+    (hourSide.get(sk) ?? (hourSide.set(sk, []), hourSide.get(sk)!)).push({ pnl: c.pnl });
+    (hourTac.get(tk) ?? (hourTac.set(tk, []), hourTac.get(tk)!)).push({ pnl: c.pnl });
+  }
+  for (const s of universeSymbols(e.symbolCount)) {
+    const list = bySym.get(s.id) ?? [];
+    const sc = bucketPnls(list);
+    const byHour: SymbolHourRow["byHour"] = {};
+    const hourMap = new Map<number, { pnl: number }[]>();
+    const indMap = new Map<string, { pnl: number }[]>();
+    const sideMap = new Map<string, { pnl: number }[]>();
+    const tacMap = new Map<string, { pnl: number }[]>();
+    for (const c of list) {
+      const h = sitHour(c);
+      (hourMap.get(h) ?? (hourMap.set(h, []), hourMap.get(h)!)).push({ pnl: c.pnl });
+      const ik = c.indication ?? "trend";
+      (indMap.get(ik) ?? (indMap.set(ik, []), indMap.get(ik)!)).push({ pnl: c.pnl });
+      (sideMap.get(c.side) ?? (sideMap.set(c.side, []), sideMap.get(c.side)!)).push({ pnl: c.pnl });
+      const tk = String(c.tactic ?? e.lastTactic);
+      (tacMap.get(tk) ?? (tacMap.set(tk, []), tacMap.get(tk)!)).push({ pnl: c.pnl });
+    }
+    let bestHour: number | undefined;
+    let bestHourPf = -1;
+    for (const [h, hs] of hourMap) {
+      const b = bucketPnls(hs);
+      byHour[String(h)] = { n: b.n, pf: b.pf, net: b.net };
+      if (b.n >= 3 && b.pf > bestHourPf) {
+        bestHourPf = b.pf;
+        bestHour = h;
+      }
+    }
+    const byWindow: SymbolHourRow["byWindow"] = {};
+    for (const w of SYMBOL_HOUR_WINDOWS) {
+      const slice = windowHours(list, e.tick, w);
+      const b = bucketPnls(slice);
+      byWindow[String(w)] = { n: b.n, pf: b.pf, net: b.net, ok: b.n >= minN && b.pf + 1e-9 >= minPf && b.net >= 0 };
+    }
+    const sit = byHour[String(nowHour)];
+    const hourOk = !sit || sit.n < 3 ? true : sit.pf + 1e-9 >= minPf;
+    const ok = sc.n >= minN && sc.pf + 1e-9 >= minPf && sc.net >= 0;
+    evalMap[s.id] = {
+      n: sc.n,
+      pf: sc.pf,
+      wr: sc.wr,
+      net: sc.net,
+      ok,
+      hourOk,
+      byHour,
+      byWindow,
+      bestInd: bestKeyOf(indMap, minPf),
+      bestSide: bestKeyOf(sideMap, minPf),
+      bestTac: bestKeyOf(tacMap, minPf),
+      bestHour,
+    };
+    if (ok && hourOk) performing.push(s.id);
+    else if (sc.n >= minN) skipped.push(s.id);
+  }
+  e.symbolEval = evalMap;
+  const tapeHours = e.tick / TICKS_PER_HOUR;
+  e.performingSymbols = tapeHours >= 16 ? performing : [];
+  e.hourCoord = {
+    hour: nowHour,
+    performing,
+    skipped,
+    bestInd: bestKeyOf(hourInd, minPf),
+    bestSide: bestKeyOf(hourSide, minPf),
+    bestTac: bestKeyOf(hourTac, minPf),
+    at: e.tick,
+  };
+  return { hours, performing, skipped, hour: nowHour, n: rows.length, symbols: Object.keys(evalMap).length };
+}
+
+export function mergeSymbolHourEval(dst: VstEngine, src: VstEngine, minN = 6) {
+  const from = src.symbolEval ?? {};
+  const into = { ...(dst.symbolEval ?? {}) };
+  for (const [id, row] of Object.entries(from)) {
+    if (!into[id] || into[id]!.n < minN) into[id] = row;
+  }
+  dst.symbolEval = into;
+  dst.performingSymbols = Object.entries(into)
+    .filter(([, r]) => r.ok && r.hourOk)
+    .map(([id]) => id);
+  if (src.hourCoord && (!dst.hourCoord || dst.hourCoord.performing.length < 2)) dst.hourCoord = src.hourCoord;
+  return dst.performingSymbols;
+}
+
+export function validateSymbols100h(
+  cfg: TacticConfig = DEFAULT_CFG,
+  tactic: TacticKind = "trailing",
+  opts?: { symbolCount?: number; rangeType?: RangeType; block?: BlockConfig; minPf?: number },
+) {
+  const hours = SYMBOL_EVAL_HOURS;
+  const r = simulateHours(hours, cfg, tactic, {
+    symbolCount: opts?.symbolCount ?? 8,
+    rangeType: opts?.rangeType ?? "atr",
+    block: opts?.block,
+  });
+  const scored = refreshSymbolHourEval(r.engine, { hours, minPf: opts?.minPf ?? 1.4 });
+  return { hours, report: r.report, engine: r.engine, ...scored };
 }
 
 export function blockWindowSnapshot(e: VstEngine, n = 6) {
@@ -2108,6 +2280,7 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
   pruneBlockRelWindows(e);
   refreshIndicationSets(e, block);
   refreshLiveDisable(e, block);
+  refreshSymbolHourEval(e, { hours: block.symbolEvalHours ?? SYMBOL_EVAL_HOURS, minPf: block.minRelPf ?? 1.4 });
   return { picks: used, winners: used.length, factor: e.relVolumeFactor || 0, at: e.tick, candidates: uniq.length };
 }
 
@@ -2649,6 +2822,11 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   if (block.liveDisable !== false && e.tick % 30 === 0 && e.closed.length >= (block.liveLastN || 12) && !over()) {
     safeStage(e, "live-disable", () => {
       refreshLiveDisable(e, block);
+    });
+  }
+  if (e.tick % 30 === 0 && e.closed.length >= 6 && !over()) {
+    safeStage(e, "symbol-hour", () => {
+      refreshSymbolHourEval(e, { hours: block.symbolEvalHours ?? SYMBOL_EVAL_HOURS });
     });
   }
   if ((e.tick % 4 === 0 || (opts?.skipWalk && e.orders.length > 96)) && !over()) {

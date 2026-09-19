@@ -239,6 +239,8 @@ export type LastNChoice = (typeof LAST_N_OPTIONS)[number];
 
 /** Auto-eval historic stages (hours). */
 export const STAGE_HOURS = [4, 8, 16] as const;
+export const SYMBOL_EVAL_HOURS = 100;
+export const SYMBOL_HOUR_WINDOWS = [4, 8, 16, 24, 48, 100] as const;
 export type StageHour = (typeof STAGE_HOURS)[number];
 export type StageId = "pre" | "mid" | "end";
 export const STAGE_META: { id: StageId; hours: StageHour; label: string; blurb: string }[] = [
@@ -444,6 +446,8 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   liveDisable: true,
   liveDisableMinPf: 1.1,
   liveDisableMinSamples: 8,
+  symbolEvalHours: 100,
+  hourCoord: true,
 };
 
 /** Additive: each count uses `ratio`. Shared (old): extra/n when n>2. */

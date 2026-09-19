@@ -564,9 +564,8 @@ export function SettingsView() {
           }
         >
           <p className="text-sm text-muted">
-            Pre-historic full compute at {STAGE_HOURS.join("/")}h. Independent coordinations per tactic, range,
-            kind and last-N. End-stage PF average uses only active valid (effective) lanes. Passing end
-            mirrors those symbols to the live book.
+            Pre-historic full compute at {STAGE_HOURS.join("/")}h plus per-symbol 100h. Independent coordinations per tactic, range,
+            kind, last-N, and hour-of-day. Only performing symbols (100h PF) get new orders.
           </p>
           <div className="mt-4">
             <p className="text-xs font-medium uppercase tracking-wide text-subtle">Historic hours</p>
@@ -1128,6 +1127,16 @@ export function SettingsView() {
               format={(n) => `${n}h`}
               onChange={(n) => setBlockCfg({ evalHours: n })}
               ariaLabel="Block relation eval hours"
+            />
+            <RangeKnob
+              label="Symbol eval hours"
+              value={blockCfg.symbolEvalHours ?? 100}
+              min={24}
+              max={168}
+              step={4}
+              format={(n) => `${n}h`}
+              onChange={(n) => setBlockCfg({ symbolEvalHours: n })}
+              ariaLabel="Per-symbol validation hours"
             />
             <RangeKnob
               label="Min relation PF"
