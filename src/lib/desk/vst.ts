@@ -1336,7 +1336,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     return;
   }
   const signed = p.side === "long" ? 1 : -1;
-  let pnl = (exit - p.avgEntry) * p.qty * signed;
+  const fee = (p.avgEntry + exit) * p.qty * 0.0005;
+  let pnl = (exit - p.avgEntry) * p.qty * signed - fee;
   const risk = Math.max(p.slDist * p.qty, positionNotional(e.stats.equity || 1e4, e.costStep || 10) * 0.25, 1e-9);
   if (Math.abs(pnl) > risk * 8) pnl = Math.sign(pnl) * risk * 8;
   if (!Number.isFinite(pnl)) pnl = 0;
@@ -1579,24 +1580,6 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const partial = ownTactic === "axis" ? false : p.status === "partial" || fillRatio < 0.55;
     if (ownTactic === "dca" && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid") handleAxis(e, p, cfg);
-    if (ownTactic === "trailing" || ownTactic === "hybrid" || Boolean(opts?.liveTape && ownTactic !== "axis")) {
-      const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
-      p.peakPx = p.peakPx && p.peakPx > 0
-        ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
-        : fav;
-      const next = trailStopFromPeak({
-        side: p.side,
-        entry: p.avgEntry,
-        peak: p.peakPx,
-        tp: p.tp,
-        sl: p.sl,
-        trailPct: cfg.trailingPct,
-      });
-      if (p.side === "long" ? next > p.sl : next < p.sl) {
-        p.sl = next;
-        p.slDist = Math.abs(p.sl - p.avgEntry);
-      }
-    }
     if (e.tick === p.openedTick || e.tick - p.openedTick < Math.max(1, opts?.minHold ?? 1)) {
       keep.push(p);
       continue;
@@ -1625,11 +1608,27 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       p.slDist = Math.abs(p.sl - p.avgEntry);
     }
     if (hitSl || (hitTp && !partial)) {
-      let reason: "sl" | "tp";
-      if (hitSl && hitTp) reason = (p.side === "long" ? q.px >= p.avgEntry : q.px <= p.avgEntry) ? "tp" : "sl";
-      else reason = hitSl ? "sl" : "tp";
+      const reason: "sl" | "tp" = hitSl ? "sl" : "tp";
       closePosition(e, p, reason === "sl" ? p.sl : p.tp, reason);
       continue;
+    }
+    if (ownTactic === "trailing" || ownTactic === "hybrid" || Boolean(opts?.liveTape && ownTactic !== "axis")) {
+      const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
+      p.peakPx = p.peakPx && p.peakPx > 0
+        ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
+        : fav;
+      const next = trailStopFromPeak({
+        side: p.side,
+        entry: p.avgEntry,
+        peak: p.peakPx,
+        tp: p.tp,
+        sl: p.sl,
+        trailPct: cfg.trailingPct,
+      });
+      if (p.side === "long" ? next > p.sl : next < p.sl) {
+        p.sl = next;
+        p.slDist = Math.abs(p.sl - p.avgEntry);
+      }
     }
     keep.push(p);
   }
