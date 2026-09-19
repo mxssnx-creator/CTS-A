@@ -250,8 +250,8 @@ describe("VST engine", () => {
     assert.equal(ok, true);
     assert.equal(vfFail, false);
     assert.equal(ddtFail, false);
-    assert.equal(UNIT_NOTIONAL, 10);
-    assert.equal(POSITION_COST_PCT, 0.001);
+    assert.equal(UNIT_NOTIONAL, 15);
+    assert.equal(POSITION_COST_PCT, 0.0015);
     const vfFloor = isPositive(
       { pf: 1.5, mdd: 0.05, wr: 0.6, volumeFactor: 1.0, ddt: 10 },
       { ...DEFAULT_THRESHOLDS, minVf: 0.8 },
@@ -714,7 +714,7 @@ describe("VST engine", () => {
     const pos = e.positions.find((p) => p.symbol === "BTCUSDT");
     assert.ok(pos);
     const notional = pos.qty * pos.avgEntry;
-    assert.ok(notional <= 50, `notional ${notional}`);
+    assert.ok(notional <= 1e4 * POSITION_COST_PCT * 4 + 0.01, `notional ${notional}`);
     applyLiveTape(e, [
       { id: "BTCUSDT", venueSymbol: "BTC-USDT", last: px, bid: px, ask: px, chg: 0, high: px, low: px, vol: 0.05 },
     ]);

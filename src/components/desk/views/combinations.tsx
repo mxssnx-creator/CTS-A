@@ -66,7 +66,7 @@ export function CombinationsView() {
           <p className="mt-1 max-w-2xl text-sm text-muted">
             Independent tracks for every enabled type × cost 3–30 × range × tactic × {TRAIL_PCTS.length} trail
             ranges × {TP_SL_RATIOS.length} TP/SL ratios (0.60–3.00). Always computed in full; ranked by PF.
-            Position cost unit 0.1% of equity. Normal is the unadjusted general set.
+            Position cost unit 0.15% of equity. Normal is the unadjusted general set.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

@@ -38,8 +38,8 @@ import type {
 export const BARS = 240;
 export const WARMUP = 55;
 export const BASE_EQUITY = 10_000;
-/** System-internal default position cost: 0.1% of equity. */
-export const POSITION_COST_PCT = 0.001;
+/** System-internal default position cost: 0.15% of equity. */
+export const POSITION_COST_PCT = 0.0015;
 export const UNIT_NOTIONAL = BASE_EQUITY * POSITION_COST_PCT;
 /** Hard floor — volume factor cannot be gated below this. */
 export const MIN_VOLUME_FACTOR = 1.05;

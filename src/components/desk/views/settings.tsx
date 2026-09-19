@@ -424,7 +424,7 @@ export function SettingsView() {
           <StatLine k="Strategy" v={active.name} />
           <StatLine k="Tactic" v={TACTIC_META[tactic].label} />
           <StatLine k="Range" v={RANGE_META[rangeType].label} />
-          <StatLine k="Cost step" v={`${cost} · unit 0.1% eq`} />
+          <StatLine k="Cost step" v={`${cost} · unit 0.15% eq`} />
           <StatLine k="Symbol" v={symbol} />
           <StatLine k="Symbol count" v={`${symbolCount} / ${VST_MAX_SYMBOLS}`} />
           <StatLine k="Order type" v={ORDER_TYPES.find((o) => o.id === orderType)?.label ?? orderType} />
@@ -790,7 +790,7 @@ export function SettingsView() {
           <p className="mt-3 text-xs text-muted">
             A lane or combo is positive only if PF, MDD, WR, volume factor (≥ 1.05 hard floor) and
             drawdown time all clear these gates. All cost × range × tactic × trail combinations are
-            processed; Use best applies the top track. Position unit is 0.1% of equity.
+            processed; Use best applies the top track. Position unit is 0.15% of equity.
           </p>
         </Panel>
       </div>
