@@ -10,7 +10,7 @@ import {
 } from "@/lib/desk/engine";
 import type { RangeType, TacticKind } from "@/lib/desk/types";
 import { loadOverallStats, loadVstSession } from "@/lib/desk/feed";
-import { overallLiveStats } from "@/lib/desk/vst";
+import { overallLiveStats, LIVE_HOUR_NS } from "@/lib/desk/vst";
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
 import { fmtNum, fmtUsd } from "@/lib/utils";
@@ -147,8 +147,8 @@ export function ResultsView() {
   };
   const liveWin = view.hours?.["4"] ?? view.lastN?.["40"] ?? view.lastN?.["12"];
   const tapeClosed = Number(liveSnap.trades);
-  const pf = tapeClosed > 0 ? Number(liveWin?.pf ?? tape?.pf ?? liveSnap.pf) : completePf || Number(liveWin?.pf ?? liveSnap.pf);
-  const wr = Number(liveWin?.wr ?? tape?.overall?.wr ?? tape?.wr ?? liveSnap.wr);
+  const pf = tapeClosed > 0 ? Number(liveSnap.pf || tape?.pf || 0) : completePf || Number(liveWin?.pf ?? liveSnap.pf);
+  const wr = tapeClosed > 0 ? Number(liveSnap.wr) : Number(liveWin?.wr ?? tape?.overall?.wr ?? tape?.wr ?? liveSnap.wr);
   const net = Number(liveSnap.net ?? liveWin?.net ?? tape?.net);
   const trades = tapeClosed > 0 ? tapeClosed : Number(liveWin?.n ?? liveSnap.livePos);
   const realized = file?.executions?.realized;
@@ -200,17 +200,18 @@ export function ResultsView() {
     const row = view.hours?.[String(h)];
     return { label: `${h}h`, value: Number(row?.pf ?? 0) };
   });
-  const indBars = (indicationRows.length ? indicationRows : replay.kinds.map((k) => ({ key: k.key, pf: k.pf }))).map((r) => ({
+  const liveTape = liveSnap.hasLive && tapeClosed > 0;
+  const indBars = (indicationRows.length ? indicationRows : liveTape ? [] : replay.kinds.map((k) => ({ key: k.key, pf: k.pf }))).map((r) => ({
     label: indLabels[r.key] ?? r.key,
     value: Number(r.pf ?? 0),
   }));
-  const kindBars = (kindRows.length ? kindRows : replay.strategies).map((r) => ({
+  const kindBars = (kindRows.length ? kindRows : liveTape ? [] : replay.strategies).map((r) => ({
     label: kindLabels[(r as { key?: string; kind?: string }).key ?? (r as { kind?: string }).kind ?? ""] ?? (r as { key?: string }).key ?? (r as { name?: string }).name ?? "",
     value: Number((r as { pf: number }).pf ?? 0),
   }));
-  const stratBars = [...replay.strategies].sort((a, b) => b.pf - a.pf).slice(0, 8).map((s) => ({
-    label: s.name.replace(/\s.*/, "").slice(0, 10),
-    value: s.pf,
+  const stratBars = (kindRows.length ? kindRows : liveTape ? [] : [...replay.strategies].sort((a, b) => b.pf - a.pf).slice(0, 8)).map((s) => ({
+    label: kindLabels[(s as { key?: string }).key ?? ""] ?? (s as { name?: string }).name?.replace(/\s.*/, "").slice(0, 10) ?? (s as { key?: string }).key ?? "",
+    value: Number((s as { pf: number }).pf ?? 0),
   }));
   const ddtBars = (indicationRows.length ? indicationRows : []).map((r) => ({
     label: indLabels[r.key] ?? r.key,
@@ -223,6 +224,20 @@ export function ResultsView() {
 
   const indicationDetail: Bucket[] = INDICATION_KINDS.map((k) => {
     const liveRow = indicationRows.find((r) => r.key === k.id);
+    if (liveTape || liveRow) {
+      return {
+        key: k.id,
+        n: liveRow?.n ?? 0,
+        openN: liveRow?.openN ?? 0,
+        pf: liveRow?.pf ?? 0,
+        wr: liveRow?.wr ?? 0,
+        net: liveRow?.net ?? 0,
+        ddt: liveRow?.ddt ?? 0,
+        mdd: liveRow?.mdd ?? 0,
+        avgPositions: avgPos,
+        avgOrders: avgOrd,
+      };
+    }
     const compute = replay.kinds.find((r) => r.key === k.id);
     const avg = replay.strategies.filter(
       (s) =>
@@ -247,22 +262,42 @@ export function ResultsView() {
     };
   });
 
-  const strategyDetail: Bucket[] = replay.strategies.map((s) => {
-    const liveRow = kindRows.find((r) => r.key === s.kind);
+  const strategyDetail: Bucket[] = STRATEGY_KINDS.map((k) => {
+    const liveRow = kindRows.find((r) => r.key === k.id);
+    const sim = replay.strategies.find((s) => s.kind === k.id);
+    if (liveTape || liveRow) {
+      return {
+        key: k.id,
+        n: liveRow?.n ?? 0,
+        openN: liveRow?.openN ?? 0,
+        pf: liveRow?.pf ?? 0,
+        wr: liveRow?.wr ?? 0,
+        net: liveRow?.net ?? 0,
+        ddt: liveRow?.ddt ?? 0,
+        mdd: liveRow?.mdd ?? 0,
+        avgPositions: avgPos,
+        avgOrders: avgOrd,
+      };
+    }
     return {
-      key: s.id,
-      n: s.trades,
-      openN: liveRow?.openN ?? 0,
-      pf: s.pf,
-      wr: s.wr,
-      net: s.net,
-      ddt: liveRow?.ddt ?? 0,
-      mdd: s.mdd,
-      avgPositions: s.avgPos,
-      avgOrders: s.avgOrd,
+      key: k.id,
+      n: sim?.trades ?? 0,
+      openN: 0,
+      pf: sim?.pf ?? 0,
+      wr: sim?.wr ?? 0,
+      net: sim?.net ?? 0,
+      ddt: 0,
+      mdd: sim?.mdd ?? 0,
+      avgPositions: sim?.avgPos ?? 0,
+      avgOrders: sim?.avgOrd ?? 0,
     };
   });
-  const strategyLabels = Object.fromEntries(replay.strategies.map((s) => [s.id, s.name]));
+  const strategyLabels = Object.fromEntries(STRATEGY_KINDS.map((k) => [k.id, k.label]));
+  const occ = LIVE_HOUR_NS.map((h, i) => ({
+    i,
+    pos: Number(view.hours?.[String(h)]?.avgPositions ?? avgPos),
+    ord: Number(view.hours?.[String(h)]?.avgOrders ?? avgOrd),
+  }));
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
@@ -270,10 +305,10 @@ export function ResultsView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Statistics</p>
         <h1 className="text-2xl font-semibold tracking-tight">Results</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Live BingX VST-02 executions, independent indication and strategy stats, PF / DDT, and config matrix.
+          Live {liveSnap.venueLabel} executions, independent indication and strategy stats, PF / DDT, and config matrix.
         </p>
       </div>
-      <Panel title="Live exchange executions · BingX VST-02">
+      <Panel title={`Live exchange executions · ${liveSnap.venueLabel}`}>
         <p className="text-sm text-muted">
           Realized PnL and filled orders from BingX. Independent listings below cover every indication,
           strategy kind, PF / DDT, and average active positions / orders.
@@ -303,12 +338,12 @@ export function ResultsView() {
           <MetricBarChart data={hourBars} yLabel="PF" />
         </Panel>
         <Panel title="Active positions / orders">
-          <OccupancyChart data={replay.load} />
+          <OccupancyChart data={occ} />
           <div className="mt-2 grid grid-cols-2 gap-x-4">
-            <StatLine k="Compute avg pos" v={fmtNum(replay.occupancy.avgPos, 2)} />
-            <StatLine k="Compute avg ord" v={fmtNum(replay.occupancy.avgOrd, 2)} />
             <StatLine k="Live avg pos" v={fmtNum(avgPos, 2)} />
             <StatLine k="Live avg ord" v={fmtNum(avgOrd, 2)} />
+            <StatLine k="Positions now" v={String(liveSnap.livePos)} />
+            <StatLine k="Orders now" v={String(liveSnap.liveOrd)} />
           </div>
         </Panel>
       </div>
@@ -321,6 +356,7 @@ export function ResultsView() {
         <div className="mt-4">
           <BucketTable rows={indicationDetail} labels={indLabels} />
         </div>
+        {!liveTape ? (
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {replay.configs.map((c) => (
             <div key={c.id} className="border border-border px-3 py-2">
@@ -332,6 +368,7 @@ export function ResultsView() {
             </div>
           ))}
         </div>
+        ) : null}
       </Panel>
 
       <Panel title="Strategies · PF / DDT / avg pos · ord">

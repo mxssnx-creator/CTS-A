@@ -133,7 +133,7 @@ export function OverviewView() {
           <h1 className="text-2xl font-semibold tracking-tight">Strategy desk</h1>
         </div>
         <p className="max-w-md text-sm text-muted">
-          Independent combinations across cost 3–30. Live book is BingX VST-02 — tape, positions and fills from the exchange.
+          Independent combinations across cost 3–30. Live book is {liveSnap.venueLabel} — tape, positions and fills from the exchange.
         </p>
       </div>
 
@@ -264,7 +264,7 @@ export function OverviewView() {
           ) : (
             <p className="mt-3 text-sm text-muted">
               {liveSnap.livePos
-                ? `${liveSnap.livePos} open positions on BingX VST-02.`
+                ? `${liveSnap.livePos} open positions on ${liveSnap.venueLabel}.`
                 : "Account live. No open BingX positions right now."}
             </p>
           )}

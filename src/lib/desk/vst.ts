@@ -3692,6 +3692,7 @@ function pnlBucket(rows: { pnl: number }[], key = "all"): OverallBucket {
 
 export const LIVE_POS_NS = [5, 10, 12, 15, 40, 120] as const;
 export const LIVE_HOUR_NS = [1, 2, 4, 6, 8, 12, 50] as const;
+export const LIVE_POS_LABELS: Record<string, string> = Object.fromEntries(LIVE_POS_NS.map((n) => [`n${n}`, `Last ${n}`]));
 
 export type LivePnlRow = { t: number; v: number; symbol?: string };
 

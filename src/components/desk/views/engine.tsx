@@ -189,7 +189,7 @@ export function EngineView() {
         <p className="mt-3 text-sm text-muted">
           {feed.error
             ? feed.error
-            : "BingX VST-02 last/bid/ask drive marks. Orders and positions are the live exchange book."}
+            : `${liveSnap.venueLabel} last/bid/ask drive marks. Orders and positions are the live exchange book.`}}
         </p>
       </Panel>
 
@@ -313,7 +313,7 @@ export function EngineView() {
           <p className="px-4 py-6 text-sm text-muted">
             {liveSnap.livePos
               ? `${liveSnap.livePos} BingX positions live · waiting for book rows.`
-              : "No live BingX inventory on VST-02."}
+              : `No live BingX inventory on ${liveSnap.venueLabel}.`}}
           </p>
         ) : (
           <div className="overflow-x-auto">

@@ -1,6 +1,7 @@
 import { INDICATION_KINDS, RANGE_META, RANGE_TYPES, STRATEGY_KINDS, TACTIC_META, TACTICS } from "@/lib/desk/engine";
 import type { OverallBucket, PlaybookDetail } from "@/lib/desk/vst";
-import { LIVE_POS_NS } from "@/lib/desk/vst";
+import { LIVE_HOUR_NS, LIVE_POS_LABELS, LIVE_POS_NS } from "@/lib/desk/vst";
+import { venueLabelFor } from "@/lib/desk/live-ctx";
 import { fmtNum, fmtUsd } from "@/lib/utils";
 import { fmtMdd, fmtPf, fmtWr, Kpi, Panel, pfTone, Pill, StatLine } from "./widgets";
 
@@ -149,8 +150,8 @@ export function LiveExchangeStats({
 }) {
   if (!live) return null;
   const lastN = LIVE_POS_NS.map((n) => live.lastN?.[String(n)] ?? { key: `n${n}`, n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 });
-  const hourShort = [1, 2, 4, 6].map((h) => live.hours?.[String(h)] ?? emptyHour(h));
-  const hourLong = [8, 12, 50].map((h) => live.hours?.[String(h)] ?? emptyHour(h));
+  const hourShort = LIVE_HOUR_NS.filter((h) => h <= 6).map((h) => live.hours?.[String(h)] ?? emptyHour(h));
+  const hourLong = LIVE_HOUR_NS.filter((h) => h > 6).map((h) => live.hours?.[String(h)] ?? emptyHour(h));
   const playbooks = live.playbooks?.length
     ? live.playbooks
     : (live.byPlaybook ?? []).map((p) => ({ ...p, active: { ...p, key: `${p.key}:active`, n: 0 }, steps: [] }));
@@ -161,11 +162,12 @@ export function LiveExchangeStats({
   const activeCfg = Number(live.configsActive ?? exchangePos ?? live.slots ?? 0);
   const avgPf = Number(live.avgConfigPf ?? live.pf ?? 0);
   const val = Number(validated ?? 0);
+  const venue = venueLabelFor(String(session?.conn || ""), String(session?.network || ""));
   const ordersNow = Number(exchangeOrd ?? live.avgOrders ?? 0);
 
   return (
     <div className="flex flex-col gap-4">
-      <Panel title="Live exchange results · BingX VST-02">
+      <Panel title={`Live exchange results · ${venue}`}>
         <p className="text-sm text-muted">
           Tape closes from the running session. Hour windows include symbols, order counts, average orders and DDT.
         </p>
@@ -182,13 +184,13 @@ export function LiveExchangeStats({
       <Panel title="Hour windows · 1 / 2 / 4 / 6">
         <HourTable rows={hourShort} />
       </Panel>
-      <Panel title="Hour windows · 12 / 50">
+      <Panel title="Hour windows · 8 / 12 / 50">
         <HourTable rows={hourLong} />
       </Panel>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Last N positions · 12 / 40 / 120">
-          <BucketTable rows={lastN} labels={{ n12: "Last 12", n40: "Last 40", n120: "Last 120" }} />
+        <Panel title={`Last N positions · ${LIVE_POS_NS.join(" / ")}`}>
+          <BucketTable rows={lastN} labels={LIVE_POS_LABELS} />
         </Panel>
         <Panel title="All hour windows">
           <HourTable rows={[...hourShort, ...hourLong]} />

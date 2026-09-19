@@ -85,7 +85,7 @@ export function ConnectionsView() {
         </Panel>
       ) : (
         <Panel title="BingX book">
-          <p className="text-sm text-muted">{exchange?.error ?? "Connecting VST-02…"}</p>
+          <p className="text-sm text-muted">{exchange?.error ?? `Connecting ${liveSnap.venueLabel}…`}</p>
         </Panel>
       )}
 

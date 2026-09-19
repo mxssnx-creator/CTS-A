@@ -93,7 +93,7 @@ export function PositionsView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Book</p>
         <h1 className="text-2xl font-semibold tracking-tight">Positions</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Last N{lastNs.last} closed, ongoing N{lastNs.ongoing} — BingX VST-02 live book. Closed rows are session fills on this connection.
+          Last N{lastNs.last} closed, ongoing N{lastNs.ongoing} — {liveSnap.venueLabel} live book. Closed rows are session fills on this connection.
         </p>
       </div>
 
@@ -134,7 +134,7 @@ export function PositionsView() {
       </Panel>
 
       {exchange?.ok && exchange.positions.length > 0 ? null : liveSnap.livePos > 0 ? (
-        <p className="text-sm text-muted">{liveSnap.livePos} BingX positions · {liveSnap.liveOrd} orders on VST-02.</p>
+        <p className="text-sm text-muted">{liveSnap.livePos} BingX positions · {liveSnap.liveOrd} orders on {liveSnap.venueLabel}.</p>
       ) : null}
 
       {exchange?.ok || liveSnap.livePos > 0 ? null : (

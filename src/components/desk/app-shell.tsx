@@ -21,8 +21,8 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { DESK, LAST_N_OPTIONS, lastPrice, priceChange, RANGE_META, REPLAY_RANGES, replayBarsFor, TACTIC_META, WARMUP } from "@/lib/desk/engine";
 import { useDesk } from "@/lib/desk/store";
-import { useDeskPaneScroll, bindDeskScroll } from "@/lib/desk/live-ctx";
 import { universeSymbols, VST_TICK_MS } from "@/lib/desk/vst";
+import { useDeskPaneScroll, bindDeskScroll, useLiveSnapshot } from "@/lib/desk/live-ctx";
 import { cn, clsPnl, fmtPct, fmtPx, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { controlClass, Segmented } from "./widgets";
@@ -50,7 +50,10 @@ function NavLinks({ onNavigate, inverse }: { onNavigate?: () => void; inverse?: 
   return (
     <nav className="flex flex-col gap-0.5 p-2">
       {NAV.map((item) => {
-        const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
+        const active =
+          item.to === "/"
+            ? pathname === "/"
+            : pathname.startsWith(item.to) || (item.to === "/results" && pathname.startsWith("/statistics"));
         const Icon = item.icon;
         return (
           <Link
@@ -115,11 +118,13 @@ export function AppShell() {
   const universe = universeSymbols(symbolCount);
   const px = quote?.px ?? lastPrice(symbol);
   const chg = quote?.chg ?? priceChange(symbol);
-  const hasLive = Boolean(liveSession);
-  const pingOk = Boolean((liveSession as { pingOk?: boolean } | null)?.pingOk);
-  const livePos = Number((liveSession as { livePos?: number } | null)?.livePos ?? 0);
-  const liveOrd = Number((liveSession as { liveOrd?: number } | null)?.liveOrd ?? 0);
-  const liveEq = Number((liveSession as { equity?: number } | null)?.equity ?? 0);
+  const liveSnap = useLiveSnapshot();
+  const hasLive = Boolean(liveSession) || liveSnap.hasLive;
+  const pingOk = Boolean((liveSession as { pingOk?: boolean } | null)?.pingOk) || liveSnap.pingOk;
+  const livePos = Number((liveSession as { livePos?: number } | null)?.livePos ?? liveSnap.livePos ?? 0);
+  const liveOrd = Number((liveSession as { liveOrd?: number } | null)?.liveOrd ?? liveSnap.liveOrd ?? 0);
+  const liveEq = Number((liveSession as { equity?: number } | null)?.equity ?? liveSnap.equity ?? 0);
+  const venueLabel = liveSnap.venueLabel;
   const path = useRouterState({ select: (s) => s.location.pathname });
 
   useEffect(() => {
@@ -250,7 +255,7 @@ export function AppShell() {
         <div className="border-t border-white/10 px-4 py-3 text-xs text-nav-muted">
           <div className="flex items-center gap-2">
             <span className={cn("size-1.5 rounded-full", pingOk || feed.state === "live" ? "bg-up" : armed ? "bg-down" : "bg-up")} />
-            {hasLive ? "BingX VST-02 live" : feed.state === "live" ? "BingX live tape" : `${connected} BingX sessions`}
+            {hasLive ? `${venueLabel} live` : feed.state === "live" ? "BingX live tape" : `${connected} BingX sessions`}
           </div>
           <div className="mt-1">
             {hasLive
@@ -278,7 +283,7 @@ export function AppShell() {
           <div className="hidden items-center gap-2 text-sm md:flex">
             <Activity className="size-4" />
             <span className="font-medium">
-              {armed ? "MAINNET ARMED" : hasLive ? "BingX VST-02 live" : feed.state === "live" ? "Live tape" : vstRunning ? "VST live" : "VST paused"}
+              {armed ? "MAINNET ARMED" : hasLive ? `${venueLabel} live` : feed.state === "live" ? "Live tape" : vstRunning ? "VST live" : "VST paused"}
             </span>
           </div>
           <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">

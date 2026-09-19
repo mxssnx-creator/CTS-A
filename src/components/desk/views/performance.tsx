@@ -142,7 +142,7 @@ export function PerformanceView() {
           <p className="text-xs font-medium uppercase tracking-widest text-subtle">Statistics</p>
           <h1 className="text-2xl font-semibold tracking-tight">Performance</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted">
-            Combination space, gates, and the live VST-02 tape. Auto-validate independently scores
+            Combination space, gates, and the live {liveSnap.venueLabel} tape. Auto-validate independently scores
             every tactic, range, trail and TP/SL ratio. Overall stats cover all armed symbols.
           </p>
         </div>
@@ -194,7 +194,7 @@ export function PerformanceView() {
           <Kpi
             label="Legs"
             value={liveSnap.hasLive ? `${liveSnap.livePos}/${pos.maxLegs}` : `${pos.legs}/${pos.maxLegs}`}
-            hint={liveSnap.hasLive ? "BingX VST-02" : `${vst.stats.partials} partial`}
+            hint={liveSnap.hasLive ? liveSnap.venueLabel : `${vst.stats.partials} partial`}
           />
           <Kpi
             label="Orders placed"
