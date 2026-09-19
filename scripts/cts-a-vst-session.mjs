@@ -99,6 +99,7 @@ function pickCompleteLock(complete) {
   return cells.find((c) => PREFERRED_RANGES.has(c.range) && Number(c.pf) + 1e-9 >= Number(best.pf) * 0.9) || best;
 }
 let lastLevBump = 0;
+let lastFlattenAt = 0;
 
 async function raiseOwnedLeverage(network, positions) {
   const ids = [...new Set((positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side)).map((p) => p.symbol).filter(Boolean))];
@@ -610,6 +611,8 @@ function pfGateClosed() {
 }
 
 async function flattenBelowMinPf(network, book, e) {
+  if (apiQuiet()) return null;
+  if (Date.now() - lastFlattenAt < 25_000) return null;
   const floor = LIVE_MIN_PF;
   const overallBad = pfGateClosed();
   const jobs = [];
@@ -623,9 +626,11 @@ async function flattenBelowMinPf(network, book, e) {
     if (n >= 2 || overallBad) jobs.push(p);
   }
   if (!jobs.length) return null;
-  const take = jobs.slice(0, 6);
+  lastFlattenAt = Date.now();
+  const take = jobs.slice(0, 2);
   let closed = 0;
-  await mapLimit(take, 3, async (p) => {
+  await mapLimit(take, 1, async (p) => {
+    if (apiQuiet()) return;
     const key = `${p.symbol}:${p.side}`;
     const orders = (book.orders ?? []).filter(
       (o) => o.symbol === p.symbol && mayCancelOrder(o) && (o.closePosition || o.side === p.side || /STOP|TAKE_PROFIT/i.test(String(o.type || ""))),
