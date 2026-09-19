@@ -975,6 +975,8 @@ export interface VstEngine {
   minPf?: number;
   liveTape?: boolean;
   strategyToggles?: StrategyToggles;
+  /** Owned live exchange position count — used to allow a restart when the book is empty. */
+  liveOpenN?: number;
 }
 
 export interface BlockLaneState {

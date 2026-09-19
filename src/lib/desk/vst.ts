@@ -997,7 +997,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           slDist: lv.slDist,
           tpDist: lv.tpDist,
           batchId: "",
-          note: `${e.lastTactic} ${hi.rangeType} ${ind} L${li + 1} · ${connId}`,
+          note: `${e.lastTactic} ${hi.rangeType} ${ind} L${li + 1}${short && (e.blockCfg?.enabled !== false) ? " · Block 1" : ""} · ${connId}`,
           indication: ind,
           kind,
           playbook: book,
@@ -2262,13 +2262,13 @@ export function applyRealizedSymbolStats(
 export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (symbolBlockPaused(e, symbol, evalN)) return true;
   const floor = entryMinPf(e);
-  if (e.liveDisabled?.[`sym:${symbol}`]) return true;
   const st = e.symbolStats?.[symbol];
   const tape = symbolTapePf(e, symbol);
   if (tape != null && tape + 1e-9 < 1) return true;
-  if (tape != null && tape + 1e-9 < floor) return true;
-  if (st && st.trades >= 2 && st.profit + 1e-12 <= st.loss) return true;
-  if (e.liveTape) {
+  if (st && st.trades >= 6 && st.profit + 1e-12 <= st.loss) return true;
+  const thin = Boolean(e.liveTape && (e.liveOpenN ?? 99) < 2);
+  if (!thin && e.liveDisabled?.[`sym:${symbol}`]) return true;
+  if (e.liveTape && !thin) {
     let liveN = 0;
     let liveProfit = 0;
     let liveLoss = 0;
@@ -2290,18 +2290,18 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
       const last = symbolLastNPf(e, symbol, evalN);
       if (last != null && last + 1e-9 < floor) return true;
     }
-  } else {
+  } else if (!e.liveTape) {
     const last = symbolLastNPf(e, symbol, evalN);
     if (last != null && last + 1e-9 < floor) return true;
   }
   const perf = e.performingSymbols;
-  if (perf && perf.length > 0 && !perf.includes(symbol)) {
+  if (!thin && perf && perf.length > 0 && !perf.includes(symbol)) {
     if (!e.liveTape) return true;
     if (!st || st.trades < 4) return true;
     const pf = tape ?? profitFactor(st.profit, st.loss);
     if (pf + 1e-9 < floor) return true;
   }
-  if ((perf?.length ?? 0) > 0 && e.symbolEval?.[symbol]?.hourOk === false) {
+  if (!thin && (perf?.length ?? 0) > 0 && e.symbolEval?.[symbol]?.hourOk === false) {
     if (!e.liveTape) return true;
     if (!st || st.trades < 4) return true;
     const pf = tape ?? profitFactor(st.profit, st.loss);
@@ -2318,8 +2318,8 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
     const ind = classifyIndication(e, symbol);
     const kind = kindFromIndication(ind, openPlaybook(e.lastTactic, ind), e.lastTactic);
     if (kind === "normal") return true;
-    if (e.liveDisabled?.[`kind:${kind}`]) return true;
-    if (e.liveDisabled?.[`ind:${ind}`]) return true;
+    if (!thin && e.liveDisabled?.[`kind:${kind}`]) return true;
+    if (!thin && e.liveDisabled?.[`ind:${ind}`]) return true;
   } catch {
     /* quotes may be thin */
   }
@@ -4798,6 +4798,7 @@ export function liveShouldExecute(
   const play = String(rel.playbook || "");
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca) return t.dca;
+  if (rel.kind === "short" || play === "short") return t.block || t.trailing;
   if (t.block && winningRelLive(e, rel)) return true;
   const isBlockFill = play === "block" || /^Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   const isBlock = isBlockFill || positionBlockAdjusted(e, rel.symbol, rel.side);

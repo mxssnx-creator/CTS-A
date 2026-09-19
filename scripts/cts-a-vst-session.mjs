@@ -739,10 +739,12 @@ function liveNotional(e, f, equity, rel) {
   const base = sizeNotional(equity);
   const win = winningRelVolume(e, rel || { symbol: f.symbol, side: f.side });
   let mul = 1 + win;
-  if (/Block/i.test(String(f?.note || rel?.playbook || rel?.note || "")) || rel?.playbook === "block") {
-    mul += Math.max(0.08, Number(BLOCK.volumeRatio) || 0.08) * Math.max(1, Number(f.level || rel?.blockLevel) || 1);
+  const short = rel?.kind === "short" || rel?.playbook === "short" || cfgUsesShortRange(currentPick?.cfg);
+  const blockHit = /Block/i.test(String(f?.note || rel?.playbook || rel?.note || "")) || rel?.playbook === "block" || short;
+  if (STRAT.block && blockHit) {
+    mul += Math.max(0.08, Number(BLOCK.volumeRatio) || 0.08) * Math.max(1, Number(rel?.blockLevel) || 1);
   }
-  if (cfgUsesShortRange(currentPick?.cfg)) mul *= 0.85;
+  if (short) mul *= 0.85;
   return base * Math.min(2.4, mul);
 }
 
@@ -1476,7 +1478,7 @@ async function mirrorToExchange(e, network, cfg) {
         playbook,
         kind,
         note: order?.note,
-        blockLevel: order?.level ?? pos?.blockLevel,
+        blockLevel: pos?.blockLevel,
         indication,
         rangeType,
       };
@@ -1773,6 +1775,9 @@ async function main() {
     }
     tickBusy = true;
     try {
+      engine.liveOpenN = lastBook.pos || 0;
+      engine.strategyToggles = { ...STRAT };
+      engine.blockCfg = { ...BLOCK, enabled: STRAT.block };
       tickVst(engine, pick.cfg, pick.tactic, {
         freezeIds: lastBook.pos >= liveMaxPos() ? freeze : undefined,
         skipWalk: lastBook.pos >= liveMaxPos(),
