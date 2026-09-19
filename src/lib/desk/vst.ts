@@ -2194,15 +2194,13 @@ export function applyRealizedSymbolStats(
 export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (symbolBlockPaused(e, symbol, evalN)) return true;
   const floor = entryMinPf(e);
+  if (e.liveDisabled?.[`sym:${symbol}`]) return true;
+  const st = e.symbolStats?.[symbol];
   const tape = symbolTapePf(e, symbol);
   if (tape != null && tape + 1e-9 < 1) return true;
+  if (tape != null && tape + 1e-9 < floor) return true;
+  if (st && st.trades >= 2 && st.profit + 1e-12 <= st.loss) return true;
   if (e.liveTape) {
-    if (tape != null && tape + 1e-9 < floor) return true;
-    const stLive = e.symbolStats?.[symbol];
-    if (!stLive || stLive.trades < 2) {
-      const last = symbolLastNPf(e, symbol, evalN);
-      if (last != null && last + 1e-9 < floor) return true;
-    }
     let liveN = 0;
     let liveProfit = 0;
     let liveLoss = 0;
@@ -2212,17 +2210,35 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
       liveLoss += t.loss || 0;
     }
     const livePf = liveN >= 8 ? profitFactor(liveProfit, liveLoss) : Number(e.stats.pf);
-    if (liveN >= 8 && livePf > 0 && livePf + 1e-9 < floor) {
-      if (!stLive || stLive.trades < 1 || stLive.profit + 1e-12 <= stLive.loss) return true;
+    const overallBad =
+      (liveN >= 8 || (e.stats.trades || 0) >= 8) && Number.isFinite(livePf) && livePf > 0 && livePf + 1e-9 < floor;
+    if (overallBad) {
+      if (!st || st.trades < 4) return true;
+      const pf = tape ?? profitFactor(st.profit, st.loss);
+      if (pf + 1e-9 < floor) return true;
+      if (st.profit + 1e-12 <= st.loss) return true;
+    }
+    if (!st || st.trades < 2) {
+      const last = symbolLastNPf(e, symbol, evalN);
+      if (last != null && last + 1e-9 < floor) return true;
     }
   } else {
     const last = symbolLastNPf(e, symbol, evalN);
     if (last != null && last + 1e-9 < floor) return true;
   }
-  if (e.liveDisabled?.[`sym:${symbol}`]) return true;
   const perf = e.performingSymbols;
-  if (perf && perf.length > 0 && !perf.includes(symbol)) return true;
-  if ((perf?.length ?? 0) > 0 && e.symbolEval?.[symbol]?.hourOk === false) return true;
+  if (perf && perf.length > 0 && !perf.includes(symbol)) {
+    if (!e.liveTape) return true;
+    if (!st || st.trades < 4) return true;
+    const pf = tape ?? profitFactor(st.profit, st.loss);
+    if (pf + 1e-9 < floor) return true;
+  }
+  if ((perf?.length ?? 0) > 0 && e.symbolEval?.[symbol]?.hourOk === false) {
+    if (!e.liveTape) return true;
+    if (!st || st.trades < 4) return true;
+    const pf = tape ?? profitFactor(st.profit, st.loss);
+    if (pf + 1e-9 < floor) return true;
+  }
   if (e.liveDisabled?.[`ind:trend`]) {
     try {
       if (classifyIndication(e, symbol) === "trend") return true;

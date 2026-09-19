@@ -2222,6 +2222,10 @@ describe("VST engine", () => {
     assert.equal(skipLiveSymbol(e, "SOLUSDT"), true);
     assert.equal(skipLiveSymbol(e, "ETHUSDT"), false);
     assert.equal(skipLiveSymbol(e, "ADAUSDT"), true);
+    e.symbolStats.XRPUSDT = { id: "XRPUSDT", trades: 6, wins: 4, profit: 1.2, loss: 1.0, sl: 2, tp: 4 };
+    assert.ok((symbolTapePf(e, "XRPUSDT") ?? 0) < DEFAULT_MIN_PF);
+    assert.equal(skipLiveSymbol(e, "XRPUSDT"), true);
+    assert.equal(skipLiveSymbol(e, "DOGEUSDT"), true);
   });
 
   it("self-heals NaN books, empty running books, and coordinator faults", () => {

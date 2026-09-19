@@ -336,6 +336,9 @@ function snapshot(e, extra) {
     trailMs: lastTrail.ms,
     partials: e.stats?.partials ?? book.orders.partial,
     controlGap: Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0)),
+    minPf: LIVE_MIN_PF,
+    pfGate: pfGateClosed(),
+    liveDisabled: Object.keys(e.liveDisabled ?? {}).length,
     at: Date.now(),
     tick: e.tick,
   };
@@ -362,6 +365,7 @@ function writeSettingsPick(pick, extra = {}) {
     comboRange: "all",
     enabledKinds: ["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block"],
     strategyId: "normal",
+    minPf: LIVE_MIN_PF,
     thresholds: { minPf: LIVE_MIN_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
     activeConnId: CONN,
     evalHours: [4, 8, 16],
@@ -597,7 +601,64 @@ function sizeNotional(equity) {
 }
 
 function liveMaxPos() {
+  if (lastExec.n >= 8 && lastExec.pf + 1e-9 < LIVE_MIN_PF) return Math.min(LIVE_MAX_POS, lastBook.pos || 0);
   return LIVE_MAX_POS;
+}
+
+function pfGateClosed() {
+  return lastExec.n >= 8 && lastExec.pf + 1e-9 < LIVE_MIN_PF;
+}
+
+async function flattenBelowMinPf(network, book, e) {
+  const floor = LIVE_MIN_PF;
+  const overallBad = pfGateClosed();
+  const jobs = [];
+  for (const p of book?.positions ?? []) {
+    if (!isOwnedLeg(p.symbol, p.side)) continue;
+    const st = e.symbolStats?.[p.symbol];
+    const n = st?.trades || 0;
+    const pf = n >= 2 ? profitFactor(st.profit, st.loss) : 0;
+    const keep = n >= 2 && pf + 1e-9 >= floor && st.profit > st.loss;
+    if (keep) continue;
+    if (n >= 2 || overallBad) jobs.push(p);
+  }
+  if (!jobs.length) return null;
+  const take = jobs.slice(0, 6);
+  let closed = 0;
+  await mapLimit(take, 3, async (p) => {
+    const key = `${p.symbol}:${p.side}`;
+    const orders = (book.orders ?? []).filter(
+      (o) => o.symbol === p.symbol && mayCancelOrder(o) && (o.closePosition || o.side === p.side || /STOP|TAKE_PROFIT/i.test(String(o.type || ""))),
+    );
+    await mapLimit(orders.slice(0, 4), 4, async (o) => {
+      const r = await withLiveBusy(() =>
+        cancelSwapOrder({ network, connId: CONN, symbol: o.venueSymbol || o.symbol, orderId: String(o.id) }),
+      );
+      if (!r.ok) noteApiFail(r);
+    });
+    const r = await withLiveBusy(() =>
+      placeSwapOrder({
+        network,
+        connId: CONN,
+        symbol: p.symbol,
+        side: p.side === "long" ? "SELL" : "BUY",
+        positionSide: p.side === "long" ? "LONG" : "SHORT",
+        quantity: p.qty,
+        type: "MARKET",
+        closePosition: true,
+        confirmLive: true,
+      }),
+    );
+    if (r.ok) {
+      closed += 1;
+      mirrored.delete(`own:${key}`);
+      mirrored.delete(`live:${key}`);
+      mirrored.delete(`sl:${key}`);
+      mirrored.delete(`tp:${key}`);
+      mirrored.delete(`seed:${key}`);
+    } else noteApiFail(r);
+  });
+  return closed ? `flatten minPF ${floor} ${closed}/${jobs.length}` : null;
 }
 
 function apiQuiet() {
@@ -1129,6 +1190,8 @@ async function mirrorToExchange(e, network, cfg) {
   if (foreignPosN || foreignOrdN) notes.push(`foreign ${foreignPosN}p/${foreignOrdN}o held`);
   const guard = await ensureProtect(network, book, cfg, vanished, e);
   if (guard) notes.push(guard);
+  const flat = await flattenBelowMinPf(network, book, e);
+  if (flat) notes.push(flat);
   const protectGap = lastBook.pos - Math.min(lastBook.sl, lastBook.tp);
   const paperOpen = new Set((e.positions || []).map((p) => `${p.symbol}:${p.side}`));
   for (const k of paperOpen) mirrored.delete(`seed:${k}`);
@@ -1155,7 +1218,10 @@ async function mirrorToExchange(e, network, cfg) {
     }
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
     if (deadSymbols.has(f.symbol)) continue;
-    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 6))) continue;
+    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 6))) {
+      skippedFills.add(f.id);
+      continue;
+    }
     if (!isUniverseSymbol(f.symbol)) {
       mirrored.add(f.id);
       continue;
@@ -1446,8 +1512,8 @@ async function main() {
     tickBusy = true;
     try {
       tickVst(engine, pick.cfg, pick.tactic, {
-        freezeIds: lastBook.pos >= LIVE_MAX_POS ? freeze : undefined,
-        skipWalk: lastBook.pos >= LIVE_MAX_POS,
+        freezeIds: lastBook.pos >= liveMaxPos() ? freeze : undefined,
+        skipWalk: lastBook.pos >= liveMaxPos() || pfGateClosed(),
         rangeType: pick.range,
         symbolCount: LIVE_SYMBOLS,
         orderType: "limit",
