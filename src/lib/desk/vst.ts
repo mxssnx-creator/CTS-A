@@ -1632,8 +1632,8 @@ function blockLaneKey(symbol: string, side: Side) {
 }
 
 function liveBlockCounts(block: BlockConfig) {
-  const cap = Math.max(1, Math.min(6, Math.round(block.maxMultiple || 6)));
-  const raw = Array.isArray(block.counts) && block.counts.length ? block.counts : [1, 2, 3, 4, 5, 6];
+  const cap = Math.max(1, Math.min(12, Math.round(block.maxMultiple || 6)));
+  const raw = Array.isArray(block.counts) && block.counts.length ? block.counts : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   return [...new Set(raw.map((n) => Math.round(n)).filter((n) => n >= 1 && n <= cap))].sort((a, b) => a - b);
 }
 
