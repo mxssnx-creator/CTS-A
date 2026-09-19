@@ -213,6 +213,8 @@ const SHORT_GRID = allShortTpSlCombos()
   })),
 );
 let GRID = [...SHORT_GRID];
+const prefer = GRID.find((g) => g.cfg.tpAtr === 0.35 && g.cfg.slOfTp === 1.5 && g.tactic === "trailing") || GRID[0];
+if (prefer) GRID = [prefer, ...GRID.filter((g) => g !== prefer)];
 let currentPick = GRID[0];
 const DISABLED_FILE = process.env.CTS_A_DISABLED ?? "/var/lib/cts-a/live-disabled.json";
 
