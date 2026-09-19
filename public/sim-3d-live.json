@@ -1,0 +1,6616 @@
+{
+  "hours": 72,
+  "symbols": 50,
+  "minPf": 1.8,
+  "cfg": {
+    "trailingPct": 1.5,
+    "dcaCount": 1,
+    "dcaDrawdown": 0.8,
+    "axisSpacing": 0.7,
+    "axisLevels": 5,
+    "slAtr": 0.525,
+    "tpRatio": 0.667,
+    "tpAtr": 0.35,
+    "slOfTp": 1.5,
+    "shortRange": true,
+    "maxHoldBars": 8,
+    "maxHoldTicks": 16
+  },
+  "at": 1789845837118,
+  "ms": 22209,
+  "complete": {
+    "cells": [
+      {
+        "tactic": "trailing",
+        "range": "linear",
+        "hours": 4,
+        "pf": 0,
+        "wr": 0,
+        "net": -0.002581927354094987,
+        "trades": 1,
+        "mdd": 0.0010671172395784866,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "linear",
+        "hours": 8,
+        "pf": 0,
+        "wr": 0,
+        "net": -0.002581927354094987,
+        "trades": 1,
+        "mdd": 0.0010671172395784866,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "linear",
+        "hours": 16,
+        "pf": 23.37407311934835,
+        "wr": 0.5,
+        "net": 0.057768231409366856,
+        "trades": 2,
+        "mdd": 0.0010671172395784866,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "linear",
+        "hours": 72,
+        "pf": 1.137195620824462,
+        "wr": 0.6107784431137725,
+        "net": 17.05698466358291,
+        "trades": 334,
+        "mdd": 0.0010671172395784866,
+        "ok": true
+      },
+      {
+        "tactic": "trailing",
+        "range": "geometric",
+        "hours": 4,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.008405986839571215,
+        "trades": 1,
+        "mdd": 0.0021779095413065647,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "geometric",
+        "hours": 8,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.008405986839571215,
+        "trades": 1,
+        "mdd": 0.0021779095413065647,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "geometric",
+        "hours": 16,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.12479153156615869,
+        "trades": 3,
+        "mdd": 0.0021779095413065647,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "geometric",
+        "hours": 72,
+        "pf": 1.3549750649654055,
+        "wr": 0.6415094339622641,
+        "net": 10.97224271619389,
+        "trades": 371,
+        "mdd": 0.0021779095413065647,
+        "ok": true
+      },
+      {
+        "tactic": "trailing",
+        "range": "atr",
+        "hours": 4,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.018815497937789506,
+        "trades": 2,
+        "mdd": 0.0010667428425976174,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "atr",
+        "hours": 8,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.018815497937789506,
+        "trades": 2,
+        "mdd": 0.0010667428425976174,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "atr",
+        "hours": 16,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.11701212769368036,
+        "trades": 3,
+        "mdd": 0.0010667428425976174,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "atr",
+        "hours": 72,
+        "pf": 1.3611007123048708,
+        "wr": 0.6414565826330533,
+        "net": 37.322206216874044,
+        "trades": 357,
+        "mdd": 0.0010667428425976174,
+        "ok": true
+      },
+      {
+        "tactic": "trailing",
+        "range": "volume",
+        "hours": 4,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.025786401607921845,
+        "trades": 1,
+        "mdd": 0.0010655512910758673,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "volume",
+        "hours": 8,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.025786401607921845,
+        "trades": 1,
+        "mdd": 0.0010655512910758673,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "volume",
+        "hours": 16,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.42206544894918946,
+        "trades": 2,
+        "mdd": 0.0010655512910758673,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "volume",
+        "hours": 72,
+        "pf": 1.0050591764950207,
+        "wr": 0.6101190476190477,
+        "net": 20.963333250744935,
+        "trades": 336,
+        "mdd": 0.0010655512910758673,
+        "ok": true
+      },
+      {
+        "tactic": "trailing",
+        "range": "fibonacci",
+        "hours": 4,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.007588799701314954,
+        "trades": 1,
+        "mdd": 0.0014504023912033394,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "fibonacci",
+        "hours": 8,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.007588799701314954,
+        "trades": 1,
+        "mdd": 0.0014504023912033394,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "fibonacci",
+        "hours": 16,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.07645476927011327,
+        "trades": 2,
+        "mdd": 0.0014504023912033394,
+        "ok": false
+      },
+      {
+        "tactic": "trailing",
+        "range": "fibonacci",
+        "hours": 72,
+        "pf": 1.2550746386085458,
+        "wr": 0.6335227272727273,
+        "net": 9.062469684739956,
+        "trades": 352,
+        "mdd": 0.0014504023912033394,
+        "ok": true
+      },
+      {
+        "tactic": "axis",
+        "range": "linear",
+        "hours": 4,
+        "pf": 0,
+        "wr": 0,
+        "net": 0,
+        "trades": 0,
+        "mdd": 0.0012948372179282406,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "linear",
+        "hours": 8,
+        "pf": 0,
+        "wr": 0,
+        "net": 0,
+        "trades": 0,
+        "mdd": 0.0012948372179282406,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "linear",
+        "hours": 16,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.23948221032217426,
+        "trades": 1,
+        "mdd": 0.0012948372179282406,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "linear",
+        "hours": 72,
+        "pf": 1.65594309043491,
+        "wr": 0.4918032786885246,
+        "net": 8.357201651767143,
+        "trades": 183,
+        "mdd": 0.0012948372179282406,
+        "ok": true
+      },
+      {
+        "tactic": "axis",
+        "range": "geometric",
+        "hours": 4,
+        "pf": 0,
+        "wr": 0,
+        "net": 0,
+        "trades": 0,
+        "mdd": 0.001641093419154269,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "geometric",
+        "hours": 8,
+        "pf": 0,
+        "wr": 0,
+        "net": 0,
+        "trades": 0,
+        "mdd": 0.001641093419154269,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "geometric",
+        "hours": 16,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.3393228479347312,
+        "trades": 1,
+        "mdd": 0.001641093419154269,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "geometric",
+        "hours": 72,
+        "pf": 1.4294218783328694,
+        "wr": 0.49444444444444446,
+        "net": 6.729015989356849,
+        "trades": 180,
+        "mdd": 0.001641093419154269,
+        "ok": true
+      },
+      {
+        "tactic": "axis",
+        "range": "atr",
+        "hours": 4,
+        "pf": 0,
+        "wr": 0,
+        "net": 0,
+        "trades": 0,
+        "mdd": 0.0012488605416764293,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "atr",
+        "hours": 8,
+        "pf": 0,
+        "wr": 0,
+        "net": 0,
+        "trades": 0,
+        "mdd": 0.0012488605416764293,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "atr",
+        "hours": 16,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.33689704316157937,
+        "trades": 1,
+        "mdd": 0.0012488605416764293,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "atr",
+        "hours": 72,
+        "pf": 1.3754909622255354,
+        "wr": 0.5355191256830601,
+        "net": 5.7532777085148386,
+        "trades": 183,
+        "mdd": 0.0012488605416764293,
+        "ok": true
+      },
+      {
+        "tactic": "axis",
+        "range": "volume",
+        "hours": 4,
+        "pf": 0,
+        "wr": 0,
+        "net": 0,
+        "trades": 0,
+        "mdd": 0.001044601038372268,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "volume",
+        "hours": 8,
+        "pf": 0,
+        "wr": 0,
+        "net": 0,
+        "trades": 0,
+        "mdd": 0.001044601038372268,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "volume",
+        "hours": 16,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.337213113305317,
+        "trades": 1,
+        "mdd": 0.001044601038372268,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "volume",
+        "hours": 72,
+        "pf": 1.2295040776407187,
+        "wr": 0.4972677595628415,
+        "net": 3.453620575890998,
+        "trades": 183,
+        "mdd": 0.001044601038372268,
+        "ok": true
+      },
+      {
+        "tactic": "axis",
+        "range": "fibonacci",
+        "hours": 4,
+        "pf": 0,
+        "wr": 0,
+        "net": 0,
+        "trades": 0,
+        "mdd": 0.0014091489884037927,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "fibonacci",
+        "hours": 8,
+        "pf": 0,
+        "wr": 0,
+        "net": 0,
+        "trades": 0,
+        "mdd": 0.0014091489884037927,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "fibonacci",
+        "hours": 16,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.34102831864399713,
+        "trades": 1,
+        "mdd": 0.0014091489884037927,
+        "ok": false
+      },
+      {
+        "tactic": "axis",
+        "range": "fibonacci",
+        "hours": 72,
+        "pf": 1.2172366663755438,
+        "wr": 0.5055555555555555,
+        "net": 3.50776232767754,
+        "trades": 180,
+        "mdd": 0.0014091489884037927,
+        "ok": true
+      },
+      {
+        "tactic": "hybrid",
+        "range": "linear",
+        "hours": 4,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.02470726708641683,
+        "trades": 1,
+        "mdd": 0.0008230684234597076,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "linear",
+        "hours": 8,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.02470726708641683,
+        "trades": 1,
+        "mdd": 0.0008230684234597076,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "linear",
+        "hours": 16,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.2165458149343716,
+        "trades": 2,
+        "mdd": 0.0008230684234597076,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "linear",
+        "hours": 72,
+        "pf": 1.000730761277949,
+        "wr": 0.43613707165109034,
+        "net": 26.941098855165425,
+        "trades": 321,
+        "mdd": 0.0008230684234597076,
+        "ok": true
+      },
+      {
+        "tactic": "hybrid",
+        "range": "geometric",
+        "hours": 4,
+        "pf": 0.16139066791413653,
+        "wr": 0.5,
+        "net": -0.0830097179821079,
+        "trades": 2,
+        "mdd": 0.001172291687296434,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "geometric",
+        "hours": 8,
+        "pf": 0.16139066791413653,
+        "wr": 0.5,
+        "net": -0.0830097179821079,
+        "trades": 2,
+        "mdd": 0.001172291687296434,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "geometric",
+        "hours": 16,
+        "pf": 1.2677634105539277,
+        "wr": 0.6666666666666666,
+        "net": 0.026504552651142155,
+        "trades": 3,
+        "mdd": 0.001172291687296434,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "geometric",
+        "hours": 72,
+        "pf": 1.256792435731903,
+        "wr": 0.49700598802395207,
+        "net": 21.683596365842167,
+        "trades": 334,
+        "mdd": 0.001172291687296434,
+        "ok": true
+      },
+      {
+        "tactic": "hybrid",
+        "range": "atr",
+        "hours": 4,
+        "pf": 0.19193799331754757,
+        "wr": 0.5,
+        "net": -0.10656662218443747,
+        "trades": 2,
+        "mdd": 0.000858657748684966,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "atr",
+        "hours": 8,
+        "pf": 0.19193799331754757,
+        "wr": 0.5,
+        "net": -0.10656662218443747,
+        "trades": 2,
+        "mdd": 0.000858657748684966,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "atr",
+        "hours": 16,
+        "pf": 1.7555583180135905,
+        "wr": 0.5,
+        "net": 0.13424115631493574,
+        "trades": 4,
+        "mdd": 0.000858657748684966,
+        "ok": true
+      },
+      {
+        "tactic": "hybrid",
+        "range": "atr",
+        "hours": 72,
+        "pf": 1.1292986761840664,
+        "wr": 0.45317220543806647,
+        "net": 33.06375675524434,
+        "trades": 331,
+        "mdd": 0.000858657748684966,
+        "ok": true
+      },
+      {
+        "tactic": "hybrid",
+        "range": "volume",
+        "hours": 4,
+        "pf": 0,
+        "wr": 0,
+        "net": -0.0012271068174470844,
+        "trades": 1,
+        "mdd": 0.0012105046617375216,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "volume",
+        "hours": 8,
+        "pf": 0,
+        "wr": 0,
+        "net": -0.0012271068174470844,
+        "trades": 1,
+        "mdd": 0.0012105046617375216,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "volume",
+        "hours": 16,
+        "pf": 56.09145213946188,
+        "wr": 0.5,
+        "net": 0.06760309650339343,
+        "trades": 2,
+        "mdd": 0.0012105046617375216,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "volume",
+        "hours": 72,
+        "pf": 0.825614543020409,
+        "wr": 0.4645161290322581,
+        "net": 12.917251477422216,
+        "trades": 310,
+        "mdd": 0.0012105046617375216,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "fibonacci",
+        "hours": 4,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.004107178796304546,
+        "trades": 1,
+        "mdd": 0.0011250927158023775,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "fibonacci",
+        "hours": 8,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.004107178796304546,
+        "trades": 1,
+        "mdd": 0.0011250927158023775,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "fibonacci",
+        "hours": 16,
+        "pf": 4,
+        "wr": 1,
+        "net": 0.05419747355742032,
+        "trades": 2,
+        "mdd": 0.0011250927158023775,
+        "ok": false
+      },
+      {
+        "tactic": "hybrid",
+        "range": "fibonacci",
+        "hours": 72,
+        "pf": 1.1664673286037328,
+        "wr": 0.45151515151515154,
+        "net": 23.145951876953255,
+        "trades": 330,
+        "mdd": 0.0011250927158023775,
+        "ok": true
+      }
+    ],
+    "winner": {
+      "tactic": "axis",
+      "range": "linear",
+      "hours": 72,
+      "pf": 1.65594309043491,
+      "wr": 0.4918032786885246,
+      "net": 8.357201651767143,
+      "trades": 183,
+      "mdd": 0.0012948372179282406,
+      "ok": true
+    },
+    "ok": 15,
+    "n": 60
+  },
+  "liveRuns": [
+    {
+      "pf": 1.361,
+      "wr": 0.641,
+      "n": 357,
+      "net": 37.322,
+      "mdd": 0.0011,
+      "sl": 287,
+      "tp": 68,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 20,
+          "pf": 3.283,
+          "wr": 0.75,
+          "net": 4.22,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 308,
+          "pf": 1.226,
+          "wr": 0.656,
+          "net": 3.724,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 28,
+          "pf": 0.216,
+          "wr": 0.429,
+          "net": -0.809,
+          "ok": false
+        }
+      ],
+      "byKind": [
+        {
+          "key": "block",
+          "n": 357,
+          "pf": 1.361,
+          "wr": 0.641,
+          "net": 7.022,
+          "ok": false
+        }
+      ],
+      "byTactic": [
+        {
+          "key": "trailing",
+          "n": 286,
+          "pf": 0.546,
+          "wr": 0.584,
+          "net": -5.814,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 71,
+          "pf": 2.935,
+          "wr": 0.873,
+          "net": 12.836,
+          "ok": true
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 216,
+          "pf": 0.613,
+          "wr": 0.616,
+          "net": -3.592,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 141,
+          "pf": 2.043,
+          "wr": 0.681,
+          "net": 10.615,
+          "ok": true
+        }
+      ],
+      "byPlaybook": [
+        {
+          "key": "block",
+          "n": 357,
+          "pf": 1.361,
+          "wr": 0.641,
+          "net": 7.022,
+          "ok": false
+        }
+      ],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 287,
+          "pf": 1.231,
+          "wr": 0.561,
+          "net": 4.414,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 68,
+          "pf": 4,
+          "wr": 1,
+          "net": 2.937,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 4,
+          "pf": 1.6227229270340477,
+          "wr": 0.8,
+          "net": 0.05321803451796908,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 6,
+          "pf": 0.42573097435302765,
+          "wr": 0.6,
+          "net": -0.2828182543917307,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 8,
+          "pf": 1.8983411252461406,
+          "wr": 0.6666666666666666,
+          "net": 0.4424185487005574,
+          "ddt": 10,
+          "mdd": 0.5811846571622966
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 9,
+          "pf": 1.186330924896578,
+          "wr": 0.6,
+          "net": 0.15012938992461597,
+          "ddt": 10,
+          "mdd": 0.9735507475326323
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 26,
+          "pf": 0.7568187502009958,
+          "wr": 0.65,
+          "net": -0.8277908004023692,
+          "ddt": 29,
+          "mdd": 1
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 76,
+          "pf": 1.3039639992927623,
+          "wr": 0.6333333333333333,
+          "net": 2.491195166706145,
+          "ddt": 29,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 357,
+          "wins": 229,
+          "pf": 1.361100712304873,
+          "wr": 0.6414565826330533,
+          "net": 7.0224277736871885,
+          "ddt": 136,
+          "mdd": 0.7044141248872976
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 22,
+          "avgOrders": 185
+        },
+        "2": {
+          "key": "2h",
+          "n": 1,
+          "wins": 1,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.013959609482646754,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 44,
+          "avgOrders": 185
+        },
+        "4": {
+          "key": "4h",
+          "n": 2,
+          "wins": 2,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.018815497937789506,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 2,
+          "orders": 87,
+          "avgOrders": 185
+        },
+        "6": {
+          "key": "6h",
+          "n": 2,
+          "wins": 2,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.018815497937789506,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 2,
+          "orders": 131,
+          "avgOrders": 185
+        },
+        "8": {
+          "key": "8h",
+          "n": 2,
+          "wins": 2,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.018815497937789506,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 2,
+          "orders": 175,
+          "avgOrders": 185
+        },
+        "12": {
+          "key": "12h",
+          "n": 2,
+          "wins": 2,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.018815497937789506,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 2,
+          "orders": 262,
+          "avgOrders": 185
+        },
+        "45": {
+          "key": "45h",
+          "n": 19,
+          "wins": 13,
+          "pf": 2.3306145442947908,
+          "wr": 0.6842105263157895,
+          "net": 1.072094446322722,
+          "ddt": 10,
+          "mdd": 0.31702845649903943,
+          "symbols": 11,
+          "orders": 983,
+          "avgOrders": 185
+        },
+        "50": {
+          "key": "50h",
+          "n": 30,
+          "wins": 18,
+          "pf": 0.6818727155548168,
+          "wr": 0.6,
+          "net": -0.9645301200735326,
+          "ddt": 29,
+          "mdd": 1,
+          "symbols": 19,
+          "orders": 1092,
+          "avgOrders": 185
+        }
+      },
+      "label": "live trailing/atr block",
+      "tactic": "trailing",
+      "range": "atr",
+      "block": true,
+      "ms": 770
+    },
+    {
+      "pf": 0.868,
+      "wr": 0.644,
+      "n": 312,
+      "net": 5.267,
+      "mdd": 0.0005,
+      "sl": 249,
+      "tp": 61,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 2.194,
+          "wr": 0.789,
+          "net": 0.816,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 270,
+          "pf": 0.846,
+          "wr": 0.656,
+          "net": -1.857,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 23,
+          "pf": 0.21,
+          "wr": 0.391,
+          "net": -0.763,
+          "ok": false
+        }
+      ],
+      "byKind": [],
+      "byTactic": [
+        {
+          "key": "trailing",
+          "n": 241,
+          "pf": 0.541,
+          "wr": 0.589,
+          "net": -4.409,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 71,
+          "pf": 1.636,
+          "wr": 0.831,
+          "net": 2.605,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 241,
+          "pf": 0.541,
+          "wr": 0.589,
+          "net": -4.409,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 71,
+          "pf": 1.636,
+          "wr": 0.831,
+          "net": 2.605,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 249,
+          "pf": 0.668,
+          "wr": 0.562,
+          "net": -4.525,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 61,
+          "pf": 4,
+          "wr": 1,
+          "net": 2.805,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 5,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.2356255965924225,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 9,
+          "pf": 2.9190491106127467,
+          "wr": 0.9,
+          "net": 0.3827345254147689,
+          "ddt": 5,
+          "mdd": 0.6124611358780119
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 11,
+          "pf": 3.4589788331614817,
+          "wr": 0.9166666666666666,
+          "net": 0.4904179322511031,
+          "ddt": 5,
+          "mdd": 0.4602597075109463
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 13,
+          "pf": 2.8919995726134706,
+          "wr": 0.8666666666666667,
+          "net": 0.49478024804728055,
+          "ddt": 5,
+          "mdd": 0.9343365524301157
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 30,
+          "pf": 1.4776893011404544,
+          "wr": 0.75,
+          "net": 0.5994782576031285,
+          "ddt": 12,
+          "mdd": 1
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 76,
+          "pf": 0.8589962816727328,
+          "wr": 0.6333333333333333,
+          "net": -0.6789847755989564,
+          "ddt": 104,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 312,
+          "wins": 201,
+          "pf": 0.8683427609121841,
+          "wr": 0.6442307692307693,
+          "net": -1.8042086002811846,
+          "ddt": 264,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 8,
+          "avgOrders": 162.5
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 16,
+          "avgOrders": 162.5
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 32,
+          "avgOrders": 162.5
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 48,
+          "avgOrders": 162.5
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 65,
+          "avgOrders": 162.5
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 97,
+          "avgOrders": 162.5
+        },
+        "45": {
+          "key": "45h",
+          "n": 12,
+          "wins": 11,
+          "pf": 3.4589788331614817,
+          "wr": 0.9166666666666666,
+          "net": 0.4904179322511031,
+          "ddt": 5,
+          "mdd": 0.4602597075109463,
+          "symbols": 9,
+          "orders": 363,
+          "avgOrders": 162.5
+        },
+        "50": {
+          "key": "50h",
+          "n": 19,
+          "wins": 15,
+          "pf": 1.2900636128186098,
+          "wr": 0.7894736842105263,
+          "net": 0.18381178144146004,
+          "ddt": 9,
+          "mdd": 1,
+          "symbols": 16,
+          "orders": 403,
+          "avgOrders": 162.5
+        }
+      },
+      "label": "live trailing/atr noblock",
+      "tactic": "trailing",
+      "range": "atr",
+      "block": false,
+      "ms": 439
+    },
+    {
+      "pf": 1.255,
+      "wr": 0.634,
+      "n": 352,
+      "net": 9.062,
+      "mdd": 0.0015,
+      "sl": 277,
+      "tp": 74,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 2.29,
+          "wr": 0.842,
+          "net": 3.07,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 297,
+          "pf": 1.181,
+          "wr": 0.64,
+          "net": 2.917,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 35,
+          "pf": 0.281,
+          "wr": 0.486,
+          "net": -0.826,
+          "ok": false
+        }
+      ],
+      "byKind": [
+        {
+          "key": "block",
+          "n": 352,
+          "pf": 1.255,
+          "wr": 0.634,
+          "net": 5.048,
+          "ok": false
+        }
+      ],
+      "byTactic": [
+        {
+          "key": "trailing",
+          "n": 281,
+          "pf": 0.48,
+          "wr": 0.569,
+          "net": -6.886,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 71,
+          "pf": 2.819,
+          "wr": 0.887,
+          "net": 11.934,
+          "ok": true
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 125,
+          "pf": 0.397,
+          "wr": 0.568,
+          "net": -3.578,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 227,
+          "pf": 1.623,
+          "wr": 0.67,
+          "net": 8.626,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [
+        {
+          "key": "block",
+          "n": 352,
+          "pf": 1.255,
+          "wr": 0.634,
+          "net": 5.048,
+          "ok": false
+        }
+      ],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 277,
+          "pf": 1.104,
+          "wr": 0.538,
+          "net": 2.043,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 74,
+          "pf": 4,
+          "wr": 1,
+          "net": 3.117,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 4,
+          "pf": 1.7647953240471246,
+          "wr": 0.8,
+          "net": 0.05351785568522785,
+          "ddt": 2,
+          "mdd": 1
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 6,
+          "pf": 1.1432775436786953,
+          "wr": 0.6,
+          "net": 0.07032283603158973,
+          "ddt": 8,
+          "mdd": 1
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 6,
+          "pf": 0.6927937271149839,
+          "wr": 0.5,
+          "net": -0.24882617027291953,
+          "ddt": 8,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 8,
+          "pf": 1.2642972659872624,
+          "wr": 0.5333333333333333,
+          "net": 0.2622238862180247,
+          "ddt": 14,
+          "mdd": 0.755916270547268
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 27,
+          "pf": 1.4754012644449113,
+          "wr": 0.675,
+          "net": 1.1992844338922475,
+          "ddt": 30,
+          "mdd": 0.5118556209494702
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 70,
+          "pf": 1.1255990935672717,
+          "wr": 0.5833333333333334,
+          "net": 0.9529293290945238,
+          "ddt": 30,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 352,
+          "wins": 223,
+          "pf": 1.2550746386085447,
+          "wr": 0.6335227272727273,
+          "net": 5.0478377429113195,
+          "ddt": 147,
+          "mdd": 0.7487401730319786
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 22,
+          "avgOrders": 185.5
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 43,
+          "avgOrders": 185.5
+        },
+        "4": {
+          "key": "4h",
+          "n": 1,
+          "wins": 1,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.007588799701314954,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 86,
+          "avgOrders": 185.5
+        },
+        "6": {
+          "key": "6h",
+          "n": 1,
+          "wins": 1,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.007588799701314954,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 130,
+          "avgOrders": 185.5
+        },
+        "8": {
+          "key": "8h",
+          "n": 1,
+          "wins": 1,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.007588799701314954,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 173,
+          "avgOrders": 185.5
+        },
+        "12": {
+          "key": "12h",
+          "n": 1,
+          "wins": 1,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.007588799701314954,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 259,
+          "avgOrders": 185.5
+        },
+        "45": {
+          "key": "45h",
+          "n": 18,
+          "wins": 10,
+          "pf": 1.1237936233874706,
+          "wr": 0.5555555555555556,
+          "net": 0.15394638191469898,
+          "ddt": 14,
+          "mdd": 1,
+          "symbols": 11,
+          "orders": 972,
+          "avgOrders": 185.5
+        },
+        "50": {
+          "key": "50h",
+          "n": 25,
+          "wins": 15,
+          "pf": 0.6888243168412302,
+          "wr": 0.6,
+          "net": -0.6645089195931765,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 18,
+          "orders": 1080,
+          "avgOrders": 185.5
+        }
+      },
+      "label": "live trailing/fibonacci block",
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "block": true,
+      "ms": 790
+    },
+    {
+      "pf": 0.89,
+      "wr": 0.661,
+      "n": 322,
+      "net": 5.556,
+      "mdd": 0.0006,
+      "sl": 254,
+      "tp": 67,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 2.197,
+          "wr": 0.842,
+          "net": 0.818,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 277,
+          "pf": 0.869,
+          "wr": 0.671,
+          "net": -1.584,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 26,
+          "pf": 0.235,
+          "wr": 0.423,
+          "net": -0.746,
+          "ok": false
+        }
+      ],
+      "byKind": [],
+      "byTactic": [
+        {
+          "key": "trailing",
+          "n": 251,
+          "pf": 0.573,
+          "wr": 0.614,
+          "net": -4.118,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 71,
+          "pf": 1.636,
+          "wr": 0.831,
+          "net": 2.605,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "fibonacci",
+          "n": 322,
+          "pf": 0.89,
+          "wr": 0.661,
+          "net": -1.512,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 254,
+          "pf": 0.675,
+          "wr": 0.575,
+          "net": -4.45,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 67,
+          "pf": 4,
+          "wr": 1,
+          "net": 2.988,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 5,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.23487885370432504,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 8,
+          "pf": 1.8171878335839118,
+          "wr": 0.8,
+          "net": 0.2429958554502044,
+          "ddt": 4,
+          "mdd": 1
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 9,
+          "pf": 1.5301637031864221,
+          "wr": 0.75,
+          "net": 0.19205972141049277,
+          "ddt": 4,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 11,
+          "pf": 1.1858750666935212,
+          "wr": 0.7333333333333333,
+          "net": 0.10265899698319052,
+          "ddt": 12,
+          "mdd": 1
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 32,
+          "pf": 1.5033566499666473,
+          "wr": 0.8,
+          "net": 0.6555387474653299,
+          "ddt": 20,
+          "mdd": 0.6384701021420156
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 76,
+          "pf": 0.7479786558287835,
+          "wr": 0.6333333333333333,
+          "net": -1.2778809165225549,
+          "ddt": 118,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 322,
+          "wins": 213,
+          "pf": 0.8898133787114466,
+          "wr": 0.6614906832298136,
+          "net": -1.512371956921882,
+          "ddt": 277,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 8,
+          "avgOrders": 168
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 17,
+          "avgOrders": 168
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 34,
+          "avgOrders": 168
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 50,
+          "avgOrders": 168
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 67,
+          "avgOrders": 168
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 101,
+          "avgOrders": 168
+        },
+        "45": {
+          "key": "45h",
+          "n": 14,
+          "wins": 10,
+          "pf": 1.1733616407773715,
+          "wr": 0.7142857142857143,
+          "net": 0.09574781854367712,
+          "ddt": 12,
+          "mdd": 1,
+          "symbols": 10,
+          "orders": 378,
+          "avgOrders": 168
+        },
+        "50": {
+          "key": "50h",
+          "n": 21,
+          "wins": 16,
+          "pf": 0.8452810024423474,
+          "wr": 0.7619047619047619,
+          "net": -0.14300231965798404,
+          "ddt": 20,
+          "mdd": 1,
+          "symbols": 17,
+          "orders": 420,
+          "avgOrders": 168
+        }
+      },
+      "label": "live trailing/fibonacci noblock",
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "block": false,
+      "ms": 416
+    },
+    {
+      "pf": 1.129,
+      "wr": 0.453,
+      "n": 331,
+      "net": 33.064,
+      "mdd": 0.0009,
+      "sl": 307,
+      "tp": 22,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 20,
+          "pf": 2.608,
+          "wr": 0.8,
+          "net": 3.711,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 285,
+          "pf": 1.012,
+          "wr": 0.449,
+          "net": 0.221,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 23,
+          "pf": 0.129,
+          "wr": 0.261,
+          "net": -0.876,
+          "ok": false
+        }
+      ],
+      "byKind": [
+        {
+          "key": "block",
+          "n": 331,
+          "pf": 1.129,
+          "wr": 0.453,
+          "net": 2.764,
+          "ok": false
+        }
+      ],
+      "byTactic": [
+        {
+          "key": "hybrid",
+          "n": 331,
+          "pf": 1.129,
+          "wr": 0.453,
+          "net": 2.764,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 197,
+          "pf": 0.37,
+          "wr": 0.391,
+          "net": -6.368,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 134,
+          "pf": 1.81,
+          "wr": 0.545,
+          "net": 9.133,
+          "ok": true
+        }
+      ],
+      "byPlaybook": [
+        {
+          "key": "block",
+          "n": 331,
+          "pf": 1.129,
+          "wr": 0.453,
+          "net": 2.764,
+          "ok": false
+        }
+      ],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 307,
+          "pf": 1.104,
+          "wr": 0.417,
+          "net": 2.195,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 22,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.898,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 3,
+          "pf": 2.908573101969517,
+          "wr": 0.6,
+          "net": 0.33909898681753803,
+          "ddt": 3,
+          "mdd": 0.3100140506984569
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 5,
+          "pf": 1.7404586090040397,
+          "wr": 0.5,
+          "net": 0.4371362167724522,
+          "ddt": 3,
+          "mdd": 0.9267237599970773
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 6,
+          "pf": 2.275588033989687,
+          "wr": 0.5,
+          "net": 0.9711497548683922,
+          "ddt": 6,
+          "mdd": 0.6958260985176355
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 8,
+          "pf": 2.730810587520046,
+          "wr": 0.5333333333333333,
+          "net": 1.4382430850615122,
+          "ddt": 6,
+          "mdd": 0.4185285783972505
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 19,
+          "pf": 2.4954449816877533,
+          "wr": 0.475,
+          "net": 3.299568588059148,
+          "ddt": 24,
+          "mdd": 0.3659544270234991
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 45,
+          "pf": 1.1062076691197422,
+          "wr": 0.375,
+          "net": 1.0019683423780257,
+          "ddt": 24,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 331,
+          "wins": 150,
+          "pf": 1.1292986761840667,
+          "wr": 0.45317220543806647,
+          "net": 2.7643161172756616,
+          "ddt": 285,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 21,
+          "avgOrders": 187.5
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 41,
+          "avgOrders": 187.5
+        },
+        "4": {
+          "key": "4h",
+          "n": 2,
+          "wins": 1,
+          "pf": 0.19193799331754757,
+          "wr": 0.5,
+          "net": -0.10656662218443747,
+          "ddt": 1,
+          "mdd": 1,
+          "symbols": 1,
+          "orders": 82,
+          "avgOrders": 187.5
+        },
+        "6": {
+          "key": "6h",
+          "n": 2,
+          "wins": 1,
+          "pf": 0.19193799331754757,
+          "wr": 0.5,
+          "net": -0.10656662218443747,
+          "ddt": 1,
+          "mdd": 1,
+          "symbols": 1,
+          "orders": 123,
+          "avgOrders": 187.5
+        },
+        "8": {
+          "key": "8h",
+          "n": 2,
+          "wins": 1,
+          "pf": 0.19193799331754757,
+          "wr": 0.5,
+          "net": -0.10656662218443747,
+          "ddt": 1,
+          "mdd": 1,
+          "symbols": 1,
+          "orders": 164,
+          "avgOrders": 187.5
+        },
+        "12": {
+          "key": "12h",
+          "n": 2,
+          "wins": 1,
+          "pf": 0.19193799331754757,
+          "wr": 0.5,
+          "net": -0.10656662218443747,
+          "ddt": 1,
+          "mdd": 1,
+          "symbols": 1,
+          "orders": 246,
+          "avgOrders": 187.5
+        },
+        "45": {
+          "key": "45h",
+          "n": 15,
+          "wins": 8,
+          "pf": 2.730810587520046,
+          "wr": 0.5333333333333333,
+          "net": 1.4382430850615122,
+          "ddt": 6,
+          "mdd": 0.4185285783972505,
+          "symbols": 10,
+          "orders": 923,
+          "avgOrders": 187.5
+        },
+        "50": {
+          "key": "50h",
+          "n": 21,
+          "wins": 12,
+          "pf": 1.952703008502258,
+          "wr": 0.5714285714285714,
+          "net": 1.1462249252914931,
+          "ddt": 6,
+          "mdd": 0.557402363047014,
+          "symbols": 16,
+          "orders": 1026,
+          "avgOrders": 187.5
+        }
+      },
+      "label": "live hybrid/atr block",
+      "tactic": "hybrid",
+      "range": "atr",
+      "block": true,
+      "ms": 788
+    },
+    {
+      "pf": 0.731,
+      "wr": 0.514,
+      "n": 282,
+      "net": 23.386,
+      "mdd": 0.0005,
+      "sl": 258,
+      "tp": 22,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 2.194,
+          "wr": 0.789,
+          "net": 0.816,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 243,
+          "pf": 0.708,
+          "wr": 0.523,
+          "net": -3.327,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 20,
+          "pf": 0.04,
+          "wr": 0.15,
+          "net": -1.022,
+          "ok": false
+        }
+      ],
+      "byKind": [],
+      "byTactic": [
+        {
+          "key": "hybrid",
+          "n": 282,
+          "pf": 0.731,
+          "wr": 0.514,
+          "net": -3.534,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 211,
+          "pf": 0.322,
+          "wr": 0.408,
+          "net": -6.139,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 71,
+          "pf": 1.636,
+          "wr": 0.831,
+          "net": 2.605,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 258,
+          "pf": 0.668,
+          "wr": 0.477,
+          "net": -4.343,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 22,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.893,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 5,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.45041817668777007,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 9,
+          "pf": 7.55690241468268,
+          "wr": 0.9,
+          "net": 0.5399324719196539,
+          "ddt": 2,
+          "mdd": 0.6292573016819544
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 10,
+          "pf": 7.945228920110569,
+          "wr": 0.8333333333333334,
+          "net": 0.5733869405021783,
+          "ddt": 2,
+          "mdd": 0.5011416544857331
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 11,
+          "pf": 1.3378335563108583,
+          "wr": 0.7333333333333333,
+          "net": 0.1708327594773938,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 26,
+          "pf": 1.192318014797504,
+          "wr": 0.65,
+          "net": 0.27507985083398295,
+          "ddt": 16,
+          "mdd": 1
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 58,
+          "pf": 0.6281498752385837,
+          "wr": 0.48333333333333334,
+          "net": -2.2012304603502053,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "650": {
+          "key": "n650",
+          "n": 282,
+          "wins": 145,
+          "pf": 0.7313525024961682,
+          "wr": 0.5141843971631206,
+          "net": -3.5335080729761232,
+          "ddt": 234,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 7,
+          "avgOrders": 164
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 14,
+          "avgOrders": 164
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 28,
+          "avgOrders": 164
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 43,
+          "avgOrders": 164
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 57,
+          "avgOrders": 164
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 85,
+          "avgOrders": 164
+        },
+        "45": {
+          "key": "45h",
+          "n": 9,
+          "wins": 8,
+          "pf": 7.158979059818982,
+          "wr": 0.8888888888888888,
+          "net": 0.5071652097220334,
+          "ddt": 2,
+          "mdd": 0.8394531644627373,
+          "symbols": 9,
+          "orders": 319,
+          "avgOrders": 164
+        },
+        "50": {
+          "key": "50h",
+          "n": 14,
+          "wins": 11,
+          "pf": 1.4883643877733748,
+          "wr": 0.7857142857142857,
+          "net": 0.22197556656812956,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 14,
+          "orders": 355,
+          "avgOrders": 164
+        }
+      },
+      "label": "live hybrid/atr noblock",
+      "tactic": "hybrid",
+      "range": "atr",
+      "block": false,
+      "ms": 398
+    },
+    {
+      "pf": 1.166,
+      "wr": 0.452,
+      "n": 330,
+      "net": 23.146,
+      "mdd": 0.0011,
+      "sl": 304,
+      "tp": 24,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 2.15,
+          "wr": 0.789,
+          "net": 3.008,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 281,
+          "pf": 1.084,
+          "wr": 0.445,
+          "net": 1.337,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 29,
+          "pf": 0.167,
+          "wr": 0.31,
+          "net": -0.927,
+          "ok": false
+        }
+      ],
+      "byKind": [
+        {
+          "key": "block",
+          "n": 330,
+          "pf": 1.166,
+          "wr": 0.452,
+          "net": 3.297,
+          "ok": false
+        }
+      ],
+      "byTactic": [
+        {
+          "key": "hybrid",
+          "n": 330,
+          "pf": 1.166,
+          "wr": 0.452,
+          "net": 3.297,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 151,
+          "pf": 0.175,
+          "wr": 0.298,
+          "net": -5.953,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 179,
+          "pf": 1.735,
+          "wr": 0.581,
+          "net": 9.25,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [
+        {
+          "key": "block",
+          "n": 330,
+          "pf": 1.166,
+          "wr": 0.452,
+          "net": 3.297,
+          "ok": false
+        }
+      ],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 304,
+          "pf": 1.133,
+          "wr": 0.411,
+          "net": 2.58,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 24,
+          "pf": 4,
+          "wr": 1,
+          "net": 1.072,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 4,
+          "pf": 1.246432565019879,
+          "wr": 0.8,
+          "net": 0.02001565045024287,
+          "ddt": 4,
+          "mdd": 1
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 4,
+          "pf": 0.19396806060048583,
+          "wr": 0.4,
+          "net": -0.4206902292205952,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 6,
+          "pf": 0.864063340994598,
+          "wr": 0.5,
+          "net": -0.07094907960975877,
+          "ddt": 10,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 7,
+          "pf": 1.3330304409022051,
+          "wr": 0.4666666666666667,
+          "net": 0.2806338135507298,
+          "ddt": 10,
+          "mdd": 0.7080233860186983
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 18,
+          "pf": 1.9814617720848566,
+          "wr": 0.45,
+          "net": 2.388233172743327,
+          "ddt": 31,
+          "mdd": 0.2747196507996335
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 39,
+          "pf": 1.0975588662259217,
+          "wr": 0.325,
+          "net": 0.7994640104605762,
+          "ddt": 31,
+          "mdd": 0.6060935817714898
+        },
+        "650": {
+          "key": "n650",
+          "n": 330,
+          "wins": 149,
+          "pf": 1.1664673286037326,
+          "wr": 0.45151515151515154,
+          "net": 3.2967358707164185,
+          "ddt": 254,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 20,
+          "avgOrders": 184
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 40,
+          "avgOrders": 184
+        },
+        "4": {
+          "key": "4h",
+          "n": 1,
+          "wins": 1,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.004107178796304546,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 80,
+          "avgOrders": 184
+        },
+        "6": {
+          "key": "6h",
+          "n": 1,
+          "wins": 1,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.004107178796304546,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 120,
+          "avgOrders": 184
+        },
+        "8": {
+          "key": "8h",
+          "n": 1,
+          "wins": 1,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.004107178796304546,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 160,
+          "avgOrders": 184
+        },
+        "12": {
+          "key": "12h",
+          "n": 1,
+          "wins": 1,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.004107178796304546,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 240,
+          "avgOrders": 184
+        },
+        "45": {
+          "key": "45h",
+          "n": 18,
+          "wins": 8,
+          "pf": 1.0974438226020673,
+          "wr": 0.4444444444444444,
+          "net": 0.12781790422019662,
+          "ddt": 10,
+          "mdd": 1,
+          "symbols": 10,
+          "orders": 899,
+          "avgOrders": 184
+        },
+        "50": {
+          "key": "50h",
+          "n": 25,
+          "wins": 13,
+          "pf": 0.8464281767010802,
+          "wr": 0.52,
+          "net": -0.2758990683703602,
+          "ddt": 10,
+          "mdd": 1,
+          "symbols": 17,
+          "orders": 999,
+          "avgOrders": 184
+        }
+      },
+      "label": "live hybrid/fibonacci block",
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "block": true,
+      "ms": 778
+    },
+    {
+      "pf": 0.714,
+      "wr": 0.514,
+      "n": 292,
+      "net": 20.496,
+      "mdd": 0.0004,
+      "sl": 263,
+      "tp": 28,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 2.197,
+          "wr": 0.842,
+          "net": 0.818,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 251,
+          "pf": 0.677,
+          "wr": 0.51,
+          "net": -3.947,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 22,
+          "pf": 0.09,
+          "wr": 0.273,
+          "net": -0.819,
+          "ok": false
+        }
+      ],
+      "byKind": [],
+      "byTactic": [
+        {
+          "key": "hybrid",
+          "n": 292,
+          "pf": 0.714,
+          "wr": 0.514,
+          "net": -3.948,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "fibonacci",
+          "n": 292,
+          "pf": 0.714,
+          "wr": 0.514,
+          "net": -3.948,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 263,
+          "pf": 0.63,
+          "wr": 0.464,
+          "net": -5.089,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 28,
+          "pf": 4,
+          "wr": 1,
+          "net": 1.192,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 4,
+          "pf": 2.237866259939844,
+          "wr": 0.8,
+          "net": 0.12943119072953643,
+          "ddt": 4,
+          "mdd": 0.7152251445252485
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 7,
+          "pf": 1.9810732405292866,
+          "wr": 0.7,
+          "net": 0.27293261315892897,
+          "ddt": 4,
+          "mdd": 1
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 8,
+          "pf": 1.7158147867240159,
+          "wr": 0.6666666666666666,
+          "net": 0.24359431810344923,
+          "ddt": 4,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 11,
+          "pf": 1.8800416480040496,
+          "wr": 0.7333333333333333,
+          "net": 0.2994813031584304,
+          "ddt": 4,
+          "mdd": 1
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 24,
+          "pf": 0.9073950657388576,
+          "wr": 0.6,
+          "net": -0.16970170426486375,
+          "ddt": 19,
+          "mdd": 1
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 52,
+          "pf": 0.5715783221584037,
+          "wr": 0.43333333333333335,
+          "net": -2.360893197138949,
+          "ddt": 118,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 292,
+          "wins": 150,
+          "pf": 0.7138072112311383,
+          "wr": 0.5136986301369864,
+          "net": -3.948397284352788,
+          "ddt": 247,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 7,
+          "avgOrders": 164.5
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 14,
+          "avgOrders": 164.5
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 29,
+          "avgOrders": 164.5
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 43,
+          "avgOrders": 164.5
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 57,
+          "avgOrders": 164.5
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 86,
+          "avgOrders": 164.5
+        },
+        "45": {
+          "key": "45h",
+          "n": 9,
+          "wins": 6,
+          "pf": 1.9559536694255257,
+          "wr": 0.6666666666666666,
+          "net": 0.2659443987223775,
+          "ddt": 4,
+          "mdd": 1,
+          "symbols": 9,
+          "orders": 322,
+          "avgOrders": 164.5
+        },
+        "50": {
+          "key": "50h",
+          "n": 16,
+          "wins": 11,
+          "pf": 0.8982289115997203,
+          "wr": 0.6875,
+          "net": -0.07248887307398416,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 16,
+          "orders": 358,
+          "avgOrders": 164.5
+        }
+      },
+      "label": "live hybrid/fibonacci noblock",
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "block": false,
+      "ms": 416
+    },
+    {
+      "pf": 1.375,
+      "wr": 0.536,
+      "n": 183,
+      "net": 5.753,
+      "mdd": 0.0012,
+      "sl": 142,
+      "tp": 38,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 20,
+          "pf": 2.215,
+          "wr": 0.8,
+          "net": 3.08,
+          "ok": true
+        },
+        {
+          "key": "break",
+          "n": 13,
+          "pf": 0.143,
+          "wr": 0.154,
+          "net": -0.329,
+          "ok": false
+        },
+        {
+          "key": "active",
+          "n": 137,
+          "pf": 1.255,
+          "wr": 0.547,
+          "net": 3.126,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 13,
+          "pf": 0.265,
+          "wr": 0.385,
+          "net": -0.124,
+          "ok": false
+        }
+      ],
+      "byKind": [
+        {
+          "key": "block",
+          "n": 183,
+          "pf": 1.375,
+          "wr": 0.536,
+          "net": 5.753,
+          "ok": false
+        }
+      ],
+      "byTactic": [
+        {
+          "key": "axis",
+          "n": 112,
+          "pf": 0.505,
+          "wr": 0.339,
+          "net": -1.113,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 71,
+          "pf": 1.525,
+          "wr": 0.845,
+          "net": 6.866,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 95,
+          "pf": 0.504,
+          "wr": 0.305,
+          "net": -0.991,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 88,
+          "pf": 1.506,
+          "wr": 0.784,
+          "net": 6.744,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [
+        {
+          "key": "block",
+          "n": 183,
+          "pf": 1.375,
+          "wr": 0.536,
+          "net": 5.753,
+          "ok": false
+        }
+      ],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 142,
+          "pf": 1.345,
+          "wr": 0.423,
+          "net": 5.117,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 38,
+          "pf": 4,
+          "wr": 1,
+          "net": 1.136,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 4,
+          "pf": 19.858556790534312,
+          "wr": 0.8,
+          "net": 1.6802635679306408,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 8,
+          "pf": 1.0639916761582249,
+          "wr": 0.8,
+          "net": 0.16783128784700674,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 10,
+          "pf": 1.5777018690755689,
+          "wr": 0.8333333333333334,
+          "net": 1.515141569957359,
+          "ddt": 9,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 12,
+          "pf": 1.8263869152899874,
+          "wr": 0.8,
+          "net": 2.202641617442556,
+          "ddt": 9,
+          "mdd": 1
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 18,
+          "pf": 0.9236160642813052,
+          "wr": 0.45,
+          "net": -0.41459403552589447,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 52,
+          "pf": 1.4028311562317735,
+          "wr": 0.43333333333333335,
+          "net": 4.44090981203418,
+          "ddt": 60,
+          "mdd": 0.9660844987415733
+        },
+        "650": {
+          "key": "n650",
+          "n": 183,
+          "wins": 98,
+          "pf": 1.3754909622255358,
+          "wr": 0.5355191256830601,
+          "net": 5.753277708514844,
+          "ddt": 60,
+          "mdd": 0.6664214819220657
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 12,
+          "avgOrders": 155
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 24,
+          "avgOrders": 155
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 49,
+          "avgOrders": 155
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 73,
+          "avgOrders": 155
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 97,
+          "avgOrders": 155
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 146,
+          "avgOrders": 155
+        },
+        "45": {
+          "key": "45h",
+          "n": 7,
+          "wins": 6,
+          "pf": 30.36257775999716,
+          "wr": 0.8571428571428571,
+          "net": 2.6161529866069815,
+          "ddt": 1,
+          "mdd": 0.09520163782109604,
+          "symbols": 7,
+          "orders": 548,
+          "avgOrders": 155
+        },
+        "50": {
+          "key": "50h",
+          "n": 10,
+          "wins": 8,
+          "pf": 1.0639916761582249,
+          "wr": 0.8,
+          "net": 0.16783128784700674,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 10,
+          "orders": 609,
+          "avgOrders": 155
+        }
+      },
+      "label": "live axis/atr block",
+      "tactic": "axis",
+      "range": "atr",
+      "block": true,
+      "ms": 633
+    },
+    {
+      "pf": 1.246,
+      "wr": 0.537,
+      "n": 175,
+      "net": 1.47,
+      "mdd": 0.0004,
+      "sl": 137,
+      "tp": 36,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 2.273,
+          "wr": 0.789,
+          "net": 0.839,
+          "ok": true
+        },
+        {
+          "key": "break",
+          "n": 12,
+          "pf": 0.111,
+          "wr": 0.167,
+          "net": -0.294,
+          "ok": false
+        },
+        {
+          "key": "active",
+          "n": 133,
+          "pf": 1.209,
+          "wr": 0.549,
+          "net": 1.02,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 11,
+          "pf": 0.153,
+          "wr": 0.364,
+          "net": -0.095,
+          "ok": false
+        }
+      ],
+      "byKind": [],
+      "byTactic": [
+        {
+          "key": "axis",
+          "n": 104,
+          "pf": 0.398,
+          "wr": 0.337,
+          "net": -1.135,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 71,
+          "pf": 1.636,
+          "wr": 0.831,
+          "net": 2.605,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 104,
+          "pf": 0.398,
+          "wr": 0.337,
+          "net": -1.135,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 71,
+          "pf": 1.636,
+          "wr": 0.831,
+          "net": 2.605,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 137,
+          "pf": 1.133,
+          "wr": 0.431,
+          "net": 0.788,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 36,
+          "pf": 679.881,
+          "wr": 0.972,
+          "net": 0.751,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 4,
+          "pf": 5.609232771057307,
+          "wr": 0.8,
+          "net": 0.19227575605665206,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 8,
+          "pf": 1.475944460840437,
+          "wr": 0.8,
+          "net": 0.1968913345109986,
+          "ddt": 1,
+          "mdd": 1
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 10,
+          "pf": 2.145040671974575,
+          "wr": 0.8333333333333334,
+          "net": 0.47368675239195096,
+          "ddt": 4,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 12,
+          "pf": 2.8753140963521022,
+          "wr": 0.8,
+          "net": 0.8557707352263049,
+          "ddt": 4,
+          "mdd": 0.5645497124793835
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 20,
+          "pf": 1.0712047776304356,
+          "wr": 0.5,
+          "net": 0.09919840835058141,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 54,
+          "pf": 1.025158618958653,
+          "wr": 0.45,
+          "net": 0.11418992844198575,
+          "ddt": 97,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 175,
+          "wins": 94,
+          "pf": 1.2458030904573,
+          "wr": 0.5371428571428571,
+          "net": 1.4699389805204732,
+          "ddt": 97,
+          "mdd": 0.7073471422106291
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 2,
+          "avgOrders": 141.5
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 5,
+          "avgOrders": 141.5
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 9,
+          "avgOrders": 141.5
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 14,
+          "avgOrders": 141.5
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 18,
+          "avgOrders": 141.5
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 27,
+          "avgOrders": 141.5
+        },
+        "45": {
+          "key": "45h",
+          "n": 7,
+          "wins": 6,
+          "pf": 13.044176898662595,
+          "wr": 0.8571428571428571,
+          "net": 0.5024270489900196,
+          "ddt": 1,
+          "mdd": 0.13450000199558848,
+          "symbols": 7,
+          "orders": 102,
+          "avgOrders": 141.5
+        },
+        "50": {
+          "key": "50h",
+          "n": 10,
+          "wins": 8,
+          "pf": 1.475944460840437,
+          "wr": 0.8,
+          "net": 0.1968913345109986,
+          "ddt": 1,
+          "mdd": 1,
+          "symbols": 10,
+          "orders": 113,
+          "avgOrders": 141.5
+        }
+      },
+      "label": "live axis/atr noblock",
+      "tactic": "axis",
+      "range": "atr",
+      "block": false,
+      "ms": 334
+    },
+    {
+      "pf": 1.217,
+      "wr": 0.506,
+      "n": 180,
+      "net": 3.508,
+      "mdd": 0.0014,
+      "sl": 144,
+      "tp": 33,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 1.921,
+          "wr": 0.789,
+          "net": 2.406,
+          "ok": true
+        },
+        {
+          "key": "break",
+          "n": 13,
+          "pf": 0.087,
+          "wr": 0.154,
+          "net": -0.381,
+          "ok": false
+        },
+        {
+          "key": "active",
+          "n": 136,
+          "pf": 1.131,
+          "wr": 0.522,
+          "net": 1.694,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 12,
+          "pf": 0.056,
+          "wr": 0.25,
+          "net": -0.211,
+          "ok": false
+        }
+      ],
+      "byKind": [
+        {
+          "key": "block",
+          "n": 180,
+          "pf": 1.217,
+          "wr": 0.506,
+          "net": 3.508,
+          "ok": false
+        }
+      ],
+      "byTactic": [
+        {
+          "key": "axis",
+          "n": 109,
+          "pf": 0.335,
+          "wr": 0.294,
+          "net": -1.572,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 71,
+          "pf": 1.369,
+          "wr": 0.831,
+          "net": 5.08,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 77,
+          "pf": 0.1,
+          "wr": 0.208,
+          "net": -1.336,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 103,
+          "pf": 1.33,
+          "wr": 0.728,
+          "net": 4.843,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [
+        {
+          "key": "block",
+          "n": 180,
+          "pf": 1.217,
+          "wr": 0.506,
+          "net": 3.508,
+          "ok": false
+        }
+      ],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 144,
+          "pf": 1.206,
+          "wr": 0.41,
+          "net": 3.223,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 33,
+          "pf": 711.618,
+          "wr": 0.97,
+          "net": 0.79,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 4,
+          "pf": 18.45122296285893,
+          "wr": 0.8,
+          "net": 1.6685724777043816,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 8,
+          "pf": 1.0470649730006019,
+          "wr": 0.8,
+          "net": 0.12376247619894398,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 10,
+          "pf": 1.5333411472725045,
+          "wr": 0.8333333333333334,
+          "net": 1.402478676539065,
+          "ddt": 9,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 12,
+          "pf": 1.731851082151165,
+          "wr": 0.8,
+          "net": 1.9557093590605126,
+          "ddt": 9,
+          "mdd": 1
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 17,
+          "pf": 0.8362941662624448,
+          "wr": 0.425,
+          "net": -0.9316879478755006,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 50,
+          "pf": 1.1891642628290895,
+          "wr": 0.4166666666666667,
+          "net": 2.252548242725044,
+          "ddt": 98,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 180,
+          "wins": 91,
+          "pf": 1.2172366663755445,
+          "wr": 0.5055555555555555,
+          "net": 3.5077623276775474,
+          "ddt": 98,
+          "mdd": 0.8352121845965946
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 12,
+          "avgOrders": 156
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 23,
+          "avgOrders": 156
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 46,
+          "avgOrders": 156
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 69,
+          "avgOrders": 156
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 92,
+          "avgOrders": 156
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 139,
+          "avgOrders": 156
+        },
+        "45": {
+          "key": "45h",
+          "n": 7,
+          "wins": 6,
+          "pf": 28.004843250744692,
+          "wr": 0.8571428571428571,
+          "net": 2.582027535194111,
+          "ddt": 1,
+          "mdd": 0.10467236187605515,
+          "symbols": 7,
+          "orders": 520,
+          "avgOrders": 156
+        },
+        "50": {
+          "key": "50h",
+          "n": 10,
+          "wins": 8,
+          "pf": 1.0470649730006019,
+          "wr": 0.8,
+          "net": 0.12376247619894398,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 10,
+          "orders": 578,
+          "avgOrders": 156
+        }
+      },
+      "label": "live axis/fibonacci block",
+      "tactic": "axis",
+      "range": "fibonacci",
+      "block": true,
+      "ms": 577
+    },
+    {
+      "pf": 1.244,
+      "wr": 0.541,
+      "n": 172,
+      "net": 1.452,
+      "mdd": 0.0004,
+      "sl": 135,
+      "tp": 35,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 2.273,
+          "wr": 0.789,
+          "net": 0.84,
+          "ok": true
+        },
+        {
+          "key": "break",
+          "n": 11,
+          "pf": 0.223,
+          "wr": 0.273,
+          "net": -0.207,
+          "ok": false
+        },
+        {
+          "key": "active",
+          "n": 133,
+          "pf": 1.171,
+          "wr": 0.526,
+          "net": 0.849,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 9,
+          "pf": 0.608,
+          "wr": 0.556,
+          "net": -0.029,
+          "ok": false
+        }
+      ],
+      "byKind": [],
+      "byTactic": [
+        {
+          "key": "axis",
+          "n": 101,
+          "pf": 0.381,
+          "wr": 0.337,
+          "net": -1.153,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 71,
+          "pf": 1.636,
+          "wr": 0.831,
+          "net": 2.605,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "fibonacci",
+          "n": 172,
+          "pf": 1.244,
+          "wr": 0.541,
+          "net": 1.452,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 135,
+          "pf": 1.137,
+          "wr": 0.437,
+          "net": 0.809,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 35,
+          "pf": 722.514,
+          "wr": 0.971,
+          "net": 0.71,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 4,
+          "pf": 5.611956569546241,
+          "wr": 0.8,
+          "net": 0.19229600286444104,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 8,
+          "pf": 1.4760167008018914,
+          "wr": 0.8,
+          "net": 0.1969115813187876,
+          "ddt": 1,
+          "mdd": 1
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 10,
+          "pf": 2.1451456607865342,
+          "wr": 0.8333333333333334,
+          "net": 0.47370699919973996,
+          "ddt": 4,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 12,
+          "pf": 2.8752564125792257,
+          "wr": 0.8,
+          "net": 0.8557615801811604,
+          "ddt": 4,
+          "mdd": 0.5645749060858926
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 20,
+          "pf": 1.0942070821011787,
+          "wr": 0.5,
+          "net": 0.12968254039665225,
+          "ddt": 34,
+          "mdd": 1
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 56,
+          "pf": 1.0500387413830286,
+          "wr": 0.4666666666666667,
+          "net": 0.223183690602239,
+          "ddt": 96,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 172,
+          "wins": 93,
+          "pf": 1.2437193455307567,
+          "wr": 0.5406976744186046,
+          "net": 1.4519192739887243,
+          "ddt": 96,
+          "mdd": 0.7012353987774486
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 2,
+          "avgOrders": 141.5
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 4,
+          "avgOrders": 141.5
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 9,
+          "avgOrders": 141.5
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 13,
+          "avgOrders": 141.5
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 18,
+          "avgOrders": 141.5
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 27,
+          "avgOrders": 141.5
+        },
+        "45": {
+          "key": "45h",
+          "n": 7,
+          "wins": 6,
+          "pf": 13.050511046446456,
+          "wr": 0.8571428571428571,
+          "net": 0.5024472957978086,
+          "ddt": 1,
+          "mdd": 0.1344347215719684,
+          "symbols": 7,
+          "orders": 99,
+          "avgOrders": 141.5
+        },
+        "50": {
+          "key": "50h",
+          "n": 10,
+          "wins": 8,
+          "pf": 1.4760167008018914,
+          "wr": 0.8,
+          "net": 0.1969115813187876,
+          "ddt": 1,
+          "mdd": 1,
+          "symbols": 10,
+          "orders": 110,
+          "avgOrders": 141.5
+        }
+      },
+      "label": "live axis/fibonacci noblock",
+      "tactic": "axis",
+      "range": "fibonacci",
+      "block": false,
+      "ms": 327
+    }
+  ],
+  "shorts": [
+    {
+      "pf": 1.361,
+      "wr": 0.641,
+      "n": 357,
+      "net": 37.322,
+      "mdd": 0.0011,
+      "sl": 287,
+      "tp": 68,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 20,
+          "pf": 3.283,
+          "wr": 0.75,
+          "net": 4.22,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 308,
+          "pf": 1.226,
+          "wr": 0.656,
+          "net": 3.724,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 28,
+          "pf": 0.216,
+          "wr": 0.429,
+          "net": -0.809,
+          "ok": false
+        }
+      ],
+      "byKind": [
+        {
+          "key": "block",
+          "n": 357,
+          "pf": 1.361,
+          "wr": 0.641,
+          "net": 7.022,
+          "ok": false
+        }
+      ],
+      "byTactic": [
+        {
+          "key": "trailing",
+          "n": 286,
+          "pf": 0.546,
+          "wr": 0.584,
+          "net": -5.814,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 71,
+          "pf": 2.935,
+          "wr": 0.873,
+          "net": 12.836,
+          "ok": true
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 216,
+          "pf": 0.613,
+          "wr": 0.616,
+          "net": -3.592,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 141,
+          "pf": 2.043,
+          "wr": 0.681,
+          "net": 10.615,
+          "ok": true
+        }
+      ],
+      "byPlaybook": [
+        {
+          "key": "block",
+          "n": 357,
+          "pf": 1.361,
+          "wr": 0.641,
+          "net": 7.022,
+          "ok": false
+        }
+      ],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 287,
+          "pf": 1.231,
+          "wr": 0.561,
+          "net": 4.414,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 68,
+          "pf": 4,
+          "wr": 1,
+          "net": 2.937,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 4,
+          "pf": 1.6227229270340477,
+          "wr": 0.8,
+          "net": 0.05321803451796908,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 6,
+          "pf": 0.42573097435302765,
+          "wr": 0.6,
+          "net": -0.2828182543917307,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 8,
+          "pf": 1.8983411252461406,
+          "wr": 0.6666666666666666,
+          "net": 0.4424185487005574,
+          "ddt": 10,
+          "mdd": 0.5811846571622966
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 9,
+          "pf": 1.186330924896578,
+          "wr": 0.6,
+          "net": 0.15012938992461597,
+          "ddt": 10,
+          "mdd": 0.9735507475326323
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 26,
+          "pf": 0.7568187502009958,
+          "wr": 0.65,
+          "net": -0.8277908004023692,
+          "ddt": 29,
+          "mdd": 1
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 76,
+          "pf": 1.3039639992927623,
+          "wr": 0.6333333333333333,
+          "net": 2.491195166706145,
+          "ddt": 29,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 357,
+          "wins": 229,
+          "pf": 1.361100712304873,
+          "wr": 0.6414565826330533,
+          "net": 7.0224277736871885,
+          "ddt": 136,
+          "mdd": 0.7044141248872976
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 22,
+          "avgOrders": 185
+        },
+        "2": {
+          "key": "2h",
+          "n": 1,
+          "wins": 1,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.013959609482646754,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 44,
+          "avgOrders": 185
+        },
+        "4": {
+          "key": "4h",
+          "n": 2,
+          "wins": 2,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.018815497937789506,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 2,
+          "orders": 87,
+          "avgOrders": 185
+        },
+        "6": {
+          "key": "6h",
+          "n": 2,
+          "wins": 2,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.018815497937789506,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 2,
+          "orders": 131,
+          "avgOrders": 185
+        },
+        "8": {
+          "key": "8h",
+          "n": 2,
+          "wins": 2,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.018815497937789506,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 2,
+          "orders": 175,
+          "avgOrders": 185
+        },
+        "12": {
+          "key": "12h",
+          "n": 2,
+          "wins": 2,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.018815497937789506,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 2,
+          "orders": 262,
+          "avgOrders": 185
+        },
+        "45": {
+          "key": "45h",
+          "n": 19,
+          "wins": 13,
+          "pf": 2.3306145442947908,
+          "wr": 0.6842105263157895,
+          "net": 1.072094446322722,
+          "ddt": 10,
+          "mdd": 0.31702845649903943,
+          "symbols": 11,
+          "orders": 983,
+          "avgOrders": 185
+        },
+        "50": {
+          "key": "50h",
+          "n": 30,
+          "wins": 18,
+          "pf": 0.6818727155548168,
+          "wr": 0.6,
+          "net": -0.9645301200735326,
+          "ddt": 29,
+          "mdd": 1,
+          "symbols": 19,
+          "orders": 1092,
+          "avgOrders": 185
+        }
+      },
+      "label": "short tp0.35/sl1.5 trailing block",
+      "tactic": "trailing",
+      "range": "atr",
+      "block": true,
+      "ms": 794
+    },
+    {
+      "pf": 0.868,
+      "wr": 0.644,
+      "n": 312,
+      "net": 5.267,
+      "mdd": 0.0005,
+      "sl": 249,
+      "tp": 61,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 2.194,
+          "wr": 0.789,
+          "net": 0.816,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 270,
+          "pf": 0.846,
+          "wr": 0.656,
+          "net": -1.857,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 23,
+          "pf": 0.21,
+          "wr": 0.391,
+          "net": -0.763,
+          "ok": false
+        }
+      ],
+      "byKind": [],
+      "byTactic": [
+        {
+          "key": "trailing",
+          "n": 241,
+          "pf": 0.541,
+          "wr": 0.589,
+          "net": -4.409,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 71,
+          "pf": 1.636,
+          "wr": 0.831,
+          "net": 2.605,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 241,
+          "pf": 0.541,
+          "wr": 0.589,
+          "net": -4.409,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 71,
+          "pf": 1.636,
+          "wr": 0.831,
+          "net": 2.605,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 249,
+          "pf": 0.668,
+          "wr": 0.562,
+          "net": -4.525,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 61,
+          "pf": 4,
+          "wr": 1,
+          "net": 2.805,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 5,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.2356255965924225,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 9,
+          "pf": 2.9190491106127467,
+          "wr": 0.9,
+          "net": 0.3827345254147689,
+          "ddt": 5,
+          "mdd": 0.6124611358780119
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 11,
+          "pf": 3.4589788331614817,
+          "wr": 0.9166666666666666,
+          "net": 0.4904179322511031,
+          "ddt": 5,
+          "mdd": 0.4602597075109463
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 13,
+          "pf": 2.8919995726134706,
+          "wr": 0.8666666666666667,
+          "net": 0.49478024804728055,
+          "ddt": 5,
+          "mdd": 0.9343365524301157
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 30,
+          "pf": 1.4776893011404544,
+          "wr": 0.75,
+          "net": 0.5994782576031285,
+          "ddt": 12,
+          "mdd": 1
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 76,
+          "pf": 0.8589962816727328,
+          "wr": 0.6333333333333333,
+          "net": -0.6789847755989564,
+          "ddt": 104,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 312,
+          "wins": 201,
+          "pf": 0.8683427609121841,
+          "wr": 0.6442307692307693,
+          "net": -1.8042086002811846,
+          "ddt": 264,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 8,
+          "avgOrders": 162.5
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 16,
+          "avgOrders": 162.5
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 32,
+          "avgOrders": 162.5
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 48,
+          "avgOrders": 162.5
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 65,
+          "avgOrders": 162.5
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 97,
+          "avgOrders": 162.5
+        },
+        "45": {
+          "key": "45h",
+          "n": 12,
+          "wins": 11,
+          "pf": 3.4589788331614817,
+          "wr": 0.9166666666666666,
+          "net": 0.4904179322511031,
+          "ddt": 5,
+          "mdd": 0.4602597075109463,
+          "symbols": 9,
+          "orders": 363,
+          "avgOrders": 162.5
+        },
+        "50": {
+          "key": "50h",
+          "n": 19,
+          "wins": 15,
+          "pf": 1.2900636128186098,
+          "wr": 0.7894736842105263,
+          "net": 0.18381178144146004,
+          "ddt": 9,
+          "mdd": 1,
+          "symbols": 16,
+          "orders": 403,
+          "avgOrders": 162.5
+        }
+      },
+      "label": "short tp0.35/sl1.5 trailing noblock",
+      "tactic": "trailing",
+      "range": "atr",
+      "block": false,
+      "ms": 373
+    },
+    {
+      "pf": 1.129,
+      "wr": 0.453,
+      "n": 331,
+      "net": 33.064,
+      "mdd": 0.0009,
+      "sl": 307,
+      "tp": 22,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 20,
+          "pf": 2.608,
+          "wr": 0.8,
+          "net": 3.711,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 285,
+          "pf": 1.012,
+          "wr": 0.449,
+          "net": 0.221,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 23,
+          "pf": 0.129,
+          "wr": 0.261,
+          "net": -0.876,
+          "ok": false
+        }
+      ],
+      "byKind": [
+        {
+          "key": "block",
+          "n": 331,
+          "pf": 1.129,
+          "wr": 0.453,
+          "net": 2.764,
+          "ok": false
+        }
+      ],
+      "byTactic": [
+        {
+          "key": "hybrid",
+          "n": 331,
+          "pf": 1.129,
+          "wr": 0.453,
+          "net": 2.764,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 197,
+          "pf": 0.37,
+          "wr": 0.391,
+          "net": -6.368,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 134,
+          "pf": 1.81,
+          "wr": 0.545,
+          "net": 9.133,
+          "ok": true
+        }
+      ],
+      "byPlaybook": [
+        {
+          "key": "block",
+          "n": 331,
+          "pf": 1.129,
+          "wr": 0.453,
+          "net": 2.764,
+          "ok": false
+        }
+      ],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 307,
+          "pf": 1.104,
+          "wr": 0.417,
+          "net": 2.195,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 22,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.898,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 3,
+          "pf": 2.908573101969517,
+          "wr": 0.6,
+          "net": 0.33909898681753803,
+          "ddt": 3,
+          "mdd": 0.3100140506984569
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 5,
+          "pf": 1.7404586090040397,
+          "wr": 0.5,
+          "net": 0.4371362167724522,
+          "ddt": 3,
+          "mdd": 0.9267237599970773
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 6,
+          "pf": 2.275588033989687,
+          "wr": 0.5,
+          "net": 0.9711497548683922,
+          "ddt": 6,
+          "mdd": 0.6958260985176355
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 8,
+          "pf": 2.730810587520046,
+          "wr": 0.5333333333333333,
+          "net": 1.4382430850615122,
+          "ddt": 6,
+          "mdd": 0.4185285783972505
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 19,
+          "pf": 2.4954449816877533,
+          "wr": 0.475,
+          "net": 3.299568588059148,
+          "ddt": 24,
+          "mdd": 0.3659544270234991
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 45,
+          "pf": 1.1062076691197422,
+          "wr": 0.375,
+          "net": 1.0019683423780257,
+          "ddt": 24,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 331,
+          "wins": 150,
+          "pf": 1.1292986761840667,
+          "wr": 0.45317220543806647,
+          "net": 2.7643161172756616,
+          "ddt": 285,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 21,
+          "avgOrders": 187.5
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 41,
+          "avgOrders": 187.5
+        },
+        "4": {
+          "key": "4h",
+          "n": 2,
+          "wins": 1,
+          "pf": 0.19193799331754757,
+          "wr": 0.5,
+          "net": -0.10656662218443747,
+          "ddt": 1,
+          "mdd": 1,
+          "symbols": 1,
+          "orders": 82,
+          "avgOrders": 187.5
+        },
+        "6": {
+          "key": "6h",
+          "n": 2,
+          "wins": 1,
+          "pf": 0.19193799331754757,
+          "wr": 0.5,
+          "net": -0.10656662218443747,
+          "ddt": 1,
+          "mdd": 1,
+          "symbols": 1,
+          "orders": 123,
+          "avgOrders": 187.5
+        },
+        "8": {
+          "key": "8h",
+          "n": 2,
+          "wins": 1,
+          "pf": 0.19193799331754757,
+          "wr": 0.5,
+          "net": -0.10656662218443747,
+          "ddt": 1,
+          "mdd": 1,
+          "symbols": 1,
+          "orders": 164,
+          "avgOrders": 187.5
+        },
+        "12": {
+          "key": "12h",
+          "n": 2,
+          "wins": 1,
+          "pf": 0.19193799331754757,
+          "wr": 0.5,
+          "net": -0.10656662218443747,
+          "ddt": 1,
+          "mdd": 1,
+          "symbols": 1,
+          "orders": 246,
+          "avgOrders": 187.5
+        },
+        "45": {
+          "key": "45h",
+          "n": 15,
+          "wins": 8,
+          "pf": 2.730810587520046,
+          "wr": 0.5333333333333333,
+          "net": 1.4382430850615122,
+          "ddt": 6,
+          "mdd": 0.4185285783972505,
+          "symbols": 10,
+          "orders": 923,
+          "avgOrders": 187.5
+        },
+        "50": {
+          "key": "50h",
+          "n": 21,
+          "wins": 12,
+          "pf": 1.952703008502258,
+          "wr": 0.5714285714285714,
+          "net": 1.1462249252914931,
+          "ddt": 6,
+          "mdd": 0.557402363047014,
+          "symbols": 16,
+          "orders": 1026,
+          "avgOrders": 187.5
+        }
+      },
+      "label": "short tp0.35/sl1.5 hybrid block",
+      "tactic": "hybrid",
+      "range": "atr",
+      "block": true,
+      "ms": 740
+    },
+    {
+      "pf": 0.731,
+      "wr": 0.514,
+      "n": 282,
+      "net": 23.386,
+      "mdd": 0.0005,
+      "sl": 258,
+      "tp": 22,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 2.194,
+          "wr": 0.789,
+          "net": 0.816,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 243,
+          "pf": 0.708,
+          "wr": 0.523,
+          "net": -3.327,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 20,
+          "pf": 0.04,
+          "wr": 0.15,
+          "net": -1.022,
+          "ok": false
+        }
+      ],
+      "byKind": [],
+      "byTactic": [
+        {
+          "key": "hybrid",
+          "n": 282,
+          "pf": 0.731,
+          "wr": 0.514,
+          "net": -3.534,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 211,
+          "pf": 0.322,
+          "wr": 0.408,
+          "net": -6.139,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 71,
+          "pf": 1.636,
+          "wr": 0.831,
+          "net": 2.605,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 258,
+          "pf": 0.668,
+          "wr": 0.477,
+          "net": -4.343,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 22,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.893,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 5,
+          "pf": 4,
+          "wr": 1,
+          "net": 0.45041817668777007,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 9,
+          "pf": 7.55690241468268,
+          "wr": 0.9,
+          "net": 0.5399324719196539,
+          "ddt": 2,
+          "mdd": 0.6292573016819544
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 10,
+          "pf": 7.945228920110569,
+          "wr": 0.8333333333333334,
+          "net": 0.5733869405021783,
+          "ddt": 2,
+          "mdd": 0.5011416544857331
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 11,
+          "pf": 1.3378335563108583,
+          "wr": 0.7333333333333333,
+          "net": 0.1708327594773938,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 26,
+          "pf": 1.192318014797504,
+          "wr": 0.65,
+          "net": 0.27507985083398295,
+          "ddt": 16,
+          "mdd": 1
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 58,
+          "pf": 0.6281498752385837,
+          "wr": 0.48333333333333334,
+          "net": -2.2012304603502053,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "650": {
+          "key": "n650",
+          "n": 282,
+          "wins": 145,
+          "pf": 0.7313525024961682,
+          "wr": 0.5141843971631206,
+          "net": -3.5335080729761232,
+          "ddt": 234,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 7,
+          "avgOrders": 164
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 14,
+          "avgOrders": 164
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 28,
+          "avgOrders": 164
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 43,
+          "avgOrders": 164
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 57,
+          "avgOrders": 164
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 85,
+          "avgOrders": 164
+        },
+        "45": {
+          "key": "45h",
+          "n": 9,
+          "wins": 8,
+          "pf": 7.158979059818982,
+          "wr": 0.8888888888888888,
+          "net": 0.5071652097220334,
+          "ddt": 2,
+          "mdd": 0.8394531644627373,
+          "symbols": 9,
+          "orders": 319,
+          "avgOrders": 164
+        },
+        "50": {
+          "key": "50h",
+          "n": 14,
+          "wins": 11,
+          "pf": 1.4883643877733748,
+          "wr": 0.7857142857142857,
+          "net": 0.22197556656812956,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 14,
+          "orders": 355,
+          "avgOrders": 164
+        }
+      },
+      "label": "short tp0.35/sl1.5 hybrid noblock",
+      "tactic": "hybrid",
+      "range": "atr",
+      "block": false,
+      "ms": 352
+    },
+    {
+      "pf": 1.129,
+      "wr": 0.647,
+      "n": 348,
+      "net": 39.437,
+      "mdd": 0.0014,
+      "sl": 268,
+      "tp": 77,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 21,
+          "pf": 4.69,
+          "wr": 0.81,
+          "net": 6.882,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 303,
+          "pf": 0.903,
+          "wr": 0.65,
+          "net": -2.414,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 24,
+          "pf": 0.218,
+          "wr": 0.458,
+          "net": -0.883,
+          "ok": false
+        }
+      ],
+      "byKind": [
+        {
+          "key": "block",
+          "n": 348,
+          "pf": 1.129,
+          "wr": 0.647,
+          "net": 3.585,
+          "ok": false
+        }
+      ],
+      "byTactic": [
+        {
+          "key": "trailing",
+          "n": 278,
+          "pf": 0.667,
+          "wr": 0.604,
+          "net": -4.525,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 70,
+          "pf": 1.568,
+          "wr": 0.814,
+          "net": 8.11,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 167,
+          "pf": 0.698,
+          "wr": 0.605,
+          "net": -2.56,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 181,
+          "pf": 1.317,
+          "wr": 0.685,
+          "net": 6.145,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [
+        {
+          "key": "block",
+          "n": 348,
+          "pf": 1.129,
+          "wr": 0.647,
+          "net": 3.585,
+          "ok": false
+        }
+      ],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 268,
+          "pf": 0.983,
+          "wr": 0.552,
+          "net": -0.472,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 77,
+          "pf": 4,
+          "wr": 1,
+          "net": 4.509,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 3,
+          "pf": 0.10146617374853817,
+          "wr": 0.6,
+          "net": -0.6922564857003438,
+          "ddt": 4,
+          "mdd": 1
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 5,
+          "pf": 0.11616117981330747,
+          "wr": 0.5,
+          "net": -1.2322160884684352,
+          "ddt": 9,
+          "mdd": 1
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 6,
+          "pf": 0.7783152646670464,
+          "wr": 0.5,
+          "net": -0.357058400211276,
+          "ddt": 11,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 9,
+          "pf": 0.9229535954911724,
+          "wr": 0.6,
+          "net": -0.12409544524856336,
+          "ddt": 11,
+          "mdd": 1
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 27,
+          "pf": 0.9909581086171189,
+          "wr": 0.675,
+          "net": -0.03876358981191563,
+          "ddt": 17,
+          "mdd": 1
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 73,
+          "pf": 1.291425755079054,
+          "wr": 0.6083333333333333,
+          "net": 2.9989627347823293,
+          "ddt": 37,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 348,
+          "wins": 225,
+          "pf": 1.1285752791641448,
+          "wr": 0.646551724137931,
+          "net": 3.58510173443797,
+          "ddt": 226,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 22,
+          "avgOrders": 183
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 43,
+          "avgOrders": 183
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 87,
+          "avgOrders": 183
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 130,
+          "avgOrders": 183
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 173,
+          "avgOrders": 183
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 260,
+          "avgOrders": 183
+        },
+        "45": {
+          "key": "45h",
+          "n": 23,
+          "wins": 15,
+          "pf": 1.3455603575674413,
+          "wr": 0.6521739130434783,
+          "net": 0.7053115258985823,
+          "ddt": 11,
+          "mdd": 0.696937910160679,
+          "symbols": 10,
+          "orders": 974,
+          "avgOrders": 183
+        },
+        "50": {
+          "key": "50h",
+          "n": 29,
+          "wins": 19,
+          "pf": 0.7365493017026086,
+          "wr": 0.6551724137931034,
+          "net": -1.0453831897235788,
+          "ddt": 11,
+          "mdd": 1,
+          "symbols": 16,
+          "orders": 1082,
+          "avgOrders": 183
+        }
+      },
+      "label": "short tp0.4/sl1.5 trailing block",
+      "tactic": "trailing",
+      "range": "atr",
+      "block": true,
+      "ms": 791
+    },
+    {
+      "pf": 0.793,
+      "wr": 0.652,
+      "n": 305,
+      "net": 25.839,
+      "mdd": 0.0005,
+      "sl": 240,
+      "tp": 62,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 1.517,
+          "wr": 0.789,
+          "net": 0.537,
+          "ok": false
+        },
+        {
+          "key": "active",
+          "n": 267,
+          "pf": 0.765,
+          "wr": 0.655,
+          "net": -3.405,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 19,
+          "pf": 0.31,
+          "wr": 0.474,
+          "net": -0.481,
+          "ok": false
+        }
+      ],
+      "byKind": [],
+      "byTactic": [
+        {
+          "key": "trailing",
+          "n": 234,
+          "pf": 0.607,
+          "wr": 0.615,
+          "net": -3.968,
+          "ok": false
+        },
+        {
+          "key": "hybrid",
+          "n": 71,
+          "pf": 1.102,
+          "wr": 0.775,
+          "net": 0.619,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 234,
+          "pf": 0.607,
+          "wr": 0.615,
+          "net": -3.968,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 71,
+          "pf": 1.102,
+          "wr": 0.775,
+          "net": 0.619,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 240,
+          "pf": 0.605,
+          "wr": 0.571,
+          "net": -6.321,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 62,
+          "pf": 4,
+          "wr": 1,
+          "net": 3.188,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 2,
+          "pf": 0.050706219009502645,
+          "wr": 0.4,
+          "net": -0.7238444212925221,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 6,
+          "pf": 0.39828968888210936,
+          "wr": 0.6,
+          "net": -0.5159486198839389,
+          "ddt": 8,
+          "mdd": 1
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 7,
+          "pf": 0.34341390141800393,
+          "wr": 0.5833333333333334,
+          "net": -0.7044488585961134,
+          "ddt": 8,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 10,
+          "pf": 0.6249346138906929,
+          "wr": 0.6666666666666666,
+          "net": -0.4024063008860919,
+          "ddt": 8,
+          "mdd": 1
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 26,
+          "pf": 0.7090136937857597,
+          "wr": 0.65,
+          "net": -0.7551969992595369,
+          "ddt": 24,
+          "mdd": 1
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 76,
+          "pf": 0.6546141227710367,
+          "wr": 0.6333333333333333,
+          "net": -2.1512110361081396,
+          "ddt": 107,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 305,
+          "wins": 199,
+          "pf": 0.7933637537023994,
+          "wr": 0.6524590163934426,
+          "net": -3.349023665795568,
+          "ddt": 256,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 8,
+          "avgOrders": 166.5
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 16,
+          "avgOrders": 166.5
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 31,
+          "avgOrders": 166.5
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 47,
+          "avgOrders": 166.5
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 63,
+          "avgOrders": 166.5
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 94,
+          "avgOrders": 166.5
+        },
+        "45": {
+          "key": "45h",
+          "n": 16,
+          "wins": 11,
+          "pf": 0.6948873877403037,
+          "wr": 0.6875,
+          "net": -0.3273542219578074,
+          "ddt": 8,
+          "mdd": 1,
+          "symbols": 10,
+          "orders": 353,
+          "avgOrders": 166.5
+        },
+        "50": {
+          "key": "50h",
+          "n": 22,
+          "wins": 15,
+          "pf": 0.5372884149383856,
+          "wr": 0.6818181818181818,
+          "net": -0.716413506648097,
+          "ddt": 8,
+          "mdd": 1,
+          "symbols": 16,
+          "orders": 392,
+          "avgOrders": 166.5
+        }
+      },
+      "label": "short tp0.4/sl1.5 trailing noblock",
+      "tactic": "trailing",
+      "range": "atr",
+      "block": false,
+      "ms": 363
+    },
+    {
+      "pf": 0.914,
+      "wr": 0.455,
+      "n": 343,
+      "net": 25.688,
+      "mdd": 0.0012,
+      "sl": 310,
+      "tp": 29,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 20,
+          "pf": 5.03,
+          "wr": 0.8,
+          "net": 5.065,
+          "ok": true
+        },
+        {
+          "key": "active",
+          "n": 298,
+          "pf": 0.742,
+          "wr": 0.45,
+          "net": -6.452,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 24,
+          "pf": 0.139,
+          "wr": 0.25,
+          "net": -0.923,
+          "ok": false
+        }
+      ],
+      "byKind": [
+        {
+          "key": "block",
+          "n": 343,
+          "pf": 0.914,
+          "wr": 0.455,
+          "net": -2.361,
+          "ok": false
+        }
+      ],
+      "byTactic": [
+        {
+          "key": "hybrid",
+          "n": 343,
+          "pf": 0.914,
+          "wr": 0.455,
+          "net": -2.361,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 154,
+          "pf": 0.425,
+          "wr": 0.357,
+          "net": -5.149,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 189,
+          "pf": 1.151,
+          "wr": 0.534,
+          "net": 2.787,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [
+        {
+          "key": "block",
+          "n": 343,
+          "pf": 0.914,
+          "wr": 0.455,
+          "net": -2.361,
+          "ok": false
+        }
+      ],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 310,
+          "pf": 0.877,
+          "wr": 0.41,
+          "net": -3.266,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 29,
+          "pf": 4,
+          "wr": 1,
+          "net": 1.716,
+          "ok": true
+        },
+        {
+          "key": "time",
+          "n": 4,
+          "pf": 0,
+          "wr": 0,
+          "net": -0.811,
+          "ok": false
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 2,
+          "pf": 0.04473295773456763,
+          "wr": 0.4,
+          "net": -1.2878456800803915,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 4,
+          "pf": 0.7571905695742227,
+          "wr": 0.4,
+          "net": -0.41189632430835643,
+          "ddt": 5,
+          "mdd": 1
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 5,
+          "pf": 0.6906154061165451,
+          "wr": 0.4166666666666667,
+          "net": -0.5965407814291711,
+          "ddt": 5,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 6,
+          "pf": 0.6977136335634433,
+          "wr": 0.4,
+          "net": -0.6397167680308797,
+          "ddt": 5,
+          "mdd": 1
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 16,
+          "pf": 0.8383324415804653,
+          "wr": 0.4,
+          "net": -0.6489818751496493,
+          "ddt": 32,
+          "mdd": 1
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 42,
+          "pf": 0.9361542841545565,
+          "wr": 0.35,
+          "net": -0.7034737767790714,
+          "ddt": 45,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 343,
+          "wins": 156,
+          "pf": 0.9138324948887624,
+          "wr": 0.45481049562682213,
+          "net": -2.3612697673697904,
+          "ddt": 299,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 20,
+          "avgOrders": 182
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 40,
+          "avgOrders": 182
+        },
+        "4": {
+          "key": "4h",
+          "n": 1,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": -0.039020476867063184,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 81,
+          "avgOrders": 182
+        },
+        "6": {
+          "key": "6h",
+          "n": 1,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": -0.039020476867063184,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 121,
+          "avgOrders": 182
+        },
+        "8": {
+          "key": "8h",
+          "n": 1,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": -0.039020476867063184,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 161,
+          "avgOrders": 182
+        },
+        "12": {
+          "key": "12h",
+          "n": 1,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": -0.039020476867063184,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 1,
+          "orders": 242,
+          "avgOrders": 182
+        },
+        "45": {
+          "key": "45h",
+          "n": 14,
+          "wins": 6,
+          "pf": 0.7210339831494901,
+          "wr": 0.42857142857142855,
+          "net": -0.5712707012573828,
+          "ddt": 5,
+          "mdd": 1,
+          "symbols": 10,
+          "orders": 906,
+          "avgOrders": 182
+        },
+        "50": {
+          "key": "50h",
+          "n": 20,
+          "wins": 10,
+          "pf": 0.592555341179918,
+          "wr": 0.5,
+          "net": -1.1453308904995017,
+          "ddt": 5,
+          "mdd": 1,
+          "symbols": 16,
+          "orders": 1006,
+          "avgOrders": 182
+        }
+      },
+      "label": "short tp0.4/sl1.5 hybrid block",
+      "tactic": "hybrid",
+      "range": "atr",
+      "block": true,
+      "ms": 746
+    },
+    {
+      "pf": 0.665,
+      "wr": 0.51,
+      "n": 288,
+      "net": 23.716,
+      "mdd": 0.0005,
+      "sl": 257,
+      "tp": 28,
+      "ok": false,
+      "weak": true,
+      "byIndication": [
+        {
+          "key": "trend",
+          "n": 19,
+          "pf": 1.517,
+          "wr": 0.789,
+          "net": 0.537,
+          "ok": false
+        },
+        {
+          "key": "active",
+          "n": 250,
+          "pf": 0.639,
+          "wr": 0.512,
+          "net": -5.205,
+          "ok": false
+        },
+        {
+          "key": "direction",
+          "n": 19,
+          "pf": 0.092,
+          "wr": 0.211,
+          "net": -0.805,
+          "ok": false
+        }
+      ],
+      "byKind": [],
+      "byTactic": [
+        {
+          "key": "hybrid",
+          "n": 288,
+          "pf": 0.665,
+          "wr": 0.51,
+          "net": -5.474,
+          "ok": false
+        }
+      ],
+      "byRange": [
+        {
+          "key": "atr",
+          "n": 217,
+          "pf": 0.406,
+          "wr": 0.424,
+          "net": -6.093,
+          "ok": false
+        },
+        {
+          "key": "fibonacci",
+          "n": 71,
+          "pf": 1.102,
+          "wr": 0.775,
+          "net": 0.619,
+          "ok": false
+        }
+      ],
+      "byPlaybook": [],
+      "byReason": [
+        {
+          "key": "sl",
+          "n": 257,
+          "pf": 0.588,
+          "wr": 0.463,
+          "net": -6.655,
+          "ok": false
+        },
+        {
+          "key": "tp",
+          "n": 28,
+          "pf": 4,
+          "wr": 1,
+          "net": 1.397,
+          "ok": true
+        }
+      ],
+      "lastN": {
+        "5": {
+          "key": "n5",
+          "n": 5,
+          "wins": 2,
+          "pf": 0.0675691716391272,
+          "wr": 0.4,
+          "net": -0.5335484381202237,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "10": {
+          "key": "n10",
+          "n": 10,
+          "wins": 5,
+          "pf": 0.6136529537605279,
+          "wr": 0.5,
+          "net": -0.30954942637342053,
+          "ddt": 8,
+          "mdd": 1
+        },
+        "12": {
+          "key": "n12",
+          "n": 12,
+          "wins": 6,
+          "pf": 0.634924319337326,
+          "wr": 0.5,
+          "net": -0.3258610093481342,
+          "ddt": 8,
+          "mdd": 1
+        },
+        "15": {
+          "key": "n15",
+          "n": 15,
+          "wins": 9,
+          "pf": 0.7037823842025633,
+          "wr": 0.6,
+          "net": -0.26439934617184024,
+          "ddt": 8,
+          "mdd": 1
+        },
+        "40": {
+          "key": "n40",
+          "n": 40,
+          "wins": 21,
+          "pf": 0.5921002763867159,
+          "wr": 0.525,
+          "net": -1.1288936560176217,
+          "ddt": 0,
+          "mdd": 0
+        },
+        "120": {
+          "key": "n120",
+          "n": 120,
+          "wins": 51,
+          "pf": 0.5576522028750124,
+          "wr": 0.425,
+          "net": -3.0645207737882663,
+          "ddt": 119,
+          "mdd": 1
+        },
+        "650": {
+          "key": "n650",
+          "n": 288,
+          "wins": 147,
+          "pf": 0.6653597552294761,
+          "wr": 0.5104166666666666,
+          "net": -5.473620566905323,
+          "ddt": 239,
+          "mdd": 1
+        }
+      },
+      "hours": {
+        "1": {
+          "key": "1h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 7,
+          "avgOrders": 166.5
+        },
+        "2": {
+          "key": "2h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 14,
+          "avgOrders": 166.5
+        },
+        "4": {
+          "key": "4h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 29,
+          "avgOrders": 166.5
+        },
+        "6": {
+          "key": "6h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 43,
+          "avgOrders": 166.5
+        },
+        "8": {
+          "key": "8h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 58,
+          "avgOrders": 166.5
+        },
+        "12": {
+          "key": "12h",
+          "n": 0,
+          "wins": 0,
+          "pf": 0,
+          "wr": 0,
+          "net": 0,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 0,
+          "orders": 87,
+          "avgOrders": 166.5
+        },
+        "45": {
+          "key": "45h",
+          "n": 12,
+          "wins": 6,
+          "pf": 0.634924319337326,
+          "wr": 0.5,
+          "net": -0.3258610093481342,
+          "ddt": 8,
+          "mdd": 1,
+          "symbols": 8,
+          "orders": 325,
+          "avgOrders": 166.5
+        },
+        "50": {
+          "key": "50h",
+          "n": 17,
+          "wins": 10,
+          "pf": 0.4961753171900147,
+          "wr": 0.5882352941176471,
+          "net": -0.6631300216761844,
+          "ddt": 0,
+          "mdd": 0,
+          "symbols": 13,
+          "orders": 361,
+          "avgOrders": 166.5
+        }
+      },
+      "label": "short tp0.4/sl1.5 hybrid noblock",
+      "tactic": "hybrid",
+      "range": "atr",
+      "block": false,
+      "ms": 365
+    }
+  ],
+  "disabled": {
+    "tac:trailing": {
+      "pf": 0.607,
+      "n": 234,
+      "net": -3.968
+    },
+    "rng:linear": {
+      "pf": 1.000730761277949,
+      "n": 321,
+      "net": 26.941098855165425
+    },
+    "combo:trailing:linear:72h": {
+      "pf": 1.137195620824462,
+      "n": 334,
+      "net": 17.05698466358291
+    },
+    "rng:geometric": {
+      "pf": 1.256792435731903,
+      "n": 334,
+      "net": 21.683596365842167
+    },
+    "combo:trailing:geometric:72h": {
+      "pf": 1.3549750649654055,
+      "n": 371,
+      "net": 10.97224271619389
+    },
+    "rng:atr": {
+      "pf": 0.406,
+      "n": 217,
+      "net": -6.093
+    },
+    "combo:trailing:atr:72h": {
+      "pf": 1.3611007123048708,
+      "n": 357,
+      "net": 37.322206216874044
+    },
+    "rng:volume": {
+      "pf": 0.825614543020409,
+      "n": 310,
+      "net": 12.917251477422216
+    },
+    "combo:trailing:volume:72h": {
+      "pf": 1.0050591764950207,
+      "n": 336,
+      "net": 20.963333250744935
+    },
+    "rng:fibonacci": {
+      "pf": 1.102,
+      "n": 71,
+      "net": 0.619
+    },
+    "combo:trailing:fibonacci:72h": {
+      "pf": 1.2550746386085458,
+      "n": 352,
+      "net": 9.062469684739956
+    },
+    "tac:axis": {
+      "pf": 0.381,
+      "n": 101,
+      "net": -1.153
+    },
+    "combo:axis:linear:72h": {
+      "pf": 1.65594309043491,
+      "n": 183,
+      "net": 8.357201651767143
+    },
+    "combo:axis:geometric:72h": {
+      "pf": 1.4294218783328694,
+      "n": 180,
+      "net": 6.729015989356849
+    },
+    "combo:axis:atr:72h": {
+      "pf": 1.3754909622255354,
+      "n": 183,
+      "net": 5.7532777085148386
+    },
+    "combo:axis:volume:72h": {
+      "pf": 1.2295040776407187,
+      "n": 183,
+      "net": 3.453620575890998
+    },
+    "combo:axis:fibonacci:72h": {
+      "pf": 1.2172366663755438,
+      "n": 180,
+      "net": 3.50776232767754
+    },
+    "tac:hybrid": {
+      "pf": 0.665,
+      "n": 288,
+      "net": -5.474
+    },
+    "combo:hybrid:linear:72h": {
+      "pf": 1.000730761277949,
+      "n": 321,
+      "net": 26.941098855165425
+    },
+    "combo:hybrid:geometric:72h": {
+      "pf": 1.256792435731903,
+      "n": 334,
+      "net": 21.683596365842167
+    },
+    "combo:hybrid:atr:72h": {
+      "pf": 1.1292986761840664,
+      "n": 331,
+      "net": 33.06375675524434
+    },
+    "combo:hybrid:volume:72h": {
+      "pf": 0.825614543020409,
+      "n": 310,
+      "net": 12.917251477422216
+    },
+    "combo:hybrid:fibonacci:72h": {
+      "pf": 1.1664673286037328,
+      "n": 330,
+      "net": 23.145951876953255
+    },
+    "run:live trailing/atr block": {
+      "pf": 1.361,
+      "n": 357,
+      "net": 37.322
+    },
+    "ind:active": {
+      "pf": 0.639,
+      "n": 250,
+      "net": -5.205
+    },
+    "ind:direction": {
+      "pf": 0.092,
+      "n": 19,
+      "net": -0.805
+    },
+    "kind:block": {
+      "pf": 0.914,
+      "n": 343,
+      "net": -2.361
+    },
+    "book:block": {
+      "pf": 0.914,
+      "n": 343,
+      "net": -2.361
+    },
+    "run:live trailing/atr noblock": {
+      "pf": 0.868,
+      "n": 312,
+      "net": 5.267
+    },
+    "run:live trailing/fibonacci block": {
+      "pf": 1.255,
+      "n": 352,
+      "net": 9.062
+    },
+    "run:live trailing/fibonacci noblock": {
+      "pf": 0.89,
+      "n": 322,
+      "net": 5.556
+    },
+    "run:live hybrid/atr block": {
+      "pf": 1.129,
+      "n": 331,
+      "net": 33.064
+    },
+    "run:live hybrid/atr noblock": {
+      "pf": 0.731,
+      "n": 282,
+      "net": 23.386
+    },
+    "run:live hybrid/fibonacci block": {
+      "pf": 1.166,
+      "n": 330,
+      "net": 23.146
+    },
+    "run:live hybrid/fibonacci noblock": {
+      "pf": 0.714,
+      "n": 292,
+      "net": 20.496
+    },
+    "run:live axis/atr block": {
+      "pf": 1.375,
+      "n": 183,
+      "net": 5.753
+    },
+    "ind:break": {
+      "pf": 0.223,
+      "n": 11,
+      "net": -0.207
+    },
+    "run:live axis/atr noblock": {
+      "pf": 1.246,
+      "n": 175,
+      "net": 1.47
+    },
+    "run:live axis/fibonacci block": {
+      "pf": 1.217,
+      "n": 180,
+      "net": 3.508
+    },
+    "run:live axis/fibonacci noblock": {
+      "pf": 1.244,
+      "n": 172,
+      "net": 1.452
+    },
+    "run:short tp0.35/sl1.5 trailing block": {
+      "pf": 1.361,
+      "n": 357,
+      "net": 37.322
+    },
+    "run:short tp0.35/sl1.5 trailing noblock": {
+      "pf": 0.868,
+      "n": 312,
+      "net": 5.267
+    },
+    "run:short tp0.35/sl1.5 hybrid block": {
+      "pf": 1.129,
+      "n": 331,
+      "net": 33.064
+    },
+    "run:short tp0.35/sl1.5 hybrid noblock": {
+      "pf": 0.731,
+      "n": 282,
+      "net": 23.386
+    },
+    "run:short tp0.4/sl1.5 trailing block": {
+      "pf": 1.129,
+      "n": 348,
+      "net": 39.437
+    },
+    "run:short tp0.4/sl1.5 trailing noblock": {
+      "pf": 0.793,
+      "n": 305,
+      "net": 25.839
+    },
+    "ind:trend": {
+      "pf": 1.517,
+      "n": 19,
+      "net": 0.537
+    },
+    "run:short tp0.4/sl1.5 hybrid block": {
+      "pf": 0.914,
+      "n": 343,
+      "net": 25.688
+    },
+    "run:short tp0.4/sl1.5 hybrid noblock": {
+      "pf": 0.665,
+      "n": 288,
+      "net": 23.716
+    }
+  },
+  "kept": [
+    "ind:trend",
+    "tac:hybrid",
+    "rng:fibonacci"
+  ],
+  "deadTactics": [
+    "trailing",
+    "axis"
+  ],
+  "deadRanges": [
+    "linear",
+    "geometric",
+    "atr",
+    "volume"
+  ]
+}

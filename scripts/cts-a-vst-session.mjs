@@ -204,7 +204,7 @@ const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   })),
 );
 const SHORT_GRID = allShortTpSlCombos()
-  .filter((s) => s.tpAtr + 1e-9 >= 0.35 && s.slOfTp + 1e-9 >= 1.5)
+  .filter((s) => Math.abs(s.tpAtr - 0.35) < 1e-9 && s.slOfTp + 1e-9 >= 1.5)
   .flatMap((s) =>
   LIVE_SHORT_TACTICS.map((tactic) => ({
     tactic,
@@ -290,6 +290,24 @@ function persistDisabled(e) {
     writeFileSync(DISABLED_FILE, JSON.stringify(body, null, 2));
   } catch {
     /* keep */
+  }
+}
+
+function loadDisabled(e) {
+  try {
+    const raw = JSON.parse(readFileSync(DISABLED_FILE, "utf8"));
+    const dis = raw?.disabled && typeof raw.disabled === "object" ? raw.disabled : {};
+    e.liveDisabled = { ...(e.liveDisabled || {}), ...dis };
+    const kept = Array.isArray(raw?.kept) ? raw.kept : [];
+    e.liveHealth = {
+      n: Object.keys(e.liveDisabled).length,
+      at: e.tick || 0,
+      disabled: Object.keys(e.liveDisabled),
+      kept,
+    };
+    return Object.keys(dis).length;
+  } catch {
+    return 0;
   }
 }
 
@@ -1666,6 +1684,7 @@ async function main() {
   let pick = pickFromSweep();
   currentPick = pick;
   const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK });
+  const seededOff = loadDisabled(engine);
   engine.running = true;
   engine.phase = "running";
   engine.activeConnId = CONN;
@@ -1715,6 +1734,7 @@ async function main() {
   applyExecFromSettings(readSettingsPick());
   const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} sym · minPF ${LIVE_MIN_PF}`];
   if (seededLosers) adjustments.push(`seed skip ${seededLosers} loser symbols`);
+  if (seededOff) adjustments.push(`seed disable ${seededOff} relations`);
   if (lastExec.n) adjustments.push(`seed exec n=${lastExec.n} PF ${lastExec.pf.toFixed(2)}`);
   if (ping.pingOk) adjustments.push(`BingX ${ping.network} ping ok · eq ${ping.equity.toFixed(2)}`);
   else adjustments.push(`BingX ping failed · ${ping.error ?? "auth"} · paper tape`);
