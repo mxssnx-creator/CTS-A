@@ -65,7 +65,7 @@ const BLOCK = {
   minActiveLevel: 0,
   stack: true,
   windows: true,
-  volumeMode: "shared",
+  volumeMode: "parallel",
 };
 
 const GRID = [

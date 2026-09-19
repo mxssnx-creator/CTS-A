@@ -274,7 +274,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   minActiveLevel: 0,
   stack: true,
   windows: true,
-  volumeMode: "shared",
+  volumeMode: "parallel",
 };
 
 /** Additive: each count uses `ratio`. Shared (old): extra/n when n>2. */
