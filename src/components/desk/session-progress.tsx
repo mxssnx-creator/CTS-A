@@ -453,7 +453,7 @@ export function SessionProgress({
           <input
             aria-label="Minimum profit factor"
             type="range"
-            min={1.5}
+            min={1.8}
             max={3}
             step={0.05}
             value={th.minPf}

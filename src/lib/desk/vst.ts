@@ -30,6 +30,7 @@ import type {
 import {
   DEFAULT_BLOCK_CONFIG,
   DEFAULT_THRESHOLDS,
+  DEFAULT_MIN_PF,
   BLOCK_POS_COUNTS,
   DEFAULT_MAX_HOLD_TICKS,
   MIN_QUOTE_VOL,
@@ -2133,7 +2134,7 @@ export function entryMinPf(e: VstEngine, block: BlockConfig = e.blockCfg ?? DEFA
   const d = Number(block.liveDisableMinPf);
   const th = Number.isFinite(a) && a > 0 ? a : DEFAULT_THRESHOLDS.minPf;
   const xs = [th, d].filter((n) => Number.isFinite(n) && n > 0);
-  return Math.max(1.4, ...xs);
+  return Math.max(DEFAULT_MIN_PF, ...xs);
 }
 
 export function symbolLastNPf(e: VstEngine, symbol: string, n = 6): number | null {
@@ -2260,7 +2261,7 @@ export function refreshSymbolHourEval(
   opts?: { hours?: number; minPf?: number; minN?: number; now?: Date },
 ) {
   const hours = Math.max(4, Math.round(opts?.hours ?? e.blockCfg?.symbolEvalHours ?? SYMBOL_EVAL_HOURS));
-  const minPf = opts?.minPf ?? e.blockCfg?.liveDisableMinPf ?? 1.4;
+  const minPf = opts?.minPf ?? e.blockCfg?.liveDisableMinPf ?? DEFAULT_MIN_PF;
   const minN = Math.max(3, Math.round(opts?.minN ?? 6));
   const nowHour = (opts?.now ?? new Date()).getUTCHours();
   const rows = windowHours(e.closed.filter((c) => isDeskConn(c.connId)), e.tick, hours);
@@ -2378,7 +2379,7 @@ export function validateSymbols100h(
     rangeType: opts?.rangeType ?? "atr",
     block: opts?.block,
   });
-  const scored = refreshSymbolHourEval(r.engine, { hours, minPf: opts?.minPf ?? 1.4 });
+  const scored = refreshSymbolHourEval(r.engine, { hours, minPf: opts?.minPf ?? DEFAULT_MIN_PF });
   return { report: r.report, engine: r.engine, ...scored, hours };
 }
 
@@ -2408,7 +2409,7 @@ const MINOR_REL = new Set(["cfg", "sub", "combo"]);
 export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BLOCK_CONFIG) {
   const ns = (block.evalLastNs?.length ? block.evalLastNs : [1, 2, 3, 4, 5, 6])
     .map((n) => Math.max(1, Math.min(6, Math.round(n))));
-  const minPf = block.minRelPf ?? 1.6;
+  const minPf = block.minRelPf ?? DEFAULT_MIN_PF;
   const vr = Math.min(2, Math.max(0.05, block.relVolumeRatio ?? block.volumeRatio ?? 0.4));
   const maps = e.blockRelWindows ?? {};
   const candidates: { key: string; n: number; pf: number; net: number; closed: number }[] = [];
@@ -2847,7 +2848,7 @@ export function adjustActiveBlocks(
   syncBlockParents(e, conn);
   const counts = liveBlockCounts(block);
   const vr = block.volumeRatio || 0.4;
-  const minPf = block.minRelPf ?? 1.6;
+  const minPf = block.minRelPf ?? DEFAULT_MIN_PF;
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
   const overall = block.overall !== false;
   const overallPause = !overall && block.windows !== false && blockPosPaused(e, evalN);

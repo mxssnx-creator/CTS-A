@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -49,7 +49,7 @@ const CONN = (process.env.CTS_A_CONN || (process.env.CTS_A_X01 === "1" ? "bingx-
 const IS_X01 = CONN === "bingx-x01";
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
-const LIVE_MIN_PF = Number(process.env.CTS_A_LIVE_MIN_PF ?? (IS_X01 ? X01_DEFAULTS.minPf : 2));
+const LIVE_MIN_PF = Math.max(DEFAULT_MIN_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_MIN_PF) || DEFAULT_MIN_PF);
 const LIVE_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? X01_DEFAULTS.symbolCount : VST_MAX_SYMBOLS)));
 const UNI = new Set(universeSymbols(LIVE_SYMBOLS).map((s) => s.id));
 const PREFERRED_RANGES = new Set(["fibonacci", "geometric", "atr"]);
@@ -105,7 +105,7 @@ const BLOCK = {
   autoEval: true,
   relAdditive: true,
   relVolumeRatio: 0.08,
-  minRelPf: IS_X01 ? X01_DEFAULTS.minPf : 1.6,
+  minRelPf: LIVE_MIN_PF,
   evalLastNs: [1, 2, 3, 4, 5, 6],
   liveLastN: 12,
   liveDisable: true,
@@ -131,7 +131,7 @@ function loadProtectCells() {
   try {
     const raw = JSON.parse(readFileSync(PROTECT_FILE, "utf8"));
     const cells = Array.isArray(raw?.cells) ? raw.cells : Array.isArray(raw) ? raw : [];
-    const minPf = IS_X01 ? X01_DEFAULTS.minPf : 1.2;
+    const minPf = LIVE_MIN_PF;
     const ok = cells.filter((c) =>
       Number(c.tpAtr) >= 0.8 &&
       Number(c.slOfTp) >= 1 &&
@@ -289,7 +289,7 @@ function writeSettingsPick(pick, extra = {}) {
     comboRange: "all",
     enabledKinds: ["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block"],
     strategyId: "normal",
-    thresholds: { minPf: IS_X01 ? X01_DEFAULTS.minPf : 2, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
+    thresholds: { minPf: LIVE_MIN_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
     activeConnId: CONN,
     evalHours: [4, 8, 16],
     evalLastNs: [5, 10, 15],
@@ -1354,10 +1354,10 @@ async function main() {
         const scored = validateSymbols100h(pick.cfg, pick.tactic, {
           symbolCount: Math.min(16, LIVE_SYMBOLS),
           rangeType: pick.range,
-          minPf: Number(LIVE_MIN_PF) || 1.4,
+          minPf: Number(LIVE_MIN_PF) || DEFAULT_MIN_PF,
         });
         const kept = mergeSymbolHourEval(engine, scored.engine);
-        refreshSymbolHourEval(engine, { hours: 100, minPf: Number(LIVE_MIN_PF) || 1.4 });
+        refreshSymbolHourEval(engine, { hours: 100, minPf: Number(LIVE_MIN_PF) || DEFAULT_MIN_PF });
         adjustments.push(
           `symbol 100h · ${kept.length} performing · skip ${scored.skipped.length} · hour ${scored.hour} ${scored.engine.hourCoord?.bestInd || ""}/${scored.engine.hourCoord?.bestTac || ""}`,
         );

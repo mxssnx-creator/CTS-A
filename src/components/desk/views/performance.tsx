@@ -613,7 +613,7 @@ export function PerformanceView() {
           <Field label={`Min PF ${th.minPf.toFixed(2)}`}>
             <input
               type="range"
-              min={0.8}
+              min={1.8}
               max={2.4}
               step={0.05}
               value={th.minPf}

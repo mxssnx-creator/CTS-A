@@ -74,7 +74,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
   {
     id: "strict-pf",
     label: "Strict PF",
-    blurb: "Min PF 2.0 · last-N 12 disable at 1.4 · Block 1–3",
+    blurb: "Min PF 2.0 · last-N 12 disable at 2.0 · Block 1–3",
     builtin: true,
     patch: {
       tactic: "trailing",
@@ -87,7 +87,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
         evalLastNs: [1, 2, 3],
         maxMultiple: 3,
         minRelPf: 2,
-        liveDisableMinPf: 1.4,
+        liveDisableMinPf: 2,
       },
       lastN: 12,
     },
@@ -103,7 +103,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       rangeType: "geometric",
       tacticConfig: { ...LIVE_CFG, slAtr: 1.1, tpRatio: 1.6, trailingPct: 1.4 },
       blockConfig: { ...BLOCK_LIVE, counts: [1, 2], maxMultiple: 2, evalLastNs: [1, 2, 3], sides: "one" },
-      thresholds: { ...DEFAULT_THRESHOLDS, minPf: 1.6 },
+      thresholds: { ...DEFAULT_THRESHOLDS, minPf: X01_DEFAULTS.minPf },
     },
   },
   {

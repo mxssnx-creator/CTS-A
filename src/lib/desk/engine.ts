@@ -432,10 +432,12 @@ export const TACTIC_META: Record<TacticKind, { label: string; blurb: string }> =
   hybrid: { label: "Hybrid", blurb: "Axis entry, DCA fills, trailing exit" },
 };
 
+export const DEFAULT_MIN_PF = 1.8;
+
 export const X01_DEFAULTS = {
   connId: "bingx-x01" as const,
   network: "mainnet" as const,
-  minPf: 1.4,
+  minPf: DEFAULT_MIN_PF,
   symbolCount: 50,
   slAtrMin: 0.8,
   tpRatioMin: 0.8,
@@ -449,7 +451,7 @@ export const X01_DEFAULTS = {
 export const LIVE_BLOCK_COUNTS = [1, 2, 3, 4, 5, 6] as const;
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
-  minPf: 2,
+  minPf: DEFAULT_MIN_PF,
   maxMdd: 0.12,
   minWr: 0.55,
   minVf: 1.12,
@@ -501,11 +503,11 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   autoEval: true,
   relAdditive: true,
   relVolumeRatio: 0.08,
-  minRelPf: 1.6,
+  minRelPf: DEFAULT_MIN_PF,
   evalLastNs: [1, 2, 3, 4, 5, 6],
   liveLastN: 12,
   liveDisable: true,
-  liveDisableMinPf: 2,
+  liveDisableMinPf: DEFAULT_MIN_PF,
   liveDisableMinSamples: 4,
   symbolEvalHours: 100,
   hourCoord: true,

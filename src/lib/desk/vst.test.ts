@@ -53,6 +53,7 @@ import {
   TP_ATR_RATIOS,
   SL_OF_TP,
   X01_DEFAULTS,
+  DEFAULT_MIN_PF,
   UNIT_NOTIONAL,
   profitFactor,
   pfFromPnls,
@@ -89,6 +90,7 @@ import {
   armUniverse,
   releaseVanished,
   skipLiveSymbol,
+  entryMinPf,
   refreshSymbolHourEval,
   validateSymbols100h,
   symbolTapePf,
@@ -1654,10 +1656,10 @@ describe("VST engine", () => {
   it("auto-evals major/minor relations every 2h and adds volume additively", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.08);
     assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.08);
-    assert.equal(DEFAULT_THRESHOLDS.minPf, 2);
-    assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 2);
+    assert.equal(DEFAULT_THRESHOLDS.minPf, 1.8);
+    assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 1.8);
     assert.equal(DEFAULT_BLOCK_CONFIG.liveLastN, 12);
-    assert.equal(DEFAULT_BLOCK_CONFIG.minRelPf, 1.6);
+    assert.equal(DEFAULT_BLOCK_CONFIG.minRelPf, 1.8);
     assert.equal(DEFAULT_TACTIC_CONFIG.slAtr, slAtrOf(1.0, 1));
     assert.equal(DEFAULT_TACTIC_CONFIG.tpRatio, tpRatioOf(1));
     assert.equal(TP_SL_RATIO_MIN, tpRatioOf(1.25));
@@ -1671,7 +1673,7 @@ describe("VST engine", () => {
     assert.equal(TP_ATR_RATIOS[TP_ATR_RATIOS.length - 1], 1.6);
     assert.deepEqual([...SL_OF_TP], [1, 1.25]);
     assert.equal(new Set(allTpSlCombos().map((c) => `${c.tpAtr}:${c.slOfTp}`)).size, 18);
-    assert.equal(X01_DEFAULTS.minPf, 1.4);
+    assert.equal(X01_DEFAULTS.minPf, 1.8);
     assert.equal(X01_DEFAULTS.symbolCount, 50);
     assert.equal(X01_DEFAULTS.sides, "both");
     assert.equal(X01_DEFAULTS.slAtrMin, 0.8);
@@ -1905,8 +1907,12 @@ describe("VST engine", () => {
     assert.equal(skipLiveSymbol(e, "SOLUSDT"), true);
     e.symbolStats.ETHUSDT = { id: "ETHUSDT", trades: 4, wins: 3, profit: 1.2, loss: 0.2, sl: 1, tp: 3 };
     assert.equal(skipLiveSymbol(e, "ETHUSDT"), false);
-    e.minPf = 2;
+    assert.equal(entryMinPf(e), DEFAULT_MIN_PF);
     e.liveTape = true;
+    e.symbolStats.ADAUSDT = { id: "ADAUSDT", trades: 6, wins: 3, profit: 1.5, loss: 1.0, sl: 3, tp: 3 };
+    assert.ok((symbolTapePf(e, "ADAUSDT") ?? 0) < DEFAULT_MIN_PF);
+    assert.equal(skipLiveSymbol(e, "ADAUSDT"), true);
+    e.minPf = 2;
     e.symbolStats.BNBUSDT = { id: "BNBUSDT", trades: 6, wins: 3, profit: 1.2, loss: 1.0, sl: 3, tp: 3 };
     assert.ok((symbolTapePf(e, "BNBUSDT") ?? 0) < 2);
     assert.equal(skipLiveSymbol(e, "BNBUSDT"), true);
@@ -2168,7 +2174,7 @@ describe("VST engine", () => {
     assert.equal(snap.tactic, "hybrid");
     assert.equal(snap.symbolCount, 50);
     assert.equal(snap.tacticConfig.tpRatio, tpRatioOf(1));
-    assert.equal(snap.thresholds.minPf, 1.4);
+    assert.equal(snap.thresholds.minPf, DEFAULT_MIN_PF);
     assert.ok(snap.tacticConfig.slAtr >= 0.8);
     assert.equal(snap.thresholds.maxDdt, 20);
     assert.equal(snap.hedgeMode, true);
