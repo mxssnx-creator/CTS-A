@@ -10,6 +10,10 @@ import {
   MIN_VOLUME_FACTOR,
   snapTpRatio,
   snapSlAtr,
+  snapTpAtr,
+  snapSlOfTp,
+  slAtrOf,
+  tpRatioOf,
   STAGE_HOURS,
   STRATEGY_KINDS,
   clampLastN,
@@ -171,17 +175,26 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       minVf: Math.max(MIN_VOLUME_FACTOR, asNum(th.minVf, d.thresholds.minVf)),
       maxDdt: Math.min(20, Math.max(8, asNum(th.maxDdt, d.thresholds.maxDdt))),
     },
-    tacticConfig: {
-      trailingPct: Math.max(0.4, asNum(cfg.trailingPct, d.tacticConfig.trailingPct)),
+    tacticConfig: (() => {
+      const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;
+      const slOfTp = snapSlOfTp(asNum(cfg.slOfTp, hasPair ? 0.75 : 1 / Math.max(0.5, asNum(cfg.tpRatio, d.tacticConfig.tpRatio))));
+      const tpAtr = snapTpAtr(
+        asNum(cfg.tpAtr, hasPair ? 0.8 : asNum(cfg.slAtr, d.tacticConfig.slAtr) / Math.max(0.5, slOfTp)),
+      );
+      return {
+      trailingPct: Math.min(1.4, Math.max(0.4, asNum(cfg.trailingPct, d.tacticConfig.trailingPct))),
       dcaCount: 1,
       dcaDrawdown: Math.max(0.3, asNum(cfg.dcaDrawdown, d.tacticConfig.dcaDrawdown)),
       axisSpacing: Math.max(0.2, asNum(cfg.axisSpacing, d.tacticConfig.axisSpacing)),
       axisLevels: Math.max(2, Math.round(asNum(cfg.axisLevels, d.tacticConfig.axisLevels))),
-      slAtr: snapSlAtr(asNum(cfg.slAtr, d.tacticConfig.slAtr)),
-      tpRatio: snapTpRatio(asNum(cfg.tpRatio, d.tacticConfig.tpRatio)),
+      slAtr: slAtrOf(tpAtr, slOfTp),
+      tpRatio: tpRatioOf(slOfTp),
+      tpAtr,
+      slOfTp,
       maxHoldBars: Math.min(8, Math.max(1, Math.round(asNum(cfg.maxHoldBars, d.tacticConfig.maxHoldBars ?? 3)))),
       maxHoldTicks: Math.min(20_000, Math.max(4, Math.round(asNum(cfg.maxHoldTicks, d.tacticConfig.maxHoldTicks ?? 16)))),
-    },
+      };
+    })(),
     blockConfig: (() => {
       const b = (raw as { blockConfig?: Partial<BlockConfig> }).blockConfig ?? d.blockConfig;
       return {

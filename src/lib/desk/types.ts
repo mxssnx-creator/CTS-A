@@ -438,6 +438,8 @@ export interface TacticConfig {
   axisLevels: number;
   slAtr: number;
   tpRatio: number;
+  tpAtr?: number;
+  slOfTp?: number;
   maxHoldBars?: number;
   maxHoldTicks?: number;
 }

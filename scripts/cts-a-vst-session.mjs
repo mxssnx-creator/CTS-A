@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, snapPx } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -104,7 +104,7 @@ const BLOCK = {
   liveDisableMinSamples: 8,
 };
 
-const LIVE_CFG = { trailingPct: 1.4, tpRatio: 1.6, dcaCount: 1, slAtr: 0.9, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
+const LIVE_CFG = { trailingPct: 0.8, tpRatio: tpRatioOf(0.75), dcaCount: 1, slAtr: slAtrOf(0.8, 0.75), tpAtr: 0.8, slOfTp: 0.75, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
 const GRID = LIVE_TACTICS.flatMap((tactic) =>
   RANGE_TYPES.map((range) => ({
     tactic,
@@ -118,29 +118,15 @@ function loadProtectCells() {
   try {
     const raw = JSON.parse(readFileSync(PROTECT_FILE, "utf8"));
     const cells = Array.isArray(raw?.cells) ? raw.cells : Array.isArray(raw) ? raw : [];
-    const minSl = IS_X01 ? 0.7 : 0.5;
-    const minTp = IS_X01 ? 1.6 : 1.0;
-    const minPf = IS_X01 ? X01_DEFAULTS.minPf : 2;
+    const minSl = 0.15;
+    const minTp = 0.57;
+    const minPf = IS_X01 ? X01_DEFAULTS.minPf : 1.2;
     const ok = cells
       .filter((c) => Number(c.tpRatio) >= minTp && Number(c.slAtr) >= minSl && (c.pf == null || Number(c.pf) >= minPf))
-      .sort((a, b) => Number(b.pf || 0) - Number(a.pf || 0))
-      .slice(0, IS_X01 ? 6 : 24);
-    if (ok.length) return ok.map((c) => ({ slAtr: Number(c.slAtr), tpRatio: Number(c.tpRatio), trailPct: Number(c.trailPct) || (IS_X01 ? 1.4 : 0.8) }));
+      .sort((a, b) => Number(b.pf || 0) - Number(a.pf || 0));
+    if (ok.length) return ok.map((c) => ({ slAtr: Number(c.slAtr), tpRatio: Number(c.tpRatio), trailPct: Number(c.trailPct) || 0.8, tpAtr: Number(c.tpAtr) || 0.8, slOfTp: Number(c.slOfTp) || 0.75 }));
   } catch {}
-  if (IS_X01) {
-    return [
-      { slAtr: 0.9, tpRatio: 1.6, trailPct: 1.4 },
-      { slAtr: 0.7, tpRatio: 1.6, trailPct: 1.4 },
-      { slAtr: 0.9, tpRatio: 2.0, trailPct: 1.7 },
-    ];
-  }
-  const out = [];
-  for (const slAtr of SL_ATR_RATIOS.filter((n) => n >= 0.7)) {
-    for (const tpRatio of TP_SL_RATIOS.filter((n) => n >= 1.6)) {
-      for (const trailPct of [1.4, 1.7, 0.8]) out.push({ slAtr, tpRatio, trailPct });
-    }
-  }
-  return out;
+  return allProtectCells();
 }
 let protectCells = loadProtectCells();
 function protectFor(symbol) {
@@ -634,9 +620,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set()) {
       const cell = protectFor(p.symbol);
       const atEntry = liveProtectPrices(entry, p.side, cell.slAtr, cell.tpRatio, spec, mode);
       const slDist = Math.abs(atEntry.sl - entry);
-      if (profit + 1e-12 < slDist * 0.95) continue;
-      const pct = Math.max(0.4, Number(cell.trailPct) || Number(cfg?.trailingPct) || 1.4) / 100;
-      const trailGap = slDist * (1 + (pct - 0.008) * 6);
+      const tpDist = Math.abs(atEntry.tp - entry);
+      if (profit + 1e-12 < Math.min(slDist, tpDist) * 0.4) continue;
+      const pct = Math.max(0.35, Math.min(1.4, Number(cell.trailPct) || Number(cfg?.trailingPct) || 0.8)) / 100;
+      const trailGap = Math.min(tpDist * 0.42, Math.max(mark * pct, slDist * 0.28));
       let next = p.side === "long" ? mark - trailGap : mark + trailGap;
       if (p.side === "long") next = Math.min(next, mark - slDist * 0.25);
       else next = Math.max(next, mark + slDist * 0.25);

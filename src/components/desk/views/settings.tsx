@@ -27,6 +27,13 @@ import {
   TACTIC_META,
   TACTICS,
   UNIT_NOTIONAL,
+  SL_OF_TP,
+  TP_ATR_MIN,
+  TP_ATR_MAX,
+  slAtrOf,
+  tpRatioOf,
+  snapTpAtr,
+  snapSlOfTp,
   volumeCoord,
   WARMUP,
   orderTypesForVenue,
@@ -801,8 +808,8 @@ export function SettingsView() {
             <RangeKnob
               label="Trailing"
               value={cfg.trailingPct}
-              min={0.6}
-              max={4}
+              min={0.4}
+              max={1.4}
               step={0.1}
               format={(n) => `${n.toFixed(1)}%`}
               onChange={(n) => setCfg({ trailingPct: n })}
@@ -810,16 +817,46 @@ export function SettingsView() {
               ariaLabel="Trailing percent"
             />
             <RangeKnob
-              label="TP / SL ratio"
-              value={cfg.tpRatio}
-              min={0.6}
-              max={3}
-              step={0.2}
-              format={(n) => `${n.toFixed(2)}R`}
-              onChange={(n) => setCfg({ tpRatio: n })}
+              label={`TP ATR · SL ${((cfg.slOfTp ?? 0.75) * 100).toFixed(0)}% of TP`}
+              value={cfg.tpAtr ?? 0.8}
+              min={TP_ATR_MIN}
+              max={TP_ATR_MAX}
+              step={0.1}
+              format={(n) => n.toFixed(1)}
+              onChange={(n) => {
+                const tpAtr = snapTpAtr(n);
+                const slOfTp = snapSlOfTp(cfg.slOfTp ?? 0.75);
+                setCfg({ tpAtr, slOfTp, slAtr: slAtrOf(tpAtr, slOfTp), tpRatio: tpRatioOf(slOfTp) });
+              }}
               onCommit={applyLive}
-              ariaLabel="Take-profit to stop-loss ratio"
+              ariaLabel="Take-profit ATR multiple"
             />
+            <div className="flex min-w-0 flex-col gap-1">
+              <span className="text-xs font-medium text-muted">SL as ratio of TP</span>
+              <div className="flex flex-wrap gap-1">
+                {SL_OF_TP.map((r) => {
+                  const on = snapSlOfTp(cfg.slOfTp ?? 0.75) === r;
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => {
+                        const tpAtr = snapTpAtr(cfg.tpAtr ?? 0.8);
+                        setCfg({ slOfTp: r, tpAtr, slAtr: slAtrOf(tpAtr, r), tpRatio: tpRatioOf(r) });
+                        applyLive();
+                      }}
+                      className={`${chip} min-w-11 ${on ? chipOn : chipOff}`}
+                    >
+                      {r.toFixed(2)}
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="text-[11px] text-subtle">
+                SL {cfg.slAtr.toFixed(2)} ATR · R {cfg.tpRatio.toFixed(3)} · 14 TP × 6 SL = 84 combos
+              </span>
+            </div>
             <RangeKnob
               label="DCA"
               value={1}
@@ -863,11 +900,11 @@ export function SettingsView() {
               ariaLabel="Axis spacing"
             />
             <RangeKnob
-              label={`Stop ATR · TP/SL ${cfg.tpRatio.toFixed(2)}R`}
+              label={`Stop ATR · R ${cfg.tpRatio.toFixed(3)}`}
               value={cfg.slAtr}
-              min={0.4}
-              max={2}
-              step={0.1}
+              min={0.15}
+              max={2.8}
+              step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setCfg({ slAtr: n })}
               onCommit={applyLive}

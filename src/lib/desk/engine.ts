@@ -65,51 +65,107 @@ export function pfFromPnls(rows: { pnl: number }[] | undefined | null): number {
 /** Hard floor — volume factor cannot be gated below this. */
 export const MIN_VOLUME_FACTOR = 1.05;
 export const MIN_QUOTE_VOL = 0.006;
-export const TRAIL_PCTS = [0.4, 0.6, 0.8, 1.1, 1.4, 1.7, 2.0, 2.4] as const;
-/** Take-profit / stop-loss R-multiples: 0.6 … 3.0 step 0.2. */
-export const TP_SL_RATIO_MIN = 0.6;
-export const TP_SL_RATIO_MAX = 3;
-export const TP_SL_RATIO_STEP = 0.2;
-export const TP_SL_RATIOS = Array.from(
-  { length: Math.round((TP_SL_RATIO_MAX - TP_SL_RATIO_MIN) / TP_SL_RATIO_STEP) + 1 },
-  (_, i) => Math.round((TP_SL_RATIO_MIN + i * TP_SL_RATIO_STEP) * 100) / 100,
+export const TRAIL_PCTS = [0.4, 0.6, 0.8, 1.1, 1.4] as const;
+/** Take-profit ATR multiples: 0.3 … 1.6 step 0.1. */
+export const TP_ATR_MIN = 0.3;
+export const TP_ATR_MAX = 1.6;
+export const TP_ATR_STEP = 0.1;
+export const TP_ATR_RATIOS = Array.from(
+  { length: Math.round((TP_ATR_MAX - TP_ATR_MIN) / TP_ATR_STEP) + 1 },
+  (_, i) => Math.round((TP_ATR_MIN + i * TP_ATR_STEP) * 10) / 10,
 ) as readonly number[];
+/** SL distance as a multiple of TP: 0.5 … 1.75. */
+export const SL_OF_TP = [0.5, 0.75, 1, 1.25, 1.5, 1.75] as const;
+export type SlOfTp = (typeof SL_OF_TP)[number];
+
+export function snapTpAtr(n: number): number {
+  if (!Number.isFinite(n)) return 0.8;
+  const x = Math.min(TP_ATR_MAX, Math.max(TP_ATR_MIN, n));
+  return Math.round(Math.round(x / TP_ATR_STEP) * TP_ATR_STEP * 10) / 10;
+}
+export function snapSlOfTp(n: number): SlOfTp {
+  if (!Number.isFinite(n)) return 0.75;
+  let best: SlOfTp = 0.75;
+  let dist = Infinity;
+  for (const r of SL_OF_TP) {
+    const d = Math.abs(r - n);
+    if (d < dist) {
+      dist = d;
+      best = r;
+    }
+  }
+  return best;
+}
+export function slAtrOf(tpAtr: number, slOfTp: number): number {
+  return Math.round(snapTpAtr(tpAtr) * snapSlOfTp(slOfTp) * 100) / 100;
+}
+export function tpRatioOf(slOfTp: number): number {
+  return Math.round((1 / snapSlOfTp(slOfTp)) * 1000) / 1000;
+}
+
+export const TP_SL_RATIOS = [...new Set(SL_OF_TP.map((s) => tpRatioOf(s)))].sort((a, b) => a - b);
+export const TP_SL_RATIO_MIN = TP_SL_RATIOS[0]!;
+export const TP_SL_RATIO_MAX = TP_SL_RATIOS[TP_SL_RATIOS.length - 1]!;
+export const TP_SL_RATIO_STEP = 0.1;
 
 export function snapTpRatio(n: number): number {
-  if (!Number.isFinite(n)) return 2.2;
-  const x = Math.min(TP_SL_RATIO_MAX, Math.max(TP_SL_RATIO_MIN, n));
-  return Math.round(Math.round(x / TP_SL_RATIO_STEP) * TP_SL_RATIO_STEP * 100) / 100;
+  if (!Number.isFinite(n)) return tpRatioOf(0.75);
+  let best = TP_SL_RATIOS[0]!;
+  let dist = Infinity;
+  for (const r of TP_SL_RATIOS) {
+    const d = Math.abs(r - n);
+    if (d < dist) {
+      dist = d;
+      best = r;
+    }
+  }
+  return best;
 }
 
-/** Stop-loss ATR / % multiples: 0.4 … 2.0 step 0.1. */
-export const SL_ATR_MIN = 0.4;
-export const SL_ATR_MAX = 2;
-export const SL_ATR_STEP = 0.1;
-export const SL_ATR_RATIOS = Array.from(
-  { length: Math.round((SL_ATR_MAX - SL_ATR_MIN) / SL_ATR_STEP) + 1 },
-  (_, i) => Math.round((SL_ATR_MIN + i * SL_ATR_STEP) * 10) / 10,
-) as readonly number[];
+export const SL_ATR_RATIOS = [...new Set(TP_ATR_RATIOS.flatMap((t) => SL_OF_TP.map((s) => slAtrOf(t, s))))].sort(
+  (a, b) => a - b,
+);
+export const SL_ATR_MIN = SL_ATR_RATIOS[0]!;
+export const SL_ATR_MAX = SL_ATR_RATIOS[SL_ATR_RATIOS.length - 1]!;
+export const SL_ATR_STEP = 0.05;
 
 export function snapSlAtr(n: number): number {
-  if (!Number.isFinite(n)) return 0.7;
+  if (!Number.isFinite(n)) return slAtrOf(0.8, 0.75);
   const x = Math.min(SL_ATR_MAX, Math.max(SL_ATR_MIN, n));
-  return Math.round(Math.round(x / SL_ATR_STEP) * SL_ATR_STEP * 10) / 10;
+  let best = SL_ATR_RATIOS[0]!;
+  let dist = Infinity;
+  for (const r of SL_ATR_RATIOS) {
+    const d = Math.abs(r - x);
+    if (d < dist) {
+      dist = d;
+      best = r;
+    }
+  }
+  return best;
 }
 
-export type ProtectCell = { slAtr: number; tpRatio: number; trailPct: number };
+export type ProtectCell = { slAtr: number; tpRatio: number; trailPct: number; tpAtr: number; slOfTp: number };
 
-export function allProtectCells(): ProtectCell[] {
-  const out: ProtectCell[] = [];
-  for (const slAtr of SL_ATR_RATIOS) {
-    for (const tpRatio of TP_SL_RATIOS) {
-      for (const trailPct of TRAIL_PCTS) out.push({ slAtr, tpRatio, trailPct });
+export function allTpSlCombos(): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number }[] {
+  const out: { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number }[] = [];
+  for (const tpAtr of TP_ATR_RATIOS) {
+    for (const slOfTp of SL_OF_TP) {
+      out.push({ tpAtr, slOfTp, slAtr: slAtrOf(tpAtr, slOfTp), tpRatio: tpRatioOf(slOfTp) });
     }
   }
   return out;
 }
 
+export function allProtectCells(): ProtectCell[] {
+  const out: ProtectCell[] = [];
+  for (const c of allTpSlCombos()) {
+    for (const trailPct of TRAIL_PCTS) out.push({ ...c, trailPct });
+  }
+  return out;
+}
+
 export function pickProtectCell(symbol: string, cells: ProtectCell[]): ProtectCell {
-  if (!cells.length) return { slAtr: 1.1, tpRatio: 2.6, trailPct: 0.8 };
+  if (!cells.length) return { slAtr: slAtrOf(0.8, 0.75), tpRatio: tpRatioOf(0.75), trailPct: 0.8, tpAtr: 0.8, slOfTp: 0.75 };
   let h = 2166136261;
   for (let i = 0; i < symbol.length; i++) h = Math.imul(h ^ symbol.charCodeAt(i), 16777619);
   return cells[Math.abs(h) % cells.length]!;
@@ -259,8 +315,9 @@ export const X01_DEFAULTS = {
   network: "mainnet" as const,
   minPf: 1.4,
   symbolCount: 50,
-  slAtrMin: 0.4,
-  tpRatioMin: 0.6,
+  slAtrMin: 0.15,
+  tpRatioMin: 0.571,
+  tpAtrMin: 0.3,
   volumeRatio: 0.08,
   counts: [1, 2, 3, 4, 5, 6] as number[],
   maxMultiple: 6,
@@ -283,8 +340,10 @@ export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
   dcaDrawdown: 0.8,
   axisSpacing: 0.7,
   axisLevels: 5,
-  slAtr: 0.5,
-  tpRatio: 2.2,
+  slAtr: slAtrOf(0.8, 0.75),
+  tpRatio: tpRatioOf(0.75),
+  tpAtr: 0.8,
+  slOfTp: 0.75,
   maxHoldBars: 3,
   maxHoldTicks: 16,
 };

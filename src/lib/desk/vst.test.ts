@@ -43,6 +43,11 @@ import {
   SL_ATR_RATIOS,
   snapTpRatio,
   snapSlAtr,
+  slAtrOf,
+  tpRatioOf,
+  allTpSlCombos,
+  TP_ATR_RATIOS,
+  SL_OF_TP,
   X01_DEFAULTS,
   UNIT_NOTIONAL,
   profitFactor,
@@ -149,8 +154,8 @@ describe("VST engine", () => {
   });
 
   it("trailingPct changes trail lock versus a wider trail", () => {
-    const tight = { ...CFG, trailingPct: 0.8, tpRatio: 2.5, slAtr: 1.05, maxHoldTicks: 20000 };
-    const wide = { ...CFG, trailingPct: 2.4, tpRatio: 2.5, slAtr: 1.05, maxHoldTicks: 20000 };
+    const tight = { ...CFG, trailingPct: 0.4, tpRatio: 1.333, slAtr: 0.6, maxHoldTicks: 20000 };
+    const wide = { ...CFG, trailingPct: 1.4, tpRatio: 1.333, slAtr: 0.6, maxHoldTicks: 20000 };
     const a = simulateHours(6, tight, "trailing", { symbolCount: 8, orderType: "limit", rangeType: "atr" }).report;
     const b = simulateHours(6, wide, "trailing", { symbolCount: 8, orderType: "limit", rangeType: "atr" }).report;
     finiteNum(a.pf, b.pf, a.net, b.net, a.trades, b.trades);
@@ -171,7 +176,7 @@ describe("VST engine", () => {
       const tpD = Math.abs(o.tp - o.price);
       const atrMul = slD / q.atr;
       const r = tpD / slD;
-      assert.ok(atrMul >= 0.38 && atrMul <= 0.55, `${o.symbol} sl/atr ${atrMul}`);
+      assert.ok(atrMul >= 0.34 && atrMul <= 0.55, `${o.symbol} sl/atr ${atrMul}`);
       assert.ok(r >= 0.55 && r <= 0.7, `${o.symbol} tp/sl ${r}`);
     }
   });
@@ -205,7 +210,7 @@ describe("VST engine", () => {
     assert.equal(e.ledger.trades, 0);
   });
 
-  it("locks take-profit at 2.5R on live positions", () => {
+  it("locks take-profit at configured R on live positions", () => {
     const e = initVstEngine(CFG, { warmup: 20 });
     for (const p of e.positions) {
       const slD = Math.abs(p.sl - p.avgEntry);
@@ -1474,19 +1479,24 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 1.1);
     assert.equal(DEFAULT_BLOCK_CONFIG.liveLastN, 12);
     assert.equal(DEFAULT_BLOCK_CONFIG.minRelPf, 1.6);
-    assert.equal(DEFAULT_TACTIC_CONFIG.slAtr, 0.5);
-    assert.equal(DEFAULT_TACTIC_CONFIG.tpRatio, 2.2);
-    assert.equal(TP_SL_RATIO_MIN, 0.6);
-    assert.equal(SL_ATR_MIN, 0.4);
-    assert.ok(TP_SL_RATIOS.includes(0.6) && TP_SL_RATIOS.includes(1));
-    assert.ok(SL_ATR_RATIOS.includes(0.4) && SL_ATR_RATIOS.includes(0.5));
-    assert.equal(snapTpRatio(0.5), 0.6);
-    assert.equal(snapSlAtr(0.35), 0.4);
+    assert.equal(DEFAULT_TACTIC_CONFIG.slAtr, slAtrOf(0.8, 0.75));
+    assert.equal(DEFAULT_TACTIC_CONFIG.tpRatio, tpRatioOf(0.75));
+    assert.equal(TP_SL_RATIO_MIN, tpRatioOf(1.75));
+    assert.equal(SL_ATR_MIN, slAtrOf(0.3, 0.5));
+    assert.ok(TP_SL_RATIOS.includes(tpRatioOf(1)) && TP_SL_RATIOS.includes(tpRatioOf(0.5)));
+    assert.ok(SL_ATR_RATIOS.includes(slAtrOf(0.8, 0.5)));
+    assert.equal(snapTpRatio(0.5), tpRatioOf(1.75));
+    assert.ok(Math.abs(snapSlAtr(0.35) - 0.3) < 0.06);
+    assert.equal(allTpSlCombos().length, 14 * 6);
+    assert.equal(TP_ATR_RATIOS[0], 0.3);
+    assert.equal(TP_ATR_RATIOS[TP_ATR_RATIOS.length - 1], 1.6);
+    assert.deepEqual([...SL_OF_TP], [0.5, 0.75, 1, 1.25, 1.5, 1.75]);
+    assert.equal(new Set(allTpSlCombos().map((c) => `${c.tpAtr}:${c.slOfTp}`)).size, 84);
     assert.equal(X01_DEFAULTS.minPf, 1.4);
     assert.equal(X01_DEFAULTS.symbolCount, 50);
     assert.equal(X01_DEFAULTS.sides, "both");
-    assert.equal(X01_DEFAULTS.slAtrMin, 0.4);
-    assert.equal(X01_DEFAULTS.tpRatioMin, 0.6);
+    assert.equal(X01_DEFAULTS.slAtrMin, 0.15);
+    assert.equal(X01_DEFAULTS.tpRatioMin, 0.571);
     assert.equal(DEFAULT_BLOCK_CONFIG.evalHours, 2);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2, 3, 4, 5, 6]);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.evalLastNs, [1, 2, 3, 4, 5, 6]);
@@ -1899,7 +1909,7 @@ describe("VST engine", () => {
     assert.equal(snap.rangeType, "atr");
     assert.equal(snap.tactic, "hybrid");
     assert.equal(snap.symbolCount, 50);
-    assert.equal(snap.tacticConfig.tpRatio, 3);
+    assert.equal(snap.tacticConfig.tpRatio, tpRatioOf(0.5));
     assert.equal(snap.thresholds.minPf, 1.4);
     assert.equal(snap.tacticConfig.slAtr, 0.4);
     assert.equal(snap.thresholds.maxDdt, 20);

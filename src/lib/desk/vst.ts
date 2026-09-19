@@ -39,6 +39,7 @@ import {
   snapSlAtr,
   profitFactor,
   pfFromPnls,
+  allTpSlCombos,
   symbolIndications,
   symbolSideSet,
   STAGE_HOURS,
@@ -50,14 +51,16 @@ const DEFAULT_CFG: TacticConfig = {
   dcaDrawdown: 0.8,
   axisSpacing: 0.7,
   axisLevels: 5,
-  slAtr: 0.5,
-  tpRatio: 2.2,
+  slAtr: 0.6,
+  tpRatio: 1.333,
+  tpAtr: 0.8,
+  slOfTp: 0.75,
   maxHoldBars: 3,
   maxHoldTicks: 16,
 };
 
-export const TP_SL_RATIO = 2.5;
-export const SL_ATR_MULT = 0.5;
+export const TP_SL_RATIO = 1.333;
+export const SL_ATR_MULT = 0.6;
 export const VST_MAX_SYMBOLS = 50;
 export const VST_MAX_POSITIONS = 100;
 export const VST_BATCH_SIZE = 20;
@@ -1346,6 +1349,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     tactic: p.tactic ?? e.lastTactic,
     rangeType: p.controllingRange ?? e.lastRange,
     playbook: p.playbook,
+    tpRatio: e.tpRatio,
+    slAtr: p.slDist / Math.max(e.quotes[p.symbol]?.atr || 1e-9, 1e-9),
   });
   if (e.closed.length > 600) e.closed.length = 600;
   e.fills.unshift({
@@ -1509,9 +1514,12 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     if (tactic === "dca" && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (tactic === "axis" && (p.tactic === "axis" || p.playbook === "axis")) handleAxis(e, p, cfg);
     if (tactic === "trailing" || tactic === "hybrid") {
-      const pct = Math.max(0.4, cfg.trailingPct) / 100;
-      const trailGap = p.slDist * (1 + (pct - 0.008) * 6);
-      if (signed * (q.px - p.avgEntry) >= p.slDist * 0.95) {
+      const tpRoom = Math.max(p.tpDist, Math.abs(p.tp - p.avgEntry), 1e-12);
+      const sl0 = Math.max(p.slDist, 1e-12);
+      const pct = Math.max(0.35, Math.min(1.4, cfg.trailingPct)) / 100;
+      const trailGap = Math.min(tpRoom * 0.42, Math.max(q.px * pct, sl0 * 0.28));
+      const armed = signed * (q.px - p.avgEntry) >= Math.min(sl0, tpRoom) * 0.4;
+      if (armed) {
         if (p.side === "long") {
           const next = q.px - trailGap;
           if (next > p.sl) p.sl = next;
@@ -1519,9 +1527,11 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
           const next = q.px + trailGap;
           if (next < p.sl) p.sl = next;
         }
-        const tpRoom = Math.abs(p.tp - p.avgEntry);
         const r = snapTpRatio(e.tpRatio || cfg.tpRatio || TP_SL_RATIO);
-        if (Math.abs(p.sl - p.avgEntry) > tpRoom / r + 1e-12) p.sl = p.side === "long" ? p.avgEntry - tpRoom / r : p.avgEntry + tpRoom / r;
+        const cap = tpRoom / Math.max(r, 0.5);
+        if (Math.abs(p.sl - p.avgEntry) > cap + 1e-12) p.sl = p.side === "long" ? p.avgEntry - cap : p.avgEntry + cap;
+        if (p.side === "long") p.sl = Math.min(p.sl, p.tp - tpRoom * 0.28);
+        else p.sl = Math.max(p.sl, p.tp + tpRoom * 0.28);
         p.slDist = Math.abs(p.sl - p.avgEntry);
       }
     }
@@ -1894,6 +1904,10 @@ export function blockRelationKeys(rel: {
   rangeType?: RangeType;
   playbook?: string;
   indicationCfg?: string;
+  tpAtr?: number;
+  slOfTp?: number;
+  slAtr?: number;
+  tpRatio?: number;
 }): string[] {
   const keys = [`sym:${rel.symbol}`, `side:${rel.side}`, `leg:${rel.symbol}:${rel.side}`];
   if (rel.indication) keys.push(`ind:${rel.indication}`);
@@ -1903,8 +1917,13 @@ export function blockRelationKeys(rel: {
   if (rel.tactic) keys.push(`tac:${rel.tactic}`);
   if (rel.rangeType) keys.push(`rng:${rel.rangeType}`);
   if (rel.indication && rel.kind) keys.push(`sub:${rel.indication}:${rel.kind}`);
+  if (rel.tpAtr != null && rel.slOfTp != null) keys.push(`prot:${rel.tpAtr}:${rel.slOfTp}`);
+  else if (rel.slAtr != null && rel.tpRatio != null) keys.push(`prot:${rel.tpRatio}:${rel.slAtr}`);
   if (rel.indication && rel.tactic && rel.rangeType) {
     keys.push(`combo:${rel.indication}:${rel.kind ?? "_"}:${rel.tactic}:${rel.rangeType}:${rel.side}`);
+    if (rel.tpAtr != null && rel.slOfTp != null) {
+      keys.push(`combo:${rel.indication}:${rel.tactic}:${rel.rangeType}:${rel.tpAtr}:${rel.slOfTp}:${rel.side}`);
+    }
   }
   return keys;
 }
@@ -1922,6 +1941,10 @@ export function noteBlockPosClose(
     rangeType?: RangeType;
     playbook?: string;
     indicationCfg?: string;
+    tpAtr?: number;
+    slOfTp?: number;
+    slAtr?: number;
+    tpRatio?: number;
   },
 ) {
   e.blockWindows = e.blockWindows ?? {};
@@ -1961,7 +1984,7 @@ export function blockComboPaused(
   n = 6,
 ) {
   return blockRelationKeys(rel)
-    .filter((k) => k.startsWith("combo:") || k.startsWith("sub:") || k.startsWith("cfg:"))
+    .filter((k) => k.startsWith("combo:") || k.startsWith("sub:") || k.startsWith("cfg:") || k.startsWith("prot:"))
     .some((k) => blockRelPaused(e, k, n));
 }
 
@@ -3101,6 +3124,10 @@ export type ConfigCell = {
   net: number;
   trades: number;
   ok: boolean;
+  tpAtr?: number;
+  slOfTp?: number;
+  slAtr?: number;
+  tpRatio?: number;
 };
 
 function pnlBucket(rows: { pnl: number }[], key = "all"): OverallBucket {
@@ -3781,6 +3808,7 @@ export async function completeComputationsAsync(
     hours?: number[];
     yieldFn?: () => Promise<void>;
     onCell?: (cell: CompleteCell, i: number, total: number) => void;
+    protect?: boolean;
   },
 ): Promise<CompleteComputeReport> {
   const hours = (opts?.hours ?? [...STAGE_HOURS]).map((n) => Math.max(1, Math.round(n)));
@@ -3788,13 +3816,26 @@ export async function completeComputationsAsync(
   const yieldFn = opts?.yieldFn ?? (() => new Promise<void>((r) => setImmediate(r)));
   const t0 = Date.now();
   const cells: CompleteCell[] = [];
-  const total = LIVE_TACTICS.length * RANGE_TYPES.length * hours.length;
+  const combos = opts?.protect === false ? [] : allTpSlCombos();
+  const total = LIVE_TACTICS.length * RANGE_TYPES.length * hours.length + combos.length * LIVE_TACTICS.length;
   let i = 0;
   for (const tactic of LIVE_TACTICS) {
     for (const range of RANGE_TYPES) {
       const batch = completeCellsForPair(cfg, tactic, range, hours, symbolCount);
       for (const cell of batch) {
         cells.push(cell);
+        i += 1;
+        opts?.onCell?.(cell, i, total);
+      }
+      await yieldFn();
+    }
+  }
+  for (const tactic of LIVE_TACTICS) {
+    for (const prot of combos) {
+      const cfg2 = { ...cfg, slAtr: prot.slAtr, tpRatio: prot.tpRatio, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp };
+      const batch = completeCellsForPair(cfg2, tactic, "atr", [4], Math.min(8, symbolCount));
+      for (const cell of batch) {
+        cells.push({ ...cell, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp, slAtr: prot.slAtr, tpRatio: prot.tpRatio });
         i += 1;
         opts?.onCell?.(cell, i, total);
       }
