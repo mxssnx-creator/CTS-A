@@ -66,7 +66,7 @@ const BLOCK = {
   stack: true,
   windows: true,
   volumeMode: "shared",
-  sides: "mixed",
+  sides: "both",
   evalHours: 2,
   autoEval: true,
   relAdditive: true,

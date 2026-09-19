@@ -837,17 +837,18 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     if (!q || !(q.px > 0)) return;
     if ((e.cooldown[cooldownKey(connId, s.id)] ?? 0) > e.tick) return;
     const winN = Math.min(16, Math.max(1, Math.round(e.blockCfg?.evalPosCount || 6)));
-    if (e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     if (pn >= VST_MAX_POSITIONS) return;
-    const mode = e.blockCfg?.sides;
+    const mode = e.blockCfg?.sides ?? "both";
     const trySides = symbolSideSet(s.id, mode, direction(q));
     const dual = trySides.length === 2;
     const ind = classifyIndication(e, s.id);
     const book = openPlaybook(e.lastTactic, ind);
     const kind = kindFromIndication(ind, book, e.lastTactic);
     const range = rangeType ?? e.lastRange ?? "atr";
+    if (!dual && e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     for (const side of trySides) {
       if (qn >= VST_MAX_QUEUE || pn >= VST_MAX_POSITIONS) break;
+      if (dual && e.blockCfg?.windows !== false && blockRelPaused(e, `leg:${s.id}:${side}`, winN)) continue;
       if (
         blockComboPaused(
           e,
@@ -2265,7 +2266,7 @@ export function adjustActiveBlocks(
     }
   };
 
-  if (block.flattenConflict) {
+  if (block.flattenConflict && block.sides !== "both") {
     const bySym = new Map<string, { long?: (typeof blocks)[0]; short?: (typeof blocks)[0] }>();
     for (const b of blocks) {
       const row = bySym.get(b.symbol) ?? {};

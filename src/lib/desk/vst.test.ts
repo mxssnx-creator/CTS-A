@@ -1216,9 +1216,9 @@ describe("VST engine", () => {
     for (let i = 0; i < 6; i++) noteBlockPosClose(e, "BTCUSDT", "long", -0.4, e.blockCfg);
     assert.ok(symbolBlockPaused(e, "BTCUSDT", 6));
     armUniverse(e, CFG, "hybrid", "fibonacci");
-    const btc = [...e.queue, ...e.orders].filter((o) => o.symbol === "BTCUSDT");
+    const btcLong = [...e.queue, ...e.orders].filter((o) => o.symbol === "BTCUSDT" && o.side === "long");
     const other = [...e.queue, ...e.orders].filter((o) => o.symbol !== "BTCUSDT");
-    assert.equal(btc.length, 0);
+    assert.equal(btcLong.length, 0);
     assert.ok(other.length > 0, "other symbols should still arm");
   });
 
@@ -1276,6 +1276,72 @@ describe("VST engine", () => {
     assert.ok(shortOnly >= 1, `short-only ${shortOnly}`);
     assert.ok(both >= 1, `both ${both}`);
     finiteNum(mix.longOnly ?? 0, mix.shortOnly ?? 0, mix.both ?? 0);
+  });
+
+  it("same symbol opens and validates long and short together", () => {
+    const block = { ...DEFAULT_BLOCK_CONFIG, sides: "both" as const, flattenConflict: false, windows: false, liveDisable: false };
+    const e = initVstEngine(CFG, { warmup: 16, symbolCount: 8, block });
+    const by = new Map<string, Set<string>>();
+    for (const p of e.positions) {
+      const s = by.get(p.symbol) ?? new Set();
+      s.add(p.side);
+      by.set(p.symbol, s);
+    }
+    for (const o of [...e.queue, ...e.orders]) {
+      if (o.status === "cancelled" || o.status === "rejected") continue;
+      const s = by.get(o.symbol) ?? new Set();
+      s.add(o.side);
+      by.set(o.symbol, s);
+    }
+    const dual = [...by.values()].filter((s) => s.has("long") && s.has("short")).length;
+    assert.ok(dual >= 1, `dual symbols ${dual} of ${by.size}`);
+    const adj = adjustActiveBlocks(e, CFG, "hybrid", block, "fibonacci", { endStage: true });
+    finiteNum(adj.added, adj.flattened);
+    assert.equal(adj.flattened, 0);
+  });
+
+  it("30d × 8 symbols both-sides vs one-side domination", () => {
+    const hours = 30 * 24;
+    const run = (sides: "both" | "long" | "short") =>
+      simulateHours(hours, CFG, "hybrid", {
+        symbolCount: 8,
+        rangeType: "fibonacci",
+        block: { ...DEFAULT_BLOCK_CONFIG, sides, flattenConflict: false, liveDisable: false, windows: true, stack: true },
+      });
+    const both = run("both");
+    const lng = run("long");
+    const sht = run("short");
+    for (const r of [both, lng, sht]) {
+      finiteNum(r.report.pf, r.report.net, r.report.wr);
+      assert.ok(r.report.trades >= 8, `trades ${r.report.trades}`);
+      assert.equal(r.report.nanCount, 0);
+    }
+    const sidesOf = (e: typeof both.engine) => {
+      let longN = 0;
+      let shortN = 0;
+      const m = new Map<string, Set<string>>();
+      for (const c of e.closed) {
+        if (c.side === "long") longN += 1;
+        else shortN += 1;
+        const s = m.get(c.symbol) ?? new Set();
+        s.add(c.side);
+        m.set(c.symbol, s);
+      }
+      let dual = 0;
+      for (const s of m.values()) if (s.has("long") && s.has("short")) dual += 1;
+      return { longN, shortN, dual, symbols: m.size };
+    };
+    const b = sidesOf(both.engine);
+    const l = sidesOf(lng.engine);
+    const s = sidesOf(sht.engine);
+    assert.equal(l.shortN, 0);
+    assert.equal(s.longN, 0);
+    assert.ok(l.longN >= 8, `long domination ${l.longN}`);
+    assert.ok(s.shortN >= 8, `short domination ${s.shortN}`);
+    assert.ok(b.dual >= 1, `both dual symbols ${b.dual}`);
+    assert.ok(b.longN >= 1 && b.shortN >= 1, `both L/S ${b.longN}/${b.shortN}`);
+    assert.ok(lng.engine.closed.every((c) => c.side === "long"));
+    assert.ok(sht.engine.closed.every((c) => c.side === "short"));
   });
 
   it("Block relations pause independently per indication, strategy, tactic, range, side", () => {
