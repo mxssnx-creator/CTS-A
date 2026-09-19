@@ -37,6 +37,7 @@ import {
   pickBestCombo,
   snapSlAtr,
   snapTpRatio,
+  profitFactor,
   strategiesForKinds,
 } from "./engine.ts";
 import { adjustActiveBlocks, simulateHours } from "./vst.ts";
@@ -222,7 +223,7 @@ function pfClosed(closed: ClosedTrade[], n: number): LastNEvalRow {
   const profit = wins.reduce((s, c) => s + c.pnl, 0);
   const loss = Math.abs(xs.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
   const net = xs.reduce((s, c) => s + c.pnl, 0);
-  const pf = loss < 1e-9 ? (profit > 0 ? 3 : 0) : profit / loss;
+  const pf = profitFactor(profit, loss);
   const wr = trades ? wins.length / trades : 0;
   return {
     n,

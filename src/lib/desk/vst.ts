@@ -37,6 +37,8 @@ import {
   RANGE_TYPES,
   snapTpRatio,
   snapSlAtr,
+  profitFactor,
+  pfFromPnls,
   symbolIndications,
   symbolSideSet,
   STAGE_HOURS,
@@ -402,7 +404,7 @@ function symbolScore(e: VstEngine, id: string): number {
   if (closed.length) {
     const profit = closed.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
     const loss = Math.abs(closed.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
-    pf = loss < 1e-9 ? (profit > 0 ? 3 : 0) : profit / loss;
+    pf = profitFactor(profit, loss);
   }
   const net = closed.reduce((s, c) => s + c.pnl, 0);
   const vol = finiteOr(q?.vol, 0);
@@ -1596,7 +1598,7 @@ function recomputeStats(e: VstEngine) {
   } else {
     e.ledger.ddTicks = 0;
   }
-  const pf = e.ledger.loss < 1e-9 ? e.ledger.profit > 0 ? 99 : 0 : e.ledger.profit / e.ledger.loss;
+  const pf = profitFactor(e.ledger.profit, e.ledger.loss);
   const working = e.orders.length;
   e.ledger.maxPositions = Math.max(e.ledger.maxPositions, e.positions.length);
   e.ledger.maxOrders = Math.max(e.ledger.maxOrders, working + e.queue.length);
@@ -1872,7 +1874,7 @@ function tickBlockWindow(w: BlockPosWindow, symbol: string, side: Side, pnl: num
   const gl = Math.abs(last.filter((x) => x.pnl < 0).reduce((s, x) => s + x.pnl, 0));
   w.lastNet = net;
   w.lastAvg = net / w.n;
-  w.lastPf = gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl;
+  w.lastPf = profitFactor(gp, gl);
   w.windows += 1;
   w.losers = [...new Set(last.filter((x) => x.pnl < 0).map((x) => x.symbol))];
   if (w.lastAvg < 0 || w.lastPf < 1) {
@@ -1976,18 +1978,17 @@ export function symbolBlockPaused(e: VstEngine, symbol: string, n?: number) {
   return Object.values(map).some((w) => (w.pauseLeft || 0) > 0);
 }
 
-export function symbolTapePf(e: VstEngine, symbol: string) {
+export function symbolTapePf(e: VstEngine, symbol: string): number | null {
   const t = e.symbolStats?.[symbol];
-  if (!t || t.trades < 4) return 99;
-  const gl = Math.max(0, t.loss);
-  const gp = Math.max(0, t.profit);
-  return gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl;
+  if (!t || t.trades < 4) return null;
+  return profitFactor(t.profit, t.loss);
 }
 
 /** Skip new entries on losing last-N windows or PF<1 symbols. Direction is a live indication, not a skip. */
 export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (symbolBlockPaused(e, symbol, evalN)) return true;
-  if (symbolTapePf(e, symbol) + 1e-9 < 1) return true;
+  const tape = symbolTapePf(e, symbol);
+  if (tape != null && tape + 1e-9 < 1) return true;
   if (e.liveDisabled?.[`sym:${symbol}`]) return true;
   if (e.liveDisabled?.[`ind:trend`]) {
     try {
@@ -1998,9 +1999,7 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   }
   const trend = e.closed.filter((c) => isDeskConn(c.connId) && c.indication === "trend").slice(0, 8);
   if (trend.length >= 3) {
-    const gp = trend.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
-    const gl = Math.abs(trend.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
-    const pf = gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl;
+    const pf = pfFromPnls(trend);
     if (pf + 1e-9 < 1.4) {
       try {
         if (classifyIndication(e, symbol) === "trend") return true;
@@ -2127,7 +2126,7 @@ function pfRows(rows: { pnl: number }[]) {
   return {
     n: rows.length,
     net: rows.reduce((s, c) => s + c.pnl, 0),
-    pf: gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl,
+    pf: profitFactor(gp, gl),
   };
 }
 
@@ -2344,7 +2343,7 @@ function recordBlockClose(e: VstEngine, p: LivePosition, pnl: number) {
   if (ring.length >= need) {
     const gp = ring.filter((x) => x > 0).reduce((s, x) => s + x, 0);
     const gl = Math.abs(ring.filter((x) => x < 0).reduce((s, x) => s + x, 0));
-    const pf = gl === 0 ? (gp > 0 ? 4 : 0) : gp / gl;
+  const pf = profitFactor(gp, gl);
     if (pf < 1.05) lane.pauseRemaining[n] = Math.max(lane.pauseRemaining[n] || 0, n);
   }
   lane.active = false;
@@ -2372,7 +2371,7 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
   if (ring.length < need) return true;
   const gp = ring.filter((x) => x > 0).reduce((s, x) => s + x, 0);
   const gl = Math.abs(ring.filter((x) => x < 0).reduce((s, x) => s + x, 0));
-  const pf = gl === 0 ? (gp > 0 ? 4 : 0) : gp / gl;
+  const pf = profitFactor(gp, gl);
   const vr = block.volumeRatio || 0.4;
   const inc = vr * Math.max(1, count);
   const floor = Math.max(minPf, blockMinimumProfitFactor(minPf, block.pfRatio || 1.25, inc) || minPf);
@@ -3022,7 +3021,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     trades: s.trades,
     net: s.profit - s.loss,
     wr: s.trades ? s.wins / s.trades : 0,
-    pf: s.loss < 1e-9 ? s.profit > 0 ? 99 : 0 : s.profit / s.loss,
+    pf: profitFactor(s.profit, s.loss),
     sl: s.sl,
     tp: s.tp
   })).sort((a, b) => b.net - a.net);
@@ -3120,7 +3119,7 @@ function pnlBucket(rows: { pnl: number }[], key = "all"): OverallBucket {
       loss -= p;
     }
   }
-  const pf = loss === 0 ? (profit > 0 ? 3.2 : 0) : profit / loss;
+  const pf = profitFactor(profit, loss);
   let peak = 0;
   let eq = 0;
   let mdd = 0;
@@ -3232,7 +3231,7 @@ export function seedStatsFromComplete(stats: SeedableStats, e: VstEngine): Seeda
   };
   const fillBucket = (b: OverallBucket | undefined, cell: CompleteCell | undefined, take?: number) => {
     if (!b || !cell) return;
-    if (b.n > 0 && b.pf > 0) return;
+    if ((b.n || 0) > 0) return;
     const n = Math.max(1, take ?? cell.trades ?? 0);
     b.n = n;
     b.wins = Math.round((cell.wr || 0) * n);
@@ -3258,7 +3257,7 @@ export function seedStatsFromComplete(stats: SeedableStats, e: VstEngine): Seeda
     stats.net = winner.net;
     stats.trades = winner.trades;
     stats.avgConfigPf = stats.avgConfigPf || winner.pf;
-    if (stats.overall && !(stats.overall.n > 0 && stats.overall.pf > 0)) {
+    if (stats.overall && !(stats.overall.n > 0)) {
       fillBucket(stats.overall, winner);
     }
   }
@@ -3269,7 +3268,7 @@ export function overallLiveStats(e: VstEngine) {
   const closed = e.closed.filter((c) => isDeskConn(c.connId));
   const bySymbol: OverallBucket[] = Object.values(e.symbolStats)
     .map((s) => {
-      const pf = s.loss === 0 ? (s.profit > 0 ? 3.2 : 0) : s.profit / s.loss;
+      const pf = profitFactor(s.profit, s.loss);
       return {
         key: s.id,
         n: s.trades,
@@ -3323,7 +3322,6 @@ export function overallLiveStats(e: VstEngine) {
     LIVE_HOUR_NS.map((h) => [String(h), hourBucket(e, h)]),
   ) as Record<string, OverallBucket>;
   const liveBuckets = [...byPlaybook, ...byIndication, ...byTactic, ...byRange].filter((b) => b.n > 0);
-  const avgPf = liveBuckets.length ? liveBuckets.reduce((s, b) => s + b.pf, 0) / liveBuckets.length : 0;
   const open = pnlBucket(
     e.positions.map((p) => ({ pnl: p.unrealized + p.realized })),
     "open",
@@ -3367,12 +3365,12 @@ export function overallLiveStats(e: VstEngine) {
     maxOrders: e.ledger.maxOrders,
     configsLive: liveBuckets.length,
     configsActive: e.positions.length,
-    avgConfigPf: avgPf,
+    avgConfigPf: ov.pf,
     symbols: e.symbolCount,
     occupied: new Set(e.positions.map((p) => p.symbol)).size,
     slots: e.positions.length,
     trades: closed.length,
-    pf: ov.pf || Number((e as { completeWinner?: { pf?: number } }).completeWinner?.pf) || 0,
+    pf: ov.pf,
     wr: ov.wr,
     net: ov.net,
     mdd: e.stats.mdd,
@@ -3425,12 +3423,7 @@ export function overlayExchangeBook(
       const open = openRows.filter((r) => keyOf(r) === b.key);
       b.openN = open.length;
       if ((b.n || 0) === 0 && open.length) {
-        const profit = open.filter((o) => o.pnl > 0).reduce((s, o) => s + o.pnl, 0);
-        const loss = Math.abs(open.filter((o) => o.pnl < 0).reduce((s, o) => s + o.pnl, 0));
-        b.net = open.reduce((s, o) => s + o.pnl, 0);
-        b.wins = open.filter((o) => o.pnl > 0).length;
-        b.wr = open.length ? b.wins / open.length : 0;
-        b.pf = loss === 0 ? (profit > 0 ? 3.2 : 0) : profit / loss;
+        b.openN = open.length;
       }
     }
   };
@@ -3449,7 +3442,7 @@ export function overlayExchangeBook(
         key: `${pb.key}:active`,
         n: open.length,
         wins,
-        pf: loss === 0 ? (profit > 0 ? 3.2 : 0) : profit / loss,
+        pf: profitFactor(profit, loss),
         wr: open.length ? wins / open.length : 0,
         net: open.reduce((s, o) => s + o.pnl, 0),
         ddt: 0,
@@ -3479,10 +3472,7 @@ export function overlayExchangeBook(
   stats.configsLive = liveBuckets.length;
   const winner = (e as { completeWinner?: { pf: number } }).completeWinner;
   if (winner && Number(winner.pf) > 0 && !(stats.trades > 0)) stats.avgConfigPf = Number(winner.pf);
-  else if (liveBuckets.length) {
-    const withPf = liveBuckets.filter((b) => b.n > 0 || (b.openN ?? 0) > 0);
-    stats.avgConfigPf = withPf.length ? withPf.reduce((s, b) => s + b.pf, 0) / withPf.length : stats.pf;
-  }
+  else if (typeof stats.pf === "number" && stats.trades > 0) stats.avgConfigPf = stats.pf;
   if (stats.hours) {
     for (const b of Object.values(stats.hours)) {
       if (!b) continue;
@@ -3533,7 +3523,7 @@ export function sweepBlockRelations(
     return {
       n: rows.length,
       net: rows.reduce((s, c) => s + c.pnl, 0),
-      pf: gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl,
+      pf: profitFactor(gp, gl),
     };
   };
   const group = (rows: { pnl: number; indication?: string; kind?: string; playbook?: string }[], key: "indication" | "kind" | "playbook") => {
@@ -3658,7 +3648,7 @@ function cellFromRows(
 ): CompleteCell {
   const profit = rows.filter((t) => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
   const loss = Math.abs(rows.filter((t) => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
-  const pf = loss === 0 ? (profit > 0 ? 3.2 : 0) : profit / loss;
+  const pf = profitFactor(profit, loss);
   const wins = rows.filter((t) => t.pnl > 0).length;
   const net = profit - loss;
   return {

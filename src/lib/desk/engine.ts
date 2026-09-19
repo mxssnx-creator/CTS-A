@@ -41,6 +41,27 @@ export const BASE_EQUITY = 10_000;
 /** System-internal default position cost: 0.15% of equity. */
 export const POSITION_COST_PCT = 0.0015;
 export const UNIT_NOTIONAL = BASE_EQUITY * POSITION_COST_PCT;
+/** Gross-profit / gross-loss. No-loss winners cap here (PF is undefined otherwise). */
+export const PF_NO_LOSS = 4;
+export function profitFactor(profit: number, loss: number): number {
+  const gp = Number.isFinite(profit) ? Math.max(0, profit) : 0;
+  const gl = Number.isFinite(loss) ? Math.max(0, loss) : 0;
+  if (gl < 1e-12) return gp > 1e-12 ? PF_NO_LOSS : 0;
+  const pf = gp / gl;
+  return Number.isFinite(pf) ? pf : 0;
+}
+export function pfFromPnls(rows: { pnl: number }[] | undefined | null): number {
+  if (!rows?.length) return 0;
+  let gp = 0;
+  let gl = 0;
+  for (const r of rows) {
+    const p = Number(r.pnl);
+    if (!Number.isFinite(p)) continue;
+    if (p > 0) gp += p;
+    else if (p < 0) gl -= p;
+  }
+  return profitFactor(gp, gl);
+}
 /** Hard floor — volume factor cannot be gated below this. */
 export const MIN_VOLUME_FACTOR = 1.05;
 export const MIN_QUOTE_VOL = 0.006;
@@ -1184,7 +1205,7 @@ export function statsFromTrades(trades: Trade[], equity?: number[]): Stats {
   const profit = wins.reduce((s, t) => s + t.pnl, 0);
   const loss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
   const net = trades.reduce((s, t) => s + t.pnl, 0);
-  const pf = loss === 0 ? (profit > 0 ? 4.5 : 0) : profit / loss;
+  const pf = profitFactor(profit, loss);
   const wr = trades.length ? wins.length / trades.length : 0;
   const avgWin = wins.length ? profit / wins.length : 0;
   const avgLoss = losses.length ? loss / losses.length : 0;
@@ -2727,7 +2748,7 @@ export function posSliceStats(positions: Position[]): SliceStats {
   const profit = wins.reduce((s, p) => s + p.pnl, 0);
   const loss = Math.abs(positions.filter((p) => p.pnl < 0).reduce((s, p) => s + p.pnl, 0));
   const net = positions.reduce((s, p) => s + p.pnl, 0);
-  const pf = loss === 0 ? (profit > 0 ? 3.2 : 0) : profit / loss;
+  const pf = profitFactor(profit, loss);
   const wr = positions.length ? wins.length / positions.length : 0;
   return {
     n: positions.length,

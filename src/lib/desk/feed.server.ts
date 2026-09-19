@@ -10,6 +10,7 @@ import {
   type LiveTicker,
 } from "./feed.ts";
 import type { ExchangeBook, ExchangeOrder, ExchangePosition, Side } from "./types.ts";
+import { profitFactor } from "./engine.ts";
 
 export const HOSTS = {
   mainnet: ["https://open-api.bingx.com", "https://open-api.bingx.pro"],
@@ -970,7 +971,7 @@ export async function fetchLiveExecutions(input: {
   const profit = wins.reduce((s, x) => s + x.income, 0);
   const loss = Math.abs(pnl.filter((x) => x.income < 0).reduce((s, x) => s + x.income, 0));
   const net = profit - loss;
-  const pf = loss === 0 ? (profit > 0 ? 3.2 : 0) : profit / loss;
+  const pf = profitFactor(profit, loss);
   let peak = 0;
   let eq = 0;
   let mdd = 0;
@@ -994,7 +995,7 @@ export async function fetchLiveExecutions(input: {
     .map(([key, v]) => ({
       key,
       n: v.n,
-      pf: v.loss === 0 ? (v.profit > 0 ? 3.2 : 0) : v.profit / v.loss,
+      pf: profitFactor(v.profit, v.loss),
       wr: v.n ? v.wins / v.n : 0,
       net: v.profit - v.loss,
     }))

@@ -170,22 +170,19 @@ function snapshot(e, extra) {
   }
   const overall = overlayExchangeBook(structuredClone(cachedOverall), lastBook, e);
   const last12 = overall.lastN?.["12"] ?? null;
-  const winnerPf = Number(e.completeWinner?.pf);
-  const winnerWr = Number(e.completeWinner?.wr);
-  const tapeReady = e.ledger.trades >= 12 && Number(e.stats.pf) > 0;
-  const rawLive = last12?.n && last12.pf > 0 ? last12.pf : Number.isFinite(winnerPf) && winnerPf > 0 ? winnerPf : e.stats.pf;
-  const rawPf = tapeReady ? e.stats.pf : Number.isFinite(winnerPf) && winnerPf > 0 ? winnerPf : e.stats.pf;
+  const tapeReady = e.ledger.trades >= 4 && Number(e.stats.pf) > 0;
+  const rawLive = last12?.n >= 4 ? last12.pf : e.stats.pf;
+  const rawPf = e.stats.pf;
   const clampPf = (v, n) => {
     const x = Number(v);
     if (!Number.isFinite(x) || x <= 0) return 0;
-    if ((n || 0) < 5 && x > 5) return 5;
-    return Math.min(x, 20);
+    return x;
   };
   const livePf = clampPf(rawLive, last12?.n ?? e.ledger.trades);
-  const pf = clampPf(rawPf, tapeReady ? e.ledger.trades : last12?.n ?? 0);
+  const pf = clampPf(rawPf, e.ledger.trades);
   const net = Number.isFinite(lastBook.pnl) ? lastBook.pnl : e.stats.net;
-  const wr = tapeReady ? e.stats.wr : Number(last12?.wr || winnerWr || e.stats.wr);
-  const tapeThin = !tapeReady;
+  const wr = tapeReady ? e.stats.wr : Number(last12?.wr || e.stats.wr);
+  const tapeThin = e.ledger.trades < 12;
   const positive = Number.isFinite(livePf) && livePf >= 1 && (tapeThin || ((last12?.net ?? net) >= -0.05 && ((last12?.wr ?? wr) >= 0.36 || livePf >= 1.5)));
   return {
     ...extra,

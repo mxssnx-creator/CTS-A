@@ -45,6 +45,9 @@ import {
   snapSlAtr,
   X01_DEFAULTS,
   UNIT_NOTIONAL,
+  profitFactor,
+  pfFromPnls,
+  PF_NO_LOSS,
   processAllIndications,
   STRATEGIES,
   STRATEGY_KINDS,
@@ -252,6 +255,11 @@ describe("VST engine", () => {
     assert.equal(ddtFail, false);
     assert.equal(UNIT_NOTIONAL, 15);
     assert.equal(POSITION_COST_PCT, 0.0015);
+    assert.equal(profitFactor(100, 50), 2);
+    assert.equal(profitFactor(10, 0), PF_NO_LOSS);
+    assert.equal(profitFactor(0, 0), 0);
+    assert.equal(profitFactor(0, 8), 0);
+    assert.equal(pfFromPnls([{ pnl: 2 }, { pnl: -1 }, { pnl: 2 }]), 4);
     const vfFloor = isPositive(
       { pf: 1.5, mdd: 0.05, wr: 0.6, volumeFactor: 1.0, ddt: 10 },
       { ...DEFAULT_THRESHOLDS, minVf: 0.8 },
