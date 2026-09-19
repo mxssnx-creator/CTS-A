@@ -938,12 +938,12 @@ export const INDICATION_CONFIGS: IndicationConfig[] = [
   { id: "trend-ema", kind: "trend", label: "Trend EMA 9/21", params: { adx: 16 } },
   { id: "trend-adx", kind: "trend", label: "Trend ADX 26", params: { adx: 26 } },
   { id: "trend-st", kind: "trend", label: "Trend Supertrend", params: { multiplier: 3 } },
-  { id: "break-vol", kind: "break", label: "Break volume 1.6×", params: { volMult: 1.6 } },
-  { id: "break-atr", kind: "break", label: "Break ATR 1.15×", params: { atrMult: 1.15 } },
+  { id: "break-vol", kind: "break", label: "Break volume 1.6×", params: { volMult: 1.25 } },
+  { id: "break-atr", kind: "break", label: "Break ATR 1.15×", params: { atrMult: 1.05 } },
   { id: "break-hi", kind: "break", label: "Break 8-bar range", params: { lookback: 8 } },
-  { id: "active-hf", kind: "active", label: "Active high-freq", params: { lookback: 4, volMult: 1.15 } },
-  { id: "active-range", kind: "active", label: "Active range shift", params: { lookback: 6, volMult: 1.05 } },
-  { id: "active-burst", kind: "active", label: "Active burst", params: { lookback: 3, volMult: 1.5 } },
+  { id: "active-hf", kind: "active", label: "Active high-freq", params: { lookback: 4, volMult: 1.08 } },
+  { id: "active-range", kind: "active", label: "Active range shift", params: { lookback: 6, volMult: 1.02 } },
+  { id: "active-burst", kind: "active", label: "Active burst", params: { lookback: 3, volMult: 1.25 } },
   { id: "dir-cross", kind: "direction", label: "Dir EMA cross", params: { lookback: 5 } },
   { id: "dir-st", kind: "direction", label: "Dir Supertrend flip", params: { lookback: 6 } },
   { id: "dir-axis", kind: "direction", label: "Dir axis VWAP", params: { lookback: 5 } },
@@ -1386,7 +1386,7 @@ export function processIndication(
     const atrMult = cfg.params.atrMult ?? 1.3;
     const look = Math.max(4, Math.round(cfg.params.lookback ?? 16));
     const volOk = finite(pack.volSma[i]) && c.v > pack.volSma[i]! * volMult;
-    const expand = (pack.rangeChange[i] ?? 0) >= atrMult * 0.7;
+    const expand = (pack.rangeChange[i] ?? 0) >= Math.max(0.5, atrMult * 0.45);
     if (cfg.id === "break-hi" && i >= look) {
       let hi = -Infinity;
       let lo = Infinity;
@@ -1410,7 +1410,7 @@ export function processIndication(
     act /= Math.max(1, i - from + 1);
     const volOk = finite(pack.volSma[i]) && c.v > pack.volSma[i]! * volMult;
     const ranging = (pack.rangeChange[i] ?? 0) > 0.85;
-    if (act >= 1.05 && (volOk || ranging)) {
+    if (act >= 0.92 && (volOk || ranging || act >= 1.15)) {
       dir = c.c >= c.o ? 1 : -1;
       strength = Math.min(1, 0.35 + act * 0.28);
     }

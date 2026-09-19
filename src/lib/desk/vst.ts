@@ -726,6 +726,8 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     relVolumeFactor: 0,
     liveDisabled: {},
     liveHealth: { n: 12, at: 0, disabled: [], kept: [] },
+    indRangeBest: {},
+    indTacticBest: {},
     blockCfg: opts.block ?? DEFAULT_BLOCK_CONFIG,
   };
   if (opts.arm !== false) armUniverse(engine, cfg, "hybrid");
@@ -844,7 +846,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     const ind = classifyIndication(e, s.id);
     const book = openPlaybook(e.lastTactic, ind);
     const kind = kindFromIndication(ind, book, e.lastTactic);
-    const range = rangeType ?? e.lastRange ?? "atr";
+    const range = pickIndicationRange(e, ind, rangeType ?? e.lastRange ?? "atr");
     if (!dual && e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     for (const side of trySides) {
       if (qn >= VST_MAX_QUEUE || pn >= VST_MAX_POSITIONS) break;
@@ -873,9 +875,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       if (dual) {
         if (busyLegs.has(`${s.id}:${side}`)) continue;
       } else if (busy.has(s.id) || busyLegs.has(`${s.id}:${side}`)) continue;
-      const hi = pickRange(q, cfg, rangeType);
-      const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);
-      const tp0 = tpDistFromSl(sl0, cfg.tpRatio);
+      const hi = pickRange(q, cfg, range);
+      const prot = indicationProtect(ind);
+      const sl0 = slDist(q.atr, hi.spacing, (cfg.slAtr ?? SL_ATR_MULT) * prot.slMul);
+      const tp0 = tpDistFromSl(sl0, snapTpRatio((cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul));
       const volMul = Math.min(1.4, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
       if (rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
       const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul;
@@ -885,7 +888,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const px = side === "long" ? q.axis - offset : q.axis + offset;
         if (px <= 0) return;
         const qty = notional / px;
-        const lv = protectLevels(px, side, sl0, tp0, cfg.tpRatio);
+        const lv = protectLevels(px, side, sl0, tp0, snapTpRatio((cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul));
         e.queue.push({
           id: nextId(e, "q"),
           connId,
@@ -904,7 +907,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           slDist: lv.slDist,
           tpDist: lv.tpDist,
           batchId: "",
-          note: `${e.lastTactic} ${hi.rangeType} L${li + 1} · ${connId}`,
+          note: `${e.lastTactic} ${hi.rangeType} ${ind} L${li + 1} · ${connId}`,
+          indication: ind,
+          kind,
+          playbook: book,
         });
         qn += 1;
         countPlaced(e);
@@ -947,7 +953,7 @@ function processBatches(e: VstEngine) {
       const batchId = nextId(e, "b");
       take.forEach((o) => {
         o.status = "open";
-        o.batchId = batchId;
+        o.batchId = o.batchId && o.batchId.includes(":") ? o.batchId : `${connId}:${batchId}`;
         e.orders.push(o);
       });
       e.batches.unshift({
@@ -998,36 +1004,45 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
   const pack = symbolIndications(symbol);
   const q = e.quotes[symbol];
   const rankedPack: [IndicationId, number][] = [
-    ["trend", pack.trend],
-    ["break", pack.break],
-    ["active", pack.active],
-    ["direction", pack.direction],
+    ["trend", Math.abs(pack.trend)],
+    ["break", Math.abs(pack.break)],
+    ["active", Math.abs(pack.active)],
+    ["direction", Math.abs(pack.direction)],
   ];
   rankedPack.sort((a, b) => b[1] - a[1]);
-  if (!q) return Math.abs(rankedPack[0]?.[1] ?? 0) > 1e-9 ? rankedPack[0]![0] : "trend";
+  if (!q) return (rankedPack[0]?.[1] ?? 0) > 1e-9 ? rankedPack[0]![0] : "trend";
   const atr = Math.max(q.atr, q.px * 0.0008, 1e-9);
   const span = (q.hi - q.lo) / atr;
   const axisDist = Math.abs(q.px - q.axis) / atr;
   const chg = Number.isFinite(q.chg) ? q.chg : 0;
   const aligned = Math.sign(chg || 0) === Math.sign(q.px - q.axis || 0) || Math.abs(chg) < 1e-6;
   const scores: Record<IndicationId, number> = {
-    trend: pack.trend * 2.2 + Math.abs(chg) * 40 + (aligned ? 0.35 : 0),
-    break: pack.break * 2.2 + Math.max(0, span - 1.35) * 1.6 + Math.max(0, axisDist - 2.2) * 0.25,
-    active: pack.active * 2.2 + Math.min(1.4, q.vol * 10) + span * 0.06,
-    direction: pack.direction * 0.55 + (!aligned ? Math.abs(chg) * 8 : Math.abs(chg) * 1),
+    trend: Math.abs(pack.trend) * 1.35 + (aligned ? Math.abs(chg) * 10 : Math.abs(chg) * 3),
+    break: Math.abs(pack.break) * 2.1 + Math.max(0, span - 1.05) * 2.4 + Math.max(0, axisDist - 1.6) * 0.35,
+    active: Math.abs(pack.active) * 2.0 + Math.min(1.8, q.vol * 14) + (span < 1.25 ? 0.45 : 0),
+    direction: Math.abs(pack.direction) * 2.4 + (!aligned ? Math.abs(chg) * 24 : Math.abs(chg) * 4),
   };
+  const lead = rankedPack[0];
+  if (lead && lead[1] >= 0.08) scores[lead[0]] += 1.05;
+  let h = 2166136261;
+  for (let i = 0; i < symbol.length; i++) h = Math.imul(h ^ symbol.charCodeAt(i), 16777619);
+  const slot = Math.abs(h) % 4;
+  if (slot === 1) scores.break += 0.95;
+  if (slot === 2) scores.active += 0.95;
+  if (slot === 3) scores.direction += 1.35;
   const ranked = (Object.entries(scores) as [IndicationId, number][]).sort((a, b) => b[1] - a[1]);
-  return ranked[0]?.[0] ?? rankedPack[0]?.[0] ?? "trend";
+  return ranked[0]?.[0] ?? lead?.[0] ?? "trend";
 }
-function openPlaybook(tactic: TacticKind, indication: IndicationId): string {
+
+export function openPlaybook(tactic: TacticKind, indication: IndicationId): string {
   if (tactic === "dca") return "dca";
   if (tactic === "axis") return "axis";
-  if (indication === "active" && tactic === "hybrid") return "normal";
-  if (indication === "break") return "axis";
+  if (indication === "break") return "normal";
+  if (indication === "active") return "normal";
   if (indication === "direction") return "normal";
-  if (indication === "active") return "block";
   return "normal";
 }
+
 export function kindFromIndication(id: IndicationId, playbook: string, tactic: TacticKind): StrategyKind {
   if (playbook === "block") return "block";
   if (id === "trend") return "trend";
@@ -1038,6 +1053,27 @@ export function kindFromIndication(id: IndicationId, playbook: string, tactic: T
   if (tactic === "axis") return "mean";
   if (tactic === "dca") return "volume";
   return "normal";
+}
+
+const IND_RANGE_PREF: Record<IndicationId, RangeType[]> = {
+  trend: ["atr", "fibonacci", "volume"],
+  break: ["volume", "atr", "fibonacci"],
+  active: ["fibonacci", "volume", "geometric"],
+  direction: ["atr", "fibonacci", "linear"],
+};
+
+export function indicationProtect(id: IndicationId): { slMul: number; tpMul: number; holdMul: number } {
+  if (id === "break") return { slMul: 1.12, tpMul: 1.0, holdMul: 1.15 };
+  if (id === "active") return { slMul: 0.92, tpMul: 1.0, holdMul: 0.85 };
+  if (id === "direction") return { slMul: 1.06, tpMul: 1.0, holdMul: 1.0 };
+  return { slMul: 1, tpMul: 1, holdMul: 1 };
+}
+
+export function pickIndicationRange(e: VstEngine, id: IndicationId, fallback?: RangeType): RangeType {
+  const best = e.indRangeBest?.[id];
+  if (best && RANGE_TYPES.includes(best)) return best;
+  if (fallback && RANGE_TYPES.includes(fallback)) return fallback;
+  return IND_RANGE_PREF[id][0] ?? "atr";
 }
 export function playbookOf(e: VstEngine, o: LiveOrder): string {
   if (/Block/i.test(o.note || "")) return "block";
@@ -1089,9 +1125,9 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       status: "partial",
       openedTick: e.tick,
       tactic: e.lastTactic,
-      indication: classifyIndication(e, o.symbol),
-      kind: kindFromIndication(classifyIndication(e, o.symbol), playbookOf(e, o), e.lastTactic),
-      playbook: playbookOf(e, o),
+      indication: o.indication ?? classifyIndication(e, o.symbol),
+      kind: o.kind ?? kindFromIndication(o.indication ?? classifyIndication(e, o.symbol), playbookOf(e, o), e.lastTactic),
+      playbook: o.playbook ?? playbookOf(e, o),
       blockLevel: /^Block/i.test(o.note || "") ? Math.max(1, o.level || 1) : undefined,
     };
     e.positions.push(pos);
@@ -1444,7 +1480,8 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       continue;
     }
     const holdTicks = e.tick - p.openedTick;
-    const maxHold = Math.max(4, Math.round(cfg.maxHoldTicks ?? DEFAULT_MAX_HOLD_TICKS));
+    const holdMul = indicationProtect(p.indication ?? "trend").holdMul;
+    const maxHold = Math.max(4, Math.round((cfg.maxHoldTicks ?? DEFAULT_MAX_HOLD_TICKS) * holdMul));
     const timed = holdTicks >= maxHold && !partial;
     if (timed && !hitSl && !hitTp) {
       if (p.unrealized <= 0) {
@@ -1883,12 +1920,11 @@ export function symbolTapePf(e: VstEngine, symbol: string) {
   return gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl;
 }
 
-/** Skip new entries on losing last-N windows, PF<1 symbols, or direction indication. */
+/** Skip new entries on losing last-N windows or PF<1 symbols. Direction is a live indication, not a skip. */
 export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
   if (symbolBlockPaused(e, symbol, evalN)) return true;
   if (symbolTapePf(e, symbol) + 1e-9 < 1) return true;
   if (e.liveDisabled?.[`sym:${symbol}`]) return true;
-  if (classifyIndication(e, symbol) === "direction") return true;
   return false;
 }
 
@@ -1954,8 +1990,51 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
   e.relVolumeFactor = block.relAdditive === false ? 0 : used.length ? vr : 0;
   e.lastRelEvalTick = e.tick;
   pruneBlockRelWindows(e);
+  refreshIndicationSets(e, block);
   refreshLiveDisable(e, block);
   return { picks: used, winners: used.length, factor: e.relVolumeFactor || 0, at: e.tick, candidates: uniq.length };
+}
+
+function refreshIndicationSets(e: VstEngine, block: BlockConfig) {
+  const minPf = Math.min(block.liveDisableMinPf ?? 1.1, 1.1);
+  const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, 40);
+  const byIndRange = new Map<string, { pnl: number }[]>();
+  const byIndTac = new Map<string, { pnl: number }[]>();
+  for (const c of take) {
+    const ind = c.indication ?? "trend";
+    const rng = c.rangeType ?? e.lastRange ?? "atr";
+    const tac = c.tactic ?? e.lastTactic;
+    const rk = `${ind}:${rng}`;
+    const tk = `${ind}:${tac}`;
+    (byIndRange.get(rk) ?? (byIndRange.set(rk, []), byIndRange.get(rk)!)).push({ pnl: c.pnl });
+    (byIndTac.get(tk) ?? (byIndTac.set(tk, []), byIndTac.get(tk)!)).push({ pnl: c.pnl });
+  }
+  const ranges: Partial<Record<IndicationId, RangeType>> = {};
+  const tacs: Partial<Record<IndicationId, TacticKind>> = {};
+  for (const id of ["trend", "break", "active", "direction"] as const) {
+    let bestR: { k: RangeType; pf: number; n: number } | null = null;
+    let bestT: { k: TacticKind; pf: number; n: number } | null = null;
+    for (const [key, rows] of byIndRange) {
+      if (!key.startsWith(`${id}:`) || rows.length < 3) continue;
+      const sc = pfRows(rows);
+      const rng = key.slice(id.length + 1) as RangeType;
+      if (!RANGE_TYPES.includes(rng)) continue;
+      if (sc.pf + 1e-9 < minPf) continue;
+      if (!bestR || sc.pf > bestR.pf) bestR = { k: rng, pf: sc.pf, n: sc.n };
+    }
+    for (const [key, rows] of byIndTac) {
+      if (!key.startsWith(`${id}:`) || rows.length < 3) continue;
+      const sc = pfRows(rows);
+      const tac = key.slice(id.length + 1) as TacticKind;
+      if (sc.pf + 1e-9 < minPf) continue;
+      if (!bestT || sc.pf > bestT.pf) bestT = { k: tac, pf: sc.pf, n: sc.n };
+    }
+    if (bestR) ranges[id] = bestR.k;
+    else ranges[id] = IND_RANGE_PREF[id][0];
+    if (bestT) tacs[id] = bestT.k;
+  }
+  e.indRangeBest = ranges;
+  e.indTacticBest = tacs;
 }
 
 function pfRows(rows: { pnl: number }[]) {

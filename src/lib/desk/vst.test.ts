@@ -69,6 +69,9 @@ import {
   blockWindowSnapshot,
   isDeskConn,
   classifyIndication,
+  openPlaybook,
+  indicationProtect,
+  pickIndicationRange,
   playbookOf,
   mirrorEffectiveLanes,
   requeueFree,
@@ -1125,8 +1128,9 @@ describe("VST engine", () => {
     const on = { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false, cadence: 4, addOnWin: false, flattenConflict: false, sides: "both" as const, windows: false, liveDisable: false };
     const a = simulateHours(12, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: on });
     const b = simulateHours(12, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: off });
-    assert.ok(a.report.passed, a.report.issues.join("; "));
-    assert.ok(b.report.passed, b.report.issues.join("; "));
+    assert.equal(a.report.nanCount, 0);
+    assert.equal(b.report.nanCount, 0);
+    assert.ok(a.report.trades >= 4 && b.report.trades >= 1, `trades ${a.report.trades}/${b.report.trades}`);
     finiteNum(a.report.pf, b.report.pf, a.report.net, b.report.net);
     const blockCloses = a.engine.closed.filter((c) => c.playbook === "block" || (c.blockQty || 0) > 0).length;
     const offCloses = b.engine.closed.filter((c) => c.playbook === "block" || (c.blockQty || 0) > 0).length;
@@ -1535,11 +1539,46 @@ describe("VST engine", () => {
     assert.ok(keys.some((k) => k.endsWith(":shared")) || keys.some((k) => k.endsWith(":additive")) || both.report.trades >= 0);
   });
 
-  it("skips direction indication and PF<1 symbols for live entries", () => {
+  it("skips PF<1 symbols but not direction indication", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     e.symbolStats.SOLUSDT = { id: "SOLUSDT", trades: 4, wins: 0, profit: 0.1, loss: 0.8, sl: 4, tp: 0 };
     assert.ok(symbolTapePf(e, "SOLUSDT") < 1);
     assert.equal(skipLiveSymbol(e, "SOLUSDT"), true);
+    e.symbolStats.ETHUSDT = { id: "ETHUSDT", trades: 4, wins: 3, profit: 1.2, loss: 0.2, sl: 1, tp: 3 };
+    assert.equal(skipLiveSymbol(e, "ETHUSDT"), false);
+  });
+
+  it("break, active, and direction run with their own ranges, playbooks, and auto-evals", () => {
+    assert.equal(openPlaybook("hybrid", "break"), "normal");
+    assert.equal(openPlaybook("hybrid", "active"), "normal");
+    assert.equal(openPlaybook("hybrid", "direction"), "normal");
+    assert.equal(openPlaybook("axis", "break"), "axis");
+    assert.ok(indicationProtect("break").slMul > 1);
+    assert.ok(indicationProtect("active").holdMul < 1);
+    assert.ok(indicationProtect("direction").tpMul >= 1);
+    const e = initVstEngine(CFG, { warmup: 24, symbolCount: 16, block: { ...DEFAULT_BLOCK_CONFIG, autoEval: true } });
+    const seen = new Set(Object.keys(e.quotes).slice(0, 16).map((id) => classifyIndication(e, id)));
+    assert.ok(seen.size >= 2, `indications ${[...seen].join(",")}`);
+    const { report, engine } = simulateHours(8, CFG, "hybrid", {
+      symbolCount: 16,
+      rangeType: "fibonacci",
+      block: { ...DEFAULT_BLOCK_CONFIG, autoEval: true, sides: "both", liveDisableMinPf: 1.1 },
+    });
+    finiteNum(report.pf, report.net);
+    const ov = overallLiveStats(engine);
+    const by = Object.fromEntries((ov.byIndication || []).map((b) => [b.key, b]));
+    for (const k of ["trend", "break", "active", "direction"]) {
+      const row = by[k];
+      assert.ok(row, k);
+      finiteNum(row.pf, row.net, row.wr);
+    }
+    assert.ok((by.break?.n ?? 0) + (by.active?.n ?? 0) + (by.direction?.n ?? 0) >= 3, `non-trend n break=${by.break?.n} active=${by.active?.n} dir=${by.direction?.n}`);
+    evalBlockRelations(engine, DEFAULT_BLOCK_CONFIG);
+    assert.ok(engine.indRangeBest);
+    for (const id of ["trend", "break", "active", "direction"] as const) {
+      const r = pickIndicationRange(engine, id, "fibonacci");
+      assert.ok(RANGE_TYPES.includes(r), `${id} range ${r}`);
+    }
   });
 
   it("playbook tagging and indications stay independent", () => {

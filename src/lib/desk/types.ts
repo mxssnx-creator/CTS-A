@@ -553,6 +553,9 @@ export interface LiveOrder {
   tpDist: number;
   batchId: string;
   note: string;
+  indication?: IndicationId;
+  kind?: StrategyKind;
+  playbook?: string;
 }
 
 export interface LivePosition {
@@ -899,6 +902,8 @@ export interface VstEngine {
   relVolumeFactor?: number;
   liveDisabled?: Record<string, { pf: number; n: number; at: number }>;
   liveHealth?: { n: number; at: number; disabled: string[]; kept: string[] };
+  indRangeBest?: Partial<Record<IndicationId, RangeType>>;
+  indTacticBest?: Partial<Record<IndicationId, TacticKind>>;
   blockCfg?: BlockConfig;
 }
 
