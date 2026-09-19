@@ -12,6 +12,7 @@ import {
   snapSlAtr,
   snapTpAtr,
   snapSlOfTp,
+  snapTrailPct,
   slAtrOf,
   tpRatioOf,
   STAGE_HOURS,
@@ -177,12 +178,12 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     },
     tacticConfig: (() => {
       const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;
-      const slOfTp = snapSlOfTp(asNum(cfg.slOfTp, hasPair ? 0.75 : 1 / Math.max(0.5, asNum(cfg.tpRatio, d.tacticConfig.tpRatio))));
+      const slOfTp = snapSlOfTp(asNum(cfg.slOfTp, hasPair ? 1 : 1 / Math.max(0.5, asNum(cfg.tpRatio, d.tacticConfig.tpRatio))));
       const tpAtr = snapTpAtr(
-        asNum(cfg.tpAtr, hasPair ? 0.8 : asNum(cfg.slAtr, d.tacticConfig.slAtr) / Math.max(0.5, slOfTp)),
+        asNum(cfg.tpAtr, hasPair ? 1 : asNum(cfg.slAtr, d.tacticConfig.slAtr) / Math.max(0.5, slOfTp)),
       );
       return {
-      trailingPct: Number([0.8, 1.4].reduce((b, t) => (Math.abs(t - asNum(cfg.trailingPct, 1.4)) < Math.abs(b - asNum(cfg.trailingPct, 1.4)) ? t : b), 1.4)),
+      trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.4)),
       dcaCount: 1,
       dcaDrawdown: Math.max(0.3, asNum(cfg.dcaDrawdown, d.tacticConfig.dcaDrawdown)),
       axisSpacing: Math.max(0.2, asNum(cfg.axisSpacing, d.tacticConfig.axisSpacing)),

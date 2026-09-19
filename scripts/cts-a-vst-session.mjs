@@ -105,7 +105,7 @@ const BLOCK = {
   liveDisableMinSamples: 8,
 };
 
-const LIVE_CFG = { trailingPct: 1.4, tpRatio: tpRatioOf(0.75), dcaCount: 1, slAtr: slAtrOf(1.0, 0.75), tpAtr: 1.0, slOfTp: 0.75, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
+const LIVE_CFG = { trailingPct: 1.4, tpRatio: tpRatioOf(1), dcaCount: 1, slAtr: slAtrOf(1.0, 1), tpAtr: 1.0, slOfTp: 1, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
 const GRID = LIVE_TACTICS.flatMap((tactic) =>
   RANGE_TYPES.map((range) => ({
     tactic,
@@ -118,15 +118,15 @@ const PROTECT_FILE = process.env.CTS_A_PROTECT ?? "/var/lib/cts-a/protect-grid.j
 function loadProtectCells() {
   const allowedTrail = new Set(TRAIL_PCTS);
   const floor = allProtectCells().filter((c) =>
-    Number(c.tpAtr) >= 0.7 && Number(c.slOfTp) >= 0.75 && Number(c.slOfTp) <= 1.25 && allowedTrail.has(Number(c.trailPct)),
+    Number(c.tpAtr) >= 0.8 && Number(c.slOfTp) >= 1 && Number(c.slOfTp) <= 1.25 && allowedTrail.has(Number(c.trailPct)),
   );
   try {
     const raw = JSON.parse(readFileSync(PROTECT_FILE, "utf8"));
     const cells = Array.isArray(raw?.cells) ? raw.cells : Array.isArray(raw) ? raw : [];
     const minPf = IS_X01 ? X01_DEFAULTS.minPf : 1.2;
     const ok = cells.filter((c) =>
-      Number(c.tpAtr) >= 0.7 &&
-      Number(c.slOfTp) >= 0.75 &&
+      Number(c.tpAtr) >= 0.8 &&
+      Number(c.slOfTp) >= 1 &&
       Number(c.slOfTp) <= 1.25 &&
       Number(c.trailPct) >= 0.8 &&
       allowedTrail.has(Number(c.trailPct)) &&

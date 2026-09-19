@@ -47,21 +47,21 @@ import {
 } from "./engine.ts";
 
 const DEFAULT_CFG: TacticConfig = {
-  trailingPct: 0.8,
+  trailingPct: 1.4,
   dcaCount: 1,
   dcaDrawdown: 0.8,
   axisSpacing: 0.7,
   axisLevels: 5,
-  slAtr: 0.75,
-  tpRatio: 1.333,
+  slAtr: 1,
+  tpRatio: 1,
   tpAtr: 1.0,
-  slOfTp: 0.75,
+  slOfTp: 1,
   maxHoldBars: 3,
   maxHoldTicks: 16,
 };
 
-export const TP_SL_RATIO = 1.333;
-export const SL_ATR_MULT = 0.75;
+export const TP_SL_RATIO = 1;
+export const SL_ATR_MULT = 1;
 export const VST_MAX_SYMBOLS = 50;
 export const VST_MAX_POSITIONS = 100;
 export const VST_BATCH_SIZE = 20;

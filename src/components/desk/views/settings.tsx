@@ -806,26 +806,26 @@ export function SettingsView() {
         <Panel title="Tactic knobs">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <RangeKnob
-              label="Trailing"
+              label="Trailing (peak giveback)"
               value={cfg.trailingPct}
-              min={0.8}
-              max={1.4}
-              step={0.6}
+              min={1.4}
+              max={1.5}
+              step={0.1}
               format={(n) => `${n.toFixed(1)}%`}
               onChange={(n) => setCfg({ trailingPct: n })}
               onCommit={applyLive}
               ariaLabel="Trailing percent"
             />
             <RangeKnob
-              label={`TP ATR · SL ${((cfg.slOfTp ?? 0.75) * 100).toFixed(0)}% of TP`}
-              value={cfg.tpAtr ?? 0.8}
+              label={`TP ATR · SL ${((cfg.slOfTp ?? 1) * 100).toFixed(0)}% of TP`}
+              value={cfg.tpAtr ?? 1}
               min={TP_ATR_MIN}
               max={TP_ATR_MAX}
               step={0.1}
               format={(n) => n.toFixed(1)}
               onChange={(n) => {
                 const tpAtr = snapTpAtr(n);
-                const slOfTp = snapSlOfTp(cfg.slOfTp ?? 0.75);
+                const slOfTp = snapSlOfTp(cfg.slOfTp ?? 1);
                 setCfg({ tpAtr, slOfTp, slAtr: slAtrOf(tpAtr, slOfTp), tpRatio: tpRatioOf(slOfTp) });
               }}
               onCommit={applyLive}
@@ -835,14 +835,14 @@ export function SettingsView() {
               <span className="text-xs font-medium text-muted">SL as ratio of TP</span>
               <div className="flex flex-wrap gap-1">
                 {SL_OF_TP.map((r) => {
-                  const on = snapSlOfTp(cfg.slOfTp ?? 0.75) === r;
+                  const on = snapSlOfTp(cfg.slOfTp ?? 1) === r;
                   return (
                     <button
                       key={r}
                       type="button"
                       aria-pressed={on}
                       onClick={() => {
-                        const tpAtr = snapTpAtr(cfg.tpAtr ?? 0.8);
+                        const tpAtr = snapTpAtr(cfg.tpAtr ?? 1);
                         setCfg({ slOfTp: r, tpAtr, slAtr: slAtrOf(tpAtr, r), tpRatio: tpRatioOf(r) });
                         applyLive();
                       }}
@@ -854,7 +854,7 @@ export function SettingsView() {
                 })}
               </div>
               <span className="text-[11px] text-subtle">
-                SL {cfg.slAtr.toFixed(2)} ATR · R {cfg.tpRatio.toFixed(3)} · 10 TP × 3 SL (low ranges off)
+                SL {cfg.slAtr.toFixed(2)} ATR · R {cfg.tpRatio.toFixed(3)} · TP≥0.8 · SL≥1.0×TP · trail 1.4–1.5
               </span>
             </div>
             <RangeKnob
@@ -902,8 +902,8 @@ export function SettingsView() {
             <RangeKnob
               label={`Stop ATR · R ${cfg.tpRatio.toFixed(3)}`}
               value={cfg.slAtr}
-              min={0.15}
-              max={2.8}
+              min={0.8}
+              max={2}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setCfg({ slAtr: n })}
@@ -934,8 +934,8 @@ export function SettingsView() {
             />
           </div>
           <p className="mt-3 text-xs text-muted">
-            Take-profit / stop-loss ratios 0.25–3.00 step 0.25 are all processed. Live uses the selected
-            ratio (default 2.75R). Short-range holds default 3 bars / 16 ticks. Trailing, DCA and axis combine in Hybrid.
+            Take-profit ATR 0.8–1.6. SL is 1.00× or 1.25× TP (no sub-1 SL). Trail 1.4–1.5% follows the
+            peak, not the last tick. Short-range holds default 3 bars / 16 ticks.
           </p>
         </Panel>
       </div>

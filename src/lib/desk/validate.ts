@@ -47,7 +47,7 @@ export const DAYS_HOURS = 72;
 export const VALIDATE_MARKS = [...HIST_HOURS, DAYS_HOURS];
 
 const VALIDATE_TACTICS: TacticKind[] = ["trailing", "axis", "hybrid"];
-const VALIDATE_SL = SL_ATR_RATIOS.filter((n) => [0.7, 0.75, 0.9, 1.0, 1.1, 1.25, 1.4].includes(n));
+const VALIDATE_SL = SL_ATR_RATIOS.filter((n) => [0.8, 0.9, 1.0, 1.25, 1.4, 1.6].includes(n));
 const SWEEP_SYMBOLS = 8;
 const SWEEP_ORDER: "limit" = "limit";
 

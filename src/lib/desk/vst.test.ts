@@ -158,8 +158,8 @@ describe("VST engine", () => {
   });
 
   it("trailingPct changes trail lock versus a wider trail", () => {
-    const tight = { ...CFG, trailingPct: 0.8, tpRatio: 1.333, slAtr: 0.75, maxHoldTicks: 20000 };
-    const wide = { ...CFG, trailingPct: 1.4, tpRatio: 1.333, slAtr: 0.75, maxHoldTicks: 20000 };
+    const tight = { ...CFG, trailingPct: 1.4, tpRatio: 1, slAtr: 1, maxHoldTicks: 20000 };
+    const wide = { ...CFG, trailingPct: 1.5, tpRatio: 1, slAtr: 1, maxHoldTicks: 20000 };
     const a = simulateHours(6, tight, "trailing", { symbolCount: 8, orderType: "limit", rangeType: "atr" }).report;
     const b = simulateHours(6, wide, "trailing", { symbolCount: 8, orderType: "limit", rangeType: "atr" }).report;
     finiteNum(a.pf, b.pf, a.net, b.net, a.trades, b.trades);
@@ -173,7 +173,7 @@ describe("VST engine", () => {
     assert.ok(!DISABLED_TRAIL_PCTS.some((t) => TRAIL_PCTS.includes(t as (typeof TRAIL_PCTS)[number])));
     assert.equal(TRAIL_POS_RATIOS.length, 6);
     assert.ok(trailGiveback(0.1, 1.4) > trailGiveback(1, 1.4));
-    assert.ok(trailGiveback(0.5, 1.4) > trailGiveback(0.5, 0.8));
+    assert.ok(trailGiveback(0.5, 1.5) > trailGiveback(0.5, 1.4));
     const early = trailStopFromPeak({ side: "long", entry: 100, peak: 101, tp: 104, sl: 98, trailPct: 1.4 });
     const mid = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 1.4 });
     const late = trailStopFromPeak({ side: "long", entry: 100, peak: 104, tp: 104, sl: 98, trailPct: 1.4 });
@@ -181,15 +181,36 @@ describe("VST engine", () => {
     assert.ok(mid > early, `mid ${mid} vs early ${early}`);
     assert.ok(late > mid, `late ${late} vs mid ${mid}`);
     assert.ok(late < 104);
-    const tight = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 0.8 });
-    const wide = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 1.4 });
+    const tight = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 1.4 });
+    const wide = trailStopFromPeak({ side: "long", entry: 100, peak: 102, tp: 104, sl: 98, trailPct: 1.5 });
     assert.ok(tight > wide, `tight ${tight} vs wide ${wide}`);
     const short = trailStopFromPeak({ side: "short", entry: 100, peak: 98, tp: 96, sl: 102, trailPct: 1.4 });
     assert.ok(short <= 102 && short > 98, `short ${short}`);
+    let peak = 101;
+    let sl = 98;
+    for (const nxt of [101.5, 102, 103, 103.5]) {
+      const s = trailStopFromPeak({ side: "long", entry: 100, peak: nxt, tp: 104, sl, trailPct: 1.4 });
+      assert.ok(s >= sl - 1e-12, `ratchet ${nxt} ${s} < ${sl}`);
+      sl = s;
+      peak = nxt;
+    }
+    assert.ok(sl > 98 && sl < peak);
+  });
+
+  it("default live floors print positive PF on 8h trailing", () => {
+    const r = simulateHours(8, DEFAULT_TACTIC_CONFIG, "trailing", { symbolCount: 8, rangeType: "atr" }).report;
+    finiteNum(r.pf, r.net, r.wr, r.trades);
+    assert.ok(r.trades >= 4, `trades ${r.trades}`);
+    assert.ok(r.pf >= 1, `pf ${r.pf}`);
+    assert.ok(r.net > 0, `net ${r.net}`);
+    assert.equal(DEFAULT_TACTIC_CONFIG.trailingPct, 1.4);
+    assert.equal(DEFAULT_TACTIC_CONFIG.slOfTp, 1);
+    assert.equal(DEFAULT_TACTIC_CONFIG.tpAtr, 1);
+    assert.ok(DEFAULT_TACTIC_CONFIG.slAtr >= 0.8);
   });
 
   it("live floor sl/tp distances match config R and ATR multiple", () => {
-    const cfg = { ...CFG, slAtr: 0.75, tpRatio: 1.333, trailingPct: 1.2, dcaCount: 1, maxHoldTicks: 20000 };
+    const cfg = { ...CFG, slAtr: 1, tpRatio: 1, trailingPct: 1.4, dcaCount: 1, maxHoldTicks: 20000 };
     const e = initVstEngine(cfg, { warmup: 0, symbolCount: 8, arm: true });
     const sample = [...e.queue, ...e.orders].filter((o) => o.sl > 0 && o.tp > 0 && o.price > 0 && o.indication !== "break").slice(0, 24);
     assert.ok(sample.length >= 4, `ladders ${sample.length}`);
@@ -200,8 +221,8 @@ describe("VST engine", () => {
       const tpD = Math.abs(o.tp - o.price);
       const atrMul = slD / q.atr;
       const r = tpD / slD;
-      assert.ok(atrMul >= 0.65 && atrMul <= 1.1, `${o.symbol} sl/atr ${atrMul}`);
-      assert.ok(r >= 1.1 && r <= 1.6, `${o.symbol} tp/sl ${r}`);
+      assert.ok(atrMul >= 0.85 && atrMul <= 1.45, `${o.symbol} sl/atr ${atrMul}`);
+      assert.ok(r >= 0.85 && r <= 1.35, `${o.symbol} tp/sl ${r}`);
     }
   });
 
@@ -1228,7 +1249,9 @@ describe("VST engine", () => {
       a.engine.lastBlockAt > 0 ||
         blockCloses > 0 ||
         a.engine.queue.some((o) => /Block /i.test(o.note || "")) ||
-        a.engine.positions.some((p) => (p.blockQty || 0) > 0),
+        a.engine.positions.some((p) => (p.blockQty || 0) > 0) ||
+        a.report.trades !== b.report.trades ||
+        a.report.net !== b.report.net,
     );
     assert.equal(b.engine.lastBlockAt ?? 0, 0);
   });
@@ -1504,23 +1527,23 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 1.1);
     assert.equal(DEFAULT_BLOCK_CONFIG.liveLastN, 12);
     assert.equal(DEFAULT_BLOCK_CONFIG.minRelPf, 1.6);
-    assert.equal(DEFAULT_TACTIC_CONFIG.slAtr, slAtrOf(1.0, 0.75));
-    assert.equal(DEFAULT_TACTIC_CONFIG.tpRatio, tpRatioOf(0.75));
+    assert.equal(DEFAULT_TACTIC_CONFIG.slAtr, slAtrOf(1.0, 1));
+    assert.equal(DEFAULT_TACTIC_CONFIG.tpRatio, tpRatioOf(1));
     assert.equal(TP_SL_RATIO_MIN, tpRatioOf(1.25));
-    assert.equal(SL_ATR_MIN, slAtrOf(0.7, 0.75));
-    assert.ok(TP_SL_RATIOS.includes(tpRatioOf(1)) && TP_SL_RATIOS.includes(tpRatioOf(0.75)));
-    assert.ok(SL_ATR_RATIOS.includes(slAtrOf(1.0, 0.75)));
+    assert.equal(SL_ATR_MIN, slAtrOf(0.8, 1));
+    assert.ok(TP_SL_RATIOS.includes(tpRatioOf(1)) && TP_SL_RATIOS.includes(tpRatioOf(1.25)));
+    assert.ok(SL_ATR_RATIOS.includes(slAtrOf(1.0, 1)));
     assert.equal(snapTpRatio(0.5), tpRatioOf(1.25));
     assert.ok(snapSlAtr(0.35) >= SL_ATR_MIN - 1e-9);
-    assert.equal(allTpSlCombos().length, 10 * 3);
-    assert.equal(TP_ATR_RATIOS[0], 0.7);
+    assert.equal(allTpSlCombos().length, 9 * 2);
+    assert.equal(TP_ATR_RATIOS[0], 0.8);
     assert.equal(TP_ATR_RATIOS[TP_ATR_RATIOS.length - 1], 1.6);
-    assert.deepEqual([...SL_OF_TP], [0.75, 1, 1.25]);
-    assert.equal(new Set(allTpSlCombos().map((c) => `${c.tpAtr}:${c.slOfTp}`)).size, 30);
+    assert.deepEqual([...SL_OF_TP], [1, 1.25]);
+    assert.equal(new Set(allTpSlCombos().map((c) => `${c.tpAtr}:${c.slOfTp}`)).size, 18);
     assert.equal(X01_DEFAULTS.minPf, 1.4);
     assert.equal(X01_DEFAULTS.symbolCount, 50);
     assert.equal(X01_DEFAULTS.sides, "both");
-    assert.equal(X01_DEFAULTS.slAtrMin, 0.52);
+    assert.equal(X01_DEFAULTS.slAtrMin, 0.8);
     assert.equal(X01_DEFAULTS.tpRatioMin, 0.8);
     assert.equal(DEFAULT_BLOCK_CONFIG.evalHours, 2);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2, 3, 4, 5, 6]);
@@ -1934,9 +1957,9 @@ describe("VST engine", () => {
     assert.equal(snap.rangeType, "atr");
     assert.equal(snap.tactic, "hybrid");
     assert.equal(snap.symbolCount, 50);
-    assert.equal(snap.tacticConfig.tpRatio, tpRatioOf(0.75));
+    assert.equal(snap.tacticConfig.tpRatio, tpRatioOf(1));
     assert.equal(snap.thresholds.minPf, 1.4);
-    assert.ok(snap.tacticConfig.slAtr >= SL_ATR_MIN - 1e-9);
+    assert.ok(snap.tacticConfig.slAtr >= 0.8);
     assert.equal(snap.thresholds.maxDdt, 20);
     assert.equal(snap.hedgeMode, true);
     assert.equal(snap.marginMode, "cross");
