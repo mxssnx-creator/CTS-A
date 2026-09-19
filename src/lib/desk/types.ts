@@ -536,6 +536,10 @@ export interface VstQuote {
   vol: number;
   axis: number;
   chg: number;
+  vol1h?: number;
+  hi1h?: number;
+  lo1h?: number;
+  vol1hAt?: number;
 }
 
 export interface LiveOrder {

@@ -120,6 +120,8 @@ import {
   VST_SYMBOLS,
   bookCounts,
   universeSymbols,
+  rankUniverse,
+  vol1hOf,
 } from "./vst.ts";
 import { applyLiveTape, LIVE_IDS } from "./feed.ts";
 
@@ -155,6 +157,21 @@ describe("VST engine", () => {
     assert.equal(e.sim, null);
     assert.equal(e.symbolCount, 50);
     assert.ok(e.queue.length + e.orders.length >= 1);
+  });
+
+  it("ranks and orders symbols by most volatile 1h first", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 12, arm: false });
+    const ids = universeSymbols(12).map((s) => s.id);
+    for (const q of Object.values(e.quotes)) q.vol1h = 0.001;
+    e.quotes[ids[0]]!.vol1h = 0.01;
+    e.quotes[ids[1]]!.vol1h = 0.09;
+    e.quotes[ids[2]]!.vol1h = 0.03;
+    e.quotes[ids[3]]!.vol1h = 0.06;
+    const rank = rankUniverse(e).map((s) => s.id);
+    assert.equal(rank[0], ids[1]);
+    assert.ok(rank.indexOf(ids[3]) < rank.indexOf(ids[2]));
+    assert.ok(rank.indexOf(ids[2]) < rank.indexOf(ids[0]));
+    assert.ok(vol1hOf(e.quotes[ids[1]]) > vol1hOf(e.quotes[ids[0]]));
   });
 
   it("trailingPct changes trail lock versus a wider trail", () => {

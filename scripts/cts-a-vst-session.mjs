@@ -4,7 +4,7 @@
  * Keys from env — never printed.
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, snapPx } from "../src/lib/desk/feed.server.ts";
+import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, snapPx, fetchVol1h } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, allProtectCells, slAtrOf, tpRatioOf, trailStopFromPeak } from "../src/lib/desk/engine.ts";
 import {
@@ -22,6 +22,8 @@ import {
   VST_TICK_MS,
   clampSymbolCount,
   universeSymbols,
+  rankUniverse,
+  vol1hOf,
   adjustActiveBlocks,
   overallLiveStats,
   overlayExchangeBook,
@@ -151,7 +153,27 @@ function protectFor(symbol) {
 
 function applyTape(e, tickers) {
   applyLiveTape(e, tickers);
+  const ranked = rankUniverse(e);
+  const top = ranked[0];
+  const v = top ? vol1hOf(e.quotes[top.id]) : 0;
+  if (top && v > 0) e.lastMsg = `Live BingX tape · vol1h ${top.id} ${(v * 100).toFixed(2)}% first`;
   return tickers.filter((t) => t.last > 0 && e.quotes[t.id]).map((t) => t.id);
+}
+
+let lastVolAt = 0;
+async function refreshVol1h(e, network) {
+  if (Date.now() - lastVolAt < 180000) return 0;
+  lastVolAt = Date.now();
+  const map = await fetchVol1h(network);
+  let n = 0;
+  for (const [id, v] of map) {
+    const q = e.quotes[id];
+    if (q && v > 0) {
+      q.vol1h = v;
+      n += 1;
+    }
+  }
+  return n;
 }
 
 function pickFromSweep() {
@@ -442,7 +464,7 @@ async function closeHit(network, hit) {
   );
 }
 
-async function ensureProtect(network, book, cfg, vanished = new Set()) {
+async function ensureProtect(network, book, cfg, vanished = new Set(), e = null) {
   if (apiQuiet()) return null;
   const hasSl = new Set();
   const hasTp = new Set();
@@ -543,8 +565,11 @@ async function ensureProtect(network, book, cfg, vanished = new Set()) {
       }
     }
   }
+  const posByVol = [...(book.positions ?? [])].sort(
+    (a, b) => vol1hOf(e?.quotes?.[b.symbol]) - vol1hOf(e?.quotes?.[a.symbol]),
+  );
   let posts = 0;
-  for (const p of book.positions ?? []) {
+  for (const p of posByVol) {
     if (posts >= 32) break;
     if (!isDeskSymbol(p.symbol)) continue;
     const key = `${p.symbol}:${p.side}`;
@@ -622,7 +647,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set()) {
   let trailed = 0;
   if (posts < 32 && !apiQuiet()) {
     const mode = network === "mainnet" ? "main" : "vst";
-    for (const p of book.positions ?? []) {
+    for (const p of posByVol) {
       if (trailed >= 8 || posts >= 32) break;
       if (!isDeskSymbol(p.symbol)) continue;
       const key = `${p.symbol}:${p.side}`;
@@ -812,7 +837,7 @@ async function mirrorToExchange(e, network, cfg) {
   const notes = [];
   if (dropped) notes.push(`manual ${dropped}`);
   if (n) notes.push(`claim ${n}`);
-  const guard = await ensureProtect(network, book, cfg, vanished);
+  const guard = await ensureProtect(network, book, cfg, vanished, e);
   if (guard) notes.push(guard);
   if (lastBook.pos > 0 && (lastBook.sl < lastBook.pos || lastBook.tp < lastBook.pos)) {
     notes.push(`wait protect ${lastBook.pos - Math.min(lastBook.sl, lastBook.tp)}`);
@@ -989,6 +1014,14 @@ async function main() {
       freeze = new Set(ids);
       lastTape = Date.now();
       adjustments.push(`tape first · ${ids.length} px`);
+      void refreshVol1h(engine, ping.network)
+        .then((n) => {
+          if (n) {
+            const top = rankUniverse(engine)[0];
+            adjustments.push(`vol1h ${n} · first ${top?.id || "?"}`);
+          }
+        })
+        .catch(() => {});
     }
   } catch (err) {
     adjustments.push(`tape first ${err instanceof Error ? err.message : "fail"}`);
@@ -1084,6 +1117,7 @@ async function main() {
             const ids = applyTape(engine, tape.tickers);
             freeze = new Set(ids);
             lastTape = Date.now();
+            void refreshVol1h(engine, ping.network).catch(() => {});
           }
         } catch (err) {
           adjustments.push(`tape ${err instanceof Error ? err.message : "fail"}`);

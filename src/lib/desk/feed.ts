@@ -11,6 +11,7 @@ export interface LiveTicker {
   high: number;
   low: number;
   vol?: number;
+  range1h?: number;
 }
 
 export interface FeedSnapshot {
@@ -123,6 +124,17 @@ export function applyLiveTape(e: VstEngine, tickers: LiveTicker[]): number {
     q.lo = Math.max(Math.min(bid, t.last) * 0.99992, t.last * 1e-6);
     if (q.hi < q.lo) q.hi = q.lo * 1.0001;
     q.chg = t.chg;
+    const now = Date.now();
+    if (!q.vol1hAt || now - q.vol1hAt >= 3_600_000) {
+      q.hi1h = t.last;
+      q.lo1h = t.last;
+      q.vol1hAt = now;
+    } else {
+      q.hi1h = Math.max(q.hi1h || t.last, t.last);
+      q.lo1h = Math.min(q.lo1h || t.last, t.last);
+    }
+    const rolled = t.last > 0 ? Math.max(0, (Number(q.hi1h) - Number(q.lo1h)) / t.last) : 0;
+    q.vol1h = t.range1h && t.range1h > 0 ? t.range1h : Math.max(q.vol1h || 0, rolled);
     const span = Math.max(hi - lo, t.last * 4e-4);
     if (gap > 0.04 || !(q.atr > 0)) {
       q.atr = Math.max(t.last * 0.0018, span * 0.25);

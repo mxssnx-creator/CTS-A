@@ -415,6 +415,74 @@ async function getJson(url: string, init?: RequestInit): Promise<{ json: unknown
   return { json, ms: Date.now() - t0, status: res.status };
 }
 
+const vol1hCache = new Map<string, { v: number; at: number }>();
+
+function klineRange(row: unknown): number {
+  if (!row) return 0;
+  if (Array.isArray(row)) {
+    const high = num(row[2]);
+    const low = num(row[3]);
+    const close = num(row[4]) || num(row[1]);
+    if (close > 0 && high > 0 && low > 0) return Math.max(0, (high - low) / close);
+    return 0;
+  }
+  const o = row as { high?: string | number; low?: string | number; close?: string | number; highPrice?: string | number; lowPrice?: string | number };
+  const high = num(o.high ?? o.highPrice);
+  const low = num(o.low ?? o.lowPrice);
+  const close = num(o.close);
+  if (close > 0 && high > 0 && low > 0) return Math.max(0, (high - low) / close);
+  return 0;
+}
+
+export async function fetchVol1h(network: "mainnet" | "testnet"): Promise<Map<string, number>> {
+  const now = Date.now();
+  const fresh = [...vol1hCache.values()].filter((x) => now - x.at < 180_000);
+  if (fresh.length >= 20) {
+    const out = new Map<string, number>();
+    for (const [id, x] of vol1hCache) if (now - x.at < 180_000 && x.v > 0) out.set(id, x.v);
+    return out;
+  }
+  const hosts = HOSTS[network];
+  const host = hosts[0]!;
+  const ids = [...LIVE_IDS];
+  let cursor = 0;
+  async function worker() {
+    while (cursor < ids.length) {
+      const id = ids[cursor++];
+      if (!id) break;
+      const vs = BINGX_SYMBOL[id];
+      if (!vs) continue;
+      for (const path of [
+        `${host}/openApi/swap/v3/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=1`,
+        `${host}/openApi/swap/v2/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=1`,
+      ]) {
+        try {
+          const out = await getJson(path);
+          const body = out.json as { code?: number; data?: unknown };
+          const rows = Array.isArray(body?.data) ? body.data : body?.data ? [body.data] : [];
+          const v = klineRange(rows[rows.length - 1] ?? rows[0]);
+          if (v > 0) {
+            vol1hCache.set(id, { v, at: Date.now() });
+            break;
+          }
+        } catch {
+          /* next path */
+        }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: 8 }, () => worker()));
+  const out = new Map<string, number>();
+  for (const [id, x] of vol1hCache) if (x.v > 0) out.set(id, x.v);
+  return out;
+}
+
+export function cachedVol1h(id: string): number {
+  const x = vol1hCache.get(id);
+  if (!x || Date.now() - x.at > 400_000) return 0;
+  return x.v;
+}
+
 export async function fetchBingxTape(network: "mainnet" | "testnet"): Promise<FeedSnapshot> {
   const hosts = HOSTS[network];
   let lastMs = 0;
@@ -468,6 +536,7 @@ export async function fetchBingxTape(network: "mainnet" | "testnet"): Promise<Fe
           high,
           low,
           vol: Math.max(volFromRange, volFromQuote),
+          range1h: cachedVol1h(id) || undefined,
         });
       }
       return {

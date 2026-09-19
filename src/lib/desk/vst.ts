@@ -401,6 +401,13 @@ export function universeSymbols(count = VST_MAX_SYMBOLS): VstSymbol[] {
   return VST_SYMBOLS.slice(0, clampSymbolCount(count));
 }
 
+export function vol1hOf(q?: VstQuote): number {
+  if (!q || !(q.px > 0)) return 0;
+  if (Number(q.vol1h) > 0) return Number(q.vol1h);
+  const span = Math.max(0, (q.hi || 0) - (q.lo || 0));
+  return span / q.px;
+}
+
 function symbolScore(e: VstEngine, id: string): number {
   const q = e.quotes[id];
   const closed = e.closed.filter((c) => c.symbol === id).slice(0, 12);
@@ -419,7 +426,11 @@ function symbolScore(e: VstEngine, id: string): number {
 }
 
 export function rankUniverse(e: VstEngine): VstSymbol[] {
-  return [...universeSymbols(e.symbolCount)].sort((a, b) => symbolScore(e, b.id) - symbolScore(e, a.id));
+  return [...universeSymbols(e.symbolCount)].sort((a, b) => {
+    const dv = vol1hOf(e.quotes[b.id]) - vol1hOf(e.quotes[a.id]);
+    if (Math.abs(dv) > 1e-8) return dv;
+    return symbolScore(e, b.id) - symbolScore(e, a.id);
+  });
 }
 function hash(s: string): number {
   let h = 2166136261;
@@ -534,7 +545,8 @@ function mkQuotes(): Record<string, VstQuote> {
       atr,
       vol: s.vol,
       axis: px * (1 - jitter * .4),
-      chg: jitter
+      chg: jitter,
+      vol1h: s.vol,
     };
   }
   return out;
