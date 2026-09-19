@@ -35,7 +35,6 @@ import {
   blockStepQty,
   positionNotional,
   RANGE_TYPES,
-  sharedBlockVolumeRatio,
   snapTpRatio,
   symbolIndications,
   STAGE_HOURS,
@@ -1819,9 +1818,8 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   if (!lane) return;
   lane.confirmedAdd += take;
   const n = Math.max(1, o.level || lane.pending || 1);
-  const counts = liveBlockCounts({ ...DEFAULT_BLOCK_CONFIG, maxMultiple: Math.max(n, 1) });
-  const vr = sharedBlockVolumeRatio(DEFAULT_BLOCK_CONFIG.volumeRatio, counts.length, Math.max(0, DEFAULT_BLOCK_CONFIG.maxVolumeMultiplier - 1));
-  const target = lane.baseQty * blockMaxAdditionalRatio(n, vr, DEFAULT_BLOCK_CONFIG.maxVolumeMultiplier);
+  const vr = DEFAULT_BLOCK_CONFIG.volumeRatio || 1.25;
+  const target = lane.baseQty * blockMaxAdditionalRatio(n, vr);
   if (lane.confirmedAdd + 1e-12 >= target) lane.satisfied[n] = true;
   lane.pending = undefined;
   e.lastBlockAt = e.tick;
@@ -1864,8 +1862,8 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
   const gp = ring.filter((x) => x > 0).reduce((s, x) => s + x, 0);
   const gl = Math.abs(ring.filter((x) => x < 0).reduce((s, x) => s + x, 0));
   const pf = gl === 0 ? (gp > 0 ? 4 : 0) : gp / gl;
-  const vr = sharedBlockVolumeRatio(block.volumeRatio || 1.25, liveBlockCounts(block).length, Math.max(0, (block.maxVolumeMultiplier || 2.25) - 1));
-  const inc = blockMaxAdditionalRatio(count, vr, block.maxVolumeMultiplier);
+  const vr = block.volumeRatio || 1.25;
+  const inc = vr;
   const floor = Math.max(minPf, blockMinimumProfitFactor(minPf, block.pfRatio || 1.25, inc) || minPf);
   if (pf + 1e-9 < floor) {
     lane.pauseRemaining[count] = Math.max(0, Math.round((block.pauseCountRatio ?? 2) * count));
@@ -1962,7 +1960,7 @@ export function adjustActiveBlocks(
 
   syncBlockParents(e, conn);
   const counts = liveBlockCounts(block);
-  const vr = sharedBlockVolumeRatio(block.volumeRatio || 1.25, counts.length, Math.max(0, (block.maxVolumeMultiplier || 2.25) - 1));
+  const vr = block.volumeRatio || 1.25;
   const minPf = 1.85;
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 16)));
   const overallPause = block.windows !== false && blockPosPaused(e, evalN);
@@ -1991,7 +1989,7 @@ export function adjustActiveBlocks(
           c >= minM &&
           c > (block.minActiveLevel || 0) &&
           !lane.satisfied[c] &&
-          lane.confirmedAdd + 1e-12 < lane.baseQty * blockMaxAdditionalRatio(c, vr, block.maxVolumeMultiplier || 2.25),
+          lane.confirmedAdd + 1e-12 < lane.baseQty * blockMaxAdditionalRatio(c, vr),
       );
       if (!next) continue;
       if (!blockPfOk(lane, next, block, minPf)) continue;
@@ -2016,7 +2014,7 @@ export function adjustActiveBlocks(
       const q = e.quotes[p.symbol];
       if (!q || finiteOr(q.vol, 0) < MIN_QUOTE_VOL) continue;
       if ((e.cooldown[cooldownKey(conn, p.symbol)] ?? 0) > e.tick) continue;
-      const qty = blockStepQty(lane.baseQty, next, block.volumeRatio || 1.25, block.maxVolumeMultiplier || 2.25, counts.length);
+      const qty = blockStepQty(lane.baseQty, next, vr);
       if (!(qty > 0)) continue;
       const hi = pickRange(q, cfg, rangeType);
       const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT);

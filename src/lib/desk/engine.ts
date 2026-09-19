@@ -276,22 +276,20 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   windows: true,
 };
 
-export function sharedBlockVolumeRatio(ratio: number, liveCount: number, extraCap = 1) {
-  const vr = Math.min(2.5, Math.max(0.05, ratio || 1.25));
-  const extra = Math.max(0, extraCap);
-  const n = Math.max(1, liveCount | 0);
-  if (n > 2 && extra > 0 && vr + 1e-12 >= extra) return extra / n;
-  return extra > 0 ? Math.min(vr, extra) : vr;
+/** Per-count ratio; never split across live counts. Each valid block adds `ratio` independently. */
+export function sharedBlockVolumeRatio(ratio: number, _liveCount = 1, _extraCap = 1) {
+  return Math.min(5, Math.max(0.05, ratio || 1));
 }
 
+/** Extra volume units after `count` independent adds: count × ratio. */
 export function blockVolumeIncrement(count: number, volumeRatio: number) {
   if (!(count > 0) || !(volumeRatio > 0)) return 0;
   return Math.trunc(count) * volumeRatio;
 }
 
-export function blockMaxAdditionalRatio(maxStack: number, volumeRatio: number, maxMultiplier = 2.25) {
-  const cap = Math.min(3, Math.max(1, maxMultiplier || 2.25));
-  return Math.min(cap - 1, blockVolumeIncrement(maxStack, volumeRatio));
+/** Cumulative extra / base after `maxStack` independent adds (no shared cap). */
+export function blockMaxAdditionalRatio(maxStack: number, volumeRatio: number, _maxMultiplier = 2.25) {
+  return blockVolumeIncrement(maxStack, volumeRatio);
 }
 
 export function blockMinimumProfitFactor(defaultMinPf: number, blockPfRatio: number, volumeIncrement: number) {
@@ -300,19 +298,13 @@ export function blockMinimumProfitFactor(defaultMinPf: number, blockPfRatio: num
   return 1 + Math.max(0, defaultMinPf - 1) * bounded * volumeIncrement;
 }
 
-export function blockStepQty(baseQty: number, count: number, volumeRatio: number, maxMultiplier = 2.25, liveCount = 2, minQty = 0) {
-  const vr = sharedBlockVolumeRatio(volumeRatio, liveCount, Math.max(0, maxMultiplier - 1));
+/** Qty for one block count: ratio × base, independent of other counts. */
+export function blockStepQty(baseQty: number, count: number, volumeRatio: number, _maxMultiplier = 2.25, _liveCount = 2, minQty = 0) {
+  if (!(baseQty > 0) || !(count > 0)) return 0;
+  const vr = sharedBlockVolumeRatio(volumeRatio);
   const floor = Math.max(0, minQty) * 1.08;
-  let ratio = vr;
-  if (floor > 0 && baseQty > 0) {
-    const need = floor / baseQty;
-    if (need > ratio) ratio = need;
-  }
-  const n = Math.max(1, Math.trunc(count));
-  const cur = baseQty * blockMaxAdditionalRatio(n, ratio, maxMultiplier);
-  const prev = n <= 1 ? 0 : baseQty * blockMaxAdditionalRatio(n - 1, ratio, maxMultiplier);
-  const step = Math.max(0, cur - prev);
-  if (step > 0 && floor > 0 && step < floor) return floor;
+  let step = baseQty * vr;
+  if (step > 0 && floor > 0 && step < floor) step = floor;
   return step;
 }
 export const DEFAULT_MAX_HOLD_BARS = 3;

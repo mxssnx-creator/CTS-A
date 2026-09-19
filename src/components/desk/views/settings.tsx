@@ -854,8 +854,9 @@ export function SettingsView() {
           <p className="text-sm text-muted">
             CTS-G Block runs two independent types. Old stack (optimal 1–2 rungs on a winning
             parent). New windows (last 1–16 closed positions; a losing window adjusts the next N —
-            no stack add, losing symbols skip). Both on by default. Volume cap 2.25× at ratio{" "}
-            {(blockCfg.volumeRatio ?? 1.25).toFixed(2)}.
+            no stack add; losing symbols skip). Each valid block count adds{" "}
+            <strong>ratio × base</strong> independently (3 counts × 1.0 × 1.2 base = 3.6 extra). Both
+            on by default.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button

@@ -1014,8 +1014,12 @@ describe("VST engine", () => {
     const ladder = e.queue.filter((o) => !/^Block/i.test(o.note)).length + e.orders.filter((o) => !/^Block/i.test(o.note)).length;
     assert.ok(ladder >= 0);
 
-    assert.equal(sharedBlockVolumeRatio(1, 4, 1), 0.25);
-    assert.equal(blockMaxAdditionalRatio(6, 0.25, 2), 1);
+    assert.equal(sharedBlockVolumeRatio(1, 4, 1), 1);
+    assert.equal(blockMaxAdditionalRatio(3, 1), 3);
+    assert.equal(blockStepQty(1.2, 1, 1), 1.2);
+    assert.equal(blockStepQty(1.2, 2, 1), 1.2);
+    assert.equal(blockStepQty(1.2, 3, 1), 1.2);
+    assert.ok(Math.abs(blockStepQty(1.2, 1, 1) * 3 - 3.6) < 1e-9);
     assert.ok(blockStepQty(10, 1, 0.25, 2, 6) > 0);
     assert.ok(blockStepQty(10, 2, 0.25, 2, 6) > 0);
     const liftedStep = blockStepQty(10, 1, 0.01, 2, 6, 5);
