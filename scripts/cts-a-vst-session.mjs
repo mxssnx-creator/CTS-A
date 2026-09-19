@@ -972,7 +972,7 @@ async function main() {
     const rows = prev?.executions?.bySymbol;
     if (Array.isArray(rows) && rows.length) {
       applyRealizedSymbolStats(engine, rows);
-      seededLosers = rows.filter((r) => Number(r.n || r.trades) >= 4 && Number(r.pf) + 1e-9 < LIVE_MIN_PF).length;
+      seededLosers = rows.filter((r) => Number(r.n || r.trades) >= 2 && Number(r.pf) + 1e-9 < LIVE_MIN_PF).length;
     }
   } catch {
     /* first run */

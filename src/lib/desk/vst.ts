@@ -2040,7 +2040,8 @@ export function symbolBlockPaused(e: VstEngine, symbol: string, n?: number) {
 
 export function symbolTapePf(e: VstEngine, symbol: string): number | null {
   const t = e.symbolStats?.[symbol];
-  if (!t || t.trades < 4) return null;
+  const need = e.liveTape ? 2 : 4;
+  if (!t || t.trades < need) return null;
   return profitFactor(t.profit, t.loss);
 }
 
@@ -2099,7 +2100,7 @@ export function applyRealizedSymbolStats(
       tp: prev?.tp ?? 0,
     };
     const tapePf = profitFactor(e.symbolStats[id]!.profit, e.symbolStats[id]!.loss);
-    if (n >= 4 && tapePf + 1e-9 < floor) disabled[`sym:${id}`] = { pf: tapePf, n, at: e.tick };
+    if (n >= 2 && tapePf + 1e-9 < floor) disabled[`sym:${id}`] = { pf: tapePf, n, at: e.tick };
     else delete disabled[`sym:${id}`];
   }
   e.liveDisabled = disabled;
@@ -2116,6 +2117,11 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
     if (tape != null && tape + 1e-9 < floor) return true;
     const last = symbolLastNPf(e, symbol, evalN);
     if (last != null && last + 1e-9 < floor) return true;
+    const st = e.stats;
+    if ((st.trades || 0) >= 8 && st.pf > 0 && st.pf + 1e-9 < floor) {
+      const t = e.symbolStats?.[symbol];
+      if (!t || t.trades < 1 || t.profit + 1e-12 <= t.loss) return true;
+    }
   }
   if (e.liveDisabled?.[`sym:${symbol}`]) return true;
   const perf = e.performingSymbols;
