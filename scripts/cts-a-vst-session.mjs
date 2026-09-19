@@ -24,6 +24,7 @@ import {
   overallLiveStats,
   overlayExchangeBook,
   releaseVanished,
+  symbolBlockPaused,
   sweepAllConfigs,
   sweepPlaybooks,
   completeComputationsAsync,
@@ -59,7 +60,7 @@ const BLOCK = {
   maxVolumeMultiplier: 2.25,
   pfRatio: 1.45,
   pauseCountRatio: 2,
-  evalPosCount: 12,
+  evalPosCount: 16,
   activeLive: true,
   minActiveLevel: 0,
 };
@@ -684,6 +685,7 @@ async function mirrorToExchange(e, network, cfg) {
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
+    if (symbolBlockPaused(e, f.symbol, Math.round(BLOCK.evalPosCount || 16))) continue;
     if (occupied.has(`${f.symbol}:${f.side}`)) {
       mirrored.add(f.id);
       continue;

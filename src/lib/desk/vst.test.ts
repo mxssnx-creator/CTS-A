@@ -60,6 +60,10 @@ import {
   healEngine,
   initVstEngine,
   releaseVanished,
+  noteBlockPosClose,
+  blockPosPaused,
+  symbolBlockPaused,
+  blockWindowSnapshot,
   isDeskConn,
   classifyIndication,
   playbookOf,
@@ -1098,6 +1102,26 @@ describe("VST engine", () => {
     assert.ok(!e.positions.some((p) => p.symbol === drop.symbol && p.side === drop.side));
     tickVst(e, CFG, "hybrid", { rangeType: "atr" });
     assert.ok(e.tick >= 1);
+  });
+
+  it("last-N pos windows: loss in last 16 adjusts the next 16", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    for (let i = 0; i < 16; i++) noteBlockPosClose(e, "BTCUSDT", "long", -1);
+    const w16 = e.blockWindows[16];
+    assert.equal(w16.windows, 1);
+    assert.equal(w16.lossWindows, 1);
+    assert.equal(w16.pauseLeft, 16);
+    assert.ok(blockPosPaused(e, 16));
+    assert.ok(symbolBlockPaused(e, "BTCUSDT", 16));
+    for (let i = 0; i < 16; i++) noteBlockPosClose(e, "ETHUSDT", "short", 1);
+    assert.equal(e.blockWindows[16].pauseLeft, 0);
+    assert.equal(e.blockWindows[16].adjusted, 16);
+    assert.equal(blockPosPaused(e, 16), false);
+    const snap = blockWindowSnapshot(e, 16);
+    assert.ok(snap.symbols.some((s) => s.symbol === "BTCUSDT" && s.lastAvg < 0));
+    assert.ok(snap.symbols.some((s) => s.symbol === "ETHUSDT" && s.closed === 16));
+    const w1 = e.blockWindows[1];
+    assert.ok(w1.windows >= 16);
   });
 
   it("playbook tagging and indications stay independent", () => {

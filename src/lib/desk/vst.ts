@@ -23,9 +23,11 @@ import type {
   VstQuote,
   VstSymbol,
   BlockLaneState,
+  BlockPosWindow,
 } from "./types.ts";
 import {
   DEFAULT_BLOCK_CONFIG,
+  BLOCK_POS_COUNTS,
   DEFAULT_MAX_HOLD_TICKS,
   MIN_QUOTE_VOL,
   blockMaxAdditionalRatio,
@@ -661,6 +663,8 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.tokens = e.tokens ?? {};
   e.cooldown = e.cooldown ?? {};
   e.blockLanes = e.blockLanes ?? {};
+  e.blockWindows = e.blockWindows ?? {};
+  e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
   for (const lane of Object.values(e.blockLanes)) {
     lane.active = lane.active ?? true;
     lane.pauseRemaining = lane.pauseRemaining ?? {};
@@ -708,6 +712,8 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     lastRange: "atr",
     lastBlockAt: 0,
     blockLanes: {},
+    blockWindows: {},
+    blockWindowsBySymbol: {},
   };
   if (opts.arm !== false) armUniverse(engine, cfg, "hybrid");
   const warm = opts.arm === false ? 0 : (opts.warmup ?? 12);
@@ -1190,6 +1196,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     level: p.blockLevel ?? (p.playbook === "block" ? Math.max(1, p.legs.length) : Math.max(1, p.legs.length)),
   });
   recordBlockClose(e, p, pnl);
+  noteBlockPosClose(e, p.symbol, p.side, pnl);
   if (e.closed.length > 600) e.closed.length = 600;
   e.fills.unshift({
     id: nextId(e, "f"),
@@ -1632,9 +1639,95 @@ function blockLaneKey(symbol: string, side: Side) {
 }
 
 function liveBlockCounts(block: BlockConfig) {
-  const cap = Math.max(1, Math.min(12, Math.round(block.maxMultiple || 6)));
-  const raw = Array.isArray(block.counts) && block.counts.length ? block.counts : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const cap = Math.max(1, Math.min(16, Math.round(block.maxMultiple || 6)));
+  const raw = Array.isArray(block.counts) && block.counts.length ? block.counts : [1, 2];
   return [...new Set(raw.map((n) => Math.round(n)).filter((n) => n >= 1 && n <= cap))].sort((a, b) => a - b);
+}
+
+function evalBlockNs(block?: BlockConfig) {
+  const cap = Math.min(16, Math.max(1, Math.round(block?.evalPosCount || 16)));
+  return Array.from({ length: cap }, (_, i) => i + 1);
+}
+
+function emptyBlockWindow(n: number): BlockPosWindow {
+  return {
+    n,
+    ring: [],
+    closed: 0,
+    pauseLeft: 0,
+    lastAvg: 0,
+    lastNet: 0,
+    lastPf: 0,
+    windows: 0,
+    lossWindows: 0,
+    adjusted: 0,
+    losers: [],
+  };
+}
+
+function tickBlockWindow(w: BlockPosWindow, symbol: string, side: Side, pnl: number) {
+  w.ring.push({ symbol, side, pnl });
+  if (w.ring.length > w.n * 2) w.ring = w.ring.slice(-w.n * 2);
+  w.closed += 1;
+  if (w.pauseLeft > 0) {
+    w.pauseLeft -= 1;
+    w.adjusted += 1;
+  }
+  if (w.closed % w.n !== 0) return w;
+  const last = w.ring.slice(-w.n);
+  const net = last.reduce((s, x) => s + x.pnl, 0);
+  const gp = last.filter((x) => x.pnl > 0).reduce((s, x) => s + x.pnl, 0);
+  const gl = Math.abs(last.filter((x) => x.pnl < 0).reduce((s, x) => s + x.pnl, 0));
+  w.lastNet = net;
+  w.lastAvg = net / w.n;
+  w.lastPf = gl < 1e-9 ? (gp > 0 ? 4 : 0) : gp / gl;
+  w.windows += 1;
+  w.losers = [...new Set(last.filter((x) => x.pnl < 0).map((x) => x.symbol))];
+  if (w.lastAvg < 0 || w.lastPf < 1) {
+    w.lossWindows += 1;
+    w.pauseLeft = w.n;
+  }
+  return w;
+}
+
+export function noteBlockPosClose(e: VstEngine, symbol: string, side: Side, pnl: number, block: BlockConfig = DEFAULT_BLOCK_CONFIG) {
+  e.blockWindows = e.blockWindows ?? {};
+  e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
+  for (const n of evalBlockNs(block)) {
+    e.blockWindows[n] = tickBlockWindow(e.blockWindows[n] ?? emptyBlockWindow(n), symbol, side, pnl);
+    const by = (e.blockWindowsBySymbol[symbol] ??= {});
+    by[n] = tickBlockWindow(by[n] ?? emptyBlockWindow(n), symbol, side, pnl);
+  }
+}
+
+/** Last-N overall window is in its "next N adjusted" pause. */
+export function blockPosPaused(e: VstEngine, n = 16) {
+  return (e.blockWindows?.[n]?.pauseLeft || 0) > 0;
+}
+
+/** This symbol's last-N average was a loss; next N of that symbol are adjusted. */
+export function symbolBlockPaused(e: VstEngine, symbol: string, n = 16) {
+  return (e.blockWindowsBySymbol?.[symbol]?.[n]?.pauseLeft || 0) > 0;
+}
+
+export function blockWindowSnapshot(e: VstEngine, n = 16) {
+  const overall = e.blockWindows?.[n] ?? emptyBlockWindow(n);
+  const symbols = Object.entries(e.blockWindowsBySymbol ?? {}).map(([symbol, map]) => {
+    const w = map[n] ?? emptyBlockWindow(n);
+    return {
+      symbol,
+      closed: w.closed,
+      windows: w.windows,
+      lossWindows: w.lossWindows,
+      lastAvg: w.lastAvg,
+      lastNet: w.lastNet,
+      lastPf: w.lastPf,
+      pauseLeft: w.pauseLeft,
+      adjusted: w.adjusted,
+      losers: w.losers,
+    };
+  }).sort((a, b) => a.lastAvg - b.lastAvg);
+  return { n, overall, symbols };
 }
 
 function emptyBlockLane(symbol: string, side: Side, baseQty: number, baseEntry: number): BlockLaneState {
@@ -1854,6 +1947,8 @@ export function adjustActiveBlocks(
   const counts = liveBlockCounts(block);
   const vr = sharedBlockVolumeRatio(block.volumeRatio || 1.25, counts.length, Math.max(0, (block.maxVolumeMultiplier || 2.25) - 1));
   const minPf = 1.85;
+  const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 16)));
+  const overallPause = blockPosPaused(e, evalN);
 
   if (block.addOnWin && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
     const byKey = new Map<string, number>();
@@ -1866,6 +1961,8 @@ export function adjustActiveBlocks(
       const move = p.unrealized / Math.max(p.avgEntry * p.qty, 1e-9);
       if (block.addOnWin && move <= 0) continue;
       if (block.activeLive !== false && move < 0.004) continue;
+      if (overallPause) continue;
+      if (symbolBlockPaused(e, p.symbol, evalN)) continue;
       const k = blockLaneKey(p.symbol, p.side);
       const lane = e.blockLanes[k];
       if (!lane || !lane.active || lane.baseQty <= 0) continue;

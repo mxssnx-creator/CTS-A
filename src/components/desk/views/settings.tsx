@@ -852,10 +852,10 @@ export function SettingsView() {
       <div id="block" className="scroll-mt-24">
         <Panel title="Block strategy · overall active orders">
           <p className="text-sm text-muted">
-            CTS-G Block: stack on a live parent only (symbol+side overall, independent of lanes). Counts 1–12
-            share a 2.25× volume cap at ratio {(blockCfg.volumeRatio ?? 1.25).toFixed(2)}. PF ≥ 1.85 and last-N eval
-            ({blockCfg.evalPosCount ?? 12}) must pass before the next rung emits. Continuation needs a 0.40%
-            favorable move. Default live stack is 1–2; 1–12 is processed in evals.
+            CTS-G Block: stack on a live parent only (symbol+side overall). Last N closed positions
+            (1–16, default {blockCfg.evalPosCount ?? 16}) are evaluated as a window. If that window’s
+            average is a loss, the next N are adjusted (no Block add; losing symbols skip). Stack rungs
+            stay 1–2 live. Volume cap 2.25× at ratio {(blockCfg.volumeRatio ?? 1.25).toFixed(2)}.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
@@ -912,7 +912,7 @@ export function SettingsView() {
               label="Max block multiple"
               value={blockCfg.maxMultiple}
               min={1}
-              max={12}
+              max={16}
               step={1}
               format={(n) => String(n)}
               onChange={(n) => setBlockCfg({ maxMultiple: n })}
@@ -950,8 +950,8 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Eval last N"
-              value={blockCfg.evalPosCount ?? 12}
-              min={8}
+              value={blockCfg.evalPosCount ?? 16}
+              min={1}
               max={16}
               step={1}
               format={(n) => String(n)}

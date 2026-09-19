@@ -268,6 +268,20 @@ export interface BlockAdjustResult {
   blocks: number;
 }
 
+export interface BlockPosWindow {
+  n: number;
+  ring: { symbol: string; side: Side; pnl: number }[];
+  closed: number;
+  pauseLeft: number;
+  lastAvg: number;
+  lastNet: number;
+  lastPf: number;
+  windows: number;
+  lossWindows: number;
+  adjusted: number;
+  losers: string[];
+}
+
 export interface Lane {
   id: string;
   strategyId: string;
@@ -855,6 +869,8 @@ export interface VstEngine {
   lastRange: RangeType;
   lastBlockAt: number;
   blockLanes: Record<string, BlockLaneState>;
+  blockWindows: Record<number, BlockPosWindow>;
+  blockWindowsBySymbol: Record<string, Record<number, BlockPosWindow>>;
 }
 
 export interface BlockLaneState {

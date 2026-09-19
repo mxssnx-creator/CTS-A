@@ -219,6 +219,7 @@ export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
 };
 
 export const BLOCK_COUNTS = [1, 2];
+export const BLOCK_POS_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as const;
 
 export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   enabled: true,
@@ -234,7 +235,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   maxVolumeMultiplier: 2.25,
   pfRatio: 1.45,
   pauseCountRatio: 2,
-  evalPosCount: 12,
+  evalPosCount: 16,
   activeLive: true,
   minActiveLevel: 0,
 };
