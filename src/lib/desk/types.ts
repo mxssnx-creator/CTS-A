@@ -576,6 +576,7 @@ export interface LivePosition {
   indication?: IndicationId;
   playbook?: string;
   blockLevel?: number;
+  blockQty?: number;
 }
 
 export interface Fill {
@@ -620,6 +621,7 @@ export interface ClosedTrade {
   indication?: IndicationId;
   playbook?: string;
   level?: number;
+  blockQty?: number;
 }
 
 export interface VstStats {

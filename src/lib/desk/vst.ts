@@ -1092,9 +1092,12 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
   });
   recordBlockFill(e, o, take);
   if (/^Block/i.test(o.note || "")) {
-    pos.playbook = "block";
-    pos.kind = "block";
     pos.blockLevel = Math.max(pos.blockLevel || 1, o.level || 1);
+    pos.blockQty = (pos.blockQty || 0) + take;
+    if (created) {
+      pos.playbook = "block";
+      pos.kind = "block";
+    }
   } else if (/^DCA/i.test(o.note || "")) {
     pos.playbook = pos.playbook === "block" ? "block" : "dca";
   }
@@ -1237,7 +1240,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     kind: p.kind,
     indication: p.indication,
     playbook: p.playbook ?? "normal",
-    level: p.blockLevel ?? (p.playbook === "block" ? Math.max(1, p.legs.length) : Math.max(1, p.legs.length)),
+    level: p.blockLevel ?? Math.max(1, p.legs.length),
+    blockQty: p.blockQty,
   });
   recordBlockClose(e, p, pnl);
   noteBlockPosClose(e, p.symbol, p.side, pnl, e.blockCfg, {
@@ -1702,8 +1706,13 @@ function blockVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
   return ["shared"];
 }
 
+function liveVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
+  if (block?.overall !== false) return ["additive"];
+  return blockVolumeModes(block);
+}
+
 function blockModeOf(o: { note?: string }): "shared" | "additive" {
-  return /additive/i.test(o.note || "") ? "additive" : "shared";
+  return /additive|Overall Block/i.test(o.note || "") ? "additive" : "shared";
 }
 
 function liveBlockCounts(block: BlockConfig) {
@@ -1981,7 +1990,7 @@ function collectBlockOrders(e: VstEngine, conn: string) {
 function syncBlockParents(e: VstEngine, conn: string) {
   e.blockLanes = e.blockLanes ?? {};
   const live = new Set<string>();
-  const modes = blockVolumeModes(e.blockCfg);
+  const modes = liveVolumeModes(e.blockCfg);
   for (const p of e.positions) {
     if (p.connId !== conn || p.qty <= 0) continue;
     const first = p.legs[0]?.qty || p.qty;
@@ -2029,14 +2038,19 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   const cfg = e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
   const vr = cfg.volumeRatio || 0.4;
   const mode = blockModeOf(o);
-  const target = lane.baseQty * blockMaxAdditionalRatio(n, vr, cfg.maxVolumeMultiplier || 1.8, mode);
-  if (lane.confirmedAdd + 1e-12 >= target) lane.satisfied[n] = true;
-  lane.pending = undefined;
+  const target = lane.baseQty * (mode === "shared" ? blockMaxAdditionalRatio(n, vr, cfg.maxVolumeMultiplier || 1.8, mode) : n * vr);
+  const done = o.remaining <= 1e-12;
+  if (done) {
+    if (lane.confirmedAdd + 1e-12 >= target) lane.satisfied[n] = true;
+    if (lane.pending === n) lane.pending = undefined;
+  } else {
+    lane.pending = n;
+  }
   e.lastBlockAt = e.tick;
 }
 
 function recordBlockClose(e: VstEngine, p: LivePosition, pnl: number) {
-  const modes = blockVolumeModes(e.blockCfg);
+  const modes = liveVolumeModes(e.blockCfg);
   const cost = Math.max(p.avgEntry * p.qty, 1e-9);
   const frac = pnl / cost;
   for (const mode of modes) {
@@ -2176,8 +2190,9 @@ export function adjustActiveBlocks(
   const vr = block.volumeRatio || 0.4;
   const minPf = 1.85;
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
-  const overallPause = block.windows !== false && blockPosPaused(e, evalN);
-  const volModes = blockVolumeModes(block);
+  const overall = block.overall !== false;
+  const overallPause = !overall && block.windows !== false && blockPosPaused(e, evalN);
+  const volModes = liveVolumeModes(block);
 
   if (block.stack !== false && block.addOnWin && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
     let adds = 0;
@@ -2186,13 +2201,15 @@ export function adjustActiveBlocks(
       if (adds >= addCap) break;
       if (!ownedByDesk(p, conn)) continue;
       if (p.qty <= 0) continue;
-      const allow = symbolSideSet(p.symbol, block.sides, p.side);
-      if (!allow.includes(p.side)) continue;
+      if (!overall) {
+        const allow = symbolSideSet(p.symbol, block.sides, p.side);
+        if (!allow.includes(p.side)) continue;
+      }
       const move = p.unrealized / Math.max(p.avgEntry * p.qty, 1e-9);
       if (block.addOnWin && move <= 0) continue;
       if (block.activeLive !== false && move < 0.004) continue;
       if (overallPause) continue;
-      if (symbolBlockPaused(e, p.symbol, evalN)) continue;
+      if (!overall && symbolBlockPaused(e, p.symbol, evalN)) continue;
       const q = e.quotes[p.symbol];
       if (!q || finiteOr(q.vol, 0) < MIN_QUOTE_VOL) continue;
       if ((e.cooldown[cooldownKey(conn, p.symbol)] ?? 0) > e.tick) continue;
@@ -2211,27 +2228,9 @@ export function adjustActiveBlocks(
           if (adds >= addCap || modeAdds >= 2) break;
           if (next < minM || next > maxM) continue;
           if (next <= (block.minActiveLevel || 0)) continue;
-          if (lane.satisfied[next] || liveLevels.has(next)) continue;
-          if (lane.confirmedAdd + 1e-12 >= lane.baseQty * blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 1.8, mode)) continue;
+          if (lane.satisfied[next] || liveLevels.has(next) || lane.pending === next) continue;
+          if (lane.confirmedAdd + 1e-12 >= lane.baseQty * (mode === "additive" ? next * vr : blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 1.8, mode))) continue;
           if (!blockPfOk(lane, next, block, minPf)) continue;
-          if (next >= 3) {
-            const recent = e.closed.slice(0, 40);
-            if (recent.length >= 12) {
-              const profit = recent.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
-              const loss = Math.abs(recent.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
-              const pf = loss === 0 ? (profit > 0 ? 3 : 0) : profit / loss;
-              if (pf < 1.85) continue;
-            }
-          }
-          if (next >= 4) {
-            const deep = e.closed.filter((c) => c.playbook === "block" && (c.level ?? 1) >= 4).slice(0, 24);
-            if (deep.length >= 6) {
-              const profit = deep.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
-              const loss = Math.abs(deep.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
-              const pf = loss === 0 ? (profit > 0 ? 3 : 0) : profit / loss;
-              if (pf < 1.85) continue;
-            }
-          }
           const step = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, mode);
           const extra =
             next === counts[0] && block.relAdditive !== false
@@ -2245,8 +2244,9 @@ export function adjustActiveBlocks(
           const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
           if (px <= 0) continue;
           const lv = protectLevels(px, p.side, sl0, tp0, cfg.tpRatio);
+          const oid = nextId(e, overall ? "ob" : "b");
           e.queue.push({
-            id: nextId(e, "b"),
+            id: oid,
             connId: conn,
             symbol: p.symbol,
             side: p.side,
@@ -2262,10 +2262,11 @@ export function adjustActiveBlocks(
             tp: lv.tp,
             slDist: lv.slDist,
             tpDist: lv.tpDist,
-            batchId: "",
-            note: `Block ${mode} #${next} ${p.symbol} ${p.side} · ${conn}`,
+            batchId: `${p.id}:${next}`,
+            note: `${overall ? "Overall Block" : "Block"} ${mode} #${next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
           });
           countPlaced(e);
+          lane.pending = next;
           liveLevels.add(next);
           added += 1;
           adds += 1;
@@ -3034,7 +3035,21 @@ export function overallLiveStats(e: VstEngine) {
     "open",
   );
   const ov = pnlBucket(closed, "closed");
-  const working = e.orders.filter((o) => o.status === "open" || o.status === "partial").length;
+  const workingOrders = e.orders.filter((o) => o.status === "open" || o.status === "partial");
+  const working = workingOrders.length;
+  const blockLive = collectBlockOrders(e, e.activeConnId);
+  const blockPart = blockLive.filter((o) => o.status === "partial" || (o.filled > 0 && o.remaining > 1e-12));
+  const blockClosed = closed.filter((c) => (c.blockQty || 0) > 0 || c.playbook === "block");
+  const blockVol = e.positions.reduce((s, p) => s + (p.blockQty || 0), 0) + blockClosed.reduce((s, c) => s + (c.blockQty || 0), 0);
+  const blockBucket = {
+    ...pnlBucket(blockClosed, "block"),
+    orders: blockLive.length,
+    partials: blockPart.length,
+    ids: blockLive.map((o) => o.id),
+    volume: blockVol,
+    queued: e.queue.filter((o) => isBlockOrder(o)).length,
+    overall: e.blockCfg?.overall !== false,
+  };
   const stats = {
     overall: ov,
     open,
@@ -3068,6 +3083,7 @@ export function overallLiveStats(e: VstEngine) {
     net: ov.net,
     mdd: e.stats.mdd,
     ddt: e.stats.ddt ?? ov.ddt,
+    block: blockBucket,
   };
   seedStatsFromComplete(stats, e);
   return stats;

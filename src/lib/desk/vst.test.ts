@@ -1074,6 +1074,49 @@ describe("VST engine", () => {
     assert.ok(report.trades >= 4);
   });
 
+  it("Overall Block adds volume additively on all positions and tracks ids/partials", () => {
+    const block = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      overall: true,
+      stack: true,
+      windows: false,
+      volumeMode: "shared" as const,
+      volumeRatio: 0.4,
+      relAdditive: false,
+      addOnWin: true,
+      flattenConflict: false,
+      endStageOnly: false,
+      cadence: 4,
+      counts: [1, 2],
+      maxMultiple: 2,
+    };
+    const { report, engine } = simulateHours(12, CFG, "hybrid", {
+      symbolCount: 8,
+      rangeType: "fibonacci",
+      block,
+    });
+    finiteNum(report.pf, report.net);
+    const ov = overallLiveStats(engine);
+    finiteNum(ov.pf, ov.net, ov.block.volume, ov.block.orders, ov.block.partials, ov.block.queued);
+    assert.equal(ov.block.overall, true);
+    const notes = [...engine.queue, ...engine.orders].filter((o) => /Overall Block/i.test(o.note || ""));
+    for (const o of notes) {
+      assert.ok(o.id, "order id");
+      assert.ok(o.batchId.includes(":"), `batch ${o.batchId}`);
+      assert.ok(o.note.includes(o.id));
+      finiteNum(o.qty, o.filled, o.remaining);
+      assert.ok(Math.abs(o.qty - o.filled - o.remaining) < 1e-6);
+    }
+    const parents = engine.positions.filter((p) => (p.blockQty || 0) > 0);
+    for (const p of parents) {
+      assert.ok(p.playbook !== "block" || p.legs.length >= 1);
+      finiteNum(p.blockQty || 0);
+    }
+    const ids = new Set(ov.block.ids);
+    assert.equal(ids.size, ov.block.ids.length);
+  });
+
   it("block on vs off: adds rungs when enabled and stays inert when disabled", () => {
     const off = { ...DEFAULT_BLOCK_CONFIG, enabled: false };
     const on = { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false, cadence: 4, addOnWin: true, flattenConflict: false, sides: "both" as const, windows: false };
@@ -1082,10 +1125,15 @@ describe("VST engine", () => {
     assert.ok(a.report.passed, a.report.issues.join("; "));
     assert.ok(b.report.passed, b.report.issues.join("; "));
     finiteNum(a.report.pf, b.report.pf, a.report.net, b.report.net);
-    const blockCloses = a.engine.closed.filter((c) => c.playbook === "block").length;
-    const offCloses = b.engine.closed.filter((c) => c.playbook === "block").length;
+    const blockCloses = a.engine.closed.filter((c) => c.playbook === "block" || (c.blockQty || 0) > 0).length;
+    const offCloses = b.engine.closed.filter((c) => c.playbook === "block" || (c.blockQty || 0) > 0).length;
     assert.equal(offCloses, 0);
-    assert.ok(a.engine.lastBlockAt > 0 || blockCloses > 0 || a.engine.queue.some((o) => /^Block /.test(o.note)) || a.engine.positions.some((p) => p.playbook === "block"));
+    assert.ok(
+      a.engine.lastBlockAt > 0 ||
+        blockCloses > 0 ||
+        a.engine.queue.some((o) => /Block /i.test(o.note || "")) ||
+        a.engine.positions.some((p) => (p.blockQty || 0) > 0),
+    );
     assert.equal(b.engine.lastBlockAt ?? 0, 0);
   });
 

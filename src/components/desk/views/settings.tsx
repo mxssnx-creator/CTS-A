@@ -853,8 +853,8 @@ export function SettingsView() {
         <Panel title="Block strategy · overall active orders">
           <p className="text-sm text-muted">
             Stack uses counts <strong>1–2</strong>. Windows use last-N <strong>1,2,3,4,5,6</strong> (step 1)
-            independently. Auto-eval every 2h picks the best last-N per major and minor relation and adds
-            volume additively: winners × 0.4 × base. Overall Block volume ratio 0.4.
+            independently. <strong>Overall Block</strong> adds volume additively on every winning position,
+            independent of lanes, indications, and strategies. Order ids, partials, and blockQty are tracked.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
