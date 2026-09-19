@@ -61,6 +61,7 @@ import {
   DEFAULT_SHORT_PF,
   DEFAULT_SHORT_BASE_PF,
   AXIS_PARTIAL_RATIO,
+  clampBlockVol,
   UNIT_NOTIONAL,
   profitFactor,
   pfFromPnls,
@@ -1540,7 +1541,7 @@ describe("VST engine", () => {
       stack: true,
       windows: false,
       volumeMode: "shared" as const,
-      volumeRatio: 0.08,
+      volumeRatio: 0.4,
       relAdditive: false,
       addOnWin: true,
       flattenConflict: false,
@@ -1867,6 +1868,10 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
     assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.4);
     assert.equal(AXIS_PARTIAL_RATIO, 0.08);
+    assert.equal(clampBlockVol(0.08), 0.4);
+    assert.equal(clampBlockVol(0.2), 0.4);
+    assert.equal(clampBlockVol(1.5), 1);
+    assert.equal(clampBlockVol(0.7), 0.7);
     assert.equal(DEFAULT_THRESHOLDS.minPf, 1.8);
     assert.equal(DEFAULT_THRESHOLDS.basePf, 1.1);
     assert.equal(DEFAULT_THRESHOLDS.axisPf, 1.5);
@@ -1972,8 +1977,8 @@ describe("VST engine", () => {
   it("24h × 20 symbols Block 0.4 with auto-eval stays finite and positive", () => {
     const { report, engine } = simulateHours(24, CFG, "hybrid", {
       symbolCount: 20,
-      rangeType: "fibonacci",
-      block: { ...DEFAULT_BLOCK_CONFIG, autoEval: true, relAdditive: true, volumeRatio: 0.08, evalHours: 2 },
+      rangeType: "atr",
+      block: { ...DEFAULT_BLOCK_CONFIG, autoEval: true, relAdditive: true, volumeRatio: 0.4, relVolumeRatio: 0.4, evalHours: 2 },
     });
     assert.ok(report.trades >= 8);
     finiteNum(report.pf, report.net, report.wr);
@@ -1983,7 +1988,7 @@ describe("VST engine", () => {
   });
 
   it("windows shared vs additive run with stack 1-2 additionally", () => {
-    const base = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: true, counts: [1, 2], maxMultiple: 2, evalPosCount: 6, volumeRatio: 1.25, endStageOnly: false };
+    const base = { ...DEFAULT_BLOCK_CONFIG, enabled: true, stack: true, windows: true, counts: [1, 2], maxMultiple: 2, evalPosCount: 6, volumeRatio: 1, endStageOnly: false };
     const shared = simulateHours(24, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...base, volumeMode: "shared" } });
     const additive = simulateHours(24, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...base, volumeMode: "additive" } });
     const winOnly = simulateHours(24, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...base, stack: false, volumeMode: "shared" } });
@@ -2095,7 +2100,7 @@ describe("VST engine", () => {
               counts: [1, 2],
               maxMultiple: 2,
               evalPosCount: 6,
-              volumeRatio: 0.08,
+              volumeRatio: 0.4,
               liveDisable: false,
               sides: "one",
             },
@@ -2545,6 +2550,8 @@ describe("VST engine", () => {
     assert.equal(snap.thresholds.blockPf, DEFAULT_BLOCK_PF);
     assert.equal(snap.thresholds.shortPf, DEFAULT_SHORT_PF);
     assert.equal(snap.thresholds.shortBasePf, DEFAULT_SHORT_BASE_PF);
+    assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 0.08, relVolumeRatio: 1.5 } } as never).blockConfig.volumeRatio, 0.4);
+    assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 1.5, relVolumeRatio: 1.5 } } as never).blockConfig.relVolumeRatio, 1);
     assert.ok(snap.tacticConfig.slAtr >= 0.8);
     assert.equal(snap.thresholds.maxDdt, 20);
     assert.equal(snap.hedgeMode, true);

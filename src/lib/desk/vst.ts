@@ -54,6 +54,7 @@ import {
   allTpSlCombos,
   allShortTpSlCombos,
   cfgUsesShortRange,
+  clampBlockVol,
   trailStopFromPeak,
   symbolIndications,
   refreshLiveIndications,
@@ -735,6 +736,10 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.shortPf = e.shortPf ?? DEFAULT_THRESHOLDS.shortPf;
   e.shortBasePf = e.shortBasePf ?? DEFAULT_THRESHOLDS.shortBasePf;
   e.shortRange = e.shortRange ?? false;
+  if (e.blockCfg) {
+    e.blockCfg.volumeRatio = clampBlockVol(e.blockCfg.volumeRatio);
+    e.blockCfg.relVolumeRatio = clampBlockVol(e.blockCfg.relVolumeRatio ?? e.blockCfg.volumeRatio);
+  }
   e.liveTape = e.liveTape ?? false;
   for (const lane of Object.values(e.blockLanes)) {
     lane.active = lane.active ?? true;
@@ -2636,7 +2641,7 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
   const ns = (block.evalLastNs?.length ? block.evalLastNs : [1, 2, 3, 4, 5, 6])
     .map((n) => Math.max(1, Math.min(6, Math.round(n))));
   const minPf = block.minRelPf ?? minPfFor(e, "block");
-  const vr = Math.min(2, Math.max(0.05, block.relVolumeRatio ?? block.volumeRatio ?? 0.4));
+  const vr = clampBlockVol(block.relVolumeRatio ?? block.volumeRatio);
   const maps = e.blockRelWindows ?? {};
   const candidates: { key: string; n: number; pf: number; net: number; closed: number }[] = [];
   for (const [key, byN] of Object.entries(maps)) {
@@ -2932,7 +2937,7 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   lane.confirmedAdd += take;
   const n = Math.max(1, o.level || lane.pending || 1);
   const cfg = e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
-  const vr = cfg.volumeRatio || 0.4;
+  const vr = clampBlockVol(cfg.volumeRatio);
   const mode = blockModeOf(o);
   const target = lane.baseQty * (mode === "shared" ? blockMaxAdditionalRatio(n, vr, cfg.maxVolumeMultiplier || 1.8, mode) : n * vr);
   const done = o.remaining <= 1e-12;
@@ -2992,7 +2997,7 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
   const gp = ring.filter((x) => x > 0).reduce((s, x) => s + x, 0);
   const gl = Math.abs(ring.filter((x) => x < 0).reduce((s, x) => s + x, 0));
   const pf = profitFactor(gp, gl);
-  const vr = block.volumeRatio || 0.4;
+  const vr = clampBlockVol(block.volumeRatio);
   const inc = vr * Math.max(1, count);
   const floor = Math.max(minPf, blockMinimumProfitFactor(minPf, block.pfRatio || 1.25, inc) || minPf);
   if (pf + 1e-9 < floor) {
@@ -3096,7 +3101,7 @@ export function adjustActiveBlocks(
 
   syncBlockParents(e, conn);
   const counts = liveBlockCounts(block);
-  const vr = block.volumeRatio || 0.4;
+  const vr = clampBlockVol(block.volumeRatio);
   const minPf = block.minRelPf ?? minPfFor(e, "block");
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
   const overall = block.overall !== false;

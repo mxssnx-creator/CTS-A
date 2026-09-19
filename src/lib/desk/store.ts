@@ -37,6 +37,7 @@ import {
   STAGE_HOURS,
   STRATEGY_KINDS,
   clampLastN,
+  clampBlockVol,
   combosFiltered,
   pickBestCombo,
   WARMUP,
@@ -885,6 +886,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.blockCfg = {
       ...get().blockConfig,
       enabled: get().strategyToggles.block && get().blockConfig.enabled,
+      volumeRatio: clampBlockVol(get().blockConfig.volumeRatio),
+      relVolumeRatio: clampBlockVol(get().blockConfig.relVolumeRatio ?? get().blockConfig.volumeRatio),
       minRelPf: get().thresholds.blockPf,
       liveDisableMinPf: get().thresholds.blockPf,
     };

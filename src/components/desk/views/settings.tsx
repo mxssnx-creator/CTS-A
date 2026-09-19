@@ -1393,8 +1393,8 @@ export function SettingsView() {
             <RangeKnob
               label="Volume ratio"
               value={blockCfg.volumeRatio ?? 0.4}
-              min={0.1}
-              max={2.5}
+              min={0.4}
+              max={1}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ volumeRatio: n })}
@@ -1403,8 +1403,8 @@ export function SettingsView() {
             <RangeKnob
               label="Relation vol ratio"
               value={blockCfg.relVolumeRatio ?? 0.4}
-              min={0.1}
-              max={2}
+              min={0.4}
+              max={1}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ relVolumeRatio: n })}

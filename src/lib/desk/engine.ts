@@ -485,6 +485,15 @@ export const DEFAULT_BLOCK_PF = 1.6;
 export const DEFAULT_SHORT_PF = 1.2;
 export const DEFAULT_SHORT_BASE_PF = 0.8;
 export const DEFAULT_BLOCK_VOLUME_RATIO = 0.4;
+export const BLOCK_VOLUME_RATIO_MIN = 0.4;
+export const BLOCK_VOLUME_RATIO_MAX = 1;
+
+/** Block additive/shared volume ratio. 0.08 was Axis partials — snap into 0.4–1. */
+export function clampBlockVol(n: unknown, fallback = DEFAULT_BLOCK_VOLUME_RATIO): number {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return fallback;
+  return Math.min(BLOCK_VOLUME_RATIO_MAX, Math.max(BLOCK_VOLUME_RATIO_MIN, x));
+}
 export const AXIS_PARTIAL_RATIO = 0.08;
 
 export const X01_DEFAULTS = {

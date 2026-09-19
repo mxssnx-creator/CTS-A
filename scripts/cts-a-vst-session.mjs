@@ -785,7 +785,7 @@ function liveNotional(e, f, equity, rel) {
   const short = rel?.kind === "short" || rel?.playbook === "short" || cfgUsesShortRange(currentPick?.cfg);
   const blockHit = /Block/i.test(String(f?.note || rel?.playbook || rel?.note || "")) || rel?.playbook === "block" || short;
   if (STRAT.block && blockHit) {
-    mul += Math.max(0.08, Number(BLOCK.volumeRatio) || 0.08) * Math.max(1, Number(rel?.blockLevel) || 1);
+    mul += Math.max(0.4, Math.min(1, Number(BLOCK.volumeRatio) || 0.4)) * Math.max(1, Number(rel?.blockLevel) || 1);
   }
   if (short) mul *= 0.85;
   return base * Math.min(2.4, mul);
@@ -1681,7 +1681,7 @@ function applyExecFromSettings(remote) {
 function migrateBlockVol(n) {
   const x = Number(n);
   if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return 0.4;
-  return x;
+  return Math.min(1, Math.max(0.4, x));
 }
 
 function applyPfGates(engine, remote) {
