@@ -3391,15 +3391,10 @@ export function adjustActiveBlocks(
         const stackAdd = block.overallSharedStack !== "split";
         const ovVrScale = !stackAdd && mode === "shared" && scopes.length > 1 ? 1 / scopes.length : 1;
         const enqueue = (kind: "relation" | "overall", next: number, vr: number, extraQty: number, scope: OverallScope = "book") => {
-          const step = blockStepQty(
-            lane.baseQty,
-            next,
-            vr,
-            Math.max(block.maxVolumeMultiplier || 2.5, 1 + vr, 2),
-            1,
-            0,
-            mode,
-          );
+          const overallKind = kind === "overall";
+          const stepMode: "additive" | "shared" = overallKind && stackAdd ? "additive" : mode;
+          const stepMul = Math.max(block.maxVolumeMultiplier || 2.5, 1 + vr * Math.max(1, next), 2);
+          const step = blockStepQty(lane.baseQty, next, vr, stepMul, 1, 0, stepMode);
           const qty = step + extraQty;
           if (!(qty > 0)) return false;
           const hi = pickRange(q, cfg, rangeType);
@@ -3408,7 +3403,6 @@ export function adjustActiveBlocks(
           const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
           if (px <= 0) return false;
           const lv = protectLevels(px, p.side, sl0, tp0, cfg.tpRatio);
-          const overallKind = kind === "overall";
           const tag =
             !overallKind
               ? "Block"
@@ -3497,9 +3491,7 @@ export function adjustActiveBlocks(
               if (!overallWindowOk(e, scope, p, next, minPf)) continue;
               if (liveOvLevels[scope].has(next)) continue;
               const vrThis = vrModeOv * ovVrScale;
-              const ovCap =
-                lane.baseQty *
-                (mode === "additive" ? next * vrThis : blockMaxAdditionalRatio(next, vrThis, maxMul, mode));
+              const ovCap = lane.baseQty * next * vrThis;
               if (ovQty[scope] + 1e-12 < ovCap) enqueue("overall", next, vrThis, 0, scope);
             }
           }
@@ -3888,6 +3880,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   let slotSum = 0;
   let blockOrdSum = 0;
   let notionalSum = 0;
+  let marginSum = 0;
+  let maxMarginSeen = 0;
+  const MARGIN_LEV = 125;
   const rSlots = [
     {
       bin: "< −1R",
@@ -3986,6 +3981,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     }
     blockOrdSum += hourBlock;
     notionalSum += hourNotional;
+    const hourMargin = hourNotional / MARGIN_LEV;
+    marginSum += hourMargin;
+    if (hourMargin > maxMarginSeen) maxMarginSeen = hourMargin;
     if ((i + 1) % sampleEvery === 0) curve.push({
       t: (i + 1) / TICKS_PER_HOUR,
       eq,
@@ -4016,6 +4014,8 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         netCum: engine.stats.net,
         vol: engine.relVolumeFactor ?? 0,
         notional: hourNotional,
+        margin: hourMargin,
+        marginPct: eq > 0 ? hourMargin / eq : 0,
         blockOrd: hourBlock,
       });
       if (markAt.has(h)) marks.push(horizonFromEngine(engine, h, peak));
@@ -4105,6 +4105,8 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     avgSlots: ticks ? slotSum / ticks : 0,
     avgBlockOrd: ticks ? blockOrdSum / ticks : 0,
     avgNotional: ticks ? notionalSum / ticks : 0,
+    avgMargin: ticks ? marginSum / ticks : 0,
+    maxMargin: maxMarginSeen,
     startEquity: startEq,
     costStep,
     unitNotional: positionNotional(startEq, costStep),

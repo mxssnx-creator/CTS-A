@@ -1741,6 +1741,12 @@ describe("VST engine", () => {
     assert.ok(Math.abs(dir[0]!.qty - book[0]!.qty) < 1e-6, `dir qty ${dir[0]!.qty}`);
     const stacked = book[0]!.qty + sym[0]!.qty + dir[0]!.qty;
     assert.ok(stacked > book[0]!.qty * 2.5, `stacked ${stacked}`);
+    assert.ok(Math.abs(book[0]!.qty - 1.5) < 1e-6, `N=1 step should be shared 1.5× base, got ${book[0]!.qty}`);
+    e.blockCfg = { ...e.blockCfg, counts: [1, 2], maxMultiple: 6 };
+    for (let i = 0; i < 8; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
+    const n2 = [...e.queue, ...e.orders].filter((o) => /Overall Block shared #2/.test(o.note || "") && !/symbol|dir/.test(o.note || ""));
+    assert.ok(n2.length >= 1, "shared N=2 must add independently, not cap to 0");
+    assert.ok(Math.abs(n2[0]!.qty - 1.5) < 1e-6, `N=2 step ${n2[0]!.qty}`);
   });
 
   it("parallel Block keeps shared + additive + overall as independent volume streams", () => {
