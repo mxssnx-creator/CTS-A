@@ -1061,6 +1061,8 @@ export interface VstEngine {
   shortAxisPf?: number;
   shortBlockPf?: number;
   shortProgress?: ShortProgressConfig;
+  /** Paper-only: arm every indication × config independently (thousands of orders). */
+  completeSim?: boolean;
   liveTape?: boolean;
   shortRange?: boolean;
   strategyToggles?: StrategyToggles;

@@ -88,7 +88,7 @@ function run(label, block) {
 
 const tAll = Date.now();
 const cells = [];
-for (const tactic of ["trailing", "hybrid"]) {
+for (const tactic of ["trailing", "hybrid", "axis"]) {
   for (const [label, block] of [["off", BLOCK_OFF], ["parallel", BLOCK_ON]]) {
     const t0 = Date.now();
     const { report: r } = simulateHours(HOURS, CFG, tactic, {
@@ -97,12 +97,24 @@ for (const tactic of ["trailing", "hybrid"]) {
       block,
       equity: 10_000,
       costStep: 10,
+      complete: true,
     });
-    const row = { tactic, ...pack(label, r, Date.now() - t0) };
+    const row = {
+      tactic,
+      ...pack(label, r, Date.now() - t0),
+      ordersPlaced: r.ordersPlaced,
+      ordersFilled: r.ordersFilled,
+      indications: r.byIndication,
+      playbooks: r.byPlaybook,
+      kinds: r.byKind,
+    };
     cells.push(row);
     console.log(
-      `${tactic.padEnd(9)} ${label.padEnd(10)} PF ${row.pf.toFixed(2)} n=${row.trades} ddt=${Number(row.ddt || 0).toFixed(0)} net=${Number(row.net).toFixed(1)} avgOrd=${Number(row.avgOrd).toFixed(0)} maxOrd=${row.maxOrd} block=${Number(row.avgBlock).toFixed(0)} ${row.ms}ms`,
+      `${tactic.padEnd(9)} ${label.padEnd(10)} PF ${row.pf.toFixed(2)} n=${row.trades} placed=${row.ordersPlaced} maxOrd=${row.maxOrd} avgOrd=${Number(row.avgOrd).toFixed(0)} inds=${(row.indications || []).length} ${row.ms}ms`,
     );
+    if (row.indications) {
+      for (const i of row.indications) console.log(`  ind ${i.id} n=${i.n} PF ${i.pf.toFixed(2)}`);
+    }
   }
 }
 const trailing = { off: cells.find((c) => c.tactic === "trailing" && c.label === "off"), on: cells.find((c) => c.tactic === "trailing" && c.label === "parallel") };

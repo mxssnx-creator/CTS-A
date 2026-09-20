@@ -3215,6 +3215,28 @@ describe("full config coverage", () => {
     assert.ok(e.queue.length + e.orders.length + e.positions.length > 0);
   });
 
+  it("complete paper sim arms every indication with thousands of orders", () => {
+    const cfg = {
+      ...CFG,
+      shortRange: true,
+      tpAtr: 0.42,
+      slOfTp: 1.7,
+      slAtr: 0.714,
+      tpRatio: 1 / 1.7,
+      trailingPct: 1.5,
+    };
+    const { report: r } = simulateHours(2, cfg, "trailing", {
+      symbolCount: 24,
+      rangeType: "atr",
+      complete: true,
+      block: { ...DEFAULT_BLOCK_CONFIG, enabled: true, windows: false },
+    });
+    finiteNum(r.pf, r.net, r.ordersPlaced);
+    assert.ok(r.ordersPlaced >= 400, `placed ${r.ordersPlaced}`);
+    assert.ok((r.byIndication?.length ?? 0) >= 3, `inds ${(r.byIndication || []).map((x: { id: string }) => x.id).join(",")}`);
+    assert.ok((r.maxOrdersSeen || 0) >= 80, `maxOrd ${r.maxOrdersSeen}`);
+  });
+
   it("complete computations cover every live tactic, range and stage independently", () => {
     assert.ok(!LIVE_TACTICS.includes("dca"));
     const r = completeComputations(CFG, { symbolCount: 4, hours: [1] });
