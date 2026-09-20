@@ -30,7 +30,7 @@ describe("live feed", () => {
     assert.equal(BINGX_SYMBOL.PEPEUSDT, "1000PEPE-USDT");
     assert.equal(BINGX_SYMBOL.MATICUSDT, "POL-USDT");
     assert.equal(MAX_LIVE_NOTIONAL, 150);
-    assert.equal(MIN_SIZE_RATIO, 1.08);
+    assert.equal(MIN_SIZE_RATIO, 1);
   });
 
   it("lifts qty to exchange min × ratio", () => {

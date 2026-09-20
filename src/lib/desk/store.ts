@@ -349,7 +349,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   marginMode: "cross" as const,
   useMaxLeverage: true,
   leverage: 0,
-  minSizeRatio: 1.08,
+  minSizeRatio: 1,
   activePresetId: "",
   userPresets: [] as SettingsPreset[],
   strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
@@ -460,7 +460,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       marginMode: "cross" as const,
       useMaxLeverage: true,
       leverage: 0,
-      minSizeRatio: 1.08,
+      minSizeRatio: 1,
       activePresetId: "",
     });
     get().applyLiveConfig();

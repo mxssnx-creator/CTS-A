@@ -41,7 +41,7 @@ export interface LiveOrderResult {
 
 export const MAX_LIVE_NOTIONAL = 150;
 /** Size at least this multiple of exchange min qty / min notional. */
-export const MIN_SIZE_RATIO = 1.08;
+export const MIN_SIZE_RATIO = 1;
 
 /** Desk id → BingX swap contract. Omissions stay on the last quoted walk. */
 export const BINGX_SYMBOL: Record<string, string> = {

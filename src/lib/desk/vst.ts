@@ -1440,6 +1440,9 @@ function matchOrders(e: VstEngine) {
     if (qty <= 0) continue;
     const px = taker && o.type !== "ioc" ? q.px : o.side === "long" ? Math.min(o.price || q.px, q.px) : Math.max(o.price || q.px, q.px);
     applyFill(e, o, qty, px, o.filled > 0 ? "partial" : "entry");
+    if (o.status === "partial" && o.remaining > 0 && o.remaining <= Math.max(o.qty * 0.05, 1e-8)) {
+      applyFill(e, o, o.remaining, px, "partial");
+    }
     if (o.type === "ioc" && o.status === "partial") markTerminal(e, o, "cancelled");
   }
 }

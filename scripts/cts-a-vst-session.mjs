@@ -543,7 +543,7 @@ function writeSettingsPick(pick, extra = {}) {
     marginMode: "cross",
     useMaxLeverage: true,
     leverage: 0,
-    minSizeRatio: 1.08,
+    minSizeRatio: 1,
     shortRange: true,
     liveGrid: GRID.length,
     shortGrid: SHORT_GRID.length,
@@ -560,7 +560,7 @@ function writeSettingsPick(pick, extra = {}) {
     marginMode: "cross",
     useMaxLeverage: true,
     leverage: 0,
-    minSizeRatio: 1.08,
+    minSizeRatio: 1,
     ...extra,
   };
   try {
@@ -795,16 +795,12 @@ function sizeNotional(equity) {
   return Math.max(eq * 0.002, 1);
 }
 function liveNotional(e, f, equity, rel) {
-  const base = sizeNotional(equity);
-  const win = winningRelVolume(e, rel || { symbol: f.symbol, side: f.side });
-  let mul = 1 + win;
-  const short = rel?.kind === "short" || rel?.playbook === "short" || cfgUsesShortRange(currentPick?.cfg);
-  const blockHit = /Block/i.test(String(f?.note || rel?.playbook || rel?.note || "")) || rel?.playbook === "block" || short;
-  if (STRAT.block && blockHit) {
-    mul += Math.max(0.4, Math.min(1, Number(BLOCK.volumeRatio) || 0.4)) * Math.max(1, Number(rel?.blockLevel) || 1);
-  }
-  if (short) mul *= 0.85;
-  return base * Math.min(2.4, mul);
+  // 0 → liftQtyToMin = exact exchange min qty / min USDT. Block extras are separate orders, each lifted to min on top of the base lot.
+  void e;
+  void f;
+  void equity;
+  void rel;
+  return 0;
 }
 
 function mergeLivePositions(e, book) {
@@ -1039,6 +1035,13 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const strayN = strayOut.filter(Boolean).length;
   if (strayN) notes.push(`stray ${strayN}`);
 
+  const leftoverJobs = (book.orders ?? []).filter((o) => mayCancelOrder(o) && !kindOf(o.type));
+  if (leftoverJobs.length) {
+    const leftoverOut = await mapLimit(leftoverJobs.slice(0, 6), 2, cancelOne);
+    const n = leftoverOut.filter((r) => r?.ok).length;
+    if (n) notes.push(`partial ${n}`);
+  }
+
   const extraJobs = [];
   for (const [key, g] of grouped) {
     if (!liveOwnedSet.has(key)) continue;
@@ -1058,7 +1061,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       for (const extra of list.slice(1)) extraJobs.push({ tk, kind, extra });
     }
   }
-  const extraOut = await mapLimit(extraJobs.slice(0, 2), 1, async (job) => {
+  const extraOut = await mapLimit(extraJobs.slice(0, 4), 2, async (job) => {
     const r = await cancelOne(job.extra);
     if (r.ok) {
       trimHits.set(job.tk, (trimHits.get(job.tk) || 0) + 1);
@@ -1568,7 +1571,7 @@ async function mirrorToExchange(e, network, cfg) {
       _fromQueue: true,
     }));
   for (const f of [...e.fills, ...queueIntents]) {
-    if (fillJobs.length >= 2) break;
+    if (fillJobs.length >= 6) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
     if (e.lastTactic === "dca" || /dca/i.test(String(f.playbook || f.note || ""))) {
@@ -1618,7 +1621,7 @@ async function mirrorToExchange(e, network, cfg) {
     if (apiQuiet()) break;
     fillJobs.push(f);
   }
-  const fillOut = await mapLimit(fillJobs, 1, async (f) => {
+  const fillOut = await mapLimit(fillJobs, 2, async (f) => {
     try {
       const r = await withLiveBusy(() =>
         placeSwapOrder({
@@ -1692,7 +1695,7 @@ function intenseCheck(e, pick) {
 
 function applyExecFromSettings(remote) {
   if (!remote || typeof remote !== "object") {
-    configureLiveExecution({ hedgeMode: true, marginMode: "cross", useMaxLeverage: true, leverage: 0, minSizeRatio: 1.08 });
+    configureLiveExecution({ hedgeMode: true, marginMode: "cross", useMaxLeverage: true, leverage: 0, minSizeRatio: 1 });
     return;
   }
   configureLiveExecution({
@@ -1700,7 +1703,7 @@ function applyExecFromSettings(remote) {
     marginMode: remote.marginMode === "isolated" ? "isolated" : "cross",
     useMaxLeverage: true,
     leverage: 0,
-    minSizeRatio: Number(remote.minSizeRatio) || 1.08,
+    minSizeRatio: Number(remote.minSizeRatio) || 1,
   });
 }
 
