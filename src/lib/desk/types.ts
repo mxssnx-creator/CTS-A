@@ -272,6 +272,8 @@ export interface BlockConfig {
   endStageOnly: boolean;
   cadence: number;
   overall: boolean;
+  /** Lane/set Block adds. Off = Overall-only. Default true. */
+  sets?: boolean;
   counts: number[];
   volumeRatio: number;
   /** Overall Block (all positions, independent of lanes). Default 1. */
@@ -822,11 +824,39 @@ export interface SimReport {
   maxWinStreak: number;
   maxLossStreak: number;
   bySymbol: { id: string; trades: number; net: number; wr: number; pf: number; sl: number; tp: number }[];
-  hourly: { h: number; net: number; trades: number; eq: number }[];
+  hourly: {
+    h: number;
+    net: number;
+    trades: number;
+    eq: number;
+    pf?: number;
+    wr?: number;
+    mdd?: number;
+    ddt?: number;
+    pos?: number;
+    slots?: number;
+    orders?: number;
+    queued?: number;
+    sl?: number;
+    tp?: number;
+    netCum?: number;
+    vol?: number;
+    notional?: number;
+    blockOrd?: number;
+  }[];
   avgR: number;
   rHist: { bin: string; n: number }[];
   book: BookCounts;
   marks?: HorizonMark[];
+  ddt?: number;
+  avgPositions?: number;
+  avgOrders?: number;
+  avgSlots?: number;
+  avgBlockOrd?: number;
+  avgNotional?: number;
+  startEquity?: number;
+  costStep?: number;
+  unitNotional?: number;
 }
 
 export interface HorizonMark {
@@ -999,6 +1029,7 @@ export interface VstEngine {
   lastHeal: string;
   tpRatio: number;
   costStep: number;
+  startEquity?: number;
   lastTactic: TacticKind;
   lastRange: RangeType;
   lastBlockAt: number;

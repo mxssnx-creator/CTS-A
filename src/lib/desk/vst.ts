@@ -785,6 +785,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.ledger.maxDdt = e.ledger.maxDdt ?? 0;
   if (!e.stats) e.stats = emptyStats();
   e.stats.ddt = e.stats.ddt ?? 0;
+  e.startEquity = Number(e.startEquity) > 0 ? Number(e.startEquity) : 1e4;
   e.closed = e.closed ?? [];
   e.fills = e.fills ?? [];
   e.orders = e.orders ?? [];
@@ -835,7 +836,13 @@ export function ensureEngine(e: VstEngine): VstEngine {
   return e;
 }
 
-export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: number; symbolCount?: number; orderType?: OrderTypeId; arm?: boolean; block?: BlockConfig } = {}): VstEngine {
+export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: number; symbolCount?: number; orderType?: OrderTypeId; arm?: boolean; block?: BlockConfig; equity?: number; costStep?: number } = {}): VstEngine {
+  const startEq = Number(opts.equity) > 0 ? Number(opts.equity) : 1e4;
+  const costStep = Number.isFinite(Number(opts.costStep)) ? Math.min(30, Math.max(3, Number(opts.costStep))) : 10;
+  const stats = emptyStats();
+  stats.equity = startEq;
+  const ledger = emptyLedger();
+  ledger.peak = startEq;
   const engine: VstEngine = {
     quotes: mkQuotes(),
     queue: [],
@@ -854,8 +861,8 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
       "bingx-vst-02": VST_RATE_BURST,
       "bingx-x01": VST_RATE_BURST,
     },
-    stats: emptyStats(),
-    ledger: emptyLedger(),
+    stats,
+    ledger,
     sim: null,
     cooldown: {},
     symbolCount: clampSymbolCount(opts.symbolCount ?? VST_MAX_SYMBOLS),
@@ -865,7 +872,8 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     healCount: 0,
     lastHeal: "",
     tpRatio: snapTpRatio(cfg.tpRatio ?? TP_SL_RATIO),
-    costStep: 10,
+    costStep,
+    startEquity: startEq,
     lastTactic: "hybrid",
     lastRange: "fibonacci",
     lastBlockAt: 0,
@@ -1884,7 +1892,8 @@ export function syncLivePartials(
 function recomputeStats(e: VstEngine) {
   const unreal = e.positions.reduce((s, p) => s + p.unrealized, 0);
   const net = e.ledger.profit - e.ledger.loss + unreal;
-  const equity = 1e4 + net;
+  const base = Number(e.startEquity) > 0 ? Number(e.startEquity) : 1e4;
+  const equity = base + net;
   if (equity > e.ledger.peak) e.ledger.peak = equity;
   const dd = e.ledger.peak > 0 ? Math.max(0, (e.ledger.peak - equity) / e.ledger.peak) : 0;
   if (dd > e.ledger.maxMdd) e.ledger.maxMdd = dd;
@@ -3351,7 +3360,7 @@ export function adjustActiveBlocks(
                   rangeType: p.controllingRange ?? rangeType,
                   playbook: p.playbook,
                 }) * lane.baseQty;
-          if (!lane.satisfied[next] && !liveRelLevels.has(next) && lane.pending !== next && relQty + 1e-12 < relCap && blockPfOk(lane, next, block, minPf)) {
+          if (block.sets !== false && !lane.satisfied[next] && !liveRelLevels.has(next) && lane.pending !== next && relQty + 1e-12 < relCap && blockPfOk(lane, next, block, minPf)) {
             enqueue("relation", next, vrModeRel, extra);
           }
           if (overall && overallVolumeModes(block).includes(mode) && !liveOvLevels.has(next) && ovQty + 1e-12 < ovCap) {
@@ -3704,19 +3713,23 @@ export function horizonFromEngine(e: VstEngine, hours: number, _peak?: number): 
   };
 }
 
-export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig }) {
+export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig; equity?: number; costStep?: number }) {
   const ticks = Math.max(1, Math.round(hours * TICKS_PER_HOUR));
   const rangeType = opts?.rangeType ?? "atr";
+  const startEq = Number(opts?.equity) > 0 ? Number(opts.equity) : 1e4;
+  const costStep = Number.isFinite(Number(opts?.costStep)) ? Math.min(30, Math.max(3, Number(opts?.costStep))) : 10;
   const engine = initVstEngine(cfg, {
     warmup: 0,
     symbolCount: opts?.symbolCount,
     orderType: opts?.orderType,
     block: opts?.block,
+    equity: startEq,
+    costStep,
   });
-  let peak = 1e4;
+  let peak = startEq;
   const curve = [{
     t: 0,
-    eq: 1e4,
+    eq: startEq,
     dd: 0
   }];
   const sampleEvery = Math.max(1, Math.round(ticks / 24));
@@ -3726,6 +3739,11 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   let hourTrades = 0;
   let prevClosed = 0;
   let prevNet = 0;
+  let posSum = 0;
+  let ordSum = 0;
+  let slotSum = 0;
+  let blockOrdSum = 0;
+  let notionalSum = 0;
   const rSlots = [
     {
       bin: "< −1R",
@@ -3788,6 +3806,20 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     const eq = engine.stats.equity;
     if (eq > peak) peak = eq;
     const dd = peak > 0 ? Math.max(0, (peak - eq) / peak) : 0;
+    posSum += engine.positions.length;
+    ordSum += engine.stats.openOrders || engine.orders.filter((o) => o.status === "open" || o.status === "partial").length;
+    slotSum += bookCounts(engine).positions.slots;
+    let hourNotional = 0;
+    let hourBlock = 0;
+    for (const p of engine.positions) {
+      hourNotional += Math.abs(p.qty * p.avgEntry);
+      if (p.playbook === "block" || /Block/i.test(String(p.note || ""))) hourBlock += 1;
+    }
+    for (const o of engine.orders) {
+      if (o.playbook === "block" || /Block/i.test(String(o.note || ""))) hourBlock += 1;
+    }
+    blockOrdSum += hourBlock;
+    notionalSum += hourNotional;
     if ((i + 1) % sampleEvery === 0) curve.push({
       t: (i + 1) / TICKS_PER_HOUR,
       eq,
@@ -3799,11 +3831,26 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       prevClosed = engine.ledger.trades;
       const hourNet = engine.stats.net - prevNet;
       prevNet = engine.stats.net;
+      const book = bookCounts(engine);
       hourly.push({
         h,
         net: hourNet,
         trades: hourTrades,
-        eq
+        eq,
+        pf: engine.stats.pf,
+        wr: engine.stats.wr,
+        mdd: engine.stats.mdd,
+        ddt: engine.stats.ddt,
+        pos: engine.positions.length,
+        slots: book.positions.slots,
+        orders: book.orders.working,
+        queued: book.orders.queued,
+        sl: engine.ledger.slExits,
+        tp: engine.ledger.tpExits,
+        netCum: engine.stats.net,
+        vol: engine.relVolumeFactor ?? 0,
+        notional: hourNotional,
+        blockOrd: hourBlock,
       });
       if (markAt.has(h)) marks.push(horizonFromEngine(engine, h, peak));
     }
@@ -3861,7 +3908,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     expectancy: trades ? engine.stats.net / trades : 0,
     avgWin: wins ? profit / wins : 0,
     avgLoss: trades - wins ? loss / (trades - wins) : 0,
-    recovery: engine.stats.mdd > 1e-9 ? engine.stats.net / (engine.stats.mdd * 1e4) : engine.stats.net > 0 ? 8 : 0,
+    recovery: engine.stats.mdd > 1e-9 ? engine.stats.net / (engine.stats.mdd * startEq) : engine.stats.net > 0 ? 8 : 0,
     profit,
     loss,
     maxWinStreak: engine.ledger.maxWinStreak,
@@ -3871,7 +3918,16 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     avgR,
     rHist,
     book: bookCounts(engine),
-    marks
+    marks,
+    ddt: engine.stats.ddt,
+    avgPositions: ticks ? posSum / ticks : 0,
+    avgOrders: ticks ? ordSum / ticks : 0,
+    avgSlots: ticks ? slotSum / ticks : 0,
+    avgBlockOrd: ticks ? blockOrdSum / ticks : 0,
+    avgNotional: ticks ? notionalSum / ticks : 0,
+    startEquity: startEq,
+    costStep,
+    unitNotional: positionNotional(startEq, costStep),
   };
   engine.sim = report;
   engine.lastMsg = report.passed ? `${hours}h sim passed · ${report.trades} trades · PF ${report.pf.toFixed(2)}` : `${hours}h sim issues: ${issues.slice(0, 3).join("; ")}`;

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   getReplayTape,
   INDICATION_KINDS,
@@ -98,6 +98,37 @@ export function ResultsView() {
   const exchange = liveSnap.exchange;
   const session = liveSnap.session as Awaited<ReturnType<typeof loadVstSession>> | null;
   const file = liveSnap.overall as Awaited<ReturnType<typeof loadOverallStats>> | null;
+  const [paper, setPaper] = useState<{
+    hours?: number;
+    symbols?: number;
+    equity?: number;
+    unitNotional?: number;
+    cells?: {
+      label: string;
+      tactic: string;
+      pf: number;
+      wr: number;
+      net: number;
+      trades: number;
+      mdd: number;
+      ddt?: number;
+      avgPositions?: number;
+      avgOrders?: number;
+      avgNotional?: number;
+    }[];
+  } | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch("/sim-72h-1usd.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (live) setPaper(j);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
   const liveNow = useMemo(() => {
     if (liveSnap.hasLive) return null;
     return overallLiveStats(useDesk.getState().vst);
@@ -308,6 +339,47 @@ export function ResultsView() {
           Live {liveSnap.venueLabel} executions, independent indication and strategy stats, PF / DDT, and config matrix.
         </p>
       </div>
+      {paper?.cells?.length ? (
+        <Panel title={`Paper 72h × ${paper.symbols ?? 120} · $${paper.equity ?? 1} · min volume`}>
+          <p className="text-sm text-muted">
+            Local sim, not live tape. Unit {fmtUsd(paper.unitNotional ?? 0)} · Block off / Sets / Overall.
+            {" "}
+            <a className="text-primary underline-offset-2 hover:underline" href="/sim-72h-1usd.html" target="_blank" rel="noreferrer">
+              Hourly HTML
+            </a>
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-widest text-subtle">
+                  <th className="py-2 pr-3">Block</th>
+                  <th className="py-2 pr-3">Tactic</th>
+                  <th className="py-2 pr-3">PF</th>
+                  <th className="py-2 pr-3">N</th>
+                  <th className="py-2 pr-3">Net</th>
+                  <th className="py-2 pr-3">DDT</th>
+                  <th className="py-2 pr-3">Avg pos</th>
+                  <th className="py-2">Notional</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paper.cells.map((c) => (
+                  <tr key={`${c.label}-${c.tactic}`} className="border-t border-border">
+                    <td className="py-2 pr-3 font-medium">{c.label}</td>
+                    <td className="py-2 pr-3">{c.tactic}</td>
+                    <td className={`py-2 pr-3 font-mono tabular ${c.pf >= 1 ? "text-up" : "text-down"}`}>{fmtPf(c.pf)}</td>
+                    <td className="py-2 pr-3 font-mono tabular">{c.trades}</td>
+                    <td className={`py-2 pr-3 font-mono tabular ${c.net >= 0 ? "text-up" : "text-down"}`}>{fmtUsd(c.net)}</td>
+                    <td className="py-2 pr-3 font-mono tabular">{fmtNum(c.ddt ?? 0, 0)}</td>
+                    <td className="py-2 pr-3 font-mono tabular">{fmtNum(c.avgPositions ?? 0, 2)}</td>
+                    <td className="py-2 font-mono tabular">{fmtUsd(c.avgNotional ?? 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      ) : null}
       <Panel title={`Live exchange executions · ${liveSnap.venueLabel}`}>
         <p className="text-sm text-muted">
           Realized PnL and filled orders from BingX. Independent listings below cover every indication,
