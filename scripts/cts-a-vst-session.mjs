@@ -1099,9 +1099,9 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     };
     const protectQty = (availUsdt = 0) => {
       let q = p.qty;
-      if (availUsdt > 0 && px > 0) q = Math.min(q, (availUsdt * 0.99) / px);
+      if (availUsdt > 0 && px > 0) q = Math.min(q, (availUsdt * 0.98) / px);
       q = snapQtyDown(q, spec);
-      if (!(q > 0)) q = snapQtyDown(p.qty, spec);
+      if (!(q > 0) && !(availUsdt > 0)) q = snapQtyDown(p.qty, spec);
       return q;
     };
     if (driftSl || driftTp) {
@@ -1114,30 +1114,37 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (driftTp) hasTp.delete(key);
       n += drop.length;
     }
-    const placeProtect = async (type, qty) => {
+    const placeProtect = async (type, qty, closeAll = true) => {
       const body = {
         network,
         connId: CONN,
         symbol: p.symbol,
         side: p.side === "long" ? "SELL" : "BUY",
         positionSide: p.side === "long" ? "LONG" : "SHORT",
-        quantity: qty,
+        quantity: closeAll ? 0 : qty,
         type,
         price: px,
         stopPrice: type === "STOP_MARKET" ? prot.sl : prot.tp,
-        notional: Math.max(1, qty * px),
+        notional: Math.max(1, (closeAll ? p.qty : qty) * px),
         confirmLive: true,
         slAtr,
         tpRatio,
         attachProtect: false,
-        closePosition: false,
+        closePosition: closeAll,
         reduceOnly: false,
       };
       let r = await withLiveBusy(() => placeSwapOrder(body));
       n += 1;
-      if (!r.ok && closeRetry(r.error)) {
-        r = await withLiveBusy(() => placeSwapOrder({ ...body, reduceOnly: false, closePosition: false, quantity: 0 }));
+      if (!r.ok && closeRetry(r.error) && closeAll) {
+        r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: true, quantity: 0 }));
         n += 1;
+      }
+      if (!r.ok && closeRetry(r.error) && closeAll) {
+        const q2 = protectQty(parseAvailableUsdt(r.error));
+        if (q2 > 0) {
+          r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: false, quantity: q2, notional: Math.max(1, q2 * px) }));
+          n += 1;
+        }
       }
       return r;
     };
@@ -1145,13 +1152,13 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       let qty = protectQty();
       if (!(qty > 0) && !(p.qty > 0)) return `${kind} skip ${p.symbol} qty`;
       mirrored.add(tag);
-      let r = await placeProtect(type, qty);
+      let r = await placeProtect(type, qty, true);
       if (!r.ok && parseAvailableUsdt(r.error) > 0) {
         qty = protectQty(parseAvailableUsdt(r.error));
-        r = await placeProtect(type, qty > 0 ? qty : 0);
+        r = await placeProtect(type, qty, qty <= 0);
       }
       if (!r.ok && /available amount|quantity/i.test(String(r.error || ""))) {
-        r = await placeProtect(type, 0);
+        r = await placeProtect(type, 0, true);
       }
       if (!r.ok) {
         mirrored.delete(tag);
@@ -1205,7 +1212,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       ((tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.08) || tpTight);
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift });
   }
-  for (let i = 0; i < Math.min(need.length, 2) && posts < 4; i += 1) {
+  for (let i = 0; i < Math.min(need.length, 8) && posts < 16; i += 1) {
     if (apiQuiet()) break;
     const row = need[i];
     const r = await protectOne(row.p, row.slDrift, row.tpDrift);
