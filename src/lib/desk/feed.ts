@@ -47,7 +47,7 @@ export const MIN_SIZE_RATIO = 1;
 export function liveEntryBudget(equity: number, minNotional = 2) {
   const eq = Math.max(0, Number(equity) || 0);
   void minNotional;
-  if (!(eq >= 0.01)) return { trade: false, block: false, maxNew: 0, maxPos: 0, reason: "empty" as const };
+  if (!(eq >= 0.001)) return { trade: false, block: false, maxNew: 0, maxPos: 0, reason: "empty" as const };
   if (eq < 8) return { trade: true, block: false, maxNew: 1, maxPos: 24, reason: "low" as const };
   if (eq < 20) return { trade: true, block: false, maxNew: 2, maxPos: 40, reason: "lean" as const };
   if (eq < 50) return { trade: true, block: true, maxNew: 2, maxPos: 50, reason: "ok" as const };
