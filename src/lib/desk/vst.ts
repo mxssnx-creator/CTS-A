@@ -88,7 +88,7 @@ const DEFAULT_CFG: TacticConfig = {
 export const TP_SL_RATIO = 1;
 export const SL_ATR_MULT = 1;
 export const VST_MAX_SYMBOLS = 120;
-export const VST_MAX_POSITIONS = 100;
+export const VST_MAX_POSITIONS = 240;
 export const VST_BATCH_SIZE = 20;
 export const VST_RATE_PER_SEC = 10;
 export const VST_RATE_BURST = 20;
@@ -96,8 +96,8 @@ export const VST_RATE_WINDOW = 100;
 export const VST_TICK_MS = 400;
 export const VST_MINUTES_PER_TICK = 1;
 export const TICKS_PER_HOUR = 60;
-export const VST_MAX_WORKING_ORDERS = 400;
-export const VST_MAX_QUEUE = 250;
+export const VST_MAX_WORKING_ORDERS = 1200;
+export const VST_MAX_QUEUE = 800;
 export const VST_MAX_BATCHES = 12;
 export const VST_FILL_KEEP = 240;
 export const VST_CONN_IDS = ["bingx-vst-01", "bingx-vst-02"] as const;
@@ -3085,9 +3085,11 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   lane.confirmedAdd += take;
   const n = Math.max(1, o.level || lane.pending || 1);
   const cfg = e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
-  const vr = clampBlockVol(cfg.volumeRatio);
   const mode = blockModeOf(o);
-  const target = lane.baseQty * (mode === "shared" ? blockMaxAdditionalRatio(n, vr, cfg.maxVolumeMultiplier || 1.8, mode) : n * vr);
+  const vr = mode === "shared" ? clampSharedVol(cfg.sharedVolumeRatio) : clampBlockVol(cfg.volumeRatio);
+  const target =
+    lane.baseQty *
+    (mode === "shared" ? blockMaxAdditionalRatio(n, vr, cfg.maxVolumeMultiplier || 2.5, mode) : n * vr);
   const done = o.remaining <= 1e-12;
   if (done) {
     if (lane.confirmedAdd + 1e-12 >= target) lane.satisfied[n] = true;
@@ -3260,7 +3262,10 @@ export function adjustActiveBlocks(
 
   if (block.stack !== false && e.queue.filter((o) => o.connId === conn).length < VST_MAX_QUEUE - 2) {
     let adds = 0;
-    const addCap = Math.min(64, Math.max(counts.length * volModes.length * 4, 12));
+    const addCap = Math.min(
+      VST_MAX_QUEUE - 8,
+      Math.max(counts.length * volModes.length * Math.max(8, e.positions.length), 48),
+    );
     for (const p of e.positions) {
       if (adds >= addCap) break;
       if (!ownedByDesk(p, conn)) continue;
@@ -3288,7 +3293,15 @@ export function adjustActiveBlocks(
         let relQty = liveBlock.filter((o) => !isOverallBlockOrder(o)).reduce((s, o) => s + Math.max(0, o.qty || 0), 0);
         let modeAdds = 0;
         const enqueue = (kind: "relation" | "overall", next: number, vr: number, extraQty: number) => {
-          const step = blockStepQty(lane.baseQty, next, vr, Math.max(block.maxVolumeMultiplier || 1.8, 1 + vr), counts.length, 0, mode);
+          const step = blockStepQty(
+            lane.baseQty,
+            next,
+            vr,
+            Math.max(block.maxVolumeMultiplier || 2.5, 1 + vr, 2),
+            1,
+            0,
+            mode,
+          );
           const qty = step + extraQty;
           if (!(qty > 0)) return false;
           const hi = pickRange(q, cfg, rangeType);
@@ -3345,7 +3358,7 @@ export function adjustActiveBlocks(
           if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
           const vrModeRel = mode === "shared" ? vrShared : vrRel;
           const vrModeOv = mode === "shared" ? vrShared : vrOv;
-          const maxMul = Math.max(block.maxVolumeMultiplier || 1.8, 1 + vrShared, 1 + vrOv);
+          const maxMul = Math.max(block.maxVolumeMultiplier || 2.5, 1 + vrShared, 1 + vrOv, 2);
           const relCap = lane.baseQty * (mode === "additive" ? next * vrModeRel : blockMaxAdditionalRatio(next, vrModeRel, maxMul, mode));
           const ovCap = lane.baseQty * (mode === "additive" ? next * vrModeOv : blockMaxAdditionalRatio(next, vrModeOv, maxMul, mode));
           const extra =
@@ -3383,7 +3396,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   ensureEngine(e);
   if (opts?.skipWalk) e.liveTape = true;
   const t0 = Date.now();
-  const over = () => Date.now() - t0 > 90;
+  const over = () => Date.now() - t0 > (e.symbolCount >= 80 ? 400 : 90);
   if (opts?.symbolCount != null) e.symbolCount = clampSymbolCount(opts.symbolCount);
   if (opts?.orderType) e.orderType = opts.orderType;
   e.tpRatio = snapTpRatio(cfg.tpRatio);

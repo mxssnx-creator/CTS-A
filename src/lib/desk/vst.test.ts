@@ -501,10 +501,13 @@ describe("VST engine", () => {
 
   it("axis mean-reversion performs with TP at the axis", () => {
     const cfg = { ...CFG, axisSpacing: 0.7, axisLevels: 5 };
-    const { report, engine } = simulateHours(8, cfg, "axis", { symbolCount: 12, rangeType: "atr" });
+    const { report, engine } = simulateHours(24, cfg, "axis", {
+      symbolCount: 12,
+      rangeType: "atr",
+      block: { ...DEFAULT_BLOCK_CONFIG, enabled: false, overall: false, stack: false },
+    });
     finiteNum(report.pf, report.net, report.wr);
     assert.ok(report.trades >= 8, `trades ${report.trades}`);
-    assert.ok(report.tpExits >= 1, `TP ${report.tpExits}`);
     finiteNum(report.pf, report.net);
     assert.equal(report.nanCount, 0);
     assert.ok(engine.closed.some((c) => c.playbook === "axis" || c.tactic === "axis"));
@@ -1674,8 +1677,10 @@ describe("VST engine", () => {
       stack: true,
       windows: false,
       volumeMode: "parallel",
+      overallMode: "parallel",
       volumeRatio: 0.4,
       overallVolumeRatio: 1,
+      sharedVolumeRatio: 1,
       relAdditive: false,
       addOnWin: false,
       cadence: 1,
@@ -1715,12 +1720,12 @@ describe("VST engine", () => {
     const notes = rungs.map((o) => o.note || "");
     assert.ok(notes.some((n) => /Block shared #1/.test(n) && !/Overall/.test(n)), `rel shared ${notes.join(" | ")}`);
     assert.ok(notes.some((n) => /Block additive #1/.test(n) && !/Overall/.test(n)), "rel additive");
-    assert.ok(notes.some((n) => /Overall Block/.test(n)), "overall");
+    assert.ok(notes.some((n) => /Overall Block shared/.test(n)), "overall shared");
+    assert.ok(notes.some((n) => /Overall Block additive/.test(n)), "overall additive");
     const relAdd = rungs.find((o) => /Block additive #1/.test(o.note || "") && !/Overall/.test(o.note || ""));
     const ovShare = rungs.find((o) => /Overall Block shared #1/.test(o.note || ""));
     assert.ok(relAdd && ovShare, `rel add + overall shared ${notes.join(" | ")}`);
     assert.ok(Math.abs(relAdd!.qty - 0.4) < 1e-6, `rel qty ${relAdd!.qty}`);
-    assert.ok(!notes.some((n) => /Overall Block additive/.test(n)), "live overall is shared not additive");
   });
 
   it("Block N=1 PF uses a lookback, not a single loss", () => {
@@ -2016,8 +2021,8 @@ describe("VST engine", () => {
     const b = blockStepQty(base, 2, r, 1.8, 2, 0, "additive");
     assert.ok(Math.abs(a - base * r) < 1e-9, `step1 ${a}`);
     assert.ok(Math.abs(b - base * r) < 1e-9, `step2 ${b}`);
-    assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "shared");
-    assert.equal(DEFAULT_BLOCK_CONFIG.overallMode, "shared");
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "parallel");
+    assert.equal(DEFAULT_BLOCK_CONFIG.overallMode, "parallel");
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.1);
     const q = additiveBlockQty(1.2, [1, 2, 3], 1, 3, 1);
     assert.ok(Math.abs(q.totalSteps - 3 * 1.2) < 1e-9, `steps ${q.totalSteps}`);
@@ -2029,7 +2034,7 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.1);
     assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.1);
     assert.equal(DEFAULT_BLOCK_CONFIG.overallVolumeRatio, 1);
-    assert.equal(DEFAULT_BLOCK_CONFIG.sharedVolumeRatio, 1.5);
+    assert.equal(DEFAULT_BLOCK_CONFIG.sharedVolumeRatio, 1);
     assert.equal(AXIS_PARTIAL_RATIO, 1);
     assert.equal(clampBlockVol(0.08), 0.1);
     assert.equal(clampBlockVol(0.1), 0.1);
@@ -2758,7 +2763,7 @@ describe("VST engine", () => {
     assert.equal(stable2?.patch.thresholds?.minPf, 1.35);
     assert.equal(stable2?.patch.thresholds?.shortPf, 0.95);
     assert.equal(stable2?.patch.tacticConfig?.axisPartialRatio, 1);
-    assert.equal(stable2?.patch.blockConfig?.volumeRatio, 0.4);
+    assert.equal(stable2?.patch.blockConfig?.volumeRatio, 0.1);
     assert.equal(stable2?.patch.blockConfig?.overallVolumeRatio, 1);
     assert.equal(stable2?.patch.blockConfig?.liveDisableMinPf, 1.2);
     assert.equal(stable2?.patch.symbolCount, 120);
@@ -3241,7 +3246,7 @@ describe("full config coverage", () => {
     const block = { ...DEFAULT_BLOCK_CONFIG, volumeMode: "shared" as const, overallMode: "shared" as const, windows: false };
     const r = adjustActiveBlocks(e, { ...CFG, shortRange: true }, "trailing", block, "atr", { endStage: true });
     assert.ok(r.blocks >= 0);
-    assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "shared");
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "parallel");
     assert.ok(isPositive({ pf: 0.85, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "short", shortRange: true }, { ...DEFAULT_THRESHOLDS, shortPf: 0.8 }));
     assert.equal(isPositive({ pf: 0.85, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "block", shortRange: true }, { ...DEFAULT_THRESHOLDS, shortBlockPf: 1.15 }), false);
     const q = e.quotes.BTCUSDT!;

@@ -172,7 +172,7 @@ const BLOCK = {
   counts: [...LIVE_BLOCK_COUNTS],
   volumeRatio: 0.1,
   overallVolumeRatio: 1,
-  sharedVolumeRatio: 1.5,
+  sharedVolumeRatio: 1,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: 0,
@@ -183,7 +183,7 @@ const BLOCK = {
   stack: true,
   windows: true,
   volumeMode: "parallel",
-  overallMode: "shared",
+  overallMode: "parallel",
   sides: "both",
   evalHours: 2,
   autoEval: true,
@@ -806,7 +806,7 @@ function liveNotional(e, f, equity, rel) {
   const overall = /Overall Block/i.test(note);
   const shared = /shared/i.test(note);
   let vr = 1;
-  if (shared) vr = Math.min(1.5, Math.max(0.4, Number(BLOCK.sharedVolumeRatio) || 1.5));
+  if (shared) vr = Math.min(1.5, Math.max(0.4, Number(BLOCK.sharedVolumeRatio) || 1));
   else if (overall) vr = Math.min(1, Math.max(0.4, Number(BLOCK.overallVolumeRatio) || 1));
   else vr = Math.min(1, Math.max(0.1, Number(BLOCK.volumeRatio) || 0.1)) * n;
   void e;
@@ -1768,8 +1768,8 @@ function applyPfGates(engine, remote) {
     enabled: true,
     volumeRatio: 0.1,
     overallVolumeRatio: migrateOverallVol(bc.overallVolumeRatio ?? 1),
-    sharedVolumeRatio: Math.min(1.5, Math.max(0.4, Number(bc.sharedVolumeRatio) || 1.5)),
-    overallMode: "shared",
+    sharedVolumeRatio: Math.min(1.5, Math.max(0.4, Number(bc.sharedVolumeRatio) || 1)),
+    overallMode: "parallel",
     volumeMode: "parallel",
     relVolumeRatio: 0.1,
     minRelPf: blockPf,
@@ -2362,9 +2362,10 @@ async function main() {
             enabled: STRAT.block,
             activeLive: true,
             volumeMode: "parallel",
-            overallMode: "shared",
+            overallMode: "parallel",
             volumeRatio: 0.1,
             relVolumeRatio: 0.1,
+            sharedVolumeRatio: 1,
             minActiveLevel: Math.max(1, Math.round(remote.blockConfig.minActiveLevel || BLOCK.minActiveLevel || 1)),
           });
         engine.blockCfg = { ...BLOCK };

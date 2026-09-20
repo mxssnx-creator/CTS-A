@@ -494,7 +494,7 @@ export const DEFAULT_SHORT_AXIS_PF = 0.9;
 export const DEFAULT_SHORT_BLOCK_PF = 1.15;
 export const DEFAULT_BLOCK_VOLUME_RATIO = 0.1;
 export const DEFAULT_OVERALL_BLOCK_VOLUME_RATIO = 1;
-export const DEFAULT_SHARED_BLOCK_VOLUME_RATIO = 1.5;
+export const DEFAULT_SHARED_BLOCK_VOLUME_RATIO = 1;
 export const BLOCK_VOLUME_RATIO_MIN = 0.1;
 export const BLOCK_VOLUME_RATIO_MAX = 1;
 export const BLOCK_SHARED_VOLUME_MAX = 1.5;
@@ -584,7 +584,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   volumeRatio: DEFAULT_BLOCK_VOLUME_RATIO,
   overallVolumeRatio: DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
   sharedVolumeRatio: DEFAULT_SHARED_BLOCK_VOLUME_RATIO,
-  maxVolumeMultiplier: 1.8,
+  maxVolumeMultiplier: 2.5,
   pfRatio: 1.45,
   pauseCountRatio: 0,
   evalPosCount: 6,
@@ -593,8 +593,8 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   keepAdjusted: true,
   stack: true,
   windows: true,
-  volumeMode: "shared",
-  overallMode: "shared",
+  volumeMode: "parallel",
+  overallMode: "parallel",
   sides: "both",
   evalHours: 2,
   autoEval: true,

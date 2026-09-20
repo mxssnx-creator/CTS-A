@@ -1537,7 +1537,7 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Shared Block vol"
-              value={blockCfg.sharedVolumeRatio ?? 1.5}
+              value={blockCfg.sharedVolumeRatio ?? 1}
               min={0.4}
               max={1.5}
               step={0.05}
