@@ -33,6 +33,7 @@ import {
   cfgUsesShortRange,
   clampBlockVol,
   clampSharedVol,
+  clampOverallVol,
   clampAxisPartial,
   tpRatioOf,
   STAGE_HOURS,
@@ -279,7 +280,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
           return rawCounts.length ? rawCounts.slice(0, 16) : [1, 2];
         })(),
         volumeRatio: clampBlockVol(asNum(b.volumeRatio, d.blockConfig.volumeRatio ?? 0.1)),
-        overallVolumeRatio: clampBlockVol(asNum((b as { overallVolumeRatio?: number }).overallVolumeRatio, d.blockConfig.overallVolumeRatio ?? 1), 1),
+        overallVolumeRatio: clampOverallVol(asNum((b as { overallVolumeRatio?: number }).overallVolumeRatio, d.blockConfig.overallVolumeRatio ?? 1)),
         sharedVolumeRatio: clampSharedVol(asNum((b as { sharedVolumeRatio?: number }).sharedVolumeRatio, d.blockConfig.sharedVolumeRatio ?? 1)),
         maxVolumeMultiplier: Math.min(5, Math.max(1.2, asNum(b.maxVolumeMultiplier, d.blockConfig.maxVolumeMultiplier ?? 1.8))),
         pfRatio: Math.min(5, Math.max(1.25, asNum(b.pfRatio, d.blockConfig.pfRatio ?? 1.45))),

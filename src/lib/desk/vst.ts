@@ -60,6 +60,7 @@ import {
   clampBlockVol,
   DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
   clampSharedVol,
+  clampOverallVol,
   DEFAULT_SHARED_BLOCK_VOLUME_RATIO,
   clampAxisPartial,
   trailStopFromPeak,
@@ -67,6 +68,7 @@ import {
   refreshLiveIndications,
   symbolSideSet,
   STAGE_HOURS,
+  SHORT_EVAL_HOURS,
   SYMBOL_EVAL_HOURS,
   SYMBOL_HOUR_WINDOWS,
   sanitizeShortProgress,
@@ -838,7 +840,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.completeSim = e.completeSim ?? false;
   if (e.blockCfg) {
     e.blockCfg.volumeRatio = clampBlockVol(e.blockCfg.volumeRatio);
-    e.blockCfg.overallVolumeRatio = clampBlockVol(e.blockCfg.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO, DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
+    e.blockCfg.overallVolumeRatio = clampOverallVol(e.blockCfg.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
     e.blockCfg.sharedVolumeRatio = clampSharedVol(e.blockCfg.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO);
     e.blockCfg.relVolumeRatio = clampBlockVol(e.blockCfg.relVolumeRatio ?? e.blockCfg.volumeRatio);
     if (e.blockCfg.overallMode !== "additive" && e.blockCfg.overallMode !== "parallel") e.blockCfg.overallMode = "shared";
@@ -3343,7 +3345,7 @@ export function adjustActiveBlocks(
   const counts = liveBlockCounts(block);
   const vrRel = clampBlockVol(block.volumeRatio);
   const vrShared = clampSharedVol(block.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO);
-  const vrOv = clampBlockVol(block.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO, DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
+  const vrOv = clampOverallVol(block.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
   const minPf = block.minRelPf ?? minPfFor(e, "block");
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
   const overall = block.overall !== false;
@@ -5025,8 +5027,11 @@ export async function completeComputationsAsync(
   const t0 = Date.now();
   const cells: CompleteCell[] = [];
   const combos = opts?.protect === false ? [] : allTpSlCombos();
-  const shorts = opts?.protect === false ? [] : allShortTpSlCombos();
-  const total = LIVE_TACTICS.length * RANGE_TYPES.length * hours.length + (combos.length + shorts.length) * LIVE_TACTICS.length;
+  const shortHours = hours.includes(SHORT_EVAL_HOURS) ? [SHORT_EVAL_HOURS] : [Math.max(...hours)];
+  const shorts = opts?.protect === false ? [] : liveShortProtectCombos();
+  const shortTactics: TacticKind[] = ["trailing"];
+  const total =
+    LIVE_TACTICS.length * RANGE_TYPES.length * hours.length + combos.length * LIVE_TACTICS.length + shorts.length * shortTactics.length * shortHours.length;
   let i = 0;
   for (const tactic of LIVE_TACTICS) {
     for (const range of RANGE_TYPES) {
@@ -5051,10 +5056,10 @@ export async function completeComputationsAsync(
       await yieldFn();
     }
   }
-  for (const tactic of LIVE_TACTICS) {
+  for (const tactic of shortTactics) {
     for (const prot of shorts) {
       const cfg2 = { ...cfg, slAtr: prot.slAtr, tpRatio: prot.tpRatio, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp, shortRange: true };
-      const batch = completeCellsForPair(cfg2, tactic, "atr", [4], Math.min(8, symbolCount));
+      const batch = completeCellsForPair(cfg2, tactic, "atr", shortHours, Math.min(8, symbolCount));
       for (const cell of batch) {
         cells.push({ ...cell, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp, slAtr: prot.slAtr, tpRatio: prot.tpRatio, shortRange: true });
         i += 1;

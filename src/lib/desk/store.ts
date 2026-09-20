@@ -609,6 +609,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       shortBlockPf: shortProgress.blockPf,
     });
   },
+  setComboOnlyPositive: (comboOnlyPositive) => {
     set({ comboOnlyPositive });
     get().syncSettings();
   },

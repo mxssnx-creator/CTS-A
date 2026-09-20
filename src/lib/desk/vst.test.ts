@@ -68,6 +68,12 @@ import {
   AXIS_PARTIAL_RATIO,
   clampBlockVol,
   clampSharedVol,
+  clampOverallVol,
+  filterLiveShortCombos,
+  SHORT_20H_POSITIVE,
+  SHORT_WINNER,
+  AUTO_EVAL_HOURS,
+  SHORT_EVAL_HOURS,
   UNIT_NOTIONAL,
   profitFactor,
   pfFromPnls,
@@ -253,8 +259,8 @@ describe("VST engine", () => {
     const hold = trailStopFromPeak({ side: "long", entry: 100, peak: 102.4, tp: 104, sl: 98, trailPct: 1.5, shortRange: true });
     assert.equal(hold, 98);
     const cells = liveShortProtectCombos();
-    assert.ok(cells.length >= 1);
-    assert.ok(cells.every((c) => c.tpAtr >= 0.42 && c.slOfTp >= 1.7));
+    assert.equal(cells.length, 24);
+    assert.ok(cells.every((c) => c.tpAtr >= 0.42 && c.slOfTp >= 1.7 && c.tpAtr <= 0.6));
     assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, DEFAULT_SHORT_MIN_TP_ATR);
     assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, DEFAULT_SHORT_MIN_SL_OF_TP);
     const sp = sanitizeShortProgress({});
@@ -2797,6 +2803,8 @@ describe("VST engine", () => {
     assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 0.08, relVolumeRatio: 1.5 } } as never).blockConfig.volumeRatio, 0.1);
     assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 1.5, relVolumeRatio: 1.5 } } as never).blockConfig.relVolumeRatio, 1);
     assert.equal(sanitizeDeskSettings({ blockConfig: { overallVolumeRatio: 0.08 } } as never).blockConfig.overallVolumeRatio, 1);
+    assert.equal(sanitizeDeskSettings({ blockConfig: { overallVolumeRatio: 1.5, sharedVolumeRatio: 1.5 } } as never).blockConfig.overallVolumeRatio, 1.5);
+    assert.equal(sanitizeDeskSettings({ blockConfig: { overallVolumeRatio: 1.5, sharedVolumeRatio: 1.5 } } as never).blockConfig.sharedVolumeRatio, 1.5);
     assert.ok(snap.tacticConfig.slAtr >= 0.8);
     assert.equal(snap.thresholds.maxDdt, 20);
     assert.equal(snap.hedgeMode, true);
@@ -3364,8 +3372,28 @@ describe("full config coverage", () => {
     assert.ok(SHORT_TP_ATR.includes(0.6));
     assert.ok(cfgUsesShortRange({ shortRange: true, tpAtr: 0.6 }));
     const wide = liveShortProtectCombos(0.42, 1.7, 0.6);
+    assert.equal(wide.length, 24);
     assert.ok(wide.some((c) => c.tpAtr === 0.6));
     assert.ok(wide.every((c) => c.tpAtr >= 0.42 && c.tpAtr <= 0.6 && c.slOfTp >= 1.7));
+    const pos = filterLiveShortCombos(0.42, 1.7, 0.6, true);
+    assert.equal(pos.length, SHORT_20H_POSITIVE.length);
+    assert.ok(pos.some((c) => c.tpAtr === SHORT_WINNER.tpAtr && c.slOfTp === SHORT_WINNER.slOfTp));
+    assert.ok(!pos.some((c) => c.tpAtr === 0.6));
+    assert.ok(!pos.some((c) => c.tpAtr === 0.58));
+    assert.equal(filterLiveShortCombos(0.42, 1.7, 0.6, false).length, 24);
+    assert.ok(AUTO_EVAL_HOURS.includes(20) && SHORT_EVAL_HOURS === 20);
+    const eOv = initVstEngine(CFG, {
+      warmup: 0,
+      symbolCount: 2,
+      arm: false,
+      block: { ...DEFAULT_BLOCK_CONFIG, overallVolumeRatio: 1.5, sharedVolumeRatio: 1.5, volumeRatio: 0.2 },
+    });
+    assert.equal(eOv.blockCfg.overallVolumeRatio, 1.5);
+    assert.equal(eOv.blockCfg.sharedVolumeRatio, 1.5);
+    assert.equal(eOv.blockCfg.volumeRatio, 0.2);
+    assert.equal(clampOverallVol(1.5), 1.5);
+    assert.equal(clampOverallVol(3), 3);
+    assert.equal(allShortTpSlCombos().length, SHORT_TP_ATR.length * SHORT_SL_OF_TP.length);
     assert.equal(sanitizeShortProgress({ minTpAtr: 0.3, minSlOfTp: 1.3 }).minTpAtr, 0.3);
     assert.ok(liveShortProtectCombos(0.45, 2).every((c) => c.tpAtr >= 0.45 && c.slOfTp >= 2));
     assert.ok(isPositive({ pf: 0.85, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "short", shortRange: true }, { ...DEFAULT_THRESHOLDS, shortPf: 0.8 }));

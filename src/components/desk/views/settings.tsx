@@ -38,6 +38,7 @@ import {
   SHORT_TP_ATR,
   SHORT_SL_OF_TP,
   snapShortTpAtr,
+  snapShortSlOfTp,
   SHORT_PROGRESS_INDICATIONS,
   DEFAULT_SHORT_PROGRESS,
   shortSlAtrOf,
@@ -1042,7 +1043,7 @@ export function SettingsView() {
               </span>
             </div>
             <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
-              <span className="text-xs font-medium text-muted">Short-range strategy (TP 0.2–0.4 · SL 0.5–1.5×TP)</span>
+              <span className="text-xs font-medium text-muted">Short-range strategy (TP 0.30–0.60 · SL 1.3–2.0×TP)</span>
               <div className="flex flex-wrap gap-1">
                 <button
                   type="button"
@@ -1101,7 +1102,7 @@ export function SettingsView() {
                       type="button"
                       aria-pressed={on}
                       onClick={() => {
-                        const tpAtr = snapShortTpAtr(cfg.tpAtr && cfg.tpAtr <= 0.45 ? cfg.tpAtr : 0.3);
+                        const tpAtr = snapShortTpAtr(cfg.shortRange && cfg.tpAtr ? cfg.tpAtr : 0.45);
                         setCfg({
                           shortRange: true,
                           tpAtr,
@@ -1250,6 +1251,14 @@ export function SettingsView() {
               onClick={() => setShortProgress({ bestOnly: !shortProgress.bestOnly })}
             >
               {shortProgress.bestOnly ? "Best only" : "All indications"}
+            </button>
+            <button
+              type="button"
+              aria-pressed={shortProgress.evalPositiveOnly !== false}
+              className={`${chip} ${shortProgress.evalPositiveOnly !== false ? chipOn : chipOff}`}
+              onClick={() => setShortProgress({ evalPositiveOnly: shortProgress.evalPositiveOnly === false })}
+            >
+              {shortProgress.evalPositiveOnly !== false ? "Eval positive only" : "Allow PF under 1"}
             </button>
           </div>
           <div className="mb-3 flex flex-wrap gap-1">

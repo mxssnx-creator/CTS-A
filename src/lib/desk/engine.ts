@@ -296,6 +296,48 @@ export function liveShortProtectCombos(
   return allShortTpSlCombos().filter((c) => c.tpAtr + 1e-9 >= tp && c.tpAtr - 1e-9 <= tpMax && c.slOfTp + 1e-9 >= sl);
 }
 
+export function shortComboKey(tpAtr: number, slOfTp: number): string {
+  return `${Number(tpAtr).toFixed(2)}:${Number(slOfTp).toFixed(1)}`;
+}
+
+/** 20h × 12 winner among live floors (PF 7.32). */
+export const SHORT_WINNER = { tpAtr: 0.45, slOfTp: 1.7 as const };
+
+/**
+ * 20h × 12 live-floor cells with PF≥1 and net>0 (public/sim-short-20h-positive.json).
+ * Live GRID starts here when evalPositiveOnly is on; 20h auto-eval can replace the set.
+ */
+export const SHORT_20H_POSITIVE: readonly { tpAtr: number; slOfTp: number }[] = [
+  { tpAtr: 0.45, slOfTp: 1.7 },
+  { tpAtr: 0.52, slOfTp: 1.7 },
+  { tpAtr: 0.48, slOfTp: 1.7 },
+  { tpAtr: 0.45, slOfTp: 1.8 },
+  { tpAtr: 0.42, slOfTp: 2 },
+  { tpAtr: 0.42, slOfTp: 1.7 },
+  { tpAtr: 0.48, slOfTp: 2 },
+  { tpAtr: 0.42, slOfTp: 1.8 },
+  { tpAtr: 0.5, slOfTp: 1.7 },
+  { tpAtr: 0.48, slOfTp: 1.8 },
+  { tpAtr: 0.45, slOfTp: 2 },
+  { tpAtr: 0.5, slOfTp: 1.8 },
+  { tpAtr: 0.55, slOfTp: 1.7 },
+  { tpAtr: 0.52, slOfTp: 1.8 },
+];
+
+export function filterLiveShortCombos(
+  minTpAtr = DEFAULT_SHORT_MIN_TP_ATR,
+  minSlOfTp = DEFAULT_SHORT_MIN_SL_OF_TP,
+  maxTpAtr = 0.6,
+  positiveOnly = true,
+  allowed: readonly { tpAtr: number; slOfTp: number }[] = SHORT_20H_POSITIVE,
+): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
+  const all = liveShortProtectCombos(minTpAtr, minSlOfTp, maxTpAtr);
+  if (!positiveOnly) return all;
+  const keys = new Set(allowed.map((c) => shortComboKey(c.tpAtr, c.slOfTp)));
+  const hit = all.filter((c) => keys.has(shortComboKey(c.tpAtr, c.slOfTp)));
+  return hit.length ? hit : all;
+}
+
 export function cfgUsesShortRange(cfg: { shortRange?: boolean; tpAtr?: number } | undefined | null): boolean {
   if (!cfg) return false;
   if (cfg.shortRange === true) return true;
@@ -532,6 +574,10 @@ export function clampSharedVol(n: unknown, fallback = DEFAULT_SHARED_BLOCK_VOLUM
   const x = Number(n);
   if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return fallback;
   return Math.min(BLOCK_SHARED_VOLUME_MAX, Math.max(BLOCK_SHARED_VOLUME_MIN, x));
+}
+/** Overall Block volume — same band as Shared (1.5 / 3.0), not the additive 0.1–1 cap. */
+export function clampOverallVol(n: unknown, fallback = DEFAULT_OVERALL_BLOCK_VOLUME_RATIO): number {
+  return clampSharedVol(n, fallback);
 }
 /** Extra Axis rungs: full size of the validated base qty (not 0.08). */
 export const AXIS_PARTIAL_RATIO = 1;
