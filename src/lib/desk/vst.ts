@@ -82,7 +82,7 @@ const DEFAULT_CFG: TacticConfig = {
 
 export const TP_SL_RATIO = 1;
 export const SL_ATR_MULT = 1;
-export const VST_MAX_SYMBOLS = 50;
+export const VST_MAX_SYMBOLS = 80;
 export const VST_MAX_POSITIONS = 100;
 export const VST_BATCH_SIZE = 20;
 export const VST_RATE_PER_SEC = 10;
@@ -410,7 +410,37 @@ export const VST_SYMBOLS: VstSymbol[] = [
     "WIF",
     2.24,
     .026
-  ]
+  ],
+  ["TONUSDT", "TON", 5.42, .018],
+  ["ICPUSDT", "ICP", 8.15, .019],
+  ["POLUSDT", "POL", 0.42, .02],
+  ["GALAUSDT", "GALA", 0.028, .024],
+  ["ORDIUSDT", "ORDI", 38.4, .022],
+  ["BONKUSDT", "BONK", 2.1e-5, .028],
+  ["FLOKIUSDT", "FLOKI", 1.4e-4, .026],
+  ["APEUSDT", "APE", 1.22, .021],
+  ["DYDXUSDT", "DYDX", 1.18, .02],
+  ["PENDLEUSDT", "PENDLE", 4.62, .019],
+  ["JTOUSDT", "JTO", 2.48, .021],
+  ["ETHFIUSDT", "ETHFI", 1.86, .022],
+  ["EIGENUSDT", "EIGEN", 3.12, .02],
+  ["OMUSDT", "OM", 1.54, .023],
+  ["NEOUSDT", "NEO", 14.8, .016],
+  ["VETUSDT", "VET", 0.038, .018],
+  ["EOSUSDT", "EOS", 0.62, .017],
+  ["ZECUSDT", "ZEC", 42.5, .018],
+  ["MASKUSDT", "MASK", 2.84, .021],
+  ["GMXUSDT", "GMX", 28.6, .019],
+  ["ARUSDT", "AR", 18.4, .018],
+  ["STRKUSDT", "STRK", 0.52, .022],
+  ["NOTUSDT", "NOT", 0.0074, .026],
+  ["BOMEUSDT", "BOME", 0.0088, .027],
+  ["PEOPLEUSDT", "PEOPLE", 0.052, .024],
+  ["ENSUSDT", "ENS", 18.6, .017],
+  ["MKRUSDT", "MKR", 1680, .015],
+  ["COMPUSDT", "COMP", 52.4, .018],
+  ["SNXUSDT", "SNX", 1.72, .02],
+  ["TRUMPUSDT", "TRUMP", 8.4, .028],
 ].map((row) => {
   const [id, base, start, vol] = row as [string, string, number, number];
   return { id, base, quote: "USDT", start, vol };

@@ -172,10 +172,10 @@ const CFG = {
 };
 
 describe("VST engine", () => {
-  it("seeds 50 symbols and two BingX sessions", () => {
-    assert.equal(VST_SYMBOLS.length, 50);
+  it("seeds 80 symbols and two BingX sessions", () => {
+    assert.equal(VST_SYMBOLS.length, 80);
     const e = initVstEngine(CFG, { warmup: 4 });
-    assert.ok(Object.keys(e.quotes).length === 50);
+    assert.ok(Object.keys(e.quotes).length === 80);
     assert.ok(e.tokens["bingx-vst-01"] !== undefined);
     assert.ok(e.tokens["bingx-vst-02"] !== undefined);
     assert.ok(e.positions.length <= VST_MAX_POSITIONS);
@@ -421,7 +421,7 @@ describe("VST engine", () => {
     const { engine, report } = simulateHours(24);
     assert.equal(report.hours, 24);
     assert.equal(report.ticks, 1440);
-    assert.equal(report.symbols, 50);
+    assert.equal(report.symbols, 80);
     assert.ok(report.trades >= 10, `trades ${report.trades}`);
     assert.ok(report.slExits >= 1, "need SL exits");
     assert.ok(report.tpExits >= 1, "need TP exits");
@@ -1895,7 +1895,7 @@ describe("VST engine", () => {
     assert.deepEqual([...SL_OF_TP], [1, 1.25]);
     assert.equal(new Set(allTpSlCombos().map((c) => `${c.tpAtr}:${c.slOfTp}`)).size, 18);
     assert.equal(X01_DEFAULTS.minPf, 1.35);
-    assert.equal(X01_DEFAULTS.symbolCount, 50);
+    assert.equal(X01_DEFAULTS.symbolCount, 80);
     assert.equal(X01_DEFAULTS.sides, "both");
     assert.equal(X01_DEFAULTS.slAtrMin, 0.8);
     assert.equal(X01_DEFAULTS.tpRatioMin, 0.8);
@@ -2542,7 +2542,7 @@ describe("VST engine", () => {
     const snap = sanitizeDeskSettings(dirty as never);
     assert.equal(snap.rangeType, "atr");
     assert.equal(snap.tactic, "hybrid");
-    assert.equal(snap.symbolCount, 50);
+    assert.equal(snap.symbolCount, 80);
     assert.equal(snap.tacticConfig.tpRatio, tpRatioOf(1));
     assert.equal(snap.thresholds.minPf, 1.4);
     assert.equal(snap.thresholds.basePf, DEFAULT_BASE_PF);
@@ -2605,6 +2605,8 @@ describe("VST engine", () => {
     assert.equal(stable2?.patch.tacticConfig?.axisPartialRatio, 1);
     assert.equal(stable2?.patch.blockConfig?.volumeRatio, 0.4);
     assert.equal(stable2?.patch.blockConfig?.liveDisableMinPf, 1.2);
+    assert.equal(stable2?.patch.symbolCount, 80);
+    assert.ok(universeSymbols(80).length === 80);
     const saved = sanitizeUserPresets([{ id: "user-a", label: "Mine", blurb: "x", builtin: false, patch: { tactic: "axis" } }, { id: "" }]);
     assert.equal(saved.length, 1);
     assert.equal(saved[0]?.label, "Mine");
