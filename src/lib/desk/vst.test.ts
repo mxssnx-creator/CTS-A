@@ -1748,6 +1748,7 @@ describe("VST engine", () => {
     assert.ok(w1.lastPf >= 1, `n1 pf ${w1.lastPf} should not collapse to 0 on one loss`);
     assert.ok(w1.lastNet < 0, "batch of 1 still sees the last close");
     assert.equal(clampSharedVol(1.5), 1.5);
+    assert.equal(clampSharedVol(3), 3);
     const w6 = e.blockWindows?.[6];
     assert.ok(w6 && Math.abs((w6.lastPf || 0) - (w1.lastPf || 0)) > 1e-6, `n1 ${w1.lastPf} n6 ${w6?.lastPf} must be independent`);
   });

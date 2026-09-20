@@ -514,7 +514,7 @@ export const DEFAULT_OVERALL_BLOCK_VOLUME_RATIO = 1;
 export const DEFAULT_SHARED_BLOCK_VOLUME_RATIO = 1;
 export const BLOCK_VOLUME_RATIO_MIN = 0.1;
 export const BLOCK_VOLUME_RATIO_MAX = 1;
-export const BLOCK_SHARED_VOLUME_MAX = 1.5;
+export const BLOCK_SHARED_VOLUME_MAX = 3;
 export const BLOCK_SHARED_VOLUME_MIN = 0.4;
 
 /** Additive Block vol. 0.08 was Axis partials — reject; 0.1 is the live additive floor. */
