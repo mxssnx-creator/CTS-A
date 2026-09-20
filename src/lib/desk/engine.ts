@@ -491,14 +491,21 @@ export const DEFAULT_SHORT_PF = 0.95;
 export const DEFAULT_SHORT_BASE_PF = 0.7;
 export const DEFAULT_BLOCK_VOLUME_RATIO = 0.4;
 export const DEFAULT_OVERALL_BLOCK_VOLUME_RATIO = 1;
+export const DEFAULT_SHARED_BLOCK_VOLUME_RATIO = 1.5;
 export const BLOCK_VOLUME_RATIO_MIN = 0.4;
 export const BLOCK_VOLUME_RATIO_MAX = 1;
+export const BLOCK_SHARED_VOLUME_MAX = 1.5;
 
 /** Block additive/shared volume ratio. 0.08 was Axis partials — snap into 0.4–1. */
 export function clampBlockVol(n: unknown, fallback = DEFAULT_BLOCK_VOLUME_RATIO): number {
   const x = Number(n);
   if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return fallback;
   return Math.min(BLOCK_VOLUME_RATIO_MAX, Math.max(BLOCK_VOLUME_RATIO_MIN, x));
+}
+export function clampSharedVol(n: unknown, fallback = DEFAULT_SHARED_BLOCK_VOLUME_RATIO): number {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return fallback;
+  return Math.min(BLOCK_SHARED_VOLUME_MAX, Math.max(BLOCK_VOLUME_RATIO_MIN, x));
 }
 /** Extra Axis rungs: full size of the validated base qty (not 0.08). */
 export const AXIS_PARTIAL_RATIO = 1;
@@ -570,6 +577,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   counts: [...LIVE_BLOCK_COUNTS],
   volumeRatio: DEFAULT_BLOCK_VOLUME_RATIO,
   overallVolumeRatio: DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
+  sharedVolumeRatio: DEFAULT_SHARED_BLOCK_VOLUME_RATIO,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: 0,

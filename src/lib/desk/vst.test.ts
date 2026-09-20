@@ -63,6 +63,7 @@ import {
   DEFAULT_SHORT_BASE_PF,
   AXIS_PARTIAL_RATIO,
   clampBlockVol,
+  clampSharedVol,
   UNIT_NOTIONAL,
   profitFactor,
   pfFromPnls,
@@ -1721,6 +1722,17 @@ describe("VST engine", () => {
     assert.ok(Math.abs(ovAdd!.qty - 1) < 1e-6, `ov qty ${ovAdd!.qty}`);
   });
 
+  it("Block N=1 PF uses a lookback, not a single loss", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    const block = { ...DEFAULT_BLOCK_CONFIG, windows: true, counts: [1, 2, 3, 4, 5, 6], keepAdjusted: true };
+    for (let i = 0; i < 12; i++) noteBlockPosClose(e, "BTCUSDT", "long", i === 11 ? -1 : 2, block);
+    const w1 = e.blockWindows?.[1];
+    assert.ok(w1 && w1.closed === 12, `closed ${w1?.closed}`);
+    assert.ok(w1.lastPf >= 1, `n1 pf ${w1.lastPf} should not collapse to 0 on one loss`);
+    assert.ok(w1.lastNet < 0, "batch of 1 still sees the last close");
+    assert.equal(clampSharedVol(1.5), 1.5);
+  });
+
   it("block on vs off: adds rungs when enabled and stays inert when disabled", () => {
     const off = { ...DEFAULT_BLOCK_CONFIG, enabled: false };
     const on = { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false, cadence: 4, addOnWin: false, flattenConflict: false, sides: "both" as const, windows: false, liveDisable: false };
@@ -2013,6 +2025,7 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
     assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.4);
     assert.equal(DEFAULT_BLOCK_CONFIG.overallVolumeRatio, 1);
+    assert.equal(DEFAULT_BLOCK_CONFIG.sharedVolumeRatio, 1.5);
     assert.equal(AXIS_PARTIAL_RATIO, 1);
     assert.equal(clampBlockVol(0.08), 0.4);
     assert.equal(clampBlockVol(0.2), 0.4);

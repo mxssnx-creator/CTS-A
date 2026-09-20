@@ -266,6 +266,8 @@ export interface BlockConfig {
   volumeRatio: number;
   /** Overall Block (all positions, independent of lanes). Default 1. */
   overallVolumeRatio?: number;
+  /** Shared (old split) volume ratio. Default 1.5. */
+  sharedVolumeRatio?: number;
   maxVolumeMultiplier: number;
   pfRatio: number;
   pauseCountRatio: number;

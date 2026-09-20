@@ -29,6 +29,7 @@ const BLOCK_LIVE = {
   sides: "both" as const,
   volumeRatio: 0.4,
   overallVolumeRatio: 1,
+  sharedVolumeRatio: 1.5,
   pauseCountRatio: 0,
   keepAdjusted: true,
 };
@@ -224,6 +225,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
         overall: true,
         volumeRatio: 0.4,
         overallVolumeRatio: 1,
+        sharedVolumeRatio: 1.5,
         maxVolumeMultiplier: 1.8,
         pfRatio: 1.45,
         pauseCountRatio: 0,
@@ -309,6 +311,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
         overall: true,
         volumeRatio: 0.4,
         overallVolumeRatio: 1,
+        sharedVolumeRatio: 1.5,
         maxVolumeMultiplier: 1.8,
         pfRatio: 1.45,
         pauseCountRatio: 0,

@@ -56,6 +56,8 @@ import {
   cfgUsesShortRange,
   clampBlockVol,
   DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
+  clampSharedVol,
+  DEFAULT_SHARED_BLOCK_VOLUME_RATIO,
   clampAxisPartial,
   trailStopFromPeak,
   symbolIndications,
@@ -811,6 +813,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
   if (e.blockCfg) {
     e.blockCfg.volumeRatio = clampBlockVol(e.blockCfg.volumeRatio);
     e.blockCfg.overallVolumeRatio = clampBlockVol(e.blockCfg.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO, DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
+    e.blockCfg.sharedVolumeRatio = clampSharedVol(e.blockCfg.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO);
     e.blockCfg.relVolumeRatio = clampBlockVol(e.blockCfg.relVolumeRatio ?? e.blockCfg.volumeRatio);
   }
   e.liveTape = e.liveTape ?? false;
@@ -2120,25 +2123,27 @@ function emptyBlockWindow(n: number): BlockPosWindow {
 
 function tickBlockWindow(w: BlockPosWindow, symbol: string, side: Side, pnl: number, pauseRatio = 1, keep = false) {
   w.ring.push({ symbol, side, pnl });
-  if (w.ring.length > w.n * 2) w.ring = w.ring.slice(-w.n * 2);
+  const keepN = Math.max(32, w.n * 4);
+  if (w.ring.length > keepN) w.ring = w.ring.slice(-keepN);
   w.closed += 1;
   if (w.pauseLeft > 0) {
     w.pauseLeft -= 1;
     w.adjusted += 1;
   }
   const last = w.ring.slice(-w.n);
-  if (last.length) {
+  const pfSlice = w.ring.slice(-Math.max(w.n, 8));
+  if (pfSlice.length) {
     const net = last.reduce((s, x) => s + x.pnl, 0);
-    const gp = last.filter((x) => x.pnl > 0).reduce((s, x) => s + x.pnl, 0);
-    const gl = Math.abs(last.filter((x) => x.pnl < 0).reduce((s, x) => s + x.pnl, 0));
+    const gp = pfSlice.filter((x) => x.pnl > 0).reduce((s, x) => s + x.pnl, 0);
+    const gl = Math.abs(pfSlice.filter((x) => x.pnl < 0).reduce((s, x) => s + x.pnl, 0));
     w.lastNet = net;
-    w.lastAvg = net / last.length;
+    w.lastAvg = last.length ? net / last.length : 0;
     w.lastPf = profitFactor(gp, gl);
   }
   if (w.closed % w.n !== 0) return w;
   w.windows += 1;
   w.losers = [...new Set(last.filter((x) => x.pnl < 0).map((x) => x.symbol))];
-  if (w.lastAvg < 0 || w.lastPf < 1) {
+  if (w.lastAvg < 0 || (last.length >= w.n && last.every((x) => x.pnl < 0))) {
     w.lossWindows += 1;
     if (!keep) w.pauseLeft = Math.max(0, Math.round(pauseRatio * w.n));
     else w.adjusted += 1;
@@ -3067,7 +3072,8 @@ function recordBlockClose(e: VstEngine, p: LivePosition, pnl: number) {
 function blockCountPositive(e: VstEngine, n: number, minPf: number) {
   if (n < 1 || n > 6) return false;
   const w = e.blockWindows?.[n];
-  if (!w || w.closed < Math.max(3, n)) return n >= 3;
+  const need = Math.max(8, n);
+  if (!w || w.closed < need) return true;
   return w.lastPf + 1e-9 >= Math.min(1.05, minPf);
 }
 
@@ -3187,6 +3193,7 @@ export function adjustActiveBlocks(
   syncBlockParents(e, conn);
   const counts = liveBlockCounts(block);
   const vrRel = clampBlockVol(block.volumeRatio);
+  const vrShared = clampSharedVol(block.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO);
   const vrOv = clampBlockVol(block.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO, DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
   const minPf = block.minRelPf ?? minPfFor(e, "block");
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
@@ -3224,7 +3231,7 @@ export function adjustActiveBlocks(
         let relQty = liveBlock.filter((o) => !isOverallBlockOrder(o)).reduce((s, o) => s + Math.max(0, o.qty || 0), 0);
         let modeAdds = 0;
         const enqueue = (kind: "relation" | "overall", next: number, vr: number, extraQty: number) => {
-          const step = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, mode);
+          const step = blockStepQty(lane.baseQty, next, vr, Math.max(block.maxVolumeMultiplier || 1.8, 1 + vr), counts.length, 0, mode);
           const qty = step + extraQty;
           if (!(qty > 0)) return false;
           const hi = pickRange(q, cfg, rangeType);
@@ -3279,8 +3286,11 @@ export function adjustActiveBlocks(
           if (next < minM || next > maxM) continue;
           if (block.windows !== false && !blockCountPositive(e, next, minPf)) continue;
           if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
-          const relCap = lane.baseQty * (mode === "additive" ? next * vrRel : blockMaxAdditionalRatio(next, vrRel, block.maxVolumeMultiplier || 1.8, mode));
-          const ovCap = lane.baseQty * (mode === "additive" ? next * vrOv : blockMaxAdditionalRatio(next, vrOv, block.maxVolumeMultiplier || 1.8, mode));
+          const vrModeRel = mode === "shared" ? vrShared : vrRel;
+          const vrModeOv = mode === "shared" ? vrShared : vrOv;
+          const maxMul = Math.max(block.maxVolumeMultiplier || 1.8, 1 + vrShared, 1 + vrOv);
+          const relCap = lane.baseQty * (mode === "additive" ? next * vrModeRel : blockMaxAdditionalRatio(next, vrModeRel, maxMul, mode));
+          const ovCap = lane.baseQty * (mode === "additive" ? next * vrModeOv : blockMaxAdditionalRatio(next, vrModeOv, maxMul, mode));
           const extra =
             block.relAdditive === false
               ? 0
@@ -3294,10 +3304,10 @@ export function adjustActiveBlocks(
                   playbook: p.playbook,
                 }) * lane.baseQty;
           if (!lane.satisfied[next] && !liveRelLevels.has(next) && lane.pending !== next && relQty + 1e-12 < relCap && blockPfOk(lane, next, block, minPf)) {
-            enqueue("relation", next, vrRel, extra);
+            enqueue("relation", next, vrModeRel, extra);
           }
           if (overall && !liveOvLevels.has(next) && ovQty + 1e-12 < ovCap) {
-            enqueue("overall", next, vrOv, 0);
+            enqueue("overall", next, vrModeOv, 0);
           }
         }
       }
