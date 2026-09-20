@@ -1365,7 +1365,7 @@ export function SettingsView() {
       <div id="block" className="scroll-mt-24">
         <Panel title="Block strategy · overall + Active">
           <p className="text-sm text-muted">
-            <strong>Overall</strong> adds volume on the whole book, independent of lanes.
+            <strong>Overall</strong> adds volume on the whole book, plus independent extra layers per <strong>symbol</strong> and per <strong>direction</strong>. Shared stacks those lanes additively (not split).
             <strong> Active</strong> only executes Block-adjusted legs (not unadjusted general size).
             Normal/general stays calc-only when Strategy → Normal is off.
           </p>
@@ -1429,6 +1429,32 @@ export function SettingsView() {
               onClick={() => setBlockCfg({ overall: !(blockCfg.overall !== false) })}
             >
               {blockCfg.overall !== false ? "Overall book" : "Per lane"}
+            </Button>
+            <Button
+              size="sm"
+              variant={blockCfg.overall !== false && blockCfg.overallSymbol !== false ? "primary" : "secondary"}
+              className="h-11 sm:h-8"
+              onClick={() => setBlockCfg({ overallSymbol: !(blockCfg.overallSymbol !== false) })}
+            >
+              {blockCfg.overallSymbol !== false ? "Overall symbol" : "No symbol Overall"}
+            </Button>
+            <Button
+              size="sm"
+              variant={blockCfg.overall !== false && blockCfg.overallDirection !== false ? "primary" : "secondary"}
+              className="h-11 sm:h-8"
+              onClick={() => setBlockCfg({ overallDirection: !(blockCfg.overallDirection !== false) })}
+            >
+              {blockCfg.overallDirection !== false ? "Overall direction" : "No dir Overall"}
+            </Button>
+            <Button
+              size="sm"
+              variant={blockCfg.overallSharedStack !== "split" ? "primary" : "secondary"}
+              className="h-11 sm:h-8"
+              onClick={() =>
+                setBlockCfg({ overallSharedStack: blockCfg.overallSharedStack === "split" ? "additive" : "split" })
+              }
+            >
+              {blockCfg.overallSharedStack === "split" ? "Shared stack split" : "Shared stack additive"}
             </Button>
             <Button
               size="sm"

@@ -1672,9 +1672,75 @@ describe("VST engine", () => {
     const ov = [...e.queue, ...e.orders].filter((o) => /Overall Block/i.test(o.note || "") && o.level === 1);
     assert.ok(ov.length >= 1, "Overall Block adds same N independently");
     assert.ok(ov.every((o) => /^ob/i.test(o.id)));
-    assert.ok(ov.every((o) => /Overall Block additive #1/.test(o.note || "")));
+    assert.ok(ov.some((o) => /Overall Block additive #1/.test(o.note || "") && !/symbol|dir/.test(o.note || "")));
     const rel = [...e.queue, ...e.orders].filter((o) => /Block additive #1/.test(o.note || "") && !/Overall/.test(o.note || ""));
     assert.ok(rel.length >= 1, "relation Block stays while overall adds");
+  });
+
+  it("Overall Block stacks book + symbol + direction additively on shared", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.running = true;
+    e.phase = "running";
+    e.blockCfg = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      overall: true,
+      overallSymbol: true,
+      overallDirection: true,
+      overallSharedStack: "additive",
+      sets: false,
+      stack: true,
+      windows: false,
+      volumeMode: "shared",
+      overallMode: "shared",
+      sharedVolumeRatio: 1.5,
+      relAdditive: false,
+      addOnWin: false,
+      cadence: 1,
+      counts: [1],
+      maxMultiple: 6,
+      minMultiple: 1,
+      minActiveLevel: 1,
+    };
+    const q = e.quotes.BTCUSDT!;
+    e.positions.push({
+      id: "p-ov-stack",
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long",
+      qty: 1,
+      plannedQty: 1,
+      avgEntry: q.px,
+      mark: q.px,
+      sl: q.px * 0.99,
+      tp: q.px * 1.01,
+      slDist: q.px * 0.01,
+      tpDist: q.px * 0.01,
+      realized: 0,
+      unrealized: 0.02,
+      legs: [{ orderId: "leg-ov-stack", qty: 1, px: q.px }],
+      controllingRange: "atr",
+      rangeSpacing: q.atr,
+      status: "open",
+      openedTick: 0,
+      tactic: "trailing",
+      indication: "trend",
+      kind: "short",
+      playbook: "short",
+    });
+    for (let i = 0; i < 8; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
+    const ov = [...e.queue, ...e.orders].filter((o) => /Overall Block/i.test(o.note || "") && o.level === 1);
+    const book = ov.filter((o) => /Overall Block shared #1/.test(o.note || "") && !/symbol|dir/.test(o.note || ""));
+    const sym = ov.filter((o) => /Overall Block symbol/.test(o.note || ""));
+    const dir = ov.filter((o) => /Overall Block dir/.test(o.note || ""));
+    assert.ok(book.length >= 1, `book ${ov.map((o) => o.note).join(" | ")}`);
+    assert.ok(sym.length >= 1, "symbol overall");
+    assert.ok(dir.length >= 1, "direction overall");
+    finiteNum(book[0]!.qty, sym[0]!.qty, dir[0]!.qty);
+    assert.ok(Math.abs(sym[0]!.qty - book[0]!.qty) < 1e-6, `symbol qty ${sym[0]!.qty} vs book ${book[0]!.qty}`);
+    assert.ok(Math.abs(dir[0]!.qty - book[0]!.qty) < 1e-6, `dir qty ${dir[0]!.qty}`);
+    const stacked = book[0]!.qty + sym[0]!.qty + dir[0]!.qty;
+    assert.ok(stacked > book[0]!.qty * 2.5, `stacked ${stacked}`);
   });
 
   it("parallel Block keeps shared + additive + overall as independent volume streams", () => {

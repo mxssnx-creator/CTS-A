@@ -815,6 +815,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.blockLanes = e.blockLanes ?? {};
   e.blockWindows = e.blockWindows ?? {};
   e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
+  e.blockWindowsBySide = e.blockWindowsBySide ?? {};
   e.blockRelWindows = e.blockRelWindows ?? {};
   e.blockRelBest = e.blockRelBest ?? {};
   e.lastRelEvalTick = e.lastRelEvalTick ?? 0;
@@ -841,6 +842,9 @@ export function ensureEngine(e: VstEngine): VstEngine {
     e.blockCfg.sharedVolumeRatio = clampSharedVol(e.blockCfg.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO);
     e.blockCfg.relVolumeRatio = clampBlockVol(e.blockCfg.relVolumeRatio ?? e.blockCfg.volumeRatio);
     if (e.blockCfg.overallMode !== "additive" && e.blockCfg.overallMode !== "parallel") e.blockCfg.overallMode = "shared";
+    if (e.blockCfg.overallSymbol !== false) e.blockCfg.overallSymbol = true;
+    if (e.blockCfg.overallDirection !== false) e.blockCfg.overallDirection = true;
+    if (e.blockCfg.overallSharedStack !== "split") e.blockCfg.overallSharedStack = "additive";
   }
   e.liveTape = e.liveTape ?? false;
   for (const lane of Object.values(e.blockLanes)) {
@@ -899,6 +903,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     blockLanes: {},
     blockWindows: {},
     blockWindowsBySymbol: {},
+    blockWindowsBySide: {},
     blockRelWindows: {},
     blockRelBest: {},
     lastRelEvalTick: 0,
@@ -2311,6 +2316,7 @@ export function noteBlockPosClose(
 ) {
   e.blockWindows = e.blockWindows ?? {};
   e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
+  e.blockWindowsBySide = e.blockWindowsBySide ?? {};
   e.blockRelWindows = e.blockRelWindows ?? {};
   const ns = evalBlockNs(block);
   const pauseRatio = Math.max(0, block.pauseCountRatio ?? 1);
@@ -2319,6 +2325,8 @@ export function noteBlockPosClose(
     e.blockWindows[n] = tickBlockWindow(e.blockWindows[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
     const by = (e.blockWindowsBySymbol[symbol] ??= {});
     by[n] = tickBlockWindow(by[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
+    const sideMap = (e.blockWindowsBySide[side] ??= {});
+    sideMap[n] = tickBlockWindow(sideMap[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
   }
   const keys = blockRelationKeys({ symbol, side, ...rel });
   for (const key of keys) {
@@ -3077,6 +3085,36 @@ function isBlockOrder(o: LiveOrder) {
 function isOverallBlockOrder(o: LiveOrder) {
   return /Overall Block/i.test(o.note || "") || /^ob/i.test(o.id || "");
 }
+type OverallScope = "book" | "symbol" | "dir";
+function overallScopes(block?: BlockConfig): OverallScope[] {
+  if (block?.overall === false) return [];
+  const xs: OverallScope[] = ["book"];
+  if (block?.overallSymbol !== false) xs.push("symbol");
+  if (block?.overallDirection !== false) xs.push("dir");
+  return xs;
+}
+function overallScopeOf(o: { note?: string }): OverallScope | null {
+  if (!isOverallBlockOrder(o as LiveOrder)) return null;
+  const n = o.note || "";
+  if (/Overall Block symbol/i.test(n)) return "symbol";
+  if (/Overall Block dir/i.test(n)) return "dir";
+  return "book";
+}
+function overallWindowOk(
+  e: VstEngine,
+  scope: OverallScope,
+  p: { symbol: string; side: Side },
+  next: number,
+  minPf: number,
+) {
+  if (e.blockCfg?.windows === false) return true;
+  const need = Math.max(8, next);
+  if (scope === "book") return blockCountPositive(e, next, minPf);
+  const w =
+    scope === "symbol" ? e.blockWindowsBySymbol?.[p.symbol]?.[next] : e.blockWindowsBySide?.[p.side]?.[next];
+  if (!w || w.closed < need) return true;
+  return w.lastPf + 1e-9 >= Math.min(1.05, minPf);
+}
 
 function collectBlockOrders(e: VstEngine, conn: string) {
   return [
@@ -3340,11 +3378,19 @@ export function adjustActiveBlocks(
         if (!lane || !lane.active || lane.baseQty <= 0) continue;
         const liveBlock = collectBlockOrders(e, conn).filter((o) => o.symbol === p.symbol && o.side === p.side && blockModeOf(o) === mode);
         const liveRelLevels = new Set(liveBlock.filter((o) => !isOverallBlockOrder(o)).map((o) => Math.max(1, o.level || 1)));
-        const liveOvLevels = new Set(liveBlock.filter(isOverallBlockOrder).map((o) => Math.max(1, o.level || 1)));
-        let ovQty = liveBlock.filter(isOverallBlockOrder).reduce((s, o) => s + Math.max(0, o.qty || 0), 0);
+        const scopes = overallVolumeModes(block).includes(mode) ? overallScopes(block) : [];
+        const liveOvLevels: Record<OverallScope, Set<number>> = { book: new Set(), symbol: new Set(), dir: new Set() };
+        const ovQty: Record<OverallScope, number> = { book: 0, symbol: 0, dir: 0 };
+        for (const o of liveBlock.filter(isOverallBlockOrder)) {
+          const sc = overallScopeOf(o) ?? "book";
+          liveOvLevels[sc].add(Math.max(1, o.level || 1));
+          ovQty[sc] += Math.max(0, o.qty || 0);
+        }
         let relQty = liveBlock.filter((o) => !isOverallBlockOrder(o)).reduce((s, o) => s + Math.max(0, o.qty || 0), 0);
         let modeAdds = 0;
-        const enqueue = (kind: "relation" | "overall", next: number, vr: number, extraQty: number) => {
+        const stackAdd = block.overallSharedStack !== "split";
+        const ovVrScale = !stackAdd && mode === "shared" && scopes.length > 1 ? 1 / scopes.length : 1;
+        const enqueue = (kind: "relation" | "overall", next: number, vr: number, extraQty: number, scope: OverallScope = "book") => {
           const step = blockStepQty(
             lane.baseQty,
             next,
@@ -3363,7 +3409,15 @@ export function adjustActiveBlocks(
           if (px <= 0) return false;
           const lv = protectLevels(px, p.side, sl0, tp0, cfg.tpRatio);
           const overallKind = kind === "overall";
-          const oid = nextId(e, overallKind ? "ob" : "b");
+          const tag =
+            !overallKind
+              ? "Block"
+              : scope === "symbol"
+                ? "Overall Block symbol"
+                : scope === "dir"
+                  ? "Overall Block dir"
+                  : "Overall Block";
+          const oid = nextId(e, overallKind ? (scope === "symbol" ? "obs" : scope === "dir" ? "obd" : "ob") : "b");
           e.queue.push({
             id: oid,
             connId: conn,
@@ -3381,17 +3435,17 @@ export function adjustActiveBlocks(
             tp: lv.tp,
             slDist: lv.slDist,
             tpDist: lv.tpDist,
-            batchId: `${p.id}:${next}`,
+            batchId: `${p.id}:${scope}:${next}`,
             tactic: p.tactic ?? tactic,
             indication: p.indication,
             kind: "block",
             playbook: "block",
-            note: `${overallKind ? "Overall Block" : "Block"} ${mode} #${next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
+            note: `${tag} ${mode} #${next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
           });
           countPlaced(e);
           if (overallKind) {
-            liveOvLevels.add(next);
-            ovQty += qty;
+            liveOvLevels[scope].add(next);
+            ovQty[scope] += qty;
           } else {
             lane.pending = next;
             liveRelLevels.add(next);
@@ -3404,15 +3458,16 @@ export function adjustActiveBlocks(
           return true;
         };
         for (const next of counts) {
-          if (adds >= addCap || modeAdds >= counts.length * (overall ? 2 : 1)) break;
+          if (adds >= addCap || modeAdds >= counts.length * (1 + scopes.length)) break;
           if (next < minM || next > maxM) continue;
-          if (block.windows !== false && !blockCountPositive(e, next, minPf)) continue;
+          if (block.windows !== false && !blockCountPositive(e, next, minPf)) {
+            /* relation still gated by book window; overall scopes use their own */
+          }
           if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
           const vrModeRel = mode === "shared" ? vrShared : vrRel;
           const vrModeOv = mode === "shared" ? vrShared : vrOv;
           const maxMul = Math.max(block.maxVolumeMultiplier || 2.5, 1 + vrShared, 1 + vrOv, 2);
           const relCap = lane.baseQty * (mode === "additive" ? next * vrModeRel : blockMaxAdditionalRatio(next, vrModeRel, maxMul, mode));
-          const ovCap = lane.baseQty * (mode === "additive" ? next * vrModeOv : blockMaxAdditionalRatio(next, vrModeOv, maxMul, mode));
           const extra =
             block.relAdditive === false
               ? 0
@@ -3425,11 +3480,28 @@ export function adjustActiveBlocks(
                   rangeType: p.controllingRange ?? rangeType,
                   playbook: p.playbook,
                 }) * lane.baseQty;
-          if (block.sets !== false && !lane.satisfied[next] && !liveRelLevels.has(next) && lane.pending !== next && relQty + 1e-12 < relCap && blockPfOk(lane, next, block, minPf)) {
+          if (
+            block.sets !== false &&
+            !lane.satisfied[next] &&
+            !liveRelLevels.has(next) &&
+            lane.pending !== next &&
+            relQty + 1e-12 < relCap &&
+            blockPfOk(lane, next, block, minPf) &&
+            (block.windows === false || blockCountPositive(e, next, minPf))
+          ) {
             enqueue("relation", next, vrModeRel, extra);
           }
-          if (overall && overallVolumeModes(block).includes(mode) && !liveOvLevels.has(next) && ovQty + 1e-12 < ovCap) {
-            enqueue("overall", next, vrModeOv, 0);
+          if (overall && overallVolumeModes(block).includes(mode)) {
+            for (const scope of scopes) {
+              if (adds >= addCap) break;
+              if (!overallWindowOk(e, scope, p, next, minPf)) continue;
+              if (liveOvLevels[scope].has(next)) continue;
+              const vrThis = vrModeOv * ovVrScale;
+              const ovCap =
+                lane.baseQty *
+                (mode === "additive" ? next * vrThis : blockMaxAdditionalRatio(next, vrThis, maxMul, mode));
+              if (ovQty[scope] + 1e-12 < ovCap) enqueue("overall", next, vrThis, 0, scope);
+            }
           }
         }
       }

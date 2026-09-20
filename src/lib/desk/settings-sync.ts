@@ -267,6 +267,10 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         endStageOnly: asBool(b.endStageOnly, d.blockConfig.endStageOnly),
         cadence: Math.min(16, Math.max(4, Math.round(asNum(b.cadence, d.blockConfig.cadence)))),
         overall: asBool(b.overall, d.blockConfig.overall ?? true),
+        overallSymbol: asBool((b as { overallSymbol?: boolean }).overallSymbol, d.blockConfig.overallSymbol ?? true),
+        overallDirection: asBool((b as { overallDirection?: boolean }).overallDirection, d.blockConfig.overallDirection ?? true),
+        overallSharedStack:
+          (b as { overallSharedStack?: string }).overallSharedStack === "split" ? "split" : "additive",
         counts: (() => {
           const rawCounts = Array.isArray(b.counts)
             ? [...new Set(b.counts.map((n) => Math.round(Number(n))).filter((n) => n >= 1 && n <= 16))].sort((a, c) => a - c)

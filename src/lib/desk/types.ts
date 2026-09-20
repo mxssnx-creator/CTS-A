@@ -278,8 +278,14 @@ export interface BlockConfig {
   volumeRatio: number;
   /** Overall Block (all positions, independent of lanes). Default 1. */
   overallVolumeRatio?: number;
-  /** Shared (old split) volume ratio. Default 1.5. */
+  /** Shared (old split) volume ratio. Default 1. */
   sharedVolumeRatio?: number;
+  /** Extra Overall layer per symbol (independent of book Overall). Default true. */
+  overallSymbol?: boolean;
+  /** Extra Overall layer per direction long/short (independent). Default true. */
+  overallDirection?: boolean;
+  /** Shared Overall: stack book+symbol+dir additively (default) vs split one cap. */
+  overallSharedStack?: "additive" | "split";
   maxVolumeMultiplier: number;
   pfRatio: number;
   pauseCountRatio: number;
@@ -1040,6 +1046,7 @@ export interface VstEngine {
   blockLanes: Record<string, BlockLaneState>;
   blockWindows: Record<number, BlockPosWindow>;
   blockWindowsBySymbol: Record<string, Record<number, BlockPosWindow>>;
+  blockWindowsBySide?: Record<string, Record<number, BlockPosWindow>>;
   blockRelWindows: Record<string, Record<number, BlockPosWindow>>;
   blockRelBest?: Record<string, { key: string; n: number; pf: number; net: number; vol: number; major: boolean }>;
   lastRelEvalTick?: number;
