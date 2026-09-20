@@ -2597,6 +2597,14 @@ describe("VST engine", () => {
     assert.equal(stable?.patch.thresholds?.minPf, 1.8);
     assert.equal(stable?.patch.strategyToggles?.normal, false);
     assert.equal(stable?.patch.strategyToggles?.dca, false);
+    const stable2 = findPreset("stable-02", []);
+    assert.ok(stable2);
+    assert.equal(stable2?.label, "Stable 02");
+    assert.equal(stable2?.patch.thresholds?.minPf, 1.35);
+    assert.equal(stable2?.patch.thresholds?.shortPf, 0.95);
+    assert.equal(stable2?.patch.tacticConfig?.axisPartialRatio, 1);
+    assert.equal(stable2?.patch.blockConfig?.volumeRatio, 0.4);
+    assert.equal(stable2?.patch.blockConfig?.liveDisableMinPf, 1.2);
     const saved = sanitizeUserPresets([{ id: "user-a", label: "Mine", blurb: "x", builtin: false, patch: { tactic: "axis" } }, { id: "" }]);
     assert.equal(saved.length, 1);
     assert.equal(saved[0]?.label, "Mine");

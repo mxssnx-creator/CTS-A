@@ -531,7 +531,7 @@ function writeSettingsPick(pick, extra = {}) {
     shortRange: true,
     liveGrid: GRID.length,
     shortGrid: SHORT_GRID.length,
-    activePresetId: extra.activePresetId ?? "stable-01",
+    activePresetId: extra.activePresetId ?? "stable-02",
     strategyToggles: { ...STRAT },
     strategyId: "normal",
     minPf: LIVE_MIN_PF,
