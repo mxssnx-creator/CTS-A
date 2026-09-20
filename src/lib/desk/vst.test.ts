@@ -1594,6 +1594,7 @@ describe("VST engine", () => {
       stack: true,
       windows: false,
       volumeMode: "additive",
+      overallMode: "additive",
       volumeRatio: 0.4,
       relAdditive: false,
       addOnWin: false,
@@ -1716,10 +1717,10 @@ describe("VST engine", () => {
     assert.ok(notes.some((n) => /Block additive #1/.test(n) && !/Overall/.test(n)), "rel additive");
     assert.ok(notes.some((n) => /Overall Block/.test(n)), "overall");
     const relAdd = rungs.find((o) => /Block additive #1/.test(o.note || "") && !/Overall/.test(o.note || ""));
-    const ovAdd = rungs.find((o) => /Overall Block additive #1/.test(o.note || ""));
-    assert.ok(relAdd && ovAdd, "both additive streams");
+    const ovShare = rungs.find((o) => /Overall Block shared #1/.test(o.note || ""));
+    assert.ok(relAdd && ovShare, `rel add + overall shared ${notes.join(" | ")}`);
     assert.ok(Math.abs(relAdd!.qty - 0.4) < 1e-6, `rel qty ${relAdd!.qty}`);
-    assert.ok(Math.abs(ovAdd!.qty - 1) < 1e-6, `ov qty ${ovAdd!.qty}`);
+    assert.ok(!notes.some((n) => /Overall Block additive/.test(n)), "live overall is shared not additive");
   });
 
   it("Block N=1 PF uses a lookback, not a single loss", () => {
@@ -2016,6 +2017,7 @@ describe("VST engine", () => {
     assert.ok(Math.abs(a - base * r) < 1e-9, `step1 ${a}`);
     assert.ok(Math.abs(b - base * r) < 1e-9, `step2 ${b}`);
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "parallel");
+    assert.equal(DEFAULT_BLOCK_CONFIG.overallMode, "shared");
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
     const q = additiveBlockQty(1.2, [1, 2, 3], 1, 3, 1);
     assert.ok(Math.abs(q.totalSteps - 3 * 1.2) < 1e-9, `steps ${q.totalSteps}`);

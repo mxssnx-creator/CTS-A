@@ -278,6 +278,12 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         stack: asBool((b as { stack?: boolean }).stack, d.blockConfig.stack ?? true),
         windows: asBool((b as { windows?: boolean }).windows, d.blockConfig.windows ?? true),
         volumeMode: b.volumeMode === "additive" || b.volumeMode === "parallel" || b.volumeMode === "shared" ? b.volumeMode : d.blockConfig.volumeMode,
+        overallMode:
+          (b as { overallMode?: string }).overallMode === "additive" ||
+          (b as { overallMode?: string }).overallMode === "parallel" ||
+          (b as { overallMode?: string }).overallMode === "shared"
+            ? ((b as { overallMode?: "shared" | "additive" | "parallel" }).overallMode as "shared" | "additive" | "parallel")
+            : (d.blockConfig.overallMode ?? "shared"),
         sides: b.sides === "long" || b.sides === "short" || b.sides === "both" || b.sides === "mixed" || b.sides === "one" ? b.sides : d.blockConfig.sides,
         evalHours: Math.min(12, Math.max(1, Math.round(asNum(b.evalHours, d.blockConfig.evalHours ?? 2)))),
         autoEval: asBool(b.autoEval, d.blockConfig.autoEval ?? true),

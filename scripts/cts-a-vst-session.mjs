@@ -181,6 +181,7 @@ const BLOCK = {
   stack: true,
   windows: true,
   volumeMode: "parallel",
+  overallMode: "shared",
   sides: "both",
   evalHours: 2,
   autoEval: true,
@@ -475,6 +476,7 @@ function snapshot(e, extra) {
       sharedVr: e.blockCfg?.sharedVolumeRatio,
       relVr: e.blockCfg?.volumeRatio,
       mode: e.blockCfg?.volumeMode,
+      ovMode: e.blockCfg?.overallMode,
       counts: e.blockCfg?.counts,
       windows: Object.fromEntries(
         Object.entries(e.blockWindows || {}).map(([n, w]) => [
@@ -1772,6 +1774,7 @@ function applyPfGates(engine, remote) {
     volumeRatio: migrateBlockVol(bc.volumeRatio ?? engine.blockCfg?.volumeRatio),
     overallVolumeRatio: migrateOverallVol(bc.overallVolumeRatio ?? 1),
     sharedVolumeRatio: Math.min(1.5, Math.max(0.4, Number(bc.sharedVolumeRatio) || 1.5)),
+    overallMode: bc.overallMode === "additive" || bc.overallMode === "parallel" ? bc.overallMode : "shared",
     relVolumeRatio: migrateBlockVol(bc.relVolumeRatio ?? engine.blockCfg?.relVolumeRatio),
     minRelPf: blockPf,
     liveDisableMinPf: blockPf,

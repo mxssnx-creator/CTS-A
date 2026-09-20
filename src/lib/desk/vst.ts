@@ -815,6 +815,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
     e.blockCfg.overallVolumeRatio = clampBlockVol(e.blockCfg.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO, DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
     e.blockCfg.sharedVolumeRatio = clampSharedVol(e.blockCfg.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO);
     e.blockCfg.relVolumeRatio = clampBlockVol(e.blockCfg.relVolumeRatio ?? e.blockCfg.volumeRatio);
+    if (e.blockCfg.overallMode !== "additive" && e.blockCfg.overallMode !== "parallel") e.blockCfg.overallMode = "shared";
   }
   e.liveTape = e.liveTape ?? false;
   for (const lane of Object.values(e.blockLanes)) {
@@ -2086,6 +2087,13 @@ function liveVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
   return blockVolumeModes(block);
 }
 
+function overallVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
+  const m = block?.overallMode;
+  if (m === "parallel") return ["shared", "additive"];
+  if (m === "additive") return ["additive"];
+  return ["shared"];
+}
+
 function blockModeOf(o: { note?: string }): "shared" | "additive" {
   const n = o.note || "";
   if (/additive/i.test(n)) return "additive";
@@ -3311,7 +3319,7 @@ export function adjustActiveBlocks(
           if (!lane.satisfied[next] && !liveRelLevels.has(next) && lane.pending !== next && relQty + 1e-12 < relCap && blockPfOk(lane, next, block, minPf)) {
             enqueue("relation", next, vrModeRel, extra);
           }
-          if (overall && !liveOvLevels.has(next) && ovQty + 1e-12 < ovCap) {
+          if (overall && overallVolumeModes(block).includes(mode) && !liveOvLevels.has(next) && ovQty + 1e-12 < ovCap) {
             enqueue("overall", next, vrModeOv, 0);
           }
         }

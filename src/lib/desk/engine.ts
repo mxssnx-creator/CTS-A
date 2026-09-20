@@ -588,6 +588,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   stack: true,
   windows: true,
   volumeMode: "parallel",
+  overallMode: "shared",
   sides: "both",
   evalHours: 2,
   autoEval: true,
