@@ -25,7 +25,7 @@ const BLOCK_LIVE = {
   maxMultiple: 6,
   evalPosCount: 6,
   evalLastNs: [1, 2, 3, 4, 5, 6],
-  volumeMode: "parallel" as const,
+  volumeMode: "shared" as const,
   overallMode: "shared" as const,
   sides: "both" as const,
   volumeRatio: 0.4,

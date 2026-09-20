@@ -22,7 +22,7 @@ import type {
   PositionBlock,
   RangeType,
   Side,
-  SliceStats,
+  ShortProgressConfig,
   Stats,
   StrategyAdj,
   StrategyDef,
@@ -35,6 +35,8 @@ import type {
   Venue,
   VolumeCoord,
 } from "./types";
+
+export { DEFAULT_SHORT_PROGRESS, SHORT_PROGRESS_INDICATIONS, sanitizeShortProgress } from "./short-progress.ts";
 
 export const BARS = 240;
 export const WARMUP = 55;
@@ -225,7 +227,7 @@ export const SHORT_SL_OF_TP = [0.5, 1, 1.5] as const;
 export type ShortSlOfTp = (typeof SHORT_SL_OF_TP)[number];
 
 export function snapShortTpAtr(n: number): number {
-  if (!Number.isFinite(n)) return 0.3;
+  if (!Number.isFinite(n)) return 0.4;
   let best: (typeof SHORT_TP_ATR)[number] = SHORT_TP_ATR[0]!;
   let dist = Infinity;
   for (const t of SHORT_TP_ATR) {
@@ -488,6 +490,8 @@ export const DEFAULT_AXIS_PF = 1.15;
 export const DEFAULT_BLOCK_PF = 1.2;
 export const DEFAULT_SHORT_PF = 0.95;
 export const DEFAULT_SHORT_BASE_PF = 0.7;
+export const DEFAULT_SHORT_AXIS_PF = 0.9;
+export const DEFAULT_SHORT_BLOCK_PF = 1.15;
 export const DEFAULT_BLOCK_VOLUME_RATIO = 0.4;
 export const DEFAULT_OVERALL_BLOCK_VOLUME_RATIO = 1;
 export const DEFAULT_SHARED_BLOCK_VOLUME_RATIO = 1.5;
@@ -538,6 +542,8 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   blockPf: DEFAULT_BLOCK_PF,
   shortPf: DEFAULT_SHORT_PF,
   shortBasePf: DEFAULT_SHORT_BASE_PF,
+  shortAxisPf: DEFAULT_SHORT_AXIS_PF,
+  shortBlockPf: DEFAULT_SHORT_BLOCK_PF,
   maxMdd: 0.12,
   minWr: 0.55,
   minVf: 1.12,
@@ -586,7 +592,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   keepAdjusted: true,
   stack: true,
   windows: true,
-  volumeMode: "parallel",
+  volumeMode: "shared",
   overallMode: "shared",
   sides: "both",
   evalHours: 2,
@@ -1288,6 +1294,18 @@ export const INDICATION_CONFIGS: IndicationConfig[] = [
   { id: "dir-st", kind: "direction", label: "Dir Supertrend flip", params: { lookback: 6 } },
   { id: "dir-axis", kind: "direction", label: "Dir axis VWAP", params: { lookback: 5 } },
   { id: "dir-macd", kind: "direction", label: "Dir MACD flip", params: { lookback: 5 } },
+  { id: "move-impulse", kind: "move", label: "Move impulse", params: { atrMult: 1.2, lookback: 4 } },
+  { id: "move-swing", kind: "move", label: "Move swing 8", params: { atrMult: 1.05, lookback: 8 } },
+  { id: "rsi-ext", kind: "rsi", label: "RSI 14 extreme", params: { lo: 32, hi: 68 } },
+  { id: "rsi-mid", kind: "rsi", label: "RSI 14 mid", params: { lo: 42, hi: 58 } },
+  { id: "bb-bounce", kind: "bollinger", label: "Bollinger bounce", params: { lookback: 2 } },
+  { id: "bb-squeeze", kind: "bollinger", label: "Bollinger squeeze", params: { lookback: 8 } },
+  { id: "sar-flip", kind: "sar", label: "SAR / Supertrend flip", params: { lookback: 4 } },
+  { id: "sar-hold", kind: "sar", label: "SAR hold", params: { lookback: 6 } },
+  { id: "macd-cross", kind: "macd", label: "MACD cross", params: { lookback: 4 } },
+  { id: "macd-hist", kind: "macd", label: "MACD hist", params: { lookback: 3 } },
+  { id: "ema-fast", kind: "ema", label: "EMA 9/21", params: { lookback: 3 } },
+  { id: "ema-slow", kind: "ema", label: "EMA 21/55", params: { lookback: 5 } },
 ];
 
 export const INDICATION_KINDS: { id: IndicationId; label: string; blurb: string }[] = [
@@ -1295,6 +1313,12 @@ export const INDICATION_KINDS: { id: IndicationId; label: string; blurb: string 
   { id: "break", label: "Break", blurb: "Independent breakout indications on every lane" },
   { id: "active", label: "Active", blurb: "High-frequency activity and ranging-change indications" },
   { id: "direction", label: "Direction", blurb: "Direction-change tactics: EMA, Supertrend, VWAP axis, MACD" },
+  { id: "move", label: "Move", blurb: "Impulse / swing displacement vs ATR" },
+  { id: "rsi", label: "RSI", blurb: "RSI extremes and mid-band mean reversion" },
+  { id: "bollinger", label: "Bollinger", blurb: "Band bounce and squeeze expansions" },
+  { id: "sar", label: "SAR", blurb: "Parabolic / Supertrend flip and hold" },
+  { id: "macd", label: "MACD", blurb: "MACD cross and histogram thrust" },
+  { id: "ema", label: "EMA", blurb: "Fast and slow EMA stack alignment" },
 ];
 
 function signalFor(id: string, candles: Candle[], ind: IndicatorPack): number[] {
@@ -1670,13 +1694,19 @@ export function isPositive(
             : "overall";
   const minPf =
     lane === "block"
-      ? th.blockPf ?? DEFAULT_BLOCK_PF
+      ? short
+        ? th.shortBlockPf ?? DEFAULT_SHORT_BLOCK_PF
+        : th.blockPf ?? DEFAULT_BLOCK_PF
       : lane === "axis"
-        ? th.axisPf ?? DEFAULT_AXIS_PF
+        ? short
+          ? th.shortAxisPf ?? DEFAULT_SHORT_AXIS_PF
+          : th.axisPf ?? DEFAULT_AXIS_PF
         : lane === "short"
           ? th.shortPf ?? DEFAULT_SHORT_PF
           : lane === "base"
-            ? th.basePf ?? DEFAULT_BASE_PF
+            ? short
+              ? th.shortBasePf ?? DEFAULT_SHORT_BASE_PF
+              : th.basePf ?? DEFAULT_BASE_PF
             : th.minPf;
   if (s.pf < minPf) return false;
   if (s.mdd > th.maxMdd) return false;
@@ -1699,12 +1729,21 @@ export interface IndicationSummary {
   break: number;
   active: number;
   direction: number;
+  move: number;
+  rsi: number;
+  bollinger: number;
+  sar: number;
+  macd: number;
+  ema: number;
   activity: number;
   hf: boolean;
   agree: boolean;
   hits: number;
   timing: number;
   relations: ActivityRelation;
+  lastPart?: number;
+  drawdown?: number;
+  prevRel?: number;
 }
 
 function clampDir(n: number) {
@@ -1812,6 +1851,83 @@ export function processIndication(
       }
     }
     if (dir !== 0 && (pack.activity[i] ?? 0) >= 1.1) strength = Math.min(1, strength + 0.12);
+  } else if (cfg.kind === "move") {
+    const atr = Math.max(pack.atr[i] ?? 0, 1e-9);
+    const bar = (c.h - c.l) / atr;
+    const look = Math.max(2, Math.round(cfg.params.lookback ?? 4));
+    const atrMult = cfg.params.atrMult ?? 1.2;
+    let swing = 0;
+    const from = Math.max(0, i - look);
+    if (from < i) swing = Math.abs(c.c - candles[from]!.c) / atr;
+    if (bar >= atrMult || swing >= atrMult) {
+      dir = c.c >= (from < i ? candles[from]!.c : c.o) ? 1 : -1;
+      strength = Math.min(1, 0.45 + Math.max(bar, swing) * 0.22);
+    }
+  } else if (cfg.kind === "rsi") {
+    const rsi = pack.rsi14[i];
+    const lo = cfg.params.lo ?? 32;
+    const hi = cfg.params.hi ?? 68;
+    if (finite(rsi)) {
+      if (rsi! <= lo) {
+        dir = 1;
+        strength = Math.min(1, (lo - rsi!) / 18 + 0.45);
+      } else if (rsi! >= hi) {
+        dir = -1;
+        strength = Math.min(1, (rsi! - hi) / 18 + 0.45);
+      }
+    }
+  } else if (cfg.kind === "bollinger") {
+    const mid = pack.bbMid[i];
+    const up = pack.bbUpper[i];
+    const lo = pack.bbLower[i];
+    if (finite(mid) && finite(up) && finite(lo) && up! > lo!) {
+      const width = (up! - lo!) / Math.max(mid!, 1e-9);
+      if (cfg.id === "bb-squeeze" && width < 0.012 && (pack.rangeChange[i] ?? 0) > 1) {
+        dir = c.c >= c.o ? 1 : -1;
+        strength = 0.72;
+      } else if (c.c <= lo!) {
+        dir = 1;
+        strength = 0.8;
+      } else if (c.c >= up!) {
+        dir = -1;
+        strength = 0.8;
+      }
+    }
+  } else if (cfg.kind === "sar") {
+    const look = Math.max(2, Math.round(cfg.params.lookback ?? 4));
+    const now = pack.stDir[i] ?? 0;
+    const was = i >= look ? pack.stDir[i - look] ?? 0 : 0;
+    if (cfg.id === "sar-hold" && now !== 0) {
+      dir = now;
+      strength = now === was ? 0.7 : 0.5;
+    } else if (now !== 0 && now !== was) {
+      dir = now;
+      strength = 0.88;
+    }
+  } else if (cfg.kind === "macd") {
+    const hist = pack.macdHist[i] ?? 0;
+    if (cfg.id === "macd-hist" && Math.abs(hist) > 0) {
+      dir = Math.sign(hist);
+      strength = Math.min(1, 0.5 + Math.abs(hist) * 4);
+    } else if (i > 0 && crossUp(pack.macd, pack.macdSignal, i)) {
+      dir = 1;
+      strength = 0.82;
+    } else if (i > 0 && crossDn(pack.macd, pack.macdSignal, i)) {
+      dir = -1;
+      strength = 0.82;
+    }
+  } else if (cfg.kind === "ema") {
+    const e9 = pack.ema9[i];
+    const e21 = pack.ema21[i];
+    const e55 = pack.ema55[i];
+    if (cfg.id === "ema-slow" && finite(e21) && finite(e55)) {
+      dir = e21! > e55! ? 1 : -1;
+      strength = 0.7;
+    } else if (finite(e9) && finite(e21)) {
+      dir = e9! > e21! ? 1 : -1;
+      strength = 0.74;
+      if (finite(e55) && Math.sign(e9! - e21!) === Math.sign(e21! - e55!)) strength = 0.88;
+    }
   }
   return { configId: cfg.id, kind: cfg.kind, dir, strength, activity };
 }
@@ -1826,6 +1942,12 @@ export function summarizeIndications(hits: IndicationHit[]): IndicationSummary {
     break: { w: 0, s: 0, n: 0 },
     active: { w: 0, s: 0, n: 0 },
     direction: { w: 0, s: 0, n: 0 },
+    move: { w: 0, s: 0, n: 0 },
+    rsi: { w: 0, s: 0, n: 0 },
+    bollinger: { w: 0, s: 0, n: 0 },
+    sar: { w: 0, s: 0, n: 0 },
+    macd: { w: 0, s: 0, n: 0 },
+    ema: { w: 0, s: 0, n: 0 },
   };
   let activity = 0;
   for (const h of hits) {
@@ -1838,8 +1960,14 @@ export function summarizeIndications(hits: IndicationHit[]): IndicationSummary {
   const brk = by.break.s ? clampDir(by.break.w / by.break.s) : 0;
   const active = by.active.s ? clampDir(by.active.w / by.active.s) : 0;
   const direction = by.direction.s ? clampDir(by.direction.w / by.direction.s) : 0;
+  const move = by.move.s ? clampDir(by.move.w / by.move.s) : 0;
+  const rsi = by.rsi.s ? clampDir(by.rsi.w / by.rsi.s) : 0;
+  const bollinger = by.bollinger.s ? clampDir(by.bollinger.w / by.bollinger.s) : 0;
+  const sar = by.sar.s ? clampDir(by.sar.w / by.sar.s) : 0;
+  const macd = by.macd.s ? clampDir(by.macd.w / by.macd.s) : 0;
+  const ema = by.ema.s ? clampDir(by.ema.w / by.ema.s) : 0;
   activity = hits.length ? activity / hits.length : 0;
-  const signed = [trend, brk, active, direction].filter((x) => Math.abs(x) > 0.12);
+  const signed = [trend, brk, active, direction, move, rsi, bollinger, sar, macd, ema].filter((x) => Math.abs(x) > 0.12);
   const agree =
     signed.length >= 2 && signed.every((x) => Math.sign(x) === Math.sign(signed[0]!));
   const dummy: ActivityRelation = {
@@ -1850,7 +1978,7 @@ export function summarizeIndications(hits: IndicationHit[]): IndicationSummary {
     volRange: 0,
     pulseDir: direction !== 0 && activity >= 1.05 ? Math.sign(direction) : 0,
     rangeDir: 0,
-    agree: signed.length / 4,
+    agree: signed.length / 10,
     hf: activity >= 1.08 || Math.abs(direction) >= 0.6,
     timing: clamp((Math.abs(direction) > 0.12 ? 0.55 : 0.2) + (activity >= 1.08 ? 0.25 : 0) + (agree ? 0.15 : 0), 0, 1),
   };
@@ -1859,6 +1987,12 @@ export function summarizeIndications(hits: IndicationHit[]): IndicationSummary {
     break: brk,
     active,
     direction,
+    move,
+    rsi,
+    bollinger,
+    sar,
+    macd,
+    ema,
     activity,
     hf: dummy.hf,
     agree,
@@ -1873,6 +2007,12 @@ const EMPTY_IND: IndicationSummary = {
   break: 0,
   active: 0,
   direction: 0,
+  move: 0,
+  rsi: 0,
+  bollinger: 0,
+  sar: 0,
+  macd: 0,
+  ema: 0,
   activity: 0,
   hf: false,
   agree: false,
@@ -1936,16 +2076,34 @@ export function indicationFromQuote(
   const signed = [trend, brk, active, direction].filter((x) => Math.abs(x) > 0.12);
   const agree = signed.length >= 2 && signed.every((x) => Math.sign(x) === Math.sign(signed[0]!));
   const activity = clamp(vol * 10 + vol1h * 8 + Math.min(1.4, span * 0.35), 0, 2);
+  const lastPart = clampDir(side * Math.min(1, Math.abs(chg) * 80 + span * 0.12));
+  const drawdown = clamp(Math.max(0, axisDist - 0.4) / 2.2, 0, 1);
+  const prevRel = clampDir((desk?.direction ?? 0) * 0.55 + direction * 0.45);
+  const move = clampDir(side * Math.min(1, Math.max(0, span - 0.9) * 0.7 + Math.abs(chg) * 40));
+  const rsi = clampDir(chg < -0.004 ? 0.7 : chg > 0.004 ? -0.7 : -chg * 80);
+  const bollinger = clampDir(px <= (q.lo || px) + atr * 0.15 ? 0.75 : px >= (q.hi || px) - atr * 0.15 ? -0.75 : 0);
+  const sar = clampDir(side * (aligned ? 0.72 : 0.28));
+  const macd = clampDir(side * Math.min(1, Math.abs(chg) * 90 + (aligned ? 0.2 : 0)));
+  const ema = clampDir(side * Math.min(1, axisDist * 0.35 + Math.abs(chg) * 50));
   return {
     trend,
     break: brk,
     active,
     direction,
+    move,
+    rsi,
+    bollinger,
+    sar,
+    macd,
+    ema,
     activity,
     hf: activity >= 1.08 || Math.abs(direction) >= 0.6,
     agree,
     hits: signed.length,
     timing: clamp((Math.abs(direction) > 0.12 ? 0.55 : 0.2) + (activity >= 1.08 ? 0.25 : 0) + (agree ? 0.15 : 0), 0, 1),
+    lastPart,
+    drawdown,
+    prevRel,
     relations: {
       pulse: activity,
       range: span,
@@ -1954,7 +2112,7 @@ export function indicationFromQuote(
       volRange: vol1h,
       pulseDir: direction !== 0 && activity >= 1.05 ? Math.sign(direction) : 0,
       rangeDir: Math.sign(chg || 0),
-      agree: signed.length / 4,
+      agree: signed.length / 10,
       hf: activity >= 1.08 || Math.abs(direction) >= 0.6,
       timing: clamp((Math.abs(direction) > 0.12 ? 0.55 : 0.2) + (activity >= 1.08 ? 0.25 : 0) + (agree ? 0.15 : 0), 0, 1),
     },
@@ -2368,12 +2526,10 @@ export function getReplayTape(symbol: string, hours: number): ReplayTape {
   }
   const primary = backtests.normal ?? Object.values(backtests)[0]!;
   const occ = occupancyFromTrades(primary.trades, endBar);
-  const kindHits: Record<IndicationId, { hits: number; strength: number; n: number }> = {
-    trend: { hits: 0, strength: 0, n: 0 },
-    break: { hits: 0, strength: 0, n: 0 },
-    active: { hits: 0, strength: 0, n: 0 },
-    direction: { hits: 0, strength: 0, n: 0 },
-  };
+  const kindHits = Object.fromEntries(INDICATION_KINDS.map((k) => [k.id, { hits: 0, strength: 0, n: 0 }])) as Record<
+    IndicationId,
+    { hits: number; strength: number; n: number }
+  >;
   const cfgHits = Object.fromEntries(INDICATION_CONFIGS.map((c) => [c.id, { hits: 0, strength: 0 }])) as Record<
     string,
     { hits: number; strength: number }

@@ -18,6 +18,7 @@ import type {
   TacticConfig,
   TacticKind,
   Thresholds,
+  ShortProgressConfig,
   VstEngine,
 } from "./types";
 import type { CompleteComputeReport } from "./vst";
@@ -31,6 +32,7 @@ import {
   DEFAULT_LAST_N_CONFIG,
   DEFAULT_TACTIC_CONFIG,
   DEFAULT_THRESHOLDS,
+  DEFAULT_SHORT_PROGRESS,
   DESK,
   LANE_EVAL_NS,
   LAST_N_OPTIONS,
@@ -38,6 +40,7 @@ import {
   STRATEGY_KINDS,
   clampLastN,
   clampBlockVol,
+  sanitizeShortProgress,
   combosFiltered,
   pickBestCombo,
   WARMUP,
@@ -149,6 +152,7 @@ interface DeskStore {
   activePresetId: string;
   userPresets: import("./presets").SettingsPreset[];
   strategyToggles: StrategyToggles;
+  shortProgress: ShortProgressConfig;
   exchange: ExchangeBook | null;
   settingsRev: number;
   settingsAt: number;
@@ -175,6 +179,7 @@ interface DeskStore {
   setTacticConfig: (p: Partial<TacticConfig>) => void;
   setBlockConfig: (p: Partial<BlockConfig>) => void;
   setStrategyToggles: (p: Partial<StrategyToggles>) => void;
+  setShortProgress: (p: Partial<ShortProgressConfig>) => void;
   setComboOnlyPositive: (v: boolean) => void;
   setComboTactic: (t: TacticKind | "all") => void;
   setComboRange: (r: RangeType | "all") => void;
@@ -353,6 +358,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   activePresetId: "",
   userPresets: [] as SettingsPreset[],
   strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
+  shortProgress: sanitizeShortProgress(DEFAULT_SHORT_PROGRESS),
   exchange: null,
   liveSession: null,
   liveOverall: null,
@@ -447,6 +453,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       tacticConfig: { ...DEFAULT_TACTIC_CONFIG },
       blockConfig: { ...DEFAULT_BLOCK_CONFIG },
       strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
+      shortProgress: sanitizeShortProgress(DEFAULT_SHORT_PROGRESS),
       comboOnlyPositive: true,
       comboTactic: "all",
       comboRange: "all",
@@ -585,7 +592,22 @@ export const useDesk = create<DeskStore>((set, get) => ({
     else e.blockCfg = { ...get().blockConfig, enabled: true };
     get().syncSettings();
   },
-  setComboOnlyPositive: (comboOnlyPositive) => {
+  setShortProgress: (p) => {
+    const shortProgress = sanitizeShortProgress({ ...get().shortProgress, ...p });
+    set({ shortProgress });
+    const e = get().vst;
+    e.shortProgress = shortProgress;
+    e.shortPf = shortProgress.overallPf;
+    e.shortBasePf = shortProgress.basePf;
+    e.shortAxisPf = shortProgress.axisPf;
+    e.shortBlockPf = shortProgress.blockPf;
+    get().setThresholds({
+      shortPf: shortProgress.overallPf,
+      shortBasePf: shortProgress.basePf,
+      shortAxisPf: shortProgress.axisPf,
+      shortBlockPf: shortProgress.blockPf,
+    });
+  },
     set({ comboOnlyPositive });
     get().syncSettings();
   },
@@ -882,6 +904,9 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.blockPf = get().thresholds.blockPf;
     e.shortPf = get().thresholds.shortPf;
     e.shortBasePf = get().thresholds.shortBasePf;
+    e.shortAxisPf = get().thresholds.shortAxisPf;
+    e.shortBlockPf = get().thresholds.shortBlockPf;
+    e.shortProgress = get().shortProgress;
     e.shortRange = Boolean(get().tacticConfig.shortRange);
     e.blockCfg = {
       ...get().blockConfig,
@@ -1453,6 +1478,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
         tacticConfig: snap.tacticConfig,
         blockConfig: snap.blockConfig,
         strategyToggles: snap.strategyToggles,
+        shortProgress: snap.shortProgress ?? sanitizeShortProgress(undefined),
         symbolCount: snap.symbolCount,
         orderType: snap.orderType,
         enabledKinds: snap.enabledKinds,

@@ -37,7 +37,8 @@ import {
   SHORT_TP_ATR,
   SHORT_SL_OF_TP,
   snapShortTpAtr,
-  snapShortSlOfTp,
+  SHORT_PROGRESS_INDICATIONS,
+  DEFAULT_SHORT_PROGRESS,
   shortSlAtrOf,
   shortTpRatioOf,
   volumeCoord,
@@ -87,6 +88,7 @@ const SECTIONS = [
   { id: "axis", label: "Axis" },
   { id: "gates", label: "Gates" },
   { id: "tactics", label: "Protect" },
+  { id: "short-progress", label: "Short Progress" },
   { id: "block", label: "Block" },
   { id: "dca", label: "DCA" },
   { id: "indicators", label: "Indicators" },
@@ -229,6 +231,8 @@ export function SettingsView() {
   const phase = useDesk((s) => s.vst.phase);
   const settingsRev = useDesk((s) => s.settingsRev);
   const settingsSource = useDesk((s) => s.settingsSource);
+  const shortProgress = useDesk((s) => s.shortProgress);
+  const setShortProgress = useDesk((s) => s.setShortProgress);
   const evalHours = useDesk((s) => s.evalHours);
   const evalLastNs = useDesk((s) => s.evalLastNs);
   const setEvalHours = useDesk((s) => s.setEvalHours);
@@ -1218,6 +1222,121 @@ export function SettingsView() {
           <p className="mt-3 text-xs text-muted">
             Take-profit ATR 0.8–1.6. SL is 1.00× or 1.25× TP (no sub-1 SL). Trail 1.4–1.5% follows the
             peak, not the last tick. Short-range holds default 3 bars / 16 ticks.
+          </p>
+        </Panel>
+      </div>
+
+      <div id="short-progress" className="scroll-mt-24">
+        <Panel title="Short Ranges Progress">
+          <p className="mb-3 text-sm text-muted">
+            Own short-range process: indications, last-part / activity / drawdown / previous-relation
+            windows, and PF gates. Base PF may sit under 1 so Axis and Block overlays can still fire
+            on the performing remainder.
+          </p>
+          <div className="mb-3 flex flex-wrap gap-1">
+            <button
+              type="button"
+              aria-pressed={shortProgress.enabled}
+              className={`${chip} ${shortProgress.enabled ? chipOn : chipOff}`}
+              onClick={() => setShortProgress({ enabled: !shortProgress.enabled })}
+            >
+              {shortProgress.enabled ? "Short progress on" : "Short progress off"}
+            </button>
+            <button
+              type="button"
+              aria-pressed={shortProgress.bestOnly}
+              className={`${chip} ${shortProgress.bestOnly ? chipOn : chipOff}`}
+              onClick={() => setShortProgress({ bestOnly: !shortProgress.bestOnly })}
+            >
+              {shortProgress.bestOnly ? "Best only" : "All indications"}
+            </button>
+          </div>
+          <div className="mb-3 flex flex-wrap gap-1">
+            {SHORT_PROGRESS_INDICATIONS.map((id) => {
+              const on = shortProgress.indications.includes(id);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={on}
+                  className={`${chip} ${on ? chipOn : chipOff}`}
+                  onClick={() => {
+                    const next = on
+                      ? shortProgress.indications.filter((x) => x !== id)
+                      : [...shortProgress.indications, id];
+                    setShortProgress({ indications: next.length ? next : [...DEFAULT_SHORT_PROGRESS.indications] });
+                  }}
+                >
+                  {id}
+                </button>
+              );
+            })}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <RangeKnob
+              label="Short overall PF"
+              value={shortProgress.overallPf}
+              min={0.4}
+              max={2}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setShortProgress({ overallPf: n })}
+              ariaLabel="Short progress overall PF"
+            />
+            <RangeKnob
+              label="Short base PF"
+              value={shortProgress.basePf}
+              min={0.4}
+              max={1.5}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setShortProgress({ basePf: n })}
+              ariaLabel="Short progress base PF"
+            />
+            <RangeKnob
+              label="Short Axis PF"
+              value={shortProgress.axisPf}
+              min={0.5}
+              max={2}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setShortProgress({ axisPf: n })}
+              ariaLabel="Short progress Axis PF"
+            />
+            <RangeKnob
+              label="Short Block PF"
+              value={shortProgress.blockPf}
+              min={0.7}
+              max={2.5}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setShortProgress({ blockPf: n })}
+              ariaLabel="Short progress Block PF"
+            />
+            <RangeKnob
+              label="Drawdown lookback"
+              value={shortProgress.drawdownLookback}
+              min={4}
+              max={40}
+              step={1}
+              format={(n) => String(n)}
+              onChange={(n) => setShortProgress({ drawdownLookback: n })}
+              ariaLabel="Short progress drawdown lookback"
+            />
+            <RangeKnob
+              label="Previous relation N"
+              value={shortProgress.prevRelN}
+              min={3}
+              max={24}
+              step={1}
+              format={(n) => String(n)}
+              onChange={(n) => setShortProgress({ prevRelN: n })}
+              ariaLabel="Short progress previous relation N"
+            />
+          </div>
+          <p className="mt-3 text-xs text-muted">
+            Last parts {shortProgress.lastParts.join("/")} · activity {shortProgress.activityWindows.join("/")}h ·
+            base under 1 is allowed; Block overlay default {shortProgress.blockPf.toFixed(2)}.
           </p>
         </Panel>
       </div>

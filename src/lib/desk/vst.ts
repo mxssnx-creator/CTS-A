@@ -36,6 +36,8 @@ import {
   DEFAULT_BLOCK_PF,
   DEFAULT_SHORT_PF,
   DEFAULT_SHORT_BASE_PF,
+  DEFAULT_SHORT_AXIS_PF,
+  DEFAULT_SHORT_BLOCK_PF,
   AXIS_PARTIAL_RATIO,
   DEFAULT_STRATEGY_TOGGLES,
   BLOCK_POS_COUNTS,
@@ -809,7 +811,10 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.blockPf = e.blockPf ?? DEFAULT_THRESHOLDS.blockPf;
   e.shortPf = e.shortPf ?? DEFAULT_THRESHOLDS.shortPf;
   e.shortBasePf = e.shortBasePf ?? DEFAULT_THRESHOLDS.shortBasePf;
+  e.shortAxisPf = e.shortAxisPf ?? DEFAULT_THRESHOLDS.shortAxisPf;
+  e.shortBlockPf = e.shortBlockPf ?? DEFAULT_THRESHOLDS.shortBlockPf;
   e.shortRange = e.shortRange ?? false;
+  e.shortProgress = e.shortProgress ?? undefined;
   if (e.blockCfg) {
     e.blockCfg.volumeRatio = clampBlockVol(e.blockCfg.volumeRatio);
     e.blockCfg.overallVolumeRatio = clampBlockVol(e.blockCfg.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO, DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
@@ -1197,29 +1202,47 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
   const q = e.quotes[symbol];
   if (q && q.px > 0) refreshLiveIndications({ [symbol]: q });
   const pack = symbolIndications(symbol);
-  const rankedPack: [IndicationId, number][] = [
-    ["trend", Math.abs(pack.trend)],
-    ["break", Math.abs(pack.break)],
-    ["active", Math.abs(pack.active)],
-    ["direction", Math.abs(pack.direction)],
-  ];
+  const extra = Boolean(e.shortProgress?.enabled);
+  const enabled = extra ? e.shortProgress?.indications : (["trend", "break", "active", "direction"] as IndicationId[]);
+  const rankedPack: [IndicationId, number][] = (
+    [
+      ["trend", Math.abs(pack.trend)],
+      ["break", Math.abs(pack.break)],
+      ["active", Math.abs(pack.active)],
+      ["direction", Math.abs(pack.direction)],
+      ["move", Math.abs(pack.move ?? 0)],
+      ["rsi", Math.abs(pack.rsi ?? 0)],
+      ["bollinger", Math.abs(pack.bollinger ?? 0)],
+      ["sar", Math.abs(pack.sar ?? 0)],
+      ["macd", Math.abs(pack.macd ?? 0)],
+      ["ema", Math.abs(pack.ema ?? 0)],
+    ] as [IndicationId, number][]
+  ).filter(([id]) => !enabled?.length || enabled.includes(id));
   rankedPack.sort((a, b) => b[1] - a[1]);
   if (!q) return (rankedPack[0]?.[1] ?? 0) > 1e-9 ? rankedPack[0]![0] : "trend";
   const atr = Math.max(q.atr, q.px * 0.0008, 1e-9);
   const span = (q.hi - q.lo) / atr;
-  const axisDist = Math.abs(q.px - q.axis) / atr;
   const chg = Number.isFinite(q.chg) ? q.chg : 0;
   const aligned = Math.sign(chg || 0) === Math.sign(q.px - q.axis || 0) || Math.abs(chg) < 1e-6;
-  const scores: Record<IndicationId, number> = {
-    trend: Math.abs(pack.trend) * 1.55 + (aligned ? Math.abs(chg) * 14 : Math.abs(chg) * 2.2) + (aligned && Math.abs(chg) >= 0.008 && span < 1.4 ? 1.15 : 0),
-    break: Math.abs(pack.break) * 3.4 + Math.max(0, span - 1.15) * 2.8 + (span > 1.2 ? Math.max(0, Math.abs(chg) * 50 - 0.1) : 0) + ((q.vol1h ?? 0) > 0.018 && span > 1.15 ? 0.45 : 0),
-    active: Math.abs(pack.active) * 2.2 + Math.min(2.0, (q.vol1h ?? 0) * 40) + (span < 1.22 && (q.vol1h ?? 0) > 0.01 ? 0.55 : 0) + (Math.abs(chg) < 0.0035 && (q.vol1h ?? 0) > 0.012 ? 0.3 : 0),
+  const rel = (pack.lastPart ?? 0) * 0.4 + (1 - (pack.drawdown ?? 0)) * 0.3 + Math.abs(pack.prevRel ?? 0) * 0.3;
+  const scores: Partial<Record<IndicationId, number>> = {
+    trend: Math.abs(pack.trend) * 1.55 + (aligned ? Math.abs(chg) * 14 : Math.abs(chg) * 2.2) + rel * 0.2,
+    break: Math.abs(pack.break) * 3.4 + Math.max(0, span - 1.15) * 2.8 + ((q.vol1h ?? 0) > 0.018 && span > 1.15 ? 0.45 : 0),
+    active: Math.abs(pack.active) * 2.2 + Math.min(2.0, (q.vol1h ?? 0) * 40) + rel * 0.15,
     direction: Math.abs(pack.direction) * 2.6 + (!aligned ? Math.abs(chg) * 28 + 0.9 : Math.abs(chg) * 3),
+    move: Math.abs(pack.move ?? 0) * 2.8 + Math.max(0, span - 1) * 1.6,
+    rsi: Math.abs(pack.rsi ?? 0) * 2.4 + (Math.abs(chg) < 0.002 ? 0.35 : 0),
+    bollinger: Math.abs(pack.bollinger ?? 0) * 2.5 + (span < 1.05 ? 0.4 : 0),
+    sar: Math.abs(pack.sar ?? 0) * 2.3 + (aligned ? 0.35 : 0.15),
+    macd: Math.abs(pack.macd ?? 0) * 2.2 + Math.abs(chg) * 12,
+    ema: Math.abs(pack.ema ?? 0) * 2.1 + (aligned ? 0.4 : 0),
   };
-  if (Math.abs(pack.break) < 0.12 && span < 1.18 && Math.abs(chg) < 0.0035) scores.break *= 0.18;
+  if (Math.abs(pack.break) < 0.12 && span < 1.18 && Math.abs(chg) < 0.0035 && scores.break != null) scores.break *= 0.18;
   const lead = rankedPack[0];
-  if (lead && lead[1] >= 0.08) scores[lead[0]] += 0.85;
-  const ranked = (Object.entries(scores) as [IndicationId, number][]).sort((a, b) => b[1] - a[1]);
+  if (lead && lead[1] >= 0.08 && scores[lead[0]] != null) scores[lead[0]]! += 0.85;
+  const ranked = (Object.entries(scores) as [IndicationId, number][])
+    .filter(([id]) => !enabled?.length || enabled.includes(id))
+    .sort((a, b) => b[1] - a[1]);
   return ranked[0]?.[0] ?? lead?.[0] ?? "trend";
 }
 
@@ -1252,7 +1275,7 @@ export function liveExecPlaybook(
 
 export function tacticForIndication(id: IndicationId, t?: { axis?: boolean; trailing?: boolean }): TacticKind {
   if (t?.axis === false) return "trailing";
-  if (id === "direction") return "axis";
+  if (id === "direction" || id === "rsi" || id === "bollinger") return "axis";
   if (id === "break" || id === "active") return "hybrid";
   return "trailing";
 }
@@ -1260,10 +1283,11 @@ export function tacticForIndication(id: IndicationId, t?: { axis?: boolean; trai
 export function kindFromIndication(id: IndicationId, playbook: string, tactic: TacticKind): StrategyKind {
   if (playbook === "block") return "block";
   if (playbook === "short") return "short";
-  if (id === "trend") return "trend";
+  if (id === "trend" || id === "move" || id === "ema" || id === "sar") return "trend";
   if (id === "break") return "breakout";
   if (id === "active") return "active";
-  if (id === "direction") return "mean";
+  if (id === "direction" || id === "rsi" || id === "bollinger") return "mean";
+  if (id === "macd") return "hybrid";
   if (tactic === "hybrid") return "hybrid";
   if (tactic === "axis") return "mean";
   if (tactic === "dca") return "volume";
@@ -1275,12 +1299,20 @@ const IND_RANGE_PREF: Record<IndicationId, RangeType[]> = {
   break: ["atr", "fibonacci", "geometric"],
   active: ["atr", "fibonacci", "volume"],
   direction: ["atr", "fibonacci", "linear"],
+  move: ["atr", "volume", "geometric"],
+  rsi: ["atr", "linear", "fibonacci"],
+  bollinger: ["atr", "linear", "volume"],
+  sar: ["atr", "fibonacci", "geometric"],
+  macd: ["atr", "volume", "fibonacci"],
+  ema: ["fibonacci", "atr", "linear"],
 };
 
 export function indicationProtect(id: IndicationId): { slMul: number; tpMul: number; holdMul: number } {
-  if (id === "break") return { slMul: 1.28, tpMul: 1.45, holdMul: 1.35 };
+  if (id === "break" || id === "move") return { slMul: 1.28, tpMul: 1.45, holdMul: 1.35 };
   if (id === "active") return { slMul: 0.92, tpMul: 1.0, holdMul: 0.85 };
-  if (id === "direction") return { slMul: 1.06, tpMul: 1.0, holdMul: 1.0 };
+  if (id === "direction" || id === "rsi" || id === "bollinger") return { slMul: 1.06, tpMul: 1.0, holdMul: 1.0 };
+  if (id === "sar" || id === "ema") return { slMul: 1.12, tpMul: 1.08, holdMul: 1.1 };
+  if (id === "macd") return { slMul: 1.08, tpMul: 1.12, holdMul: 1.05 };
   return { slMul: 1, tpMul: 1, holdMul: 1 };
 }
 
@@ -2365,6 +2397,8 @@ export function minPfFor(e: VstEngine, lane: PfLane = "overall"): number {
   if (lane === "axis") return numPf(e.axisPf, DEFAULT_THRESHOLDS.axisPf);
   if (lane === "short") return numPf(e.shortPf, DEFAULT_THRESHOLDS.shortPf);
   if (lane === "shortBase") return numPf(e.shortBasePf, DEFAULT_THRESHOLDS.shortBasePf);
+  if (lane === "axis" && e.shortRange) return numPf(e.shortAxisPf, DEFAULT_THRESHOLDS.shortAxisPf ?? DEFAULT_SHORT_AXIS_PF);
+  if (lane === "block" && e.shortRange) return numPf(e.shortBlockPf, DEFAULT_THRESHOLDS.shortBlockPf ?? DEFAULT_SHORT_BLOCK_PF);
   return numPf(e.blockPf ?? e.blockCfg?.liveDisableMinPf, DEFAULT_THRESHOLDS.blockPf);
 }
 
@@ -2990,10 +3024,10 @@ function collectBlockOrders(e: VstEngine, conn: string) {
   ];
 }
 
-function syncBlockParents(e: VstEngine, conn: string) {
+function syncBlockParents(e: VstEngine, conn: string, block?: BlockConfig) {
   e.blockLanes = e.blockLanes ?? {};
   const live = new Set<string>();
-  const modes = liveVolumeModes(e.blockCfg);
+  const modes = liveVolumeModes(block ?? e.blockCfg);
   for (const p of e.positions) {
     if (p.connId !== conn || p.qty <= 0) continue;
     const first = p.legs[0]?.qty || p.qty;
@@ -3204,7 +3238,7 @@ export function adjustActiveBlocks(
     for (const o of b.orders.slice(maxM)) dropOrder(o);
   }
 
-  syncBlockParents(e, conn);
+  syncBlockParents(e, conn, block);
   const counts = liveBlockCounts(block);
   const vrRel = clampBlockVol(block.volumeRatio);
   const vrShared = clampSharedVol(block.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO);

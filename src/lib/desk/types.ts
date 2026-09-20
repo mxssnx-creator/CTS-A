@@ -13,7 +13,17 @@ export interface StrategyToggles {
   block: boolean;
   dca: boolean;
 }
-export type IndicationId = "trend" | "break" | "active" | "direction";
+export type IndicationId =
+  | "trend"
+  | "break"
+  | "active"
+  | "direction"
+  | "move"
+  | "rsi"
+  | "bollinger"
+  | "sar"
+  | "macd"
+  | "ema";
 export type Side = "long" | "short";
 export type LaneStatus = "validated" | "candidate" | "rejected";
 export type ConnStatus = "connected" | "disconnected" | "error" | "testing";
@@ -487,8 +497,12 @@ export interface Thresholds {
   blockPf: number;
   /** Live floor for short-range configs (independent of overall 1.8). */
   shortPf: number;
-  /** Base validation for short-range configs before Axis/Block overlays. */
+  /** Base validation for short-range configs before Axis/Block overlays. Allow < 1. */
   shortBasePf: number;
+  /** Short-range Axis overlay. Allow < 1 so Block can still take the tape. */
+  shortAxisPf: number;
+  /** Short-range Block overlay. */
+  shortBlockPf: number;
   maxMdd: number;
   minWr: number;
   minVf: number;
@@ -496,6 +510,20 @@ export interface Thresholds {
 }
 
 export type LastNStage = "picks" | "lanes" | "last" | "ongoing" | "next" | "combos";
+
+export interface ShortProgressConfig {
+  enabled: boolean;
+  indications: IndicationId[];
+  overallPf: number;
+  basePf: number;
+  axisPf: number;
+  blockPf: number;
+  lastParts: number[];
+  activityWindows: number[];
+  drawdownLookback: number;
+  prevRelN: number;
+  bestOnly: boolean;
+}
 
 export interface LastNConfig {
   picks: number;
@@ -995,6 +1023,9 @@ export interface VstEngine {
   blockPf?: number;
   shortPf?: number;
   shortBasePf?: number;
+  shortAxisPf?: number;
+  shortBlockPf?: number;
+  shortProgress?: ShortProgressConfig;
   liveTape?: boolean;
   shortRange?: boolean;
   strategyToggles?: StrategyToggles;

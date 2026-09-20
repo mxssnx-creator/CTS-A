@@ -12,6 +12,10 @@ import {
   DEFAULT_BLOCK_PF,
   DEFAULT_SHORT_PF,
   DEFAULT_SHORT_BASE_PF,
+  DEFAULT_SHORT_AXIS_PF,
+  DEFAULT_SHORT_BLOCK_PF,
+  DEFAULT_SHORT_PROGRESS,
+  sanitizeShortProgress,
   DEFAULT_STRATEGY_TOGGLES,
   LANE_EVAL_NS,
   MIN_VOLUME_FACTOR,
@@ -99,6 +103,7 @@ export interface DeskSettingsSnap {
   activePresetId: string;
   userPresets: import("./presets.ts").SettingsPreset[];
   strategyToggles: StrategyToggles;
+  shortProgress: import("./types").ShortProgressConfig;
 }
 
 function asNum(n: unknown, fallback: number) {
@@ -160,6 +165,7 @@ export function defaultDeskSettings(): DeskSettingsSnap {
     activePresetId: "",
     userPresets: [],
     strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
+    shortProgress: { ...DEFAULT_SHORT_PROGRESS, indications: [...DEFAULT_SHORT_PROGRESS.indications], lastParts: [...DEFAULT_SHORT_PROGRESS.lastParts], activityWindows: [...DEFAULT_SHORT_PROGRESS.activityWindows] },
   };
 }
 
@@ -199,8 +205,10 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       basePf: Math.min(3, Math.max(0.8, migratePf(asNum(th.basePf, d.thresholds.basePf ?? DEFAULT_BASE_PF), 1.1, DEFAULT_BASE_PF))),
       axisPf: Math.min(3, Math.max(0.9, migratePf(asNum(th.axisPf, d.thresholds.axisPf ?? DEFAULT_AXIS_PF), 1.5, DEFAULT_AXIS_PF))),
       blockPf: Math.min(3, Math.max(0.9, migratePf(asNum(th.blockPf, d.thresholds.blockPf ?? DEFAULT_BLOCK_PF), 1.6, DEFAULT_BLOCK_PF))),
-      shortPf: Math.min(3, Math.max(0.6, migratePf(asNum(th.shortPf, d.thresholds.shortPf ?? DEFAULT_SHORT_PF), 1.2, DEFAULT_SHORT_PF))),
-      shortBasePf: Math.min(2, Math.max(0.5, migratePf(asNum(th.shortBasePf, d.thresholds.shortBasePf ?? DEFAULT_SHORT_BASE_PF), 0.8, DEFAULT_SHORT_BASE_PF))),
+      shortPf: Math.min(3, Math.max(0.4, migratePf(asNum(th.shortPf, d.thresholds.shortPf ?? DEFAULT_SHORT_PF), 1.2, DEFAULT_SHORT_PF))),
+      shortBasePf: Math.min(2, Math.max(0.4, migratePf(asNum(th.shortBasePf, d.thresholds.shortBasePf ?? DEFAULT_SHORT_BASE_PF), 0.8, DEFAULT_SHORT_BASE_PF))),
+      shortAxisPf: Math.min(2, Math.max(0.5, asNum(th.shortAxisPf, d.thresholds.shortAxisPf ?? DEFAULT_SHORT_AXIS_PF))),
+      shortBlockPf: Math.min(2.5, Math.max(0.7, asNum(th.shortBlockPf, d.thresholds.shortBlockPf ?? DEFAULT_SHORT_BLOCK_PF))),
       maxMdd: Math.min(0.45, Math.max(0.02, asNum(th.maxMdd, d.thresholds.maxMdd))),
       minWr: Math.min(0.8, Math.max(0.35, asNum(th.minWr, d.thresholds.minWr))),
       minVf: Math.max(MIN_VOLUME_FACTOR, asNum(th.minVf, d.thresholds.minVf)),
@@ -337,6 +345,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     activePresetId: typeof (raw as { activePresetId?: string }).activePresetId === "string" ? String((raw as { activePresetId?: string }).activePresetId).slice(0, 48) : "",
     userPresets: sanitizeUserPresets((raw as { userPresets?: unknown }).userPresets),
     strategyToggles: sanitizeStrategyToggles((raw as { strategyToggles?: Partial<StrategyToggles> }).strategyToggles),
+    shortProgress: sanitizeShortProgress((raw as { shortProgress?: Partial<import("./types").ShortProgressConfig> }).shortProgress),
   };
   if (!snap.evalHours.length) snap.evalHours = [...STAGE_HOURS];
   if (!snap.evalLastNs.length) snap.evalLastNs = [...LANE_EVAL_NS];
@@ -409,6 +418,7 @@ export function collectDeskSettings(s: {
     activePresetId: s.activePresetId,
     userPresets: s.userPresets,
     strategyToggles: s.strategyToggles,
+    shortProgress: sanitizeShortProgress((s as { shortProgress?: Partial<import("./types").ShortProgressConfig> }).shortProgress),
   });
 }
 

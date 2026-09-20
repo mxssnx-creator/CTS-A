@@ -1160,7 +1160,7 @@ describe("VST engine", () => {
   });
 
   it("runs Trend, Break, Active and Direction indications independently on every lane", () => {
-    assert.equal(INDICATION_KINDS.map((k) => k.id).join(","), "trend,break,active,direction");
+    assert.equal(INDICATION_KINDS.map((k) => k.id).join(","), "trend,break,active,direction,move,rsi,bollinger,sar,macd,ema");
     assert.equal(INDICATION_CONFIGS.filter((c) => c.kind === "trend").length, 3);
     assert.equal(INDICATION_CONFIGS.filter((c) => c.kind === "break").length, 3);
     assert.equal(INDICATION_CONFIGS.filter((c) => c.kind === "active").length, 3);
@@ -2016,7 +2016,7 @@ describe("VST engine", () => {
     const b = blockStepQty(base, 2, r, 1.8, 2, 0, "additive");
     assert.ok(Math.abs(a - base * r) < 1e-9, `step1 ${a}`);
     assert.ok(Math.abs(b - base * r) < 1e-9, `step2 ${b}`);
-    assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "parallel");
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "shared");
     assert.equal(DEFAULT_BLOCK_CONFIG.overallMode, "shared");
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
     const q = additiveBlockQty(1.2, [1, 2, 3], 1, 3, 1);
@@ -2943,6 +2943,7 @@ describe("VST engine", () => {
         activeLive: true,
         endStageOnly: false,
         volumeMode: "parallel",
+        overallMode: "parallel",
         overall: true,
       },
       "atr",
@@ -3228,6 +3229,33 @@ describe("full config coverage", () => {
     assert.equal(sweep.cells.length, LIVE_TACTICS.length * RANGE_TYPES.length);
     assert.ok(sweep.winner);
     assert.ok(!sweep.cells.some((c) => c.tactic === "dca"));
+  });
+
+  it("short progress indications include RSI / SAR / MACD and base PF under 1 still processes Block", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true, tpAtr: 0.35, slOfTp: 1.5, slAtr: 0.525, tpRatio: 2 / 3 }, { warmup: 0, symbolCount: 8, arm: false });
+    e.shortRange = true;
+    e.shortBasePf = 0.7;
+    e.shortPf = 0.95;
+    e.shortAxisPf = 0.9;
+    e.shortBlockPf = 1.15;
+    const ids = new Set<string>();
+    for (const s of Object.keys(e.quotes).slice(0, 8)) ids.add(classifyIndication(e, s));
+    assert.ok(ids.size >= 1, `ids ${[...ids].join(",")}`);
+    const pack = symbolIndications(Object.keys(e.quotes)[0]!);
+    for (const k of ["trend", "move", "rsi", "bollinger", "sar", "macd", "ema"] as const) {
+      assert.ok(k in pack, `pack ${k}`);
+    }
+    const kinds = new Set(INDICATION_CONFIGS.map((c) => c.kind));
+    assert.ok(kinds.has("rsi") && kinds.has("sar") && kinds.has("macd") && kinds.has("ema") && kinds.has("move"));
+    const block = { ...DEFAULT_BLOCK_CONFIG, volumeMode: "shared" as const, overallMode: "shared" as const, windows: false };
+    const r = adjustActiveBlocks(e, { ...CFG, shortRange: true }, "trailing", block, "atr", { endStage: true });
+    assert.ok(r.blocks >= 0);
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "shared");
+    assert.ok(isPositive({ pf: 0.85, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "short", shortRange: true }, { ...DEFAULT_THRESHOLDS, shortPf: 0.8 }));
+    assert.equal(isPositive({ pf: 0.85, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "block", shortRange: true }, { ...DEFAULT_THRESHOLDS, shortBlockPf: 1.15 }), false);
+    const q = e.quotes.BTCUSDT!;
+    const sum = indicationFromQuote(q, null);
+    assert.ok(Number.isFinite(sum.rsi) && Number.isFinite(sum.sar) && Number.isFinite(sum.move));
   });
 });
 
