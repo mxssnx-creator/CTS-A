@@ -1314,6 +1314,26 @@ export function SettingsView() {
               ariaLabel="Short progress Block PF"
             />
             <RangeKnob
+              label="Min TP ATR"
+              value={shortProgress.minTpAtr}
+              min={0.3}
+              max={0.48}
+              step={0.02}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setShortProgress({ minTpAtr: n })}
+              ariaLabel="Short progress min TP ATR"
+            />
+            <RangeKnob
+              label="Min SL of TP"
+              value={shortProgress.minSlOfTp}
+              min={1.3}
+              max={2}
+              step={0.1}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setShortProgress({ minSlOfTp: n })}
+              ariaLabel="Short progress min SL of TP"
+            />
+            <RangeKnob
               label="Drawdown lookback"
               value={shortProgress.drawdownLookback}
               min={4}
@@ -1336,6 +1356,7 @@ export function SettingsView() {
           </div>
           <p className="mt-3 text-xs text-muted">
             Last parts {shortProgress.lastParts.join("/")} · activity {shortProgress.activityWindows.join("/")}h ·
+            min TP {shortProgress.minTpAtr.toFixed(2)} / min SL {shortProgress.minSlOfTp.toFixed(2)} (live 0.42 / 1.7) ·
             base under 1 is allowed; Block overlay default {shortProgress.blockPf.toFixed(2)}.
           </p>
         </Panel>

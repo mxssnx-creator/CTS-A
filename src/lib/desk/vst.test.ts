@@ -43,6 +43,10 @@ import {
   trailStopFromPeak,
   trailGiveback,
   liveShortProtectCombos,
+  DEFAULT_SHORT_PROGRESS,
+  DEFAULT_SHORT_MIN_TP_ATR,
+  DEFAULT_SHORT_MIN_SL_OF_TP,
+  sanitizeShortProgress,
   TP_SL_RATIOS,
   TP_SL_RATIO_MIN,
   SL_ATR_MIN,
@@ -250,7 +254,12 @@ describe("VST engine", () => {
     assert.equal(hold, 98);
     const cells = liveShortProtectCombos();
     assert.ok(cells.length >= 1);
-    assert.ok(cells.every((c) => c.tpAtr >= 0.38 && c.slOfTp >= 1.7));
+    assert.ok(cells.every((c) => c.tpAtr >= 0.42 && c.slOfTp >= 1.7));
+    assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, DEFAULT_SHORT_MIN_TP_ATR);
+    assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, DEFAULT_SHORT_MIN_SL_OF_TP);
+    const sp = sanitizeShortProgress({});
+    assert.equal(sp.minTpAtr, 0.42);
+    assert.equal(sp.minSlOfTp, 1.7);
   });
 
   it("default live floors print positive PF on 8h trailing", () => {
@@ -3234,6 +3243,8 @@ describe("full config coverage", () => {
     e.shortPf = 0.95;
     e.shortAxisPf = 0.9;
     e.shortBlockPf = 1.15;
+    assert.equal(e.shortProgress?.minTpAtr, 0.42);
+    assert.equal(e.shortProgress?.minSlOfTp, 1.7);
     const ids = new Set<string>();
     for (const s of Object.keys(e.quotes).slice(0, 8)) ids.add(classifyIndication(e, s));
     assert.ok(ids.size >= 1, `ids ${[...ids].join(",")}`);
@@ -3247,6 +3258,11 @@ describe("full config coverage", () => {
     const r = adjustActiveBlocks(e, { ...CFG, shortRange: true }, "trailing", block, "atr", { endStage: true });
     assert.ok(r.blocks >= 0);
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "parallel");
+    assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, 0.42);
+    assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, 1.7);
+    assert.equal(sanitizeShortProgress({}).minTpAtr, 0.42);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.3, minSlOfTp: 1.3 }).minTpAtr, 0.3);
+    assert.ok(liveShortProtectCombos(0.45, 2).every((c) => c.tpAtr >= 0.45 && c.slOfTp >= 2));
     assert.ok(isPositive({ pf: 0.85, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "short", shortRange: true }, { ...DEFAULT_THRESHOLDS, shortPf: 0.8 }));
     assert.equal(isPositive({ pf: 0.85, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "block", shortRange: true }, { ...DEFAULT_THRESHOLDS, shortBlockPf: 1.15 }), false);
     const q = e.quotes.BTCUSDT!;

@@ -68,6 +68,7 @@ import {
   STAGE_HOURS,
   SYMBOL_EVAL_HOURS,
   SYMBOL_HOUR_WINDOWS,
+  sanitizeShortProgress,
 } from "./engine.ts";
 
 const DEFAULT_CFG: TacticConfig = {
@@ -815,7 +816,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.shortAxisPf = e.shortAxisPf ?? DEFAULT_THRESHOLDS.shortAxisPf;
   e.shortBlockPf = e.shortBlockPf ?? DEFAULT_THRESHOLDS.shortBlockPf;
   e.shortRange = e.shortRange ?? false;
-  e.shortProgress = e.shortProgress ?? undefined;
+  e.shortProgress = sanitizeShortProgress(e.shortProgress);
   if (e.blockCfg) {
     e.blockCfg.volumeRatio = clampBlockVol(e.blockCfg.volumeRatio);
     e.blockCfg.overallVolumeRatio = clampBlockVol(e.blockCfg.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO, DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
@@ -899,6 +900,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     shortPf: DEFAULT_THRESHOLDS.shortPf,
     shortBasePf: DEFAULT_THRESHOLDS.shortBasePf,
     shortRange: Boolean(cfg.shortRange),
+    shortProgress: sanitizeShortProgress(undefined),
     liveTape: false,
     strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
   };
@@ -908,7 +910,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
   engine.lastMsg = opts.arm === false
     ? `Idle book · ${engine.symbolCount} symbols · waiting live tape`
     : `Warm book · ${engine.symbolCount} symbols · two BingX VST sessions`;
-  return engine;
+  return ensureEngine(engine);
 }
 function nextId(e: VstEngine, pfx: string): string {
   e.seq += 1;
@@ -1210,7 +1212,7 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
   const q = e.quotes[symbol];
   if (q && q.px > 0) refreshLiveIndications({ [symbol]: q });
   const pack = symbolIndications(symbol);
-  const extra = Boolean(e.shortProgress?.enabled);
+  const extra = Boolean(e.shortRange && e.shortProgress?.enabled !== false);
   const enabled = extra ? e.shortProgress?.indications : (["trend", "break", "active", "direction"] as IndicationId[]);
   const rankedPack: [IndicationId, number][] = (
     [

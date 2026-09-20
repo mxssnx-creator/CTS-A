@@ -15,6 +15,9 @@ export const SHORT_PROGRESS_INDICATIONS: IndicationId[] = [
 
 export const DEFAULT_SHORT_AXIS_PF = 0.9;
 export const DEFAULT_SHORT_BLOCK_PF = 1.15;
+/** Live working short floors (72h winners / LIVE_CFG). */
+export const DEFAULT_SHORT_MIN_TP_ATR = 0.42;
+export const DEFAULT_SHORT_MIN_SL_OF_TP = 1.7;
 
 export const DEFAULT_SHORT_PROGRESS: ShortProgressConfig = {
   enabled: true,
@@ -28,6 +31,8 @@ export const DEFAULT_SHORT_PROGRESS: ShortProgressConfig = {
   drawdownLookback: 12,
   prevRelN: 8,
   bestOnly: true,
+  minTpAtr: DEFAULT_SHORT_MIN_TP_ATR,
+  minSlOfTp: DEFAULT_SHORT_MIN_SL_OF_TP,
 };
 
 export function sanitizeShortProgress(raw: Partial<ShortProgressConfig> | null | undefined): ShortProgressConfig {
@@ -54,6 +59,8 @@ export function sanitizeShortProgress(raw: Partial<ShortProgressConfig> | null |
     drawdownLookback: Math.min(40, Math.max(4, Math.round(Number(raw.drawdownLookback) || d.drawdownLookback))),
     prevRelN: Math.min(24, Math.max(3, Math.round(Number(raw.prevRelN) || d.prevRelN))),
     bestOnly: raw.bestOnly !== false,
+    minTpAtr: Math.min(0.48, Math.max(0.3, Number(raw.minTpAtr) || d.minTpAtr)),
+    minSlOfTp: Math.min(2, Math.max(1.3, Number(raw.minSlOfTp) || d.minSlOfTp)),
   };
 }
 

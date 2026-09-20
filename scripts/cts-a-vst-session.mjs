@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -219,6 +219,22 @@ let GRID = [...SHORT_GRID];
 const prefer = GRID.find((g) => g.cfg.tpAtr === 0.42 && g.cfg.slOfTp === 1.7 && g.tactic === "trailing") || GRID[0];
 if (prefer) GRID = [prefer, ...GRID.filter((g) => g !== prefer)];
 let currentPick = GRID[0];
+
+function rebuildShortGrid() {
+  GRID = liveShortProtectCombos(shortMinTp, shortMinSl).flatMap((s) =>
+    LIVE_SHORT_TACTICS.map((tactic) => ({
+      tactic,
+      range: "atr",
+      cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, ...s, dcaCount: 1, maxHoldTicks: 24 },
+    })),
+  );
+  const hit = GRID.find((g) => g.cfg.tpAtr === 0.42 && g.cfg.slOfTp === 1.7 && g.tactic === "trailing") || GRID[0];
+  if (hit) GRID = [hit, ...GRID.filter((g) => g !== hit)];
+  if (currentPick) {
+    const same = GRID.find((g) => g.tactic === currentPick.tactic && g.cfg.tpAtr === currentPick.cfg.tpAtr && g.cfg.slOfTp === currentPick.cfg.slOfTp);
+    currentPick = same || GRID[0];
+  }
+}
 const DISABLED_FILE = process.env.CTS_A_DISABLED ?? "/var/lib/cts-a/live-disabled.json";
 
 const PROTECT_FILE = process.env.CTS_A_PROTECT ?? "/var/lib/cts-a/protect-grid.json";
@@ -256,8 +272,12 @@ function protectFor(symbol) {
   const cells = cfgUsesShortRange(currentPick?.cfg) ? shortProtectCells() : protectCells;
   return pickProtectCell(String(symbol || "BTCUSDT"), cells);
 }
+
+let shortMinTp = DEFAULT_SHORT_MIN_TP_ATR;
+let shortMinSl = DEFAULT_SHORT_MIN_SL_OF_TP;
+
 function shortProtectCells() {
-  return liveShortProtectCombos().map((c) => ({
+  return liveShortProtectCombos(shortMinTp, shortMinSl).map((c) => ({
     slAtr: c.slAtr,
     tpRatio: c.tpRatio,
     trailPct: Number(currentPick?.cfg?.trailingPct) || 1.5,
@@ -267,12 +287,14 @@ function shortProtectCells() {
 }
 function gridLive(e) {
   const dis = e?.liveDisabled || {};
+  const minTp = shortMinTp;
+  const minSl = shortMinSl;
   const filtered = GRID.filter((g) => {
     if (g.tactic === "dca" && !(e?.strategyToggles ?? STRAT).dca) return false;
     if (g.tactic === "axis" && dis[`tac:axis`]) return false;
     if (dis[`tac:${g.tactic}`]) return false;
     if (!g.cfg?.shortRange && dis[`rng:${g.range}`]) return false;
-    if (g.cfg?.shortRange && (Number(g.cfg.tpAtr) + 1e-9 < 0.38 || Number(g.cfg.slOfTp) + 1e-9 < 1.7)) return false;
+    if (g.cfg?.shortRange && (Number(g.cfg.tpAtr) + 1e-9 < minTp || Number(g.cfg.slOfTp) + 1e-9 < minSl)) return false;
     return true;
   });
   if (filtered.length) return filtered;
@@ -1761,6 +1783,15 @@ function applyPfGates(engine, remote) {
   engine.shortPf = shortPf;
   engine.shortBasePf = shortBase;
   engine.shortRange = remote?.tacticConfig?.shortRange !== false;
+  const sp = sanitizeShortProgress(remote?.shortProgress);
+  engine.shortProgress = sp;
+  engine.shortPf = sp.overallPf;
+  engine.shortBasePf = sp.basePf;
+  engine.shortAxisPf = sp.axisPf;
+  engine.shortBlockPf = sp.blockPf;
+  shortMinTp = sp.minTpAtr;
+  shortMinSl = sp.minSlOfTp;
+  rebuildShortGrid();
   engine.blockCfg = {
     ...(engine.blockCfg || BLOCK),
     ...BLOCK,

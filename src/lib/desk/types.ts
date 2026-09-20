@@ -525,6 +525,10 @@ export interface ShortProgressConfig {
   drawdownLookback: number;
   prevRelN: number;
   bestOnly: boolean;
+  /** Live short floor — default 0.42 ATR (working cell). */
+  minTpAtr: number;
+  /** Live short floor — default 1.7 × TP (working cell). */
+  minSlOfTp: number;
 }
 
 export interface LastNConfig {

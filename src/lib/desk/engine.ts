@@ -35,8 +35,20 @@ import type {
   Venue,
   VolumeCoord,
 } from "./types";
-
-export { DEFAULT_SHORT_PROGRESS, SHORT_PROGRESS_INDICATIONS, sanitizeShortProgress } from "./short-progress.ts";
+import {
+  DEFAULT_SHORT_PROGRESS,
+  SHORT_PROGRESS_INDICATIONS,
+  sanitizeShortProgress,
+  DEFAULT_SHORT_MIN_TP_ATR,
+  DEFAULT_SHORT_MIN_SL_OF_TP,
+} from "./short-progress.ts";
+export {
+  DEFAULT_SHORT_PROGRESS,
+  SHORT_PROGRESS_INDICATIONS,
+  sanitizeShortProgress,
+  DEFAULT_SHORT_MIN_TP_ATR,
+  DEFAULT_SHORT_MIN_SL_OF_TP,
+};
 
 export const BARS = 240;
 export const WARMUP = 55;
@@ -273,8 +285,13 @@ export function allShortTpSlCombos(): { tpAtr: number; slOfTp: number; slAtr: nu
   }
   return out;
 }
-export function liveShortProtectCombos(): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
-  return allShortTpSlCombos().filter((c) => c.tpAtr + 1e-9 >= 0.38 && c.slOfTp + 1e-9 >= 1.7);
+export function liveShortProtectCombos(
+  minTpAtr = DEFAULT_SHORT_MIN_TP_ATR,
+  minSlOfTp = DEFAULT_SHORT_MIN_SL_OF_TP,
+): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
+  const tp = snapShortTpAtr(minTpAtr);
+  const sl = snapShortSlOfTp(minSlOfTp);
+  return allShortTpSlCombos().filter((c) => c.tpAtr + 1e-9 >= tp && c.slOfTp + 1e-9 >= sl);
 }
 
 export function cfgUsesShortRange(cfg: { shortRange?: boolean; tpAtr?: number } | undefined | null): boolean {
