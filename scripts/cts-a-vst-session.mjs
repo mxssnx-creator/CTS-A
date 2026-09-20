@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, AUTO_EVAL_HOURS } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -169,11 +169,14 @@ const BLOCK = {
   maxMultiple: 6,
   minMultiple: 1,
   overall: true,
+  overallSymbol: true,
+  overallDirection: true,
+  overallSharedStack: "additive",
   counts: [...LIVE_BLOCK_COUNTS],
-  volumeRatio: 0.1,
-  overallVolumeRatio: 1,
-  sharedVolumeRatio: 1,
-  maxVolumeMultiplier: 2.5,
+  volumeRatio: IS_X01 ? 0.1 : 0.2,
+  overallVolumeRatio: IS_X01 ? 1 : 1.5,
+  sharedVolumeRatio: IS_X01 ? 1 : 1.5,
+  maxVolumeMultiplier: IS_X01 ? 2.5 : 8,
   pfRatio: 1.45,
   pauseCountRatio: 0,
   evalPosCount: 6,
@@ -221,7 +224,7 @@ if (prefer) GRID = [prefer, ...GRID.filter((g) => g !== prefer)];
 let currentPick = GRID[0];
 
 function rebuildShortGrid() {
-  GRID = liveShortProtectCombos(shortMinTp, shortMinSl).flatMap((s) =>
+  GRID = liveShortProtectCombos(shortMinTp, shortMinSl, shortMaxTp).flatMap((s) =>
     LIVE_SHORT_TACTICS.map((tactic) => ({
       tactic,
       range: "atr",
@@ -275,9 +278,10 @@ function protectFor(symbol) {
 
 let shortMinTp = DEFAULT_SHORT_MIN_TP_ATR;
 let shortMinSl = DEFAULT_SHORT_MIN_SL_OF_TP;
+let shortMaxTp = 0.6;
 
 function shortProtectCells() {
-  return liveShortProtectCombos(shortMinTp, shortMinSl).map((c) => ({
+  return liveShortProtectCombos(shortMinTp, shortMinSl, shortMaxTp).map((c) => ({
     slAtr: c.slAtr,
     tpRatio: c.tpRatio,
     trailPct: Number(currentPick?.cfg?.trailingPct) || 1.5,
@@ -294,7 +298,7 @@ function gridLive(e) {
     if (g.tactic === "axis" && dis[`tac:axis`]) return false;
     if (dis[`tac:${g.tactic}`]) return false;
     if (!g.cfg?.shortRange && dis[`rng:${g.range}`]) return false;
-    if (g.cfg?.shortRange && (Number(g.cfg.tpAtr) + 1e-9 < minTp || Number(g.cfg.slOfTp) + 1e-9 < minSl)) return false;
+    if (g.cfg?.shortRange && (Number(g.cfg.tpAtr) + 1e-9 < minTp || Number(g.cfg.tpAtr) - 1e-9 > shortMaxTp || Number(g.cfg.slOfTp) + 1e-9 < minSl)) return false;
     return true;
   });
   if (filtered.length) return filtered;
@@ -1808,18 +1812,22 @@ function applyPfGates(engine, remote) {
   engine.shortBlockPf = sp.blockPf;
   shortMinTp = sp.minTpAtr;
   shortMinSl = sp.minSlOfTp;
+  shortMaxTp = sp.maxTpAtr ?? 0.6;
   rebuildShortGrid();
   engine.blockCfg = {
     ...(engine.blockCfg || BLOCK),
     ...BLOCK,
     overall: true,
+    overallSymbol: true,
+    overallDirection: true,
+    overallSharedStack: "additive",
     enabled: true,
-    volumeRatio: 0.1,
-    overallVolumeRatio: migrateOverallVol(bc.overallVolumeRatio ?? 1),
-    sharedVolumeRatio: Math.min(1.5, Math.max(0.4, Number(bc.sharedVolumeRatio) || 1)),
+    volumeRatio: clampBlockVol(bc.volumeRatio ?? BLOCK.volumeRatio),
+    overallVolumeRatio: clampBlockVol(bc.overallVolumeRatio ?? BLOCK.overallVolumeRatio, BLOCK.overallVolumeRatio),
+    sharedVolumeRatio: clampSharedVol(bc.sharedVolumeRatio ?? BLOCK.sharedVolumeRatio),
     overallMode: "parallel",
     volumeMode: "parallel",
-    relVolumeRatio: 0.1,
+    relVolumeRatio: clampBlockVol(bc.relVolumeRatio ?? BLOCK.relVolumeRatio),
     minRelPf: blockPf,
     liveDisableMinPf: blockPf,
   };
@@ -2213,8 +2221,8 @@ async function main() {
     adjustments.push("complete compute start");
     try {
       const complete = await completeComputationsAsync(pick.cfg, {
-        symbolCount: 8,
-        hours: [1, 2, 4, 6, 8, 12, 16, 24],
+        symbolCount: IS_X01 ? 8 : 16,
+        hours: [...AUTO_EVAL_HOURS],
         yieldFn: () => sleep(20),
         onCell: (cell, i, total) => {
           if (i === 1 || i === total || i % 5 === 0) {

@@ -21,6 +21,7 @@ import {
   REPLAY_RANGES,
   replayBarsFor,
   STAGE_HOURS,
+  AUTO_EVAL_HOURS,
   STAGE_META,
   STRATEGIES,
   STRATEGY_KINDS,
@@ -582,13 +583,13 @@ export function SettingsView() {
           }
         >
           <p className="text-sm text-muted">
-            Pre-historic full compute at {STAGE_HOURS.join("/")}h plus per-symbol 100h. Independent coordinations per tactic, range,
+            Pre-historic full compute at {AUTO_EVAL_HOURS.join("/")}h plus per-symbol 100h. Independent coordinations per tactic, range,
             kind, last-N, and hour-of-day. Only performing symbols (100h PF) get new orders.
           </p>
           <div className="mt-4">
             <p className="text-xs font-medium uppercase tracking-wide text-subtle">Historic hours</p>
             <div className="mt-2 flex flex-wrap gap-1">
-              {STAGE_HOURS.map((h) => {
+              {AUTO_EVAL_HOURS.map((h) => {
                 const on = evalHours.includes(h);
                 return (
                   <button
@@ -1317,11 +1318,21 @@ export function SettingsView() {
               label="Min TP ATR"
               value={shortProgress.minTpAtr}
               min={0.3}
-              max={0.48}
+              max={0.6}
               step={0.02}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setShortProgress({ minTpAtr: n })}
               ariaLabel="Short progress min TP ATR"
+            />
+            <RangeKnob
+              label="Max TP ATR"
+              value={shortProgress.maxTpAtr ?? 0.6}
+              min={0.42}
+              max={0.6}
+              step={0.02}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setShortProgress({ maxTpAtr: n })}
+              ariaLabel="Short progress max TP ATR"
             />
             <RangeKnob
               label="Min SL of TP"
@@ -1332,6 +1343,16 @@ export function SettingsView() {
               format={(n) => n.toFixed(2)}
               onChange={(n) => setShortProgress({ minSlOfTp: n })}
               ariaLabel="Short progress min SL of TP"
+            />
+            <RangeKnob
+              label="Auto eval hours"
+              value={shortProgress.evalHours ?? 20}
+              min={4}
+              max={48}
+              step={4}
+              format={(n) => `${n}h`}
+              onChange={(n) => setShortProgress({ evalHours: n })}
+              ariaLabel="Short progress auto eval lookback hours"
             />
             <RangeKnob
               label="Drawdown lookback"
@@ -1356,8 +1377,9 @@ export function SettingsView() {
           </div>
           <p className="mt-3 text-xs text-muted">
             Last parts {shortProgress.lastParts.join("/")} · activity {shortProgress.activityWindows.join("/")}h ·
-            min TP {shortProgress.minTpAtr.toFixed(2)} / min SL {shortProgress.minSlOfTp.toFixed(2)} (live 0.42 / 1.7) ·
-            base under 1 is allowed; Block overlay default {shortProgress.blockPf.toFixed(2)}.
+            TP {shortProgress.minTpAtr.toFixed(2)}–{(shortProgress.maxTpAtr ?? 0.6).toFixed(2)} / min SL {shortProgress.minSlOfTp.toFixed(2)} ·
+            auto-eval {shortProgress.evalHours ?? 20}h · {shortProgress.evalPositiveOnly !== false ? "positive PF only" : "allow PF under 1"} ·
+            base under 1 is allowed for overlay; Block default {shortProgress.blockPf.toFixed(2)}.
           </p>
         </Panel>
       </div>

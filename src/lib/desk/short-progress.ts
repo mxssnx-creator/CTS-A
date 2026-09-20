@@ -33,6 +33,9 @@ export const DEFAULT_SHORT_PROGRESS: ShortProgressConfig = {
   bestOnly: true,
   minTpAtr: DEFAULT_SHORT_MIN_TP_ATR,
   minSlOfTp: DEFAULT_SHORT_MIN_SL_OF_TP,
+  maxTpAtr: 0.6,
+  evalHours: 20,
+  evalPositiveOnly: true,
 };
 
 export function sanitizeShortProgress(raw: Partial<ShortProgressConfig> | null | undefined): ShortProgressConfig {
@@ -59,8 +62,11 @@ export function sanitizeShortProgress(raw: Partial<ShortProgressConfig> | null |
     drawdownLookback: Math.min(40, Math.max(4, Math.round(Number(raw.drawdownLookback) || d.drawdownLookback))),
     prevRelN: Math.min(24, Math.max(3, Math.round(Number(raw.prevRelN) || d.prevRelN))),
     bestOnly: raw.bestOnly !== false,
-    minTpAtr: Math.min(0.48, Math.max(0.3, Number(raw.minTpAtr) || d.minTpAtr)),
+    minTpAtr: Math.min(0.6, Math.max(0.3, Number(raw.minTpAtr) || d.minTpAtr)),
     minSlOfTp: Math.min(2, Math.max(1.3, Number(raw.minSlOfTp) || d.minSlOfTp)),
+    maxTpAtr: Math.min(0.6, Math.max(0.42, Number(raw.maxTpAtr) || d.maxTpAtr || 0.6)),
+    evalHours: Math.min(48, Math.max(4, Math.round(Number(raw.evalHours) || d.evalHours || 20))),
+    evalPositiveOnly: raw.evalPositiveOnly !== false,
   };
 }
 

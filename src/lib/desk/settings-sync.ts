@@ -36,6 +36,7 @@ import {
   clampAxisPartial,
   tpRatioOf,
   STAGE_HOURS,
+  AUTO_EVAL_HOURS,
   STRATEGY_KINDS,
   clampLastN,
 } from "./engine.ts";
@@ -154,7 +155,7 @@ export function defaultDeskSettings(): DeskSettingsSnap {
     comboTactic: "all",
     comboRange: "all",
     activeConnId: "bingx-vst-02",
-    evalHours: [...STAGE_HOURS],
+    evalHours: [...AUTO_EVAL_HOURS],
     evalLastNs: [...LANE_EVAL_NS],
     sessionPhase: "running",
     hedgeMode: true,
@@ -332,8 +333,8 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         ? raw.activeConnId
         : "bingx-vst-02",
     evalHours: Array.isArray(raw.evalHours)
-      ? STAGE_HOURS.filter((h) => raw.evalHours!.includes(h))
-      : [...STAGE_HOURS],
+      ? AUTO_EVAL_HOURS.filter((h) => raw.evalHours!.includes(h))
+      : [...AUTO_EVAL_HOURS],
     evalLastNs: Array.isArray(raw.evalLastNs)
       ? LANE_EVAL_NS.filter((n) => raw.evalLastNs!.includes(n))
       : [...LANE_EVAL_NS],
@@ -351,7 +352,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     strategyToggles: sanitizeStrategyToggles((raw as { strategyToggles?: Partial<StrategyToggles> }).strategyToggles),
     shortProgress: sanitizeShortProgress((raw as { shortProgress?: Partial<import("./types").ShortProgressConfig> }).shortProgress),
   };
-  if (!snap.evalHours.length) snap.evalHours = [...STAGE_HOURS];
+  if (!snap.evalHours.length) snap.evalHours = [...AUTO_EVAL_HOURS];
   if (!snap.evalLastNs.length) snap.evalLastNs = [...LANE_EVAL_NS];
   return snap;
 }

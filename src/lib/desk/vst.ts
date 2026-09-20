@@ -4793,7 +4793,7 @@ export type CompleteComputeReport = {
 };
 
 function cellPass(pf: number, net: number, trades: number, minTrades: number, cfg?: TacticConfig) {
-  const floor = cfg && cfgUsesShortRange(cfg) ? DEFAULT_SHORT_BASE_PF : 1;
+  const floor = 1;
   return pf + 1e-9 >= floor && net > 0 && trades >= minTrades;
 }
 

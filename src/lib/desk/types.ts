@@ -535,6 +535,12 @@ export interface ShortProgressConfig {
   minTpAtr: number;
   /** Live short floor — default 1.7 × TP (working cell). */
   minSlOfTp: number;
+  /** Short TP ceiling for GRID / eval (default 0.6). */
+  maxTpAtr?: number;
+  /** Pre-historic auto-eval lookback hours (default 20). */
+  evalHours?: number;
+  /** Only keep PF≥1 and net>0 cells. Default true. */
+  evalPositiveOnly?: boolean;
 }
 
 export interface LastNConfig {

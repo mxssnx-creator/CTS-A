@@ -233,8 +233,8 @@ export function allTpSlCombos(): { tpAtr: number; slOfTp: number; slAtr: number;
   return out;
 }
 
-/** Short-range: thin TP 0.30–0.48, SL 1.3–2.0×TP. Live keeps only +PF / low-DD cells. */
-export const SHORT_TP_ATR = [0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.45, 0.48] as const;
+/** Short-range: TP 0.30–0.60, SL 1.3–2.0×TP. Live keeps only +PF cells. */
+export const SHORT_TP_ATR = [0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.45, 0.48, 0.5, 0.52, 0.55, 0.58, 0.6] as const;
 export const SHORT_SL_OF_TP = [1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 2] as const;
 export type ShortSlOfTp = (typeof SHORT_SL_OF_TP)[number];
 
@@ -288,17 +288,19 @@ export function allShortTpSlCombos(): { tpAtr: number; slOfTp: number; slAtr: nu
 export function liveShortProtectCombos(
   minTpAtr = DEFAULT_SHORT_MIN_TP_ATR,
   minSlOfTp = DEFAULT_SHORT_MIN_SL_OF_TP,
+  maxTpAtr = 0.6,
 ): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
   const tp = snapShortTpAtr(minTpAtr);
   const sl = snapShortSlOfTp(minSlOfTp);
-  return allShortTpSlCombos().filter((c) => c.tpAtr + 1e-9 >= tp && c.slOfTp + 1e-9 >= sl);
+  const tpMax = snapShortTpAtr(maxTpAtr);
+  return allShortTpSlCombos().filter((c) => c.tpAtr + 1e-9 >= tp && c.tpAtr - 1e-9 <= tpMax && c.slOfTp + 1e-9 >= sl);
 }
 
 export function cfgUsesShortRange(cfg: { shortRange?: boolean; tpAtr?: number } | undefined | null): boolean {
   if (!cfg) return false;
   if (cfg.shortRange === true) return true;
   const tp = Number(cfg.tpAtr);
-  return Number.isFinite(tp) && tp >= 0.28 && tp <= 0.55;
+  return Number.isFinite(tp) && tp >= 0.28 && tp <= 0.65;
 }
 
 export function allProtectCells(): ProtectCell[] {
@@ -324,8 +326,11 @@ export type LastNChoice = (typeof LAST_N_OPTIONS)[number];
 
 /** Auto-eval historic stages (hours). */
 export const STAGE_HOURS = [4, 8, 16] as const;
+/** Auto-eval pre-historic lookback for Short Progress / live GRID lock. */
+export const AUTO_EVAL_HOURS = [4, 8, 16, 20] as const;
+export const SHORT_EVAL_HOURS = 20;
 export const SYMBOL_EVAL_HOURS = 100;
-export const SYMBOL_HOUR_WINDOWS = [4, 8, 16, 24, 48, 100] as const;
+export const SYMBOL_HOUR_WINDOWS = [4, 8, 16, 20, 24, 48, 100] as const;
 export type StageHour = (typeof STAGE_HOURS)[number];
 export type StageId = "pre" | "mid" | "end";
 export const STAGE_META: { id: StageId; hours: StageHour; label: string; blurb: string }[] = [

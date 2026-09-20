@@ -37,6 +37,7 @@ import {
   LANE_EVAL_NS,
   LAST_N_OPTIONS,
   STAGE_HOURS,
+  AUTO_EVAL_HOURS,
   STRATEGY_KINDS,
   clampLastN,
   clampBlockVol,
@@ -347,7 +348,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   activeConnId: "bingx-vst-02",
   validation: null,
   stageEval: null,
-  evalHours: [...STAGE_HOURS],
+  evalHours: [...AUTO_EVAL_HOURS],
   evalLastNs: [...LANE_EVAL_NS],
   sessionPhase: "idle" as const,
   hedgeMode: true,
@@ -442,7 +443,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       lastN: DEFAULT_LAST_N,
       lastNs: { ...DEFAULT_LAST_N_CONFIG },
       lastNLinked: true,
-      evalHours: [...STAGE_HOURS],
+      evalHours: [...AUTO_EVAL_HOURS],
       evalLastNs: [...LANE_EVAL_NS],
       stageEval: null,
       costStep: 10,
@@ -1050,8 +1051,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
     }
   },
   setEvalHours: (hours) => {
-    const next = STAGE_HOURS.filter((h) => hours.includes(h));
-    set({ evalHours: next.length ? [...next] : [...STAGE_HOURS] });
+    const next = AUTO_EVAL_HOURS.filter((h) => hours.includes(h));
+    set({ evalHours: next.length ? [...next] : [...AUTO_EVAL_HOURS] });
     get().syncSettings();
   },
   setEvalLastNs: (ns) => {

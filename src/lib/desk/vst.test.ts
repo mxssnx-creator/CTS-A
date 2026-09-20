@@ -3358,6 +3358,14 @@ describe("full config coverage", () => {
     assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, 0.42);
     assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, 1.7);
     assert.equal(sanitizeShortProgress({}).minTpAtr, 0.42);
+    assert.equal(sanitizeShortProgress({}).maxTpAtr, 0.6);
+    assert.equal(sanitizeShortProgress({}).evalHours, 20);
+    assert.equal(sanitizeShortProgress({}).evalPositiveOnly, true);
+    assert.ok(SHORT_TP_ATR.includes(0.6));
+    assert.ok(cfgUsesShortRange({ shortRange: true, tpAtr: 0.6 }));
+    const wide = liveShortProtectCombos(0.42, 1.7, 0.6);
+    assert.ok(wide.some((c) => c.tpAtr === 0.6));
+    assert.ok(wide.every((c) => c.tpAtr >= 0.42 && c.tpAtr <= 0.6 && c.slOfTp >= 1.7));
     assert.equal(sanitizeShortProgress({ minTpAtr: 0.3, minSlOfTp: 1.3 }).minTpAtr, 0.3);
     assert.ok(liveShortProtectCombos(0.45, 2).every((c) => c.tpAtr >= 0.45 && c.slOfTp >= 2));
     assert.ok(isPositive({ pf: 0.85, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "short", shortRange: true }, { ...DEFAULT_THRESHOLDS, shortPf: 0.8 }));
