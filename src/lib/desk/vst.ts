@@ -1742,6 +1742,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
         tp: p.tp,
         sl: p.sl,
         trailPct: cfg.trailingPct,
+        shortRange: cfgUsesShortRange(cfg),
       });
       if (p.side === "long" ? next > p.sl : next < p.sl) {
         p.sl = next;
@@ -3063,7 +3064,7 @@ function recordBlockClose(e: VstEngine, p: LivePosition, pnl: number) {
 function blockCountPositive(e: VstEngine, n: number, minPf: number) {
   if (n < 1 || n > 6) return false;
   const w = e.blockWindows?.[n];
-  if (!w || w.closed < Math.max(3, n)) return n <= 3;
+  if (!w || w.closed < Math.max(3, n)) return n >= 3;
   return w.lastPf + 1e-9 >= Math.min(1.05, minPf);
 }
 
@@ -3273,7 +3274,7 @@ export function adjustActiveBlocks(
         for (const next of counts) {
           if (adds >= addCap || modeAdds >= counts.length * (overall ? 2 : 1)) break;
           if (next < minM || next > maxM) continue;
-          if (!blockCountPositive(e, next, minPf)) continue;
+          if (block.windows !== false && !blockCountPositive(e, next, minPf)) continue;
           if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
           const relCap = lane.baseQty * (mode === "additive" ? next * vrRel : blockMaxAdditionalRatio(next, vrRel, block.maxVolumeMultiplier || 1.8, mode));
           const ovCap = lane.baseQty * (mode === "additive" ? next * vrOv : blockMaxAdditionalRatio(next, vrOv, block.maxVolumeMultiplier || 1.8, mode));

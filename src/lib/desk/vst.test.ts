@@ -42,6 +42,7 @@ import {
   TRAIL_POS_RATIOS,
   trailStopFromPeak,
   trailGiveback,
+  liveShortProtectCombos,
   TP_SL_RATIOS,
   TP_SL_RATIO_MIN,
   SL_ATR_MIN,
@@ -244,6 +245,11 @@ describe("VST engine", () => {
       peak = nxt;
     }
     assert.ok(sl > 98 && sl < peak);
+    const hold = trailStopFromPeak({ side: "long", entry: 100, peak: 102.4, tp: 104, sl: 98, trailPct: 1.5, shortRange: true });
+    assert.equal(hold, 98);
+    const cells = liveShortProtectCombos();
+    assert.ok(cells.length >= 1);
+    assert.ok(cells.every((c) => c.tpAtr >= 0.35 && c.slOfTp >= 1.5));
   });
 
   it("default live floors print positive PF on 8h trailing", () => {
@@ -2452,7 +2458,7 @@ describe("VST engine", () => {
         assert.equal(playbookOf(e, blockOrder), "block");
         assert.ok(add.added >= 1);
       }
-      const entry = [...e.queue, ...e.orders].find((o) => !/^Block/i.test(o.note) && !/^DCA/i.test(o.note));
+      const entry = [...e.queue, ...e.orders].find((o) => !/Block/i.test(o.note || "") && !/^DCA/i.test(o.note || ""));
       if (entry) assert.notEqual(playbookOf(e, entry), "block");
     }
     for (let i = 0; i < 40; i++) tickVst(e, CFG, "hybrid", { rangeType: "atr", block: { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false } });

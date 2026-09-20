@@ -105,6 +105,7 @@ export function trailStopFromPeak(input: {
   tp: number;
   sl: number;
   trailPct: number;
+  shortRange?: boolean;
 }): number {
   const { side, entry, peak, tp, sl, trailPct } = input;
   if (!(entry > 0) || !(peak > 0) || !(tp > 0)) return sl;
@@ -112,9 +113,9 @@ export function trailStopFromPeak(input: {
   const peakProfit = signed * (peak - entry);
   const tpDist = Math.abs(tp - entry);
   if (peakProfit <= 1e-12 || !(tpDist > 0)) return sl;
-  if (peakProfit < tpDist * 0.55) return sl;
+  if (peakProfit < tpDist * (input.shortRange ? 0.72 : 0.55)) return sl;
   const give = trailGiveback(peakProfit / tpDist, trailPct);
-  const minGap = tpDist * 0.45;
+  const minGap = tpDist * (input.shortRange ? 0.58 : 0.45);
   const gap = Math.max(peakProfit * give, minGap);
   let next = peak - signed * gap;
   if (side === "long") {
@@ -270,6 +271,10 @@ export function allShortTpSlCombos(): { tpAtr: number; slOfTp: number; slAtr: nu
   }
   return out;
 }
+export function liveShortProtectCombos(): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
+  return allShortTpSlCombos().filter((c) => c.tpAtr + 1e-9 >= 0.35 && c.slOfTp + 1e-9 >= 1.5);
+}
+
 export function cfgUsesShortRange(cfg: { shortRange?: boolean; tpAtr?: number } | undefined | null): boolean {
   if (!cfg) return false;
   if (cfg.shortRange === true) return true;
