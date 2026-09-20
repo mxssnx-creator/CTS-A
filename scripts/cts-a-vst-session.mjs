@@ -466,6 +466,19 @@ function snapshot(e, extra) {
     minPf: LIVE_MIN_PF,
     pfGate: pfGateClosed(),
     liveDisabled: Object.keys(e.liveDisabled ?? {}).length,
+    blockOverall: {
+      on: e.blockCfg?.overall !== false,
+      enabled: e.blockCfg?.enabled !== false,
+      vr: e.blockCfg?.volumeRatio,
+      counts: e.blockCfg?.counts,
+      windows: Object.fromEntries(
+        Object.entries(e.blockWindows || {}).map(([n, w]) => [
+          n,
+          { closed: w.closed, lastPf: w.lastPf, lastNet: w.lastNet, adjusted: w.adjusted, pauseLeft: w.pauseLeft },
+        ]),
+      ),
+      lastBlockAt: e.lastBlockAt || 0,
+    },
     evals: {
       at: e.lastRelEvalTick || 0,
       factor: Number(e.relVolumeFactor || 0),
@@ -1702,6 +1715,9 @@ function applyPfGates(engine, remote) {
   engine.shortRange = remote?.tacticConfig?.shortRange !== false;
   engine.blockCfg = {
     ...(engine.blockCfg || BLOCK),
+    ...BLOCK,
+    overall: true,
+    enabled: true,
     volumeRatio: migrateBlockVol(bc.volumeRatio ?? engine.blockCfg?.volumeRatio),
     relVolumeRatio: migrateBlockVol(bc.relVolumeRatio ?? engine.blockCfg?.relVolumeRatio),
     minRelPf: blockPf,
@@ -1916,6 +1932,7 @@ async function main() {
         ...BLOCK,
         ...(engine.blockCfg || {}),
         enabled: STRAT.block,
+        overall: true,
         minRelPf: engine.blockPf || DEFAULT_BLOCK_PF,
         liveDisableMinPf: engine.blockPf || DEFAULT_BLOCK_PF,
       };
@@ -1928,7 +1945,7 @@ async function main() {
         rangeType: pick.range,
         symbolCount: LIVE_SYMBOLS,
         orderType: "limit",
-        block: BLOCK,
+        block: engine.blockCfg,
       });
       engine.running = true;
       engine.phase = "running";

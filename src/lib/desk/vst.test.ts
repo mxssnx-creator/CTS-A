@@ -1576,6 +1576,83 @@ describe("VST engine", () => {
     assert.equal(ids.size, ov.block.ids.length);
   });
 
+  it("overall Block queues independently of relation Block at the same N", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.running = true;
+    e.phase = "running";
+    e.blockCfg = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      overall: true,
+      stack: true,
+      windows: false,
+      volumeMode: "additive",
+      volumeRatio: 0.4,
+      relAdditive: false,
+      addOnWin: false,
+      cadence: 1,
+      counts: [1],
+      maxMultiple: 6,
+      minMultiple: 1,
+      minActiveLevel: 1,
+    };
+    const q = e.quotes.BTCUSDT!;
+    e.positions.push({
+      id: "p-ov",
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long",
+      qty: 1,
+      plannedQty: 1,
+      avgEntry: q.px,
+      mark: q.px,
+      sl: q.px * 0.99,
+      tp: q.px * 1.01,
+      slDist: q.px * 0.01,
+      tpDist: q.px * 0.01,
+      realized: 0,
+      unrealized: 0.02,
+      legs: [{ orderId: "leg-ov", qty: 1, px: q.px }],
+      controllingRange: "atr",
+      rangeSpacing: q.atr,
+      status: "open",
+      openedTick: 0,
+      tactic: "trailing",
+      indication: "trend",
+      kind: "short",
+      playbook: "short",
+    });
+    e.orders.push({
+      id: "b1-rel",
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long",
+      type: "limit",
+      qty: 0.4,
+      filled: 0,
+      price: q.px,
+      remaining: 0.4,
+      status: "open",
+      rangeType: "atr",
+      level: 1,
+      sl: q.px * 0.99,
+      tp: q.px * 1.01,
+      slDist: q.px * 0.01,
+      tpDist: q.px * 0.01,
+      batchId: "p-ov:1",
+      tactic: "trailing",
+      indication: "trend",
+      kind: "block",
+      playbook: "block",
+      note: "Block additive #1 BTCUSDT long · b1-rel · p-ov · " + e.activeConnId,
+    });
+    for (let i = 0; i < 8; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
+    const ov = [...e.queue, ...e.orders].filter((o) => /Overall Block/i.test(o.note || "") && o.level === 1);
+    assert.ok(ov.length >= 1, "Overall Block adds same N independently");
+    assert.ok(ov.every((o) => /^ob/i.test(o.id)));
+    assert.ok(ov.every((o) => /Overall Block additive #1/.test(o.note || "")));
+  });
+
   it("block on vs off: adds rungs when enabled and stays inert when disabled", () => {
     const off = { ...DEFAULT_BLOCK_CONFIG, enabled: false };
     const on = { ...DEFAULT_BLOCK_CONFIG, enabled: true, endStageOnly: false, cadence: 4, addOnWin: false, flattenConflict: false, sides: "both" as const, windows: false, liveDisable: false };

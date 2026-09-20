@@ -2914,6 +2914,9 @@ function emptyBlockLane(symbol: string, side: Side, baseQty: number, baseEntry: 
 function isBlockOrder(o: LiveOrder) {
   return /Block/i.test(o.note || "");
 }
+function isOverallBlockOrder(o: LiveOrder) {
+  return /Overall Block/i.test(o.note || "") || /^ob/i.test(o.id || "");
+}
 
 function collectBlockOrders(e: VstEngine, conn: string) {
   return [
@@ -3165,20 +3168,25 @@ export function adjustActiveBlocks(
         const k = blockLaneKey(p.symbol, p.side, mode);
         const lane = e.blockLanes[k];
         if (!lane || !lane.active || lane.baseQty <= 0) continue;
-        const liveLevels = new Set(
-          collectBlockOrders(e, conn)
-            .filter((o) => o.symbol === p.symbol && o.side === p.side && blockModeOf(o) === mode)
-            .map((o) => Math.max(1, o.level || 1)),
-        );
+        const liveBlock = collectBlockOrders(e, conn).filter((o) => o.symbol === p.symbol && o.side === p.side && blockModeOf(o) === mode);
+        const liveRelLevels = new Set(liveBlock.filter((o) => !isOverallBlockOrder(o)).map((o) => Math.max(1, o.level || 1)));
+        const liveOvLevels = new Set(liveBlock.filter(isOverallBlockOrder).map((o) => Math.max(1, o.level || 1)));
+        const ovQty = liveBlock.filter(isOverallBlockOrder).reduce((s, o) => s + Math.max(0, o.qty || 0), 0);
         let modeAdds = 0;
         for (const next of counts) {
           if (adds >= addCap || modeAdds >= counts.length) break;
           if (next < minM || next > maxM) continue;
           if (!blockCountPositive(e, next, minPf)) continue;
           if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
-          if (lane.satisfied[next] || liveLevels.has(next) || lane.pending === next) continue;
-          if (lane.confirmedAdd + 1e-12 >= lane.baseQty * (mode === "additive" ? next * vr : blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 1.8, mode))) continue;
-          if (!blockPfOk(lane, next, block, minPf)) continue;
+          const cap = lane.baseQty * (mode === "additive" ? next * vr : blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 1.8, mode));
+          if (overall) {
+            if (liveOvLevels.has(next)) continue;
+            if (ovQty + 1e-12 >= cap) continue;
+          } else {
+            if (lane.satisfied[next] || liveRelLevels.has(next) || lane.pending === next) continue;
+            if (lane.confirmedAdd + 1e-12 >= cap) continue;
+            if (!blockPfOk(lane, next, block, minPf)) continue;
+          }
           const step = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, mode);
           const extra =
             block.relAdditive === false
@@ -3226,8 +3234,11 @@ export function adjustActiveBlocks(
             note: `${overall ? "Overall Block" : "Block"} ${mode} #${next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
           });
           countPlaced(e);
-          lane.pending = next;
-          liveLevels.add(next);
+          if (overall) liveOvLevels.add(next);
+          else {
+            lane.pending = next;
+            liveRelLevels.add(next);
+          }
           added += 1;
           adds += 1;
           modeAdds += 1;
