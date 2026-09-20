@@ -2744,8 +2744,8 @@ describe("VST engine", () => {
     assert.equal(stable?.patch.tactic, "trailing");
     assert.equal(stable?.patch.rangeType, "atr");
     assert.equal(stable?.patch.tacticConfig?.shortRange, true);
-    assert.equal(stable?.patch.tacticConfig?.tpAtr, 0.35);
-    assert.equal(stable?.patch.tacticConfig?.slOfTp, 1.5);
+    assert.equal(stable?.patch.tacticConfig?.tpAtr, 0.42);
+    assert.equal(stable?.patch.tacticConfig?.slOfTp, 1.7);
     assert.deepEqual(stable?.patch.blockConfig?.counts, [1, 2, 3, 4, 5, 6]);
     assert.equal(stable?.patch.blockConfig?.activeLive, true);
     assert.equal(stable?.patch.blockConfig?.volumeMode, "parallel");
