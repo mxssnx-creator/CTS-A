@@ -471,6 +471,8 @@ function snapshot(e, extra) {
       on: e.blockCfg?.overall !== false,
       enabled: e.blockCfg?.enabled !== false,
       vr: e.blockCfg?.overallVolumeRatio ?? e.blockCfg?.volumeRatio,
+      relVr: e.blockCfg?.volumeRatio,
+      mode: e.blockCfg?.volumeMode,
       counts: e.blockCfg?.counts,
       windows: Object.fromEntries(
         Object.entries(e.blockWindows || {}).map(([n, w]) => [

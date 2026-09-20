@@ -2986,18 +2986,20 @@ function syncBlockParents(e: VstEngine, conn: string) {
         lane.active = true;
         lane.baseQty = first;
         lane.baseEntry = p.avgEntry;
-        lane.confirmedAdd = Math.max(0, p.qty - first);
+        lane.confirmedAdd = 0;
         lane.satisfied = {};
         lane.pending = undefined;
         lane.pauseRemaining = {};
         continue;
       }
-      const grown = p.qty - (lane.baseQty + lane.confirmedAdd);
-      if (grown > lane.baseQty * 0.15 && !lane.pending) {
-        const prev = lane.baseQty;
-        lane.baseQty = prev + grown;
-        if (p.avgEntry > 0 && prev > 0) {
-          lane.baseEntry = (lane.baseEntry * prev + p.avgEntry * grown) / Math.max(lane.baseQty, 1e-9);
+      if (e.blockCfg?.overall === false) {
+        const grown = p.qty - (lane.baseQty + lane.confirmedAdd);
+        if (grown > lane.baseQty * 0.15 && !lane.pending) {
+          const prev = lane.baseQty;
+          lane.baseQty = prev + grown;
+          if (p.avgEntry > 0 && prev > 0) {
+            lane.baseEntry = (lane.baseEntry * prev + p.avgEntry * grown) / Math.max(lane.baseQty, 1e-9);
+          }
         }
       }
     }
@@ -3009,6 +3011,7 @@ function syncBlockParents(e: VstEngine, conn: string) {
 
 function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   if (!isBlockOrder(o)) return;
+  if (isOverallBlockOrder(o)) return;
   e.blockLanes = e.blockLanes ?? {};
   const k = blockLaneKey(o.symbol, o.side, blockModeOf(o));
   const lane = e.blockLanes[k];
@@ -3026,7 +3029,6 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   } else {
     lane.pending = n;
   }
-  e.lastBlockAt = e.tick;
 }
 
 function recordBlockClose(e: VstEngine, p: LivePosition, pnl: number) {
@@ -3214,45 +3216,21 @@ export function adjustActiveBlocks(
         const liveBlock = collectBlockOrders(e, conn).filter((o) => o.symbol === p.symbol && o.side === p.side && blockModeOf(o) === mode);
         const liveRelLevels = new Set(liveBlock.filter((o) => !isOverallBlockOrder(o)).map((o) => Math.max(1, o.level || 1)));
         const liveOvLevels = new Set(liveBlock.filter(isOverallBlockOrder).map((o) => Math.max(1, o.level || 1)));
-        const ovQty = liveBlock.filter(isOverallBlockOrder).reduce((s, o) => s + Math.max(0, o.qty || 0), 0);
+        let ovQty = liveBlock.filter(isOverallBlockOrder).reduce((s, o) => s + Math.max(0, o.qty || 0), 0);
+        let relQty = liveBlock.filter((o) => !isOverallBlockOrder(o)).reduce((s, o) => s + Math.max(0, o.qty || 0), 0);
         let modeAdds = 0;
-        for (const next of counts) {
-          if (adds >= addCap || modeAdds >= counts.length) break;
-          if (next < minM || next > maxM) continue;
-          if (!blockCountPositive(e, next, minPf)) continue;
-          if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
-          const vr = overall ? vrOv : vrRel;
-          const cap = lane.baseQty * (mode === "additive" ? next * vr : blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 1.8, mode));
-          if (overall) {
-            if (liveOvLevels.has(next)) continue;
-            if (ovQty + 1e-12 >= cap) continue;
-          } else {
-            if (lane.satisfied[next] || liveRelLevels.has(next) || lane.pending === next) continue;
-            if (lane.confirmedAdd + 1e-12 >= cap) continue;
-            if (!blockPfOk(lane, next, block, minPf)) continue;
-          }
+        const enqueue = (kind: "relation" | "overall", next: number, vr: number, extraQty: number) => {
           const step = blockStepQty(lane.baseQty, next, vr, block.maxVolumeMultiplier || 1.8, counts.length, 0, mode);
-          const extra =
-            block.relAdditive === false
-              ? 0
-              : winningRelVolume(e, {
-                  symbol: p.symbol,
-                  side: p.side,
-                  indication: p.indication,
-                  kind: p.kind,
-                  tactic: p.tactic ?? tactic,
-                  rangeType: p.controllingRange ?? rangeType,
-                  playbook: p.playbook,
-                }) * lane.baseQty;
-          const qty = step + extra;
-          if (!(qty > 0)) continue;
+          const qty = step + extraQty;
+          if (!(qty > 0)) return false;
           const hi = pickRange(q, cfg, rangeType);
           const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg));
           const tp0 = tpDistFromSl(sl0, cfg.tpRatio, cfgUsesShortRange(cfg));
           const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
-          if (px <= 0) continue;
+          if (px <= 0) return false;
           const lv = protectLevels(px, p.side, sl0, tp0, cfg.tpRatio);
-          const oid = nextId(e, overall ? "ob" : "b");
+          const overallKind = kind === "overall";
+          const oid = nextId(e, overallKind ? "ob" : "b");
           e.queue.push({
             id: oid,
             connId: conn,
@@ -3275,18 +3253,48 @@ export function adjustActiveBlocks(
             indication: p.indication,
             kind: "block",
             playbook: "block",
-            note: `${overall ? "Overall Block" : "Block"} ${mode} #${next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
+            note: `${overallKind ? "Overall Block" : "Block"} ${mode} #${next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
           });
           countPlaced(e);
-          if (overall) liveOvLevels.add(next);
-          else {
+          if (overallKind) {
+            liveOvLevels.add(next);
+            ovQty += qty;
+          } else {
             lane.pending = next;
             liveRelLevels.add(next);
+            relQty += qty;
           }
           added += 1;
           adds += 1;
           modeAdds += 1;
           e.lastBlockAt = e.tick;
+          return true;
+        };
+        for (const next of counts) {
+          if (adds >= addCap || modeAdds >= counts.length * (overall ? 2 : 1)) break;
+          if (next < minM || next > maxM) continue;
+          if (!blockCountPositive(e, next, minPf)) continue;
+          if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
+          const relCap = lane.baseQty * (mode === "additive" ? next * vrRel : blockMaxAdditionalRatio(next, vrRel, block.maxVolumeMultiplier || 1.8, mode));
+          const ovCap = lane.baseQty * (mode === "additive" ? next * vrOv : blockMaxAdditionalRatio(next, vrOv, block.maxVolumeMultiplier || 1.8, mode));
+          const extra =
+            block.relAdditive === false
+              ? 0
+              : winningRelVolume(e, {
+                  symbol: p.symbol,
+                  side: p.side,
+                  indication: p.indication,
+                  kind: p.kind,
+                  tactic: p.tactic ?? tactic,
+                  rangeType: p.controllingRange ?? rangeType,
+                  playbook: p.playbook,
+                }) * lane.baseQty;
+          if (!lane.satisfied[next] && !liveRelLevels.has(next) && lane.pending !== next && relQty + 1e-12 < relCap && blockPfOk(lane, next, block, minPf)) {
+            enqueue("relation", next, vrRel, extra);
+          }
+          if (overall && !liveOvLevels.has(next) && ovQty + 1e-12 < ovCap) {
+            enqueue("overall", next, vrOv, 0);
+          }
         }
       }
     }

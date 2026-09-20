@@ -1651,6 +1651,68 @@ describe("VST engine", () => {
     assert.ok(ov.length >= 1, "Overall Block adds same N independently");
     assert.ok(ov.every((o) => /^ob/i.test(o.id)));
     assert.ok(ov.every((o) => /Overall Block additive #1/.test(o.note || "")));
+    const rel = [...e.queue, ...e.orders].filter((o) => /Block additive #1/.test(o.note || "") && !/Overall/.test(o.note || ""));
+    assert.ok(rel.length >= 1, "relation Block stays while overall adds");
+  });
+
+  it("parallel Block keeps shared + additive + overall as independent volume streams", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.running = true;
+    e.phase = "running";
+    e.blockCfg = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      overall: true,
+      stack: true,
+      windows: false,
+      volumeMode: "parallel",
+      volumeRatio: 0.4,
+      overallVolumeRatio: 1,
+      relAdditive: false,
+      addOnWin: false,
+      cadence: 1,
+      counts: [1],
+      maxMultiple: 6,
+      minMultiple: 1,
+      minActiveLevel: 1,
+    };
+    const q = e.quotes.BTCUSDT!;
+    e.positions.push({
+      id: "p-par",
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long",
+      qty: 1,
+      plannedQty: 1,
+      avgEntry: q.px,
+      mark: q.px,
+      sl: q.px * 0.99,
+      tp: q.px * 1.01,
+      slDist: q.px * 0.01,
+      tpDist: q.px * 0.01,
+      realized: 0,
+      unrealized: 0.02,
+      legs: [{ orderId: "leg-par", qty: 1, px: q.px }],
+      controllingRange: "atr",
+      rangeSpacing: q.atr,
+      status: "open",
+      openedTick: 0,
+      tactic: "trailing",
+      indication: "trend",
+      kind: "short",
+      playbook: "short",
+    });
+    for (let i = 0; i < 10; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
+    const rungs = [...e.queue, ...e.orders].filter((o) => /Block/i.test(o.note || ""));
+    const notes = rungs.map((o) => o.note || "");
+    assert.ok(notes.some((n) => /Block shared #1/.test(n) && !/Overall/.test(n)), `rel shared ${notes.join(" | ")}`);
+    assert.ok(notes.some((n) => /Block additive #1/.test(n) && !/Overall/.test(n)), "rel additive");
+    assert.ok(notes.some((n) => /Overall Block/.test(n)), "overall");
+    const relAdd = rungs.find((o) => /Block additive #1/.test(o.note || "") && !/Overall/.test(o.note || ""));
+    const ovAdd = rungs.find((o) => /Overall Block additive #1/.test(o.note || ""));
+    assert.ok(relAdd && ovAdd, "both additive streams");
+    assert.ok(Math.abs(relAdd!.qty - 0.4) < 1e-6, `rel qty ${relAdd!.qty}`);
+    assert.ok(Math.abs(ovAdd!.qty - 1) < 1e-6, `ov qty ${ovAdd!.qty}`);
   });
 
   it("block on vs off: adds rungs when enabled and stays inert when disabled", () => {
