@@ -627,7 +627,7 @@ function wantStatus(force) {
 }
 
 function isRateLimited(s) {
-  return /100410|109418|frequency limit|disabled period|too many request|rate limit|over 20/i.test(String(s || ""));
+  return /100410|109418|110424|frequency limit|disabled period|too many request|rate limit|over 20|over 30/i.test(String(s || ""));
 }
 
 function quietMs(s) {
@@ -1132,6 +1132,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         attachProtect: false,
         closePosition: closeAll,
         reduceOnly: false,
+        exactQty: !closeAll,
       };
       let r = await withLiveBusy(() => placeSwapOrder(body));
       n += 1;
@@ -1142,7 +1143,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (!r.ok && closeRetry(r.error) && closeAll) {
         const q2 = protectQty(parseAvailableUsdt(r.error));
         if (q2 > 0) {
-          r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: false, quantity: q2, notional: Math.max(1, q2 * px) }));
+          r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: false, exactQty: true, quantity: q2, notional: Math.max(0.5, q2 * px) }));
           n += 1;
         }
       }
@@ -1212,7 +1213,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       ((tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.08) || tpTight);
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift });
   }
-  for (let i = 0; i < Math.min(need.length, 8) && posts < 16; i += 1) {
+  for (let i = 0; i < Math.min(need.length, 4) && posts < 8; i += 1) {
     if (apiQuiet()) break;
     const row = need[i];
     const r = await protectOne(row.p, row.slDrift, row.tpDrift);

@@ -523,7 +523,7 @@ export function isMinSizeError(msg: string | undefined): boolean {
 }
 
 export function isRateLimitedMsg(msg: string | undefined): boolean {
-  return /100410|109418|frequency limit|disabled period|too many request|rate limit|over 20/i.test(String(msg || ""));
+  return /100410|109418|110424|frequency limit|disabled period|too many request|rate limit|over 20|over 30/i.test(String(msg || ""));
 }
 
 export function liveProtectPrices(
@@ -832,6 +832,7 @@ export async function placeSwapOrder(input: {
   connId?: string;
   reduceOnly?: boolean;
   closePosition?: boolean;
+  exactQty?: boolean;
   slAtr?: number;
   tpRatio?: number;
   attachProtect?: boolean;
@@ -856,11 +857,14 @@ export async function placeSwapOrder(input: {
 
   let qty = input.quantity;
   let usedNotional = input.notional;
-  if (input.type === "MARKET" && !input.closePosition) {
+  if (input.closePosition || input.exactQty) {
+    qty = input.quantity > 0 ? snapQtyDown(input.quantity, spec) : 0;
+    usedNotional = qty * Math.max(px, 1e-8);
+  } else if (input.type === "MARKET" && !input.closePosition) {
     const resolved = await resolveLiveQty(input.network, venueSymbol, Math.max(px, 1e-8), input.notional, ratio);
     qty = resolved.qty;
     usedNotional = resolved.notional;
-  } else if (!input.closePosition) {
+  } else if (!input.closePosition && !input.exactQty) {
     const lifted = liftQtyToMin(
       input.quantity > 0 ? input.quantity : input.notional / Math.max(px, 1e-8),
       spec,
@@ -873,14 +877,14 @@ export async function placeSwapOrder(input: {
     qty = input.quantity > 0 ? snapQtyDown(input.quantity, spec) : 0;
     usedNotional = qty * Math.max(px, 1e-8);
   }
-  if (!input.closePosition) {
+  if (!input.closePosition && !input.exactQty) {
     const floor = liftQtyToMin(qty, spec, Math.max(px, 1e-8), ratio);
     if (floor.qty > qty) {
       qty = floor.qty;
       usedNotional = floor.notional;
     }
   }
-  if (!(qty > 0) && !input.closePosition) {
+  if (!(qty > 0) && !input.closePosition && !input.exactQty) {
     const floor = liftQtyToMin(0, spec, Math.max(px, 1e-8), ratio);
     qty = floor.qty;
     usedNotional = floor.notional;
