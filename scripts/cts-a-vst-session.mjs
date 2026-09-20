@@ -55,6 +55,8 @@ const STATUS = process.env.CTS_A_STATUS ?? "/var/lib/cts-a/vst-session.json";
 const SETTINGS = process.env.CTS_A_SETTINGS ?? "/var/lib/cts-a/desk-settings.json";
 const OVERALL = process.env.CTS_A_OVERALL ?? "/var/lib/cts-a/overall-stats.json";
 const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
+const CYCLE_MS = Number(process.env.CTS_A_CYCLE_MS ?? 40_000);
+const SHORT_CYCLE_MS = Number(process.env.CTS_A_SHORT_CYCLE_MS ?? 12_000);
 const CONN = (process.env.CTS_A_CONN || (process.env.CTS_A_X01 === "1" ? "bingx-x01" : "bingx-vst-02")).trim();
 const IS_X01 = CONN === "bingx-x01";
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
@@ -197,7 +199,7 @@ const BLOCK = {
 
 const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: false, block: true, dca: false };
 
-const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 1.7, dcaCount: 1, slAtr: 0.714, tpAtr: 0.42, slOfTp: 1.7, shortRange: true, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
+const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 1.7, dcaCount: 1, slAtr: 0.714, tpAtr: 0.42, slOfTp: 1.7, shortRange: true, maxHoldTicks: 24, maxHoldBars: 3, axisLevels: 5 };
 const LIVE_SHORT_TACTICS = ["trailing"];
 const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   ["atr", "fibonacci"].map((range) => ({
@@ -210,7 +212,7 @@ const SHORT_GRID = liveShortProtectCombos().flatMap((s) =>
   LIVE_SHORT_TACTICS.map((tactic) => ({
     tactic,
     range: "atr",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, ...s, dcaCount: 1, maxHoldTicks: 20000 },
+    cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, ...s, dcaCount: 1, maxHoldTicks: 24 },
   })),
 );
 let GRID = [...SHORT_GRID];
@@ -2401,7 +2403,8 @@ async function main() {
     }
 
     const now = Date.now();
-    if (now - lastCycleAt > 40000) {
+    const cycleMs = cfgUsesShortRange(pick?.cfg) ? SHORT_CYCLE_MS : CYCLE_MS;
+    if (now - lastCycleAt > cycleMs) {
       lastCycleAt = now;
       const live = gridLive(engine);
       gridCursor = (gridIndex(pick, live) + 1) % live.length;
