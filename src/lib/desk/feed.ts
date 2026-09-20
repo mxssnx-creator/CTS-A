@@ -43,13 +43,13 @@ export const MAX_LIVE_NOTIONAL = 150;
 /** Size at least this multiple of exchange min qty / min notional. */
 export const MIN_SIZE_RATIO = 1;
 
-/** Live size / Block stack vs account equity. Low books still trade min lots (futures margin ≪ notional). */
+/** Live size / Block stack vs account equity. Low books still trade min lots + shared Block. */
 export function liveEntryBudget(equity: number, minNotional = 2) {
   const eq = Math.max(0, Number(equity) || 0);
   void minNotional;
   if (!(eq >= 0.001)) return { trade: false, block: false, maxNew: 0, maxPos: 0, reason: "empty" as const };
-  if (eq < 8) return { trade: true, block: false, maxNew: 1, maxPos: 24, reason: "low" as const };
-  if (eq < 20) return { trade: true, block: false, maxNew: 2, maxPos: 40, reason: "lean" as const };
+  if (eq < 8) return { trade: true, block: true, maxNew: 1, maxPos: 16, reason: "low" as const };
+  if (eq < 20) return { trade: true, block: true, maxNew: 1, maxPos: 24, reason: "lean" as const };
   if (eq < 50) return { trade: true, block: true, maxNew: 2, maxPos: 50, reason: "ok" as const };
   return { trade: true, block: true, maxNew: 4, maxPos: 80, reason: "full" as const };
 }
