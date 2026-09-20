@@ -1527,8 +1527,8 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Volume ratio"
-              value={blockCfg.volumeRatio ?? 0.4}
-              min={0.4}
+              value={blockCfg.volumeRatio ?? 0.1}
+              min={0.1}
               max={1}
               step={0.05}
               format={(n) => n.toFixed(2)}

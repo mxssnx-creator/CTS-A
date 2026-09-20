@@ -492,14 +492,15 @@ export const DEFAULT_SHORT_PF = 0.95;
 export const DEFAULT_SHORT_BASE_PF = 0.7;
 export const DEFAULT_SHORT_AXIS_PF = 0.9;
 export const DEFAULT_SHORT_BLOCK_PF = 1.15;
-export const DEFAULT_BLOCK_VOLUME_RATIO = 0.4;
+export const DEFAULT_BLOCK_VOLUME_RATIO = 0.1;
 export const DEFAULT_OVERALL_BLOCK_VOLUME_RATIO = 1;
 export const DEFAULT_SHARED_BLOCK_VOLUME_RATIO = 1.5;
-export const BLOCK_VOLUME_RATIO_MIN = 0.4;
+export const BLOCK_VOLUME_RATIO_MIN = 0.1;
 export const BLOCK_VOLUME_RATIO_MAX = 1;
 export const BLOCK_SHARED_VOLUME_MAX = 1.5;
+export const BLOCK_SHARED_VOLUME_MIN = 0.4;
 
-/** Block additive/shared volume ratio. 0.08 was Axis partials — snap into 0.4–1. */
+/** Additive Block vol. 0.08 was Axis partials — reject; 0.1 is the live additive floor. */
 export function clampBlockVol(n: unknown, fallback = DEFAULT_BLOCK_VOLUME_RATIO): number {
   const x = Number(n);
   if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return fallback;
@@ -508,7 +509,7 @@ export function clampBlockVol(n: unknown, fallback = DEFAULT_BLOCK_VOLUME_RATIO)
 export function clampSharedVol(n: unknown, fallback = DEFAULT_SHARED_BLOCK_VOLUME_RATIO): number {
   const x = Number(n);
   if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return fallback;
-  return Math.min(BLOCK_SHARED_VOLUME_MAX, Math.max(BLOCK_VOLUME_RATIO_MIN, x));
+  return Math.min(BLOCK_SHARED_VOLUME_MAX, Math.max(BLOCK_SHARED_VOLUME_MIN, x));
 }
 /** Extra Axis rungs: full size of the validated base qty (not 0.08). */
 export const AXIS_PARTIAL_RATIO = 1;

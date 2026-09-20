@@ -168,7 +168,7 @@ const BLOCK = {
   minMultiple: 1,
   overall: true,
   counts: [...LIVE_BLOCK_COUNTS],
-  volumeRatio: 0.4,
+  volumeRatio: 0.1,
   overallVolumeRatio: 1,
   sharedVolumeRatio: 1.5,
   maxVolumeMultiplier: 1.8,
@@ -180,13 +180,13 @@ const BLOCK = {
   keepAdjusted: true,
   stack: true,
   windows: true,
-  volumeMode: "shared",
+  volumeMode: "parallel",
   overallMode: "shared",
   sides: "both",
   evalHours: 2,
   autoEval: true,
   relAdditive: true,
-  relVolumeRatio: 0.4,
+  relVolumeRatio: 0.1,
   minRelPf: 1.05,
   evalLastNs: [...LIVE_BLOCK_COUNTS],
   liveLastN: 12,
@@ -809,7 +809,7 @@ function liveNotional(e, f, equity, rel) {
   let vr = 1;
   if (shared) vr = Math.min(1.5, Math.max(0.4, Number(BLOCK.sharedVolumeRatio) || 1.5));
   else if (overall) vr = Math.min(1, Math.max(0.4, Number(BLOCK.overallVolumeRatio) || 1));
-  else vr = Math.min(1, Math.max(0.4, Number(BLOCK.volumeRatio) || 0.4)) * n;
+  else vr = Math.min(1, Math.max(0.1, Number(BLOCK.volumeRatio) || 0.1)) * n;
   void e;
   return unit * vr;
 }
@@ -1738,7 +1738,7 @@ function applyExecFromSettings(remote) {
 function migrateBlockVol(n) {
   const x = Number(n);
   if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return 0.4;
-  return Math.min(1, Math.max(0.4, x));
+  return Math.min(1, Math.max(0.1, x));
 }
 function migrateOverallVol(n) {
   const x = Number(n);
@@ -1767,12 +1767,12 @@ function applyPfGates(engine, remote) {
     ...BLOCK,
     overall: true,
     enabled: true,
-    volumeRatio: migrateBlockVol(bc.volumeRatio ?? engine.blockCfg?.volumeRatio),
+    volumeRatio: 0.1,
     overallVolumeRatio: migrateOverallVol(bc.overallVolumeRatio ?? 1),
     sharedVolumeRatio: Math.min(1.5, Math.max(0.4, Number(bc.sharedVolumeRatio) || 1.5)),
     overallMode: "shared",
-    volumeMode: "shared",
-    relVolumeRatio: migrateBlockVol(bc.relVolumeRatio ?? engine.blockCfg?.relVolumeRatio),
+    volumeMode: "parallel",
+    relVolumeRatio: 0.1,
     minRelPf: blockPf,
     liveDisableMinPf: blockPf,
   };
@@ -2362,8 +2362,10 @@ async function main() {
           Object.assign(BLOCK, remote.blockConfig, {
             enabled: STRAT.block,
             activeLive: true,
-            volumeMode: "shared",
+            volumeMode: "parallel",
             overallMode: "shared",
+            volumeRatio: 0.1,
+            relVolumeRatio: 0.1,
             minActiveLevel: Math.max(1, Math.round(remote.blockConfig.minActiveLevel || BLOCK.minActiveLevel || 1)),
           });
         engine.blockCfg = { ...BLOCK };

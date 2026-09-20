@@ -273,7 +273,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
             : [...(d.blockConfig.counts ?? [1, 2])];
           return rawCounts.length ? rawCounts.slice(0, 16) : [1, 2];
         })(),
-        volumeRatio: clampBlockVol(asNum(b.volumeRatio, d.blockConfig.volumeRatio ?? 0.4)),
+        volumeRatio: clampBlockVol(asNum(b.volumeRatio, d.blockConfig.volumeRatio ?? 0.1)),
         overallVolumeRatio: clampBlockVol(asNum((b as { overallVolumeRatio?: number }).overallVolumeRatio, d.blockConfig.overallVolumeRatio ?? 1), 1),
         sharedVolumeRatio: clampSharedVol(asNum((b as { sharedVolumeRatio?: number }).sharedVolumeRatio, d.blockConfig.sharedVolumeRatio ?? 1.5)),
         maxVolumeMultiplier: Math.min(5, Math.max(1.2, asNum(b.maxVolumeMultiplier, d.blockConfig.maxVolumeMultiplier ?? 1.8))),
@@ -296,7 +296,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         evalHours: Math.min(12, Math.max(1, Math.round(asNum(b.evalHours, d.blockConfig.evalHours ?? 2)))),
         autoEval: asBool(b.autoEval, d.blockConfig.autoEval ?? true),
         relAdditive: asBool(b.relAdditive, d.blockConfig.relAdditive ?? true),
-        relVolumeRatio: clampBlockVol(asNum(b.relVolumeRatio, d.blockConfig.relVolumeRatio ?? 0.4)),
+        relVolumeRatio: clampBlockVol(asNum(b.relVolumeRatio, d.blockConfig.relVolumeRatio ?? 0.1)),
         minRelPf: Math.min(5, Math.max(1, asNum(b.minRelPf, asNum(th.blockPf, d.blockConfig.minRelPf ?? DEFAULT_BLOCK_PF)))),
         evalLastNs: Array.isArray(b.evalLastNs)
           ? [...new Set(b.evalLastNs.map((n) => Math.round(Number(n))).filter((n) => n >= 1 && n <= 6))].sort((a, c) => a - c)

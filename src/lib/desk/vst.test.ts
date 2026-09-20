@@ -2018,7 +2018,7 @@ describe("VST engine", () => {
     assert.ok(Math.abs(b - base * r) < 1e-9, `step2 ${b}`);
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "shared");
     assert.equal(DEFAULT_BLOCK_CONFIG.overallMode, "shared");
-    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.1);
     const q = additiveBlockQty(1.2, [1, 2, 3], 1, 3, 1);
     assert.ok(Math.abs(q.totalSteps - 3 * 1.2) < 1e-9, `steps ${q.totalSteps}`);
     assert.ok(Math.abs(q.relExtra - 3 * 1.2) < 1e-9, `rel ${q.relExtra}`);
@@ -2026,13 +2026,14 @@ describe("VST engine", () => {
   });
 
   it("auto-evals major/minor relations every 2h and adds volume additively", () => {
-    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
-    assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.4);
+    assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.1);
+    assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.1);
     assert.equal(DEFAULT_BLOCK_CONFIG.overallVolumeRatio, 1);
     assert.equal(DEFAULT_BLOCK_CONFIG.sharedVolumeRatio, 1.5);
     assert.equal(AXIS_PARTIAL_RATIO, 1);
-    assert.equal(clampBlockVol(0.08), 0.4);
-    assert.equal(clampBlockVol(0.2), 0.4);
+    assert.equal(clampBlockVol(0.08), 0.1);
+    assert.equal(clampBlockVol(0.1), 0.1);
+    assert.equal(clampBlockVol(0.2), 0.2);
     assert.equal(clampBlockVol(1.5), 1);
     assert.equal(clampBlockVol(0.7), 0.7);
     assert.equal(DEFAULT_THRESHOLDS.minPf, 1.35);
@@ -2714,7 +2715,7 @@ describe("VST engine", () => {
     assert.equal(snap.thresholds.shortPf, DEFAULT_SHORT_PF);
     assert.equal(snap.thresholds.shortBasePf, DEFAULT_SHORT_BASE_PF);
     assert.equal(sanitizeDeskSettings({ tacticConfig: { axisPartialRatio: 0.08 } } as never).tacticConfig.axisPartialRatio, 1);
-    assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 0.08, relVolumeRatio: 1.5 } } as never).blockConfig.volumeRatio, 0.4);
+    assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 0.08, relVolumeRatio: 1.5 } } as never).blockConfig.volumeRatio, 0.1);
     assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 1.5, relVolumeRatio: 1.5 } } as never).blockConfig.relVolumeRatio, 1);
     assert.equal(sanitizeDeskSettings({ blockConfig: { overallVolumeRatio: 0.08 } } as never).blockConfig.overallVolumeRatio, 1);
     assert.ok(snap.tacticConfig.slAtr >= 0.8);
