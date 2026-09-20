@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, deskClientPrefix, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect } from "./feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, deskClientPrefix, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect, liveEntryBudget } from "./feed.ts";
 import {
   buildCanonical,
   configureLiveExecution,
@@ -31,6 +31,11 @@ describe("live feed", () => {
     assert.equal(BINGX_SYMBOL.MATICUSDT, "POL-USDT");
     assert.equal(MAX_LIVE_NOTIONAL, 150);
     assert.equal(MIN_SIZE_RATIO, 1);
+    assert.equal(liveEntryBudget(0.0016).trade, false);
+    assert.equal(liveEntryBudget(0.0016).block, false);
+    assert.equal(liveEntryBudget(6).block, false);
+    assert.equal(liveEntryBudget(6).maxPos, 4);
+    assert.equal(liveEntryBudget(60).block, true);
   });
 
   it("lifts qty to exchange min × ratio", () => {

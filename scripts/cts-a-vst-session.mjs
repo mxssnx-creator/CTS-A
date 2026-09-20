@@ -5,7 +5,7 @@
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
-import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect } from "../src/lib/desk/feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
@@ -872,7 +872,16 @@ function mergeLivePositions(e, book) {
 }
 
 function liveMaxPos() {
-  return LIVE_MAX_POS;
+  const eq = Number(lastBook.equity) || 0;
+  return liveEntryBudget(eq).maxPos;
+}
+
+function isMarginFail(s) {
+  return /insufficient margin|maximum open amount|available amount|lower the leverage/i.test(String(s || ""));
+}
+
+function liveBudgetNow() {
+  return liveEntryBudget(Number(lastBook.equity) || 0);
 }
 
 function pfGateClosed() {
@@ -901,6 +910,10 @@ function noteApiFail(err) {
   if (s) lastApiError = s.slice(0, 180);
   if (isRateLimited(s)) {
     apiQuietUntil = Math.max(apiQuietUntil, Date.now() + quietMs(s));
+    return true;
+  }
+  if (isMarginFail(s)) {
+    apiQuietUntil = Math.max(apiQuietUntil, Date.now() + 180_000);
     return true;
   }
   return false;
@@ -1556,8 +1569,12 @@ async function mirrorToExchange(e, network, cfg) {
   const ours = deskPos;
   const openN = ours.length;
   const accountN = (book.positions ?? []).filter((p) => isUniverseSymbol(p.symbol)).length;
-
-  if (openN >= liveMaxPos()) return notes.length ? notes.join(" · ") : null;
+  const budget = liveBudgetNow();
+  if (!budget.trade || budget.maxPos <= 0) {
+    notes.push(`equity halt ${Number(book.equity || lastBook.equity || 0).toFixed(4)}`);
+    return notes.filter(Boolean).slice(0, 4).join(" · ");
+  }
+  if (openN >= budget.maxPos) return notes.length ? notes.join(" · ") : null;
   if (protectGap > 0) {
     notes.push(`protect gap ${protectGap}`);
     return notes.filter(Boolean).slice(0, 4).join(" · ");
@@ -1623,12 +1640,14 @@ async function mirrorToExchange(e, network, cfg) {
       continue;
     }
     const isBlockAdd = /Block/i.test(String(f.note || f._rel?.note || f.playbook || ""));
+    if (isBlockAdd && !budget.block) continue;
     if (!isBlockAdd && (exchangeOccupied.has(`${f.symbol}:${f.side}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side))) {
       mirrored.add(f.id);
       continue;
     }
     if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side)) continue;
-    if (!isBlockAdd && openN + fillJobs.length >= liveMaxPos()) break;
+    if (isBlockAdd && fillJobs.filter((x) => /Block/i.test(String(x.note || x._rel?.note || ""))).length >= budget.maxNew) continue;
+    if (!isBlockAdd && openN + fillJobs.length >= budget.maxPos) break;
     if (apiQuiet()) break;
     fillJobs.push(f);
   }
