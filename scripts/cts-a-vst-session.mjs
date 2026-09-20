@@ -308,13 +308,13 @@ function gridLive(e) {
   const filtered = GRID.filter((g) => {
     if (g.tactic === "dca" && !(e?.strategyToggles ?? STRAT).dca) return false;
     if (g.tactic === "axis" && dis[`tac:axis`]) return false;
-    if (dis[`tac:${g.tactic}`]) return false;
+    if (g.tactic !== "trailing" && dis[`tac:${g.tactic}`]) return false;
     if (!g.cfg?.shortRange && dis[`rng:${g.range}`]) return false;
     if (g.cfg?.shortRange && (Number(g.cfg.tpAtr) + 1e-9 < minTp || Number(g.cfg.tpAtr) - 1e-9 > shortMaxTp || Number(g.cfg.slOfTp) + 1e-9 < minSl)) return false;
     return true;
   });
   if (filtered.length) return filtered;
-  const prefer = GRID.filter((g) => g.tactic === "trailing" && Number(g.cfg?.tpAtr) === 0.42 && Number(g.cfg?.slOfTp) === 1.7);
+  const prefer = GRID.filter((g) => g.tactic === "trailing" && Number(g.cfg?.tpAtr) === SHORT_WINNER.tpAtr && Number(g.cfg?.slOfTp) === SHORT_WINNER.slOfTp);
   return prefer.length ? prefer : GRID.slice(0, 1);
 }
 function persistDisabled(e) {
@@ -2293,17 +2293,18 @@ async function main() {
       const shortOk = complete.cells.filter(
         (c) => c.shortRange && c.ok && Number(c.hours) >= Math.min(16, SHORT_EVAL_HOURS) && Number(c.tpAtr) > 0,
       );
-      if (shortEvalPositive && shortOk.length) {
-        shortPositive = shortOk.map((c) => ({ tpAtr: Number(c.tpAtr), slOfTp: Number(c.slOfTp) }));
-        rebuildShortGrid();
+      const boot = new Set(SHORT_20H_POSITIVE.map((c) => `${Number(c.tpAtr).toFixed(2)}:${Number(c.slOfTp).toFixed(1)}`));
+      const confirmed = shortOk.filter((c) => boot.has(`${Number(c.tpAtr).toFixed(2)}:${Number(c.slOfTp).toFixed(1)}`)).length;
+      adjustments.push(
+        `short ${SHORT_EVAL_HOURS}h eval ${shortOk.length} ok · ${confirmed}/${SHORT_20H_POSITIVE.length} match live lock · grid ${GRID.length} TP ${preferWinner(GRID)?.cfg.tpAtr}/${preferWinner(GRID)?.cfg.slOfTp}`,
+      );
+      rebuildShortGrid();
+      {
         const live = gridLive(engine);
         if (live.length) {
           pick = preferWinner(live) || live[0];
           currentPick = pick;
         }
-        adjustments.push(
-          `short ${SHORT_EVAL_HOURS}h lock ${shortOk.length} positive · winner TP ${pick.cfg.tpAtr}/${pick.cfg.slOfTp} · grid ${GRID.length}`,
-        );
       }
       cachedOverall = null;
       cachedOverallTick = -1;
