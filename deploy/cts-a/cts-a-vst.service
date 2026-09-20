@@ -1,5 +1,5 @@
 [Unit]
-Description=CTS-A BingX x01 mainnet session (50 symbols, all configs)
+Description=CTS-A BingX x01 mainnet session (120 symbols, Stable 02)
 After=network-online.target cts-a-desk.service
 Wants=network-online.target
 StartLimitIntervalSec=180
