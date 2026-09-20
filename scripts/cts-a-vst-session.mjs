@@ -180,7 +180,7 @@ const BLOCK = {
   keepAdjusted: true,
   stack: true,
   windows: true,
-  volumeMode: "parallel",
+  volumeMode: "shared",
   overallMode: "shared",
   sides: "both",
   evalHours: 2,
@@ -195,10 +195,10 @@ const BLOCK = {
   liveDisableMinSamples: 4,
 };
 
-const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false };
+const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: false, block: true, dca: false };
 
 const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 1.5, dcaCount: 1, slAtr: 0.525, tpAtr: 0.35, slOfTp: 1.5, shortRange: true, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
-const LIVE_SHORT_TACTICS = ["trailing", "hybrid"];
+const LIVE_SHORT_TACTICS = ["trailing"];
 const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   ["atr", "fibonacci"].map((range) => ({
     tactic,
@@ -1353,7 +1353,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const q = e.quotes?.[p.symbol];
       if (!q || !(q.px > 0)) continue;
       const indication = classifyIndication(e, p.symbol);
-      const tactic = tacticForIndication(indication);
+      const tactic = tacticForIndication(indication, e?.strategyToggles ?? STRAT);
       if (tactic !== "axis" && tactic !== "hybrid") continue;
       const key = `${p.symbol}:${p.side}`;
       if (!hasTp.has(key)) continue;
@@ -1483,7 +1483,7 @@ async function mirrorToExchange(e, network, cfg) {
     foreignOrd: foreignOrdN,
     positions: deskPos.map((p) => {
       const indication = e ? classifyIndication(e, p.symbol) : "trend";
-      const tactic = e ? tacticForIndication(indication) : "trailing";
+      const tactic = e ? tacticForIndication(indication, e.strategyToggles ?? STRAT) : "trailing";
       const playbook = openPlaybook(tactic, indication);
       return {
         connId: CONN,
@@ -2358,14 +2358,15 @@ async function main() {
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
         if (remote.strategyToggles) {
-          Object.assign(STRAT, remote.strategyToggles, { dca: false });
+          Object.assign(STRAT, remote.strategyToggles, { dca: false, axis: false, trailing: true, normal: false });
           engine.strategyToggles = { ...STRAT };
         }
         if (remote.blockConfig)
           Object.assign(BLOCK, remote.blockConfig, {
             enabled: STRAT.block,
             activeLive: true,
-            volumeMode: "parallel",
+            volumeMode: "shared",
+            overallMode: "shared",
             minActiveLevel: Math.max(1, Math.round(remote.blockConfig.minActiveLevel || BLOCK.minActiveLevel || 1)),
           });
         engine.blockCfg = { ...BLOCK };

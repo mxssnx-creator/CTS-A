@@ -421,9 +421,8 @@ export function liveTacticsOf(t: StrategyToggles = DEFAULT_STRATEGY_TOGGLES): Ta
   const out: TacticKind[] = [];
   if (t.trailing) out.push("trailing");
   if (t.axis) out.push("axis");
-  if (t.trailing) out.push("hybrid");
   if (t.dca) out.push("dca");
-  return out.length ? out : ["axis"];
+  return out.length ? out : ["trailing"];
 }
 
 export function isBlockAdjustedRel(rel: {

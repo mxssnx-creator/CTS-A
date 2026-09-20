@@ -1250,7 +1250,8 @@ export function liveExecPlaybook(
   return hinted || openPlaybook(tactic, indication);
 }
 
-export function tacticForIndication(id: IndicationId): TacticKind {
+export function tacticForIndication(id: IndicationId, t?: { axis?: boolean; trailing?: boolean }): TacticKind {
+  if (t?.axis === false) return "trailing";
   if (id === "direction") return "axis";
   if (id === "break" || id === "active") return "hybrid";
   return "trailing";
