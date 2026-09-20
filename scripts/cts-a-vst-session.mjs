@@ -169,6 +169,7 @@ const BLOCK = {
   overall: true,
   counts: [...LIVE_BLOCK_COUNTS],
   volumeRatio: 0.4,
+  overallVolumeRatio: 1,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: 0,
@@ -469,7 +470,7 @@ function snapshot(e, extra) {
     blockOverall: {
       on: e.blockCfg?.overall !== false,
       enabled: e.blockCfg?.enabled !== false,
-      vr: e.blockCfg?.volumeRatio,
+      vr: e.blockCfg?.overallVolumeRatio ?? e.blockCfg?.volumeRatio,
       counts: e.blockCfg?.counts,
       windows: Object.fromEntries(
         Object.entries(e.blockWindows || {}).map(([n, w]) => [
@@ -1696,6 +1697,11 @@ function migrateBlockVol(n) {
   if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return 0.4;
   return Math.min(1, Math.max(0.4, x));
 }
+function migrateOverallVol(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return 1;
+  return Math.min(1, Math.max(0.4, x));
+}
 
 function applyPfGates(engine, remote) {
   const th = remote?.thresholds || {};
@@ -1719,6 +1725,7 @@ function applyPfGates(engine, remote) {
     overall: true,
     enabled: true,
     volumeRatio: migrateBlockVol(bc.volumeRatio ?? engine.blockCfg?.volumeRatio),
+    overallVolumeRatio: migrateOverallVol(bc.overallVolumeRatio ?? 1),
     relVolumeRatio: migrateBlockVol(bc.relVolumeRatio ?? engine.blockCfg?.relVolumeRatio),
     minRelPf: blockPf,
     liveDisableMinPf: blockPf,

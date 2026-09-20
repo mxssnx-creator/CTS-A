@@ -264,6 +264,8 @@ export interface BlockConfig {
   overall: boolean;
   counts: number[];
   volumeRatio: number;
+  /** Overall Block (all positions, independent of lanes). Default 1. */
+  overallVolumeRatio?: number;
   maxVolumeMultiplier: number;
   pfRatio: number;
   pauseCountRatio: number;

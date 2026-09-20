@@ -485,6 +485,7 @@ export const DEFAULT_BLOCK_PF = 1.2;
 export const DEFAULT_SHORT_PF = 0.95;
 export const DEFAULT_SHORT_BASE_PF = 0.7;
 export const DEFAULT_BLOCK_VOLUME_RATIO = 0.4;
+export const DEFAULT_OVERALL_BLOCK_VOLUME_RATIO = 1;
 export const BLOCK_VOLUME_RATIO_MIN = 0.4;
 export const BLOCK_VOLUME_RATIO_MAX = 1;
 
@@ -563,6 +564,7 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   overall: true,
   counts: [...LIVE_BLOCK_COUNTS],
   volumeRatio: DEFAULT_BLOCK_VOLUME_RATIO,
+  overallVolumeRatio: DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
   maxVolumeMultiplier: 1.8,
   pfRatio: 1.45,
   pauseCountRatio: 0,

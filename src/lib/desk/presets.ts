@@ -28,6 +28,7 @@ const BLOCK_LIVE = {
   volumeMode: "parallel" as const,
   sides: "both" as const,
   volumeRatio: 0.4,
+  overallVolumeRatio: 1,
   pauseCountRatio: 0,
   keepAdjusted: true,
 };
@@ -222,6 +223,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
         cadence: 4,
         overall: true,
         volumeRatio: 0.4,
+        overallVolumeRatio: 1,
         maxVolumeMultiplier: 1.8,
         pfRatio: 1.45,
         pauseCountRatio: 0,
@@ -306,6 +308,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
         cadence: 4,
         overall: true,
         volumeRatio: 0.4,
+        overallVolumeRatio: 1,
         maxVolumeMultiplier: 1.8,
         pfRatio: 1.45,
         pauseCountRatio: 0,

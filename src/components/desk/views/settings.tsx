@@ -1401,6 +1401,16 @@ export function SettingsView() {
               ariaLabel="Block volume ratio"
             />
             <RangeKnob
+              label="Overall Block vol"
+              value={blockCfg.overallVolumeRatio ?? 1}
+              min={0.4}
+              max={1}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setBlockCfg({ overallVolumeRatio: n })}
+              ariaLabel="Overall Block volume ratio"
+            />
+            <RangeKnob
               label="Relation vol ratio"
               value={blockCfg.relVolumeRatio ?? 0.4}
               min={0.4}

@@ -1944,6 +1944,7 @@ describe("VST engine", () => {
   it("auto-evals major/minor relations every 2h and adds volume additively", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, 0.4);
     assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.4);
+    assert.equal(DEFAULT_BLOCK_CONFIG.overallVolumeRatio, 1);
     assert.equal(AXIS_PARTIAL_RATIO, 1);
     assert.equal(clampBlockVol(0.08), 0.4);
     assert.equal(clampBlockVol(0.2), 0.4);
@@ -2630,6 +2631,7 @@ describe("VST engine", () => {
     assert.equal(sanitizeDeskSettings({ tacticConfig: { axisPartialRatio: 0.08 } } as never).tacticConfig.axisPartialRatio, 1);
     assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 0.08, relVolumeRatio: 1.5 } } as never).blockConfig.volumeRatio, 0.4);
     assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 1.5, relVolumeRatio: 1.5 } } as never).blockConfig.relVolumeRatio, 1);
+    assert.equal(sanitizeDeskSettings({ blockConfig: { overallVolumeRatio: 0.08 } } as never).blockConfig.overallVolumeRatio, 1);
     assert.ok(snap.tacticConfig.slAtr >= 0.8);
     assert.equal(snap.thresholds.maxDdt, 20);
     assert.equal(snap.hedgeMode, true);
@@ -2681,6 +2683,7 @@ describe("VST engine", () => {
     assert.equal(stable2?.patch.thresholds?.shortPf, 0.95);
     assert.equal(stable2?.patch.tacticConfig?.axisPartialRatio, 1);
     assert.equal(stable2?.patch.blockConfig?.volumeRatio, 0.4);
+    assert.equal(stable2?.patch.blockConfig?.overallVolumeRatio, 1);
     assert.equal(stable2?.patch.blockConfig?.liveDisableMinPf, 1.2);
     assert.equal(stable2?.patch.symbolCount, 80);
     assert.ok(universeSymbols(80).length === 80);

@@ -55,6 +55,7 @@ import {
   allShortTpSlCombos,
   cfgUsesShortRange,
   clampBlockVol,
+  DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
   clampAxisPartial,
   trailStopFromPeak,
   symbolIndications,
@@ -769,6 +770,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.shortRange = e.shortRange ?? false;
   if (e.blockCfg) {
     e.blockCfg.volumeRatio = clampBlockVol(e.blockCfg.volumeRatio);
+    e.blockCfg.overallVolumeRatio = clampBlockVol(e.blockCfg.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO, DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
     e.blockCfg.relVolumeRatio = clampBlockVol(e.blockCfg.relVolumeRatio ?? e.blockCfg.volumeRatio);
   }
   e.liveTape = e.liveTape ?? false;
@@ -3138,7 +3140,8 @@ export function adjustActiveBlocks(
 
   syncBlockParents(e, conn);
   const counts = liveBlockCounts(block);
-  const vr = clampBlockVol(block.volumeRatio);
+  const vrRel = clampBlockVol(block.volumeRatio);
+  const vrOv = clampBlockVol(block.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO, DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
   const minPf = block.minRelPf ?? minPfFor(e, "block");
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
   const overall = block.overall !== false;
@@ -3178,6 +3181,7 @@ export function adjustActiveBlocks(
           if (next < minM || next > maxM) continue;
           if (!blockCountPositive(e, next, minPf)) continue;
           if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
+          const vr = overall ? vrOv : vrRel;
           const cap = lane.baseQty * (mode === "additive" ? next * vr : blockMaxAdditionalRatio(next, vr, block.maxVolumeMultiplier || 1.8, mode));
           if (overall) {
             if (liveOvLevels.has(next)) continue;
