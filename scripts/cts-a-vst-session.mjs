@@ -914,10 +914,6 @@ function noteApiFail(err) {
     apiQuietUntil = Math.max(apiQuietUntil, Date.now() + quietMs(s));
     return true;
   }
-  if (isMarginFail(s)) {
-    apiQuietUntil = Math.max(apiQuietUntil, Date.now() + 180_000);
-    return true;
-  }
   return false;
 }
 
@@ -1573,7 +1569,7 @@ async function mirrorToExchange(e, network, cfg) {
   const accountN = (book.positions ?? []).filter((p) => isUniverseSymbol(p.symbol)).length;
   const budget = liveBudgetNow();
   if (!budget.trade || budget.maxPos <= 0) {
-    notes.push(`equity halt ${Number(book.equity || lastBook.equity || 0).toFixed(4)}`);
+    notes.push(`equity empty ${Number(book.equity || lastBook.equity || 0).toFixed(4)}`);
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
   if (openN >= budget.maxPos) return notes.length ? notes.join(" · ") : null;

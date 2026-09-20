@@ -31,10 +31,11 @@ describe("live feed", () => {
     assert.equal(BINGX_SYMBOL.MATICUSDT, "POL-USDT");
     assert.equal(MAX_LIVE_NOTIONAL, 150);
     assert.equal(MIN_SIZE_RATIO, 1);
-    assert.equal(liveEntryBudget(0.0016).trade, false);
+    assert.equal(liveEntryBudget(0.0016).trade, true);
     assert.equal(liveEntryBudget(0.0016).block, false);
+    assert.equal(liveEntryBudget(0).trade, false);
     assert.equal(liveEntryBudget(6).block, false);
-    assert.equal(liveEntryBudget(6).maxPos, 4);
+    assert.ok((liveEntryBudget(0.2).maxPos || 0) >= 8);
     assert.equal(liveEntryBudget(60).block, true);
   });
 

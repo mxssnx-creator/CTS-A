@@ -884,7 +884,9 @@ export async function placeSwapOrder(input: {
       usedNotional = floor.notional;
     }
     const eq = Number(input.equity) || 0;
-    if (eq > 0 && (minFloor > eq * 0.45 || usedNotional > eq * 0.5)) {
+    const lev = Math.max(10, Number(spec?.maxLeverage) || 50);
+    const marginNeed = usedNotional / lev;
+    if (eq > 0 && marginNeed > eq * 0.92) {
       return { ok: false, error: "Insufficient margin" };
     }
   }
@@ -966,10 +968,12 @@ export async function placeSwapOrder(input: {
   if (isRateLimitedMsg(result.error)) return result;
   if (!result.ok && isMinSizeError(result.error) && !input.closePosition) {
     const eq = Number(input.equity) || 0;
+    if (eq > 0 && eq < 8) return result;
     for (const mul of [1.25, 1.5, 2]) {
       const bump = liftQtyToMin(qty, spec, Math.max(px, 1e-8), execRatio() * mul);
       if (!(bump.qty > qty)) continue;
-      if (eq > 0 && bump.notional > Math.max(eq * 0.35, minFloor)) break;
+      const lev = Math.max(10, Number(spec?.maxLeverage) || 50);
+      if (eq > 0 && bump.notional / lev > eq * 0.85) break;
       result = await post(bump.qty, true);
       if (!result.ok && protectBad(result.error)) result = await post(bump.qty, false);
       if (result.ok || isRateLimitedMsg(result.error) || !isMinSizeError(result.error)) break;
