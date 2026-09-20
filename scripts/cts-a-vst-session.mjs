@@ -197,7 +197,7 @@ const BLOCK = {
 
 const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: false, block: true, dca: false };
 
-const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 1.5, dcaCount: 1, slAtr: 0.525, tpAtr: 0.35, slOfTp: 1.5, shortRange: true, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
+const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 1.7, dcaCount: 1, slAtr: 0.714, tpAtr: 0.42, slOfTp: 1.7, shortRange: true, maxHoldTicks: 20000, maxHoldBars: 8, axisLevels: 5 };
 const LIVE_SHORT_TACTICS = ["trailing"];
 const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   ["atr", "fibonacci"].map((range) => ({
@@ -206,9 +206,7 @@ const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
     cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, dcaCount: 1 },
   })),
 );
-const SHORT_GRID = allShortTpSlCombos()
-  .filter((s) => Math.abs(s.tpAtr - 0.35) < 1e-9 && s.slOfTp + 1e-9 >= 1.5)
-  .flatMap((s) =>
+const SHORT_GRID = liveShortProtectCombos().flatMap((s) =>
   LIVE_SHORT_TACTICS.map((tactic) => ({
     tactic,
     range: "atr",
@@ -216,7 +214,7 @@ const SHORT_GRID = allShortTpSlCombos()
   })),
 );
 let GRID = [...SHORT_GRID];
-const prefer = GRID.find((g) => g.cfg.tpAtr === 0.35 && g.cfg.slOfTp === 1.5 && g.tactic === "trailing") || GRID[0];
+const prefer = GRID.find((g) => g.cfg.tpAtr === 0.42 && g.cfg.slOfTp === 1.7 && g.tactic === "trailing") || GRID[0];
 if (prefer) GRID = [prefer, ...GRID.filter((g) => g !== prefer)];
 let currentPick = GRID[0];
 const DISABLED_FILE = process.env.CTS_A_DISABLED ?? "/var/lib/cts-a/live-disabled.json";
@@ -272,12 +270,11 @@ function gridLive(e) {
     if (g.tactic === "axis" && dis[`tac:axis`]) return false;
     if (dis[`tac:${g.tactic}`]) return false;
     if (!g.cfg?.shortRange && dis[`rng:${g.range}`]) return false;
-    if (g.cfg?.shortRange && Number(g.cfg.slOfTp) + 1e-9 < 1.5 && dis[`tac:${g.tactic}`]) return false;
-    if (g.cfg?.shortRange && (Number(g.cfg.tpAtr) + 1e-9 < 0.35 || Number(g.cfg.slOfTp) + 1e-9 < 1.5)) return false;
+    if (g.cfg?.shortRange && (Number(g.cfg.tpAtr) + 1e-9 < 0.38 || Number(g.cfg.slOfTp) + 1e-9 < 1.7)) return false;
     return true;
   });
   if (filtered.length) return filtered;
-  const prefer = GRID.filter((g) => g.tactic === "trailing" && Number(g.cfg?.tpAtr) === 0.35 && Number(g.cfg?.slOfTp) === 1.5);
+  const prefer = GRID.filter((g) => g.tactic === "trailing" && Number(g.cfg?.tpAtr) === 0.42 && Number(g.cfg?.slOfTp) === 1.7);
   return prefer.length ? prefer : GRID.slice(0, 1);
 }
 function persistDisabled(e) {

@@ -221,9 +221,9 @@ export function allTpSlCombos(): { tpAtr: number; slOfTp: number; slAtr: number;
   return out;
 }
 
-/** Short-range strategy: TP 0.2–0.4 step 0.05 ATR, SL 0.5 / 1.0 / 1.5 of TP. Independent of live floors. */
-export const SHORT_TP_ATR = [0.2, 0.25, 0.3, 0.35, 0.4] as const;
-export const SHORT_SL_OF_TP = [0.5, 1, 1.5] as const;
+/** Short-range: thin TP 0.30–0.48, SL 1.3–2.0×TP. Live keeps only +PF / low-DD cells. */
+export const SHORT_TP_ATR = [0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.45, 0.48] as const;
+export const SHORT_SL_OF_TP = [1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 2] as const;
 export type ShortSlOfTp = (typeof SHORT_SL_OF_TP)[number];
 
 export function snapShortTpAtr(n: number): number {
@@ -240,8 +240,8 @@ export function snapShortTpAtr(n: number): number {
   return best;
 }
 export function snapShortSlOfTp(n: number): ShortSlOfTp {
-  if (!Number.isFinite(n)) return 1;
-  let best: ShortSlOfTp = 1;
+  if (!Number.isFinite(n)) return 1.5;
+  let best: ShortSlOfTp = 1.5;
   let dist = Infinity;
   for (const r of SHORT_SL_OF_TP) {
     const d = Math.abs(r - n);
@@ -274,14 +274,14 @@ export function allShortTpSlCombos(): { tpAtr: number; slOfTp: number; slAtr: nu
   return out;
 }
 export function liveShortProtectCombos(): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
-  return allShortTpSlCombos().filter((c) => c.tpAtr + 1e-9 >= 0.35 && c.slOfTp + 1e-9 >= 1.5);
+  return allShortTpSlCombos().filter((c) => c.tpAtr + 1e-9 >= 0.38 && c.slOfTp + 1e-9 >= 1.7);
 }
 
 export function cfgUsesShortRange(cfg: { shortRange?: boolean; tpAtr?: number } | undefined | null): boolean {
   if (!cfg) return false;
   if (cfg.shortRange === true) return true;
   const tp = Number(cfg.tpAtr);
-  return Number.isFinite(tp) && tp >= 0.2 && tp <= 0.45;
+  return Number.isFinite(tp) && tp >= 0.28 && tp <= 0.55;
 }
 
 export function allProtectCells(): ProtectCell[] {
