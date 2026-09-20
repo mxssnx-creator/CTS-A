@@ -2118,12 +2118,13 @@ function emptyBlockWindow(n: number): BlockPosWindow {
     lossWindows: 0,
     adjusted: 0,
     losers: [],
+    batchNets: [],
   };
 }
 
 function tickBlockWindow(w: BlockPosWindow, symbol: string, side: Side, pnl: number, pauseRatio = 1, keep = false) {
   w.ring.push({ symbol, side, pnl });
-  const keepN = Math.max(32, w.n * 4);
+  const keepN = Math.max(48, w.n * 8);
   if (w.ring.length > keepN) w.ring = w.ring.slice(-keepN);
   w.closed += 1;
   if (w.pauseLeft > 0) {
@@ -2131,18 +2132,22 @@ function tickBlockWindow(w: BlockPosWindow, symbol: string, side: Side, pnl: num
     w.adjusted += 1;
   }
   const last = w.ring.slice(-w.n);
-  const pfSlice = w.ring.slice(-Math.max(w.n, 8));
-  if (pfSlice.length) {
-    const net = last.reduce((s, x) => s + x.pnl, 0);
-    const gp = pfSlice.filter((x) => x.pnl > 0).reduce((s, x) => s + x.pnl, 0);
-    const gl = Math.abs(pfSlice.filter((x) => x.pnl < 0).reduce((s, x) => s + x.pnl, 0));
-    w.lastNet = net;
-    w.lastAvg = last.length ? net / last.length : 0;
-    w.lastPf = profitFactor(gp, gl);
+  const net = last.reduce((s, x) => s + x.pnl, 0);
+  w.lastNet = net;
+  w.lastAvg = last.length ? net / last.length : 0;
+  if (w.closed % w.n !== 0) {
+    const nets = w.batchNets ?? [];
+    if (nets.length) w.lastPf = profitFactor(nets.filter((x) => x > 0).reduce((s, x) => s + x, 0), Math.abs(nets.filter((x) => x < 0).reduce((s, x) => s + x, 0)));
+    return w;
   }
-  if (w.closed % w.n !== 0) return w;
   w.windows += 1;
   w.losers = [...new Set(last.filter((x) => x.pnl < 0).map((x) => x.symbol))];
+  const batches = (w.batchNets ??= []);
+  batches.push(net);
+  if (batches.length > 24) w.batchNets = batches.slice(-24);
+  const gp = (w.batchNets ?? []).filter((x) => x > 0).reduce((s, x) => s + x, 0);
+  const gl = Math.abs((w.batchNets ?? []).filter((x) => x < 0).reduce((s, x) => s + x, 0));
+  w.lastPf = profitFactor(gp, gl);
   if (w.lastAvg < 0 || (last.length >= w.n && last.every((x) => x.pnl < 0))) {
     w.lossWindows += 1;
     if (!keep) w.pauseLeft = Math.max(0, Math.round(pauseRatio * w.n));
@@ -5106,7 +5111,7 @@ export function liveShouldExecute(
   if (rel.kind === "short" || play === "short" || /short/i.test(note)) {
     if (!(t.block || t.trailing || t.axis)) return false;
     if (t.block && e.blockCfg?.activeLive !== false && e.liveTape) {
-      if (play === "block" || /^Block/i.test(note) || (rel.blockLevel ?? 0) >= 1) return true;
+      if (play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1) return true;
       if (positionBlockAdjusted(e, rel.symbol, rel.side)) return true;
       if (winningRelLive(e, rel) && !liveRelationDisabled(e, rel)) return true;
       return (e.liveOpenN ?? 0) < 12;
@@ -5118,7 +5123,7 @@ export function liveShouldExecute(
     return true;
   }
   if (t.block && winningRelLive(e, rel)) return true;
-  const isBlockFill = play === "block" || /^Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
+  const isBlockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   const isBlock = isBlockFill || positionBlockAdjusted(e, rel.symbol, rel.side);
   if (isBlock) {
     if (!t.block) return false;

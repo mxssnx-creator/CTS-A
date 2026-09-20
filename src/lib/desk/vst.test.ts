@@ -1725,12 +1725,14 @@ describe("VST engine", () => {
   it("Block N=1 PF uses a lookback, not a single loss", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     const block = { ...DEFAULT_BLOCK_CONFIG, windows: true, counts: [1, 2, 3, 4, 5, 6], keepAdjusted: true };
-    for (let i = 0; i < 12; i++) noteBlockPosClose(e, "BTCUSDT", "long", i === 11 ? -1 : 2, block);
+    for (let i = 0; i < 24; i++) noteBlockPosClose(e, "BTCUSDT", "long", i % 2 === 0 ? 2 : -1, block);
     const w1 = e.blockWindows?.[1];
-    assert.ok(w1 && w1.closed === 12, `closed ${w1?.closed}`);
+    assert.ok(w1 && w1.closed === 24, `closed ${w1?.closed}`);
     assert.ok(w1.lastPf >= 1, `n1 pf ${w1.lastPf} should not collapse to 0 on one loss`);
     assert.ok(w1.lastNet < 0, "batch of 1 still sees the last close");
     assert.equal(clampSharedVol(1.5), 1.5);
+    const w6 = e.blockWindows?.[6];
+    assert.ok(w6 && Math.abs((w6.lastPf || 0) - (w1.lastPf || 0)) > 1e-6, `n1 ${w1.lastPf} n6 ${w6?.lastPf} must be independent`);
   });
 
   it("block on vs off: adds rungs when enabled and stays inert when disabled", () => {
@@ -2590,17 +2592,17 @@ describe("VST engine", () => {
     assert.ok((ov.hours["1"].symbols ?? 0) >= 1);
   });
 
-  it("Block last-N PF is rolling last N, not a stale completed window", () => {
+  it("Block last-N PF is independent per batch size", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     const cfg = { ...DEFAULT_BLOCK_CONFIG, pauseCountRatio: 1, keepAdjusted: false };
     for (let i = 0; i < 6; i++) noteBlockPosClose(e, "BTCUSDT", "long", -1, cfg);
     assert.equal(e.blockWindows[6].lastPf, 0);
-    noteBlockPosClose(e, "ETHUSDT", "short", 3, cfg);
-    noteBlockPosClose(e, "ETHUSDT", "short", 3, cfg);
+    for (let i = 0; i < 6; i++) noteBlockPosClose(e, "ETHUSDT", "short", 3, cfg);
     const last = e.blockWindows[6];
-    assert.equal(last.closed, 8);
-    assert.ok(last.lastPf > 0.9, `rolling pf ${last.lastPf}`);
-    assert.ok(last.lastNet > -6, `rolling net ${last.lastNet}`);
+    assert.equal(last.closed, 12);
+    assert.ok(last.lastPf >= 1, `batch pf ${last.lastPf}`);
+    assert.ok(last.lastNet > 0, `last batch net ${last.lastNet}`);
+    assert.ok(e.blockWindows[1].lastPf > 0);
   });
 
   it("live-tape disable uses realized symbol PF not paper last-N", () => {

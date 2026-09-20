@@ -321,6 +321,8 @@ export interface BlockPosWindow {
   lossWindows: number;
   adjusted: number;
   losers: string[];
+  /** Completed N-batch nets for independent PF (N=1 ≠ N=6). */
+  batchNets?: number[];
 }
 
 export interface Lane {

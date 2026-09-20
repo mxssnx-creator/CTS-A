@@ -797,12 +797,19 @@ function sizeNotional(equity) {
   return Math.max(eq * 0.002, 1);
 }
 function liveNotional(e, f, equity, rel) {
-  // 0 → liftQtyToMin = exact exchange min qty / min USDT. Block extras are separate orders, each lifted to min on top of the base lot.
+  const note = String(f?.note || rel?.note || rel?.playbook || "");
+  const blockHit = /Block/i.test(note) || rel?.playbook === "block";
+  const unit = sizeNotional(equity);
+  if (!blockHit) return 0;
+  const n = Math.max(1, Number(rel?.blockLevel) || 1);
+  const overall = /Overall Block/i.test(note);
+  const shared = /shared/i.test(note);
+  let vr = 1;
+  if (shared) vr = Math.min(1.5, Math.max(0.4, Number(BLOCK.sharedVolumeRatio) || 1.5));
+  else if (overall) vr = Math.min(1, Math.max(0.4, Number(BLOCK.overallVolumeRatio) || 1));
+  else vr = Math.min(1, Math.max(0.4, Number(BLOCK.volumeRatio) || 0.4)) * n;
   void e;
-  void f;
-  void equity;
-  void rel;
-  return 0;
+  return unit * vr;
 }
 
 function mergeLivePositions(e, book) {
@@ -1600,8 +1607,8 @@ async function mirrorToExchange(e, network, cfg) {
         tactic: order?.tactic ?? e.lastTactic,
         playbook,
         kind,
-        note: order?.note,
-        blockLevel: pos?.blockLevel,
+        note: order?.note ?? f.note,
+        blockLevel: order?.level ?? pos?.blockLevel,
         indication,
         rangeType,
       };
@@ -1615,11 +1622,13 @@ async function mirrorToExchange(e, network, cfg) {
       mirrored.add(f.id);
       continue;
     }
-    if (exchangeOccupied.has(`${f.symbol}:${f.side}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side)) {
+    const isBlockAdd = /Block/i.test(String(f.note || f._rel?.note || f.playbook || ""));
+    if (!isBlockAdd && (exchangeOccupied.has(`${f.symbol}:${f.side}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side))) {
       mirrored.add(f.id);
       continue;
     }
-    if (openN + fillJobs.length >= liveMaxPos()) break;
+    if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side)) continue;
+    if (!isBlockAdd && openN + fillJobs.length >= liveMaxPos()) break;
     if (apiQuiet()) break;
     fillJobs.push(f);
   }
