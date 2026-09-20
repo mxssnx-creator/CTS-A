@@ -1211,12 +1211,13 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const tpDrift =
       hasTp.has(key) &&
       ((tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.08) || tpTight);
-    if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift });
+    if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift, missing: !hasSl.has(key) || !hasTp.has(key) });
   }
+  need.sort((a, b) => Number(b.missing) - Number(a.missing));
   for (let i = 0; i < Math.min(need.length, 4) && posts < 8; i += 1) {
     if (apiQuiet()) break;
     const row = need[i];
-    const r = await protectOne(row.p, row.slDrift, row.tpDrift);
+    const r = await protectOne(row.p, row.missing ? false : row.slDrift, row.missing ? false : row.tpDrift);
     posts += r.posts;
     notes.push(...r.notes);
     await sleep(120);
