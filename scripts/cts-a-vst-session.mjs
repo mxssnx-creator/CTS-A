@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -173,7 +173,7 @@ const BLOCK = {
   volumeRatio: 0.1,
   overallVolumeRatio: 1,
   sharedVolumeRatio: 1,
-  maxVolumeMultiplier: 1.8,
+  maxVolumeMultiplier: 2.5,
   pfRatio: 1.45,
   pauseCountRatio: 0,
   evalPosCount: 6,
@@ -341,6 +341,17 @@ function applyTape(e, tickers) {
   const top = ranked[0];
   const v = top ? vol1hOf(e.quotes[top.id]) : 0;
   if (top && v > 0) e.lastMsg = `Live BingX tape · vol1h ${top.id} ${(v * 100).toFixed(2)}% first`;
+  const rows = (e.closed || []).slice(0, 80).map((c) => ({
+    volume: Math.max(1e-9, Math.abs(Number(c.qty) * Number(c.entry)) || Number(e.quotes[c.symbol]?.vol1h) || 1),
+    pnl: Number(c.pnl) || 0,
+  }));
+  if (rows.length >= 2) {
+    const vc = volumeCoord(rows);
+    e.relVolumeFactor = vc.vf;
+    if (vc.confirm === "diverge" && e.tick % 40 === 0) {
+      e.lastMsg = `vol coord diverge vf ${vc.vf.toFixed(2)} · low-vol WR ${(vc.lowVolWr * 100).toFixed(0)}%`;
+    }
+  }
   return tickers.filter((t) => t.last > 0 && e.quotes[t.id]).map((t) => t.id);
 }
 
@@ -817,22 +828,28 @@ function markDeadSymbol(symbol, err) {
 const trimHits = new Map();
 function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
-  return Math.max(eq * 0.002, 1);
+  return eq * POSITION_COST_PCT * 0.3;
+}
+function liveVolMul(e) {
+  const vf = Number(e?.relVolumeFactor);
+  if (Number.isFinite(vf) && vf > 0) {
+    if (vf < 0.95) return Math.max(0.35, Math.min(0.7, vf));
+    return Math.max(0.45, Math.min(0.8, 0.85 / vf));
+  }
+  return 0.45;
 }
 function liveNotional(e, f, equity, rel) {
   const note = String(f?.note || rel?.note || rel?.playbook || "");
   const blockHit = /Block/i.test(note) || rel?.playbook === "block";
-  const unit = sizeNotional(equity);
   if (!blockHit) return 0;
   const n = Math.max(1, Number(rel?.blockLevel) || 1);
   const overall = /Overall Block/i.test(note);
   const shared = /shared/i.test(note);
-  let vr = 1;
-  if (shared) vr = Math.min(1.5, Math.max(0.4, Number(BLOCK.sharedVolumeRatio) || 1));
+  let vr = 0.1;
+  if (shared) vr = Math.min(1, Math.max(0.4, Number(BLOCK.sharedVolumeRatio) || 1));
   else if (overall) vr = Math.min(1, Math.max(0.4, Number(BLOCK.overallVolumeRatio) || 1));
   else vr = Math.min(1, Math.max(0.1, Number(BLOCK.volumeRatio) || 0.1)) * n;
-  void e;
-  return unit * vr;
+  return sizeNotional(equity) * vr * liveVolMul(e);
 }
 
 function mergeLivePositions(e, book) {
@@ -1813,7 +1830,7 @@ async function main() {
   const ends = started + HOURS * 3600 * 1000;
   let pick = pickFromSweep();
   currentPick = pick;
-  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK });
+  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK, costStep: 3 });
   const seededOff = loadDisabled(engine);
   engine.running = true;
   engine.phase = "running";

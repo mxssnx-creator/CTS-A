@@ -33,6 +33,7 @@ describe("live feed", () => {
     assert.equal(MIN_SIZE_RATIO, 1);
     assert.equal(liveEntryBudget(0.0016).trade, true);
     assert.equal(liveEntryBudget(0.0016).block, true);
+    assert.equal(liveEntryBudget(0.0007).trade, true);
     assert.equal(liveEntryBudget(0).trade, false);
     assert.equal(liveEntryBudget(6).block, true);
     assert.ok((liveEntryBudget(0.2).maxPos || 0) >= 8);
