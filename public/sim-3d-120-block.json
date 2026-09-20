@@ -1,0 +1,1274 @@
+{
+  "hours": 72,
+  "symbols": 120,
+  "ms": 9346,
+  "thresholds": {
+    "minPf": 1.35,
+    "basePf": 1,
+    "axisPf": 1.15,
+    "blockPf": 1.2,
+    "shortPf": 0.95,
+    "shortBasePf": 0.7,
+    "maxMdd": 0.12,
+    "minWr": 0.55,
+    "minVf": 1.12,
+    "maxDdt": 18
+  },
+  "cfg": {
+    "tpAtr": 0.35,
+    "slOfTp": 1.5,
+    "trailingPct": 1.5,
+    "overallVolumeRatio": 1,
+    "volumeRatio": 0.4
+  },
+  "rows": [
+    {
+      "label": "trailing/atr BLOCK ON",
+      "tactic": "trailing",
+      "range": "atr",
+      "block": true,
+      "ms": 2507,
+      "pf": 1.361,
+      "wr": 55,
+      "n": 1148,
+      "net": 616.644,
+      "mdd": 0.0603,
+      "ddt": 3669,
+      "sl": 858,
+      "tp": 289,
+      "avgOpenPos": 6.79,
+      "avgOrders": 204.22,
+      "avgPartialOrders": 14.89,
+      "peakPos": 39,
+      "peakOrd": 397,
+      "totalPartialOrders": 3455,
+      "blockOrders": 6479,
+      "blockVol": 141118249.831,
+      "blockN": 600,
+      "blockPf": 2.752,
+      "relVol": 3.2,
+      "lastN12": {
+        "n": 12,
+        "pf": 0.055,
+        "net": -5.842
+      },
+      "lastN40": {
+        "n": 40,
+        "pf": 0.934
+      },
+      "h4": {
+        "n": 2,
+        "pf": 0.011
+      },
+      "h12": {
+        "n": 28,
+        "pf": 4.384
+      },
+      "h45": {
+        "n": 99,
+        "pf": 0.602
+      },
+      "byInd": [
+        {
+          "k": "active",
+          "n": 512,
+          "pf": 2.822,
+          "wr": 0.527,
+          "net": 351.655
+        },
+        {
+          "k": "direction",
+          "n": 65,
+          "pf": 0.386,
+          "wr": 0.462,
+          "net": -2.227
+        },
+        {
+          "k": "break",
+          "n": 19,
+          "pf": 0.14,
+          "wr": 0.368,
+          "net": -1.469
+        },
+        {
+          "k": "trend",
+          "n": 4,
+          "pf": 0,
+          "wr": 0,
+          "net": -0.122
+        }
+      ],
+      "byPlay": [
+        {
+          "k": "block",
+          "n": 600,
+          "pf": 2.752,
+          "wr": 0.512,
+          "net": 347.838
+        }
+      ],
+      "byKind": [
+        {
+          "k": "block",
+          "n": 600,
+          "pf": 2.752,
+          "wr": 0.512,
+          "net": 347.838
+        }
+      ],
+      "byTac": [
+        {
+          "k": "trailing",
+          "n": 576,
+          "pf": 2.881,
+          "wr": 0.509,
+          "net": 150.493
+        },
+        {
+          "k": "hybrid",
+          "n": 24,
+          "pf": 2.666,
+          "wr": 0.583,
+          "net": 197.344
+        }
+      ],
+      "bestSym": [
+        {
+          "k": "AAVEUSDT",
+          "n": 23,
+          "pf": 333.302,
+          "net": 162.745
+        },
+        {
+          "k": "MOVEUSDT",
+          "n": 14,
+          "pf": 149.627,
+          "net": 214.986
+        },
+        {
+          "k": "OMUSDT",
+          "n": 24,
+          "pf": 64.183,
+          "net": 50.5
+        },
+        {
+          "k": "MAGICUSDT",
+          "n": 11,
+          "pf": 56.347,
+          "net": 320.235
+        },
+        {
+          "k": "GMXUSDT",
+          "n": 12,
+          "pf": 52.442,
+          "net": 32.268
+        },
+        {
+          "k": "POPCATUSDT",
+          "n": 8,
+          "pf": 45.14,
+          "net": 43.598
+        },
+        {
+          "k": "TIAUSDT",
+          "n": 9,
+          "pf": 32.784,
+          "net": 37.925
+        },
+        {
+          "k": "APTUSDT",
+          "n": 9,
+          "pf": 28.443,
+          "net": 26.036
+        }
+      ],
+      "worstSym": [
+        {
+          "k": "ZKUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -43.992
+        },
+        {
+          "k": "LINKUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.981
+        },
+        {
+          "k": "BLURUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.742
+        },
+        {
+          "k": "GRTUSDT",
+          "n": 5,
+          "pf": 0,
+          "net": -0.655
+        },
+        {
+          "k": "THETAUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.525
+        },
+        {
+          "k": "MANTAUSDT",
+          "n": 4,
+          "pf": 0.001,
+          "net": -209.883
+        },
+        {
+          "k": "STRKUSDT",
+          "n": 5,
+          "pf": 0.001,
+          "net": -55.431
+        },
+        {
+          "k": "ALGOUSDT",
+          "n": 4,
+          "pf": 0.002,
+          "net": -11.828
+        }
+      ]
+    },
+    {
+      "label": "trailing/atr BLOCK OFF",
+      "tactic": "trailing",
+      "range": "atr",
+      "block": false,
+      "ms": 1331,
+      "pf": 0.65,
+      "wr": 59.5,
+      "n": 984,
+      "net": -3.341,
+      "mdd": 0.0018,
+      "ddt": 4233,
+      "sl": 739,
+      "tp": 238,
+      "avgOpenPos": 6.21,
+      "avgOrders": 176.91,
+      "avgPartialOrders": 1.58,
+      "peakPos": 44,
+      "peakOrd": 400,
+      "totalPartialOrders": 1122,
+      "blockOrders": 0,
+      "blockVol": 0,
+      "blockN": 0,
+      "blockPf": 0,
+      "relVol": 0,
+      "lastN12": {
+        "n": 12,
+        "pf": 0.705,
+        "net": -0.211
+      },
+      "lastN40": {
+        "n": 40,
+        "pf": 0.696
+      },
+      "h4": {
+        "n": 3,
+        "pf": 0.266
+      },
+      "h12": {
+        "n": 7,
+        "pf": 0.671
+      },
+      "h45": {
+        "n": 71,
+        "pf": 0.73
+      },
+      "byInd": [
+        {
+          "k": "direction",
+          "n": 48,
+          "pf": 0.484,
+          "wr": 0.5,
+          "net": -0.82
+        },
+        {
+          "k": "active",
+          "n": 541,
+          "pf": 0.478,
+          "wr": 0.543,
+          "net": -14.804
+        },
+        {
+          "k": "break",
+          "n": 8,
+          "pf": 0.084,
+          "wr": 0.375,
+          "net": -0.444
+        },
+        {
+          "k": "trend",
+          "n": 3,
+          "pf": 0,
+          "wr": 0,
+          "net": -0.036
+        }
+      ],
+      "byPlay": [],
+      "byKind": [],
+      "byTac": [
+        {
+          "k": "hybrid",
+          "n": 33,
+          "pf": 0.607,
+          "wr": 0.636,
+          "net": -2.109
+        },
+        {
+          "k": "trailing",
+          "n": 567,
+          "pf": 0.442,
+          "wr": 0.529,
+          "net": -13.995
+        }
+      ],
+      "bestSym": [
+        {
+          "k": "MANAUSDT",
+          "n": 18,
+          "pf": 2.679,
+          "net": 0.39
+        },
+        {
+          "k": "AAVEUSDT",
+          "n": 11,
+          "pf": 2.291,
+          "net": 0.132
+        },
+        {
+          "k": "IOTAUSDT",
+          "n": 16,
+          "pf": 2.063,
+          "net": 0.264
+        },
+        {
+          "k": "PYTHUSDT",
+          "n": 10,
+          "pf": 2.059,
+          "net": 0.184
+        },
+        {
+          "k": "DOGEUSDT",
+          "n": 15,
+          "pf": 1.848,
+          "net": 0.152
+        },
+        {
+          "k": "ENAUSDT",
+          "n": 17,
+          "pf": 1.771,
+          "net": 0.261
+        },
+        {
+          "k": "HBARUSDT",
+          "n": 11,
+          "pf": 1.649,
+          "net": 0.122
+        },
+        {
+          "k": "ICPUSDT",
+          "n": 9,
+          "pf": 1.616,
+          "net": 0.155
+        }
+      ],
+      "worstSym": [
+        {
+          "k": "BOMEUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -1.248
+        },
+        {
+          "k": "BLURUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.781
+        },
+        {
+          "k": "THETAUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.615
+        },
+        {
+          "k": "XLMUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.186
+        },
+        {
+          "k": "BTCUSDT",
+          "n": 5,
+          "pf": 0.007,
+          "net": -0.081
+        },
+        {
+          "k": "ARBUSDT",
+          "n": 4,
+          "pf": 0.036,
+          "net": -0.624
+        },
+        {
+          "k": "SSVUSDT",
+          "n": 5,
+          "pf": 0.042,
+          "net": -0.744
+        },
+        {
+          "k": "BCHUSDT",
+          "n": 5,
+          "pf": 0.063,
+          "net": -0.2
+        }
+      ]
+    },
+    {
+      "label": "hybrid/atr BLOCK ON",
+      "tactic": "hybrid",
+      "range": "atr",
+      "block": true,
+      "ms": 2056,
+      "pf": 1.4,
+      "wr": 38.1,
+      "n": 987,
+      "net": 621.326,
+      "mdd": 0.0561,
+      "ddt": 1974,
+      "sl": 864,
+      "tp": 122,
+      "avgOpenPos": 5.35,
+      "avgOrders": 196.42,
+      "avgPartialOrders": 5.34,
+      "peakPos": 39,
+      "peakOrd": 397,
+      "totalPartialOrders": 2883,
+      "blockOrders": 5246,
+      "blockVol": 802404965.047,
+      "blockN": 600,
+      "blockPf": 1.748,
+      "relVol": 3.2,
+      "lastN12": {
+        "n": 12,
+        "pf": 0.277,
+        "net": -10.119
+      },
+      "lastN40": {
+        "n": 40,
+        "pf": 13.858
+      },
+      "h4": {
+        "n": 4,
+        "pf": 0.1
+      },
+      "h12": {
+        "n": 12,
+        "pf": 0.277
+      },
+      "h45": {
+        "n": 81,
+        "pf": 3.818
+      },
+      "byInd": [
+        {
+          "k": "active",
+          "n": 530,
+          "pf": 1.771,
+          "wr": 0.313,
+          "net": 281.173
+        },
+        {
+          "k": "break",
+          "n": 17,
+          "pf": 0.184,
+          "wr": 0.235,
+          "net": -0.999
+        },
+        {
+          "k": "direction",
+          "n": 51,
+          "pf": 0.108,
+          "wr": 0.255,
+          "net": -3.441
+        },
+        {
+          "k": "trend",
+          "n": 2,
+          "pf": 0,
+          "wr": 0,
+          "net": -0.026
+        }
+      ],
+      "byPlay": [
+        {
+          "k": "block",
+          "n": 600,
+          "pf": 1.748,
+          "wr": 0.305,
+          "net": 276.706
+        }
+      ],
+      "byKind": [
+        {
+          "k": "block",
+          "n": 600,
+          "pf": 1.748,
+          "wr": 0.305,
+          "net": 276.706
+        }
+      ],
+      "byTac": [
+        {
+          "k": "hybrid",
+          "n": 600,
+          "pf": 1.748,
+          "wr": 0.305,
+          "net": 276.706
+        }
+      ],
+      "bestSym": [
+        {
+          "k": "MAGICUSDT",
+          "n": 8,
+          "pf": 473.633,
+          "net": 313.419
+        },
+        {
+          "k": "PNUTUSDT",
+          "n": 9,
+          "pf": 353.917,
+          "net": 74.165
+        },
+        {
+          "k": "OMUSDT",
+          "n": 21,
+          "pf": 100.021,
+          "net": 144.617
+        },
+        {
+          "k": "VIRTUALUSDT",
+          "n": 16,
+          "pf": 95.216,
+          "net": 118.706
+        },
+        {
+          "k": "GMXUSDT",
+          "n": 12,
+          "pf": 73.532,
+          "net": 44.692
+        },
+        {
+          "k": "APTUSDT",
+          "n": 9,
+          "pf": 63.988,
+          "net": 57.499
+        },
+        {
+          "k": "MOVEUSDT",
+          "n": 13,
+          "pf": 59.718,
+          "net": 49.712
+        },
+        {
+          "k": "POPCATUSDT",
+          "n": 7,
+          "pf": 58.984,
+          "net": 42.803
+        }
+      ],
+      "worstSym": [
+        {
+          "k": "BONKUSDT",
+          "n": 5,
+          "pf": 0,
+          "net": -181.761
+        },
+        {
+          "k": "ZKUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -43.992
+        },
+        {
+          "k": "SHIBUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -11.68
+        },
+        {
+          "k": "BLURUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.688
+        },
+        {
+          "k": "MEWUSDT",
+          "n": 5,
+          "pf": 0,
+          "net": -54.182
+        },
+        {
+          "k": "MANTAUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -209.944
+        },
+        {
+          "k": "STRKUSDT",
+          "n": 5,
+          "pf": 0.001,
+          "net": -59.693
+        },
+        {
+          "k": "FLOWUSDT",
+          "n": 4,
+          "pf": 0.004,
+          "net": -20.965
+        }
+      ]
+    },
+    {
+      "label": "hybrid/atr BLOCK OFF",
+      "tactic": "hybrid",
+      "range": "atr",
+      "block": false,
+      "ms": 1064,
+      "pf": 0.537,
+      "wr": 47,
+      "n": 802,
+      "net": -8.4,
+      "mdd": 0.0022,
+      "ddt": 4233,
+      "sl": 710,
+      "tp": 84,
+      "avgOpenPos": 5.2,
+      "avgOrders": 161.95,
+      "avgPartialOrders": 1.51,
+      "peakPos": 42,
+      "peakOrd": 400,
+      "totalPartialOrders": 850,
+      "blockOrders": 0,
+      "blockVol": 0,
+      "blockN": 0,
+      "blockPf": 0,
+      "relVol": 0,
+      "lastN12": {
+        "n": 12,
+        "pf": 0.691,
+        "net": -0.235
+      },
+      "lastN40": {
+        "n": 40,
+        "pf": 0.589
+      },
+      "h4": {
+        "n": 3,
+        "pf": 0.268
+      },
+      "h12": {
+        "n": 6,
+        "pf": 0.979
+      },
+      "h45": {
+        "n": 45,
+        "pf": 0.587
+      },
+      "byInd": [
+        {
+          "k": "active",
+          "n": 548,
+          "pf": 0.409,
+          "wr": 0.4,
+          "net": -18.395
+        },
+        {
+          "k": "trend",
+          "n": 5,
+          "pf": 0.259,
+          "wr": 0.4,
+          "net": -0.047
+        },
+        {
+          "k": "break",
+          "n": 10,
+          "pf": 0.116,
+          "wr": 0.4,
+          "net": -0.382
+        },
+        {
+          "k": "direction",
+          "n": 37,
+          "pf": 0.105,
+          "wr": 0.216,
+          "net": -1.178
+        }
+      ],
+      "byPlay": [],
+      "byKind": [],
+      "byTac": [
+        {
+          "k": "hybrid",
+          "n": 600,
+          "pf": 0.393,
+          "wr": 0.388,
+          "net": -20.002
+        }
+      ],
+      "bestSym": [
+        {
+          "k": "MANAUSDT",
+          "n": 10,
+          "pf": 4.248,
+          "net": 0.294
+        },
+        {
+          "k": "ICPUSDT",
+          "n": 9,
+          "pf": 2.747,
+          "net": 0.277
+        },
+        {
+          "k": "PENDLEUSDT",
+          "n": 9,
+          "pf": 2.486,
+          "net": 0.138
+        },
+        {
+          "k": "IOTAUSDT",
+          "n": 12,
+          "pf": 2.252,
+          "net": 0.164
+        },
+        {
+          "k": "ORDIUSDT",
+          "n": 9,
+          "pf": 1.973,
+          "net": 0.136
+        },
+        {
+          "k": "ENAUSDT",
+          "n": 10,
+          "pf": 1.703,
+          "net": 0.125
+        },
+        {
+          "k": "AAVEUSDT",
+          "n": 17,
+          "pf": 1.682,
+          "net": 0.09
+        },
+        {
+          "k": "KAVAUSDT",
+          "n": 8,
+          "pf": 1.62,
+          "net": 0.082
+        }
+      ],
+      "worstSym": [
+        {
+          "k": "BLURUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.724
+        },
+        {
+          "k": "ARBUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.658
+        },
+        {
+          "k": "THETAUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.619
+        },
+        {
+          "k": "NEARUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.442
+        },
+        {
+          "k": "GRTUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.328
+        },
+        {
+          "k": "XLMUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.158
+        },
+        {
+          "k": "BTCUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.057
+        },
+        {
+          "k": "BOMEUSDT",
+          "n": 4,
+          "pf": 0.015,
+          "net": -1.075
+        }
+      ]
+    },
+    {
+      "label": "axis/atr BLOCK ON",
+      "tactic": "axis",
+      "range": "atr",
+      "block": true,
+      "ms": 1352,
+      "pf": 1.338,
+      "wr": 42,
+      "n": 552,
+      "net": 321.705,
+      "mdd": 0.0528,
+      "ddt": 2933,
+      "sl": 363,
+      "tp": 186,
+      "avgOpenPos": 0.87,
+      "avgOrders": 71.41,
+      "avgPartialOrders": 2.33,
+      "peakPos": 44,
+      "peakOrd": 381,
+      "totalPartialOrders": 1852,
+      "blockOrders": 4247,
+      "blockVol": 1200923847.664,
+      "blockN": 552,
+      "blockPf": 1.338,
+      "relVol": 3.2,
+      "lastN12": {
+        "n": 12,
+        "pf": 0.087,
+        "net": -3.745
+      },
+      "lastN40": {
+        "n": 40,
+        "pf": 5.228
+      },
+      "h4": {
+        "n": 4,
+        "pf": 0.03
+      },
+      "h12": {
+        "n": 18,
+        "pf": 23.683
+      },
+      "h45": {
+        "n": 45,
+        "pf": 4.906
+      },
+      "byInd": [
+        {
+          "k": "active",
+          "n": 461,
+          "pf": 1.347,
+          "wr": 0.447,
+          "net": 328.057
+        },
+        {
+          "k": "direction",
+          "n": 17,
+          "pf": 0.32,
+          "wr": 0.471,
+          "net": -0.458
+        },
+        {
+          "k": "break",
+          "n": 71,
+          "pf": 0.146,
+          "wr": 0.254,
+          "net": -5.834
+        },
+        {
+          "k": "trend",
+          "n": 3,
+          "pf": 0,
+          "wr": 0,
+          "net": -0.06
+        }
+      ],
+      "byPlay": [
+        {
+          "k": "block",
+          "n": 552,
+          "pf": 1.338,
+          "wr": 0.42,
+          "net": 321.705
+        }
+      ],
+      "byKind": [
+        {
+          "k": "block",
+          "n": 552,
+          "pf": 1.338,
+          "wr": 0.42,
+          "net": 321.705
+        }
+      ],
+      "byTac": [
+        {
+          "k": "hybrid",
+          "n": 71,
+          "pf": 1.359,
+          "wr": 0.662,
+          "net": 319.874
+        },
+        {
+          "k": "axis",
+          "n": 481,
+          "pf": 1.03,
+          "wr": 0.385,
+          "net": 1.831
+        }
+      ],
+      "bestSym": [
+        {
+          "k": "PNUTUSDT",
+          "n": 8,
+          "pf": 247.504,
+          "net": 125.35
+        },
+        {
+          "k": "MOVEUSDT",
+          "n": 8,
+          "pf": 199.852,
+          "net": 199.286
+        },
+        {
+          "k": "VIRTUALUSDT",
+          "n": 8,
+          "pf": 172.657,
+          "net": 101.401
+        },
+        {
+          "k": "BIGTIMEUSDT",
+          "n": 8,
+          "pf": 98.535,
+          "net": 30.333
+        },
+        {
+          "k": "MAGICUSDT",
+          "n": 2,
+          "pf": 93.868,
+          "net": 318.963
+        },
+        {
+          "k": "MEMEUSDT",
+          "n": 8,
+          "pf": 61.609,
+          "net": 22.994
+        },
+        {
+          "k": "TRBUSDT",
+          "n": 8,
+          "pf": 48.493,
+          "net": 17.122
+        },
+        {
+          "k": "PYTHUSDT",
+          "n": 8,
+          "pf": 35.442,
+          "net": 11.93
+        }
+      ],
+      "worstSym": [
+        {
+          "k": "OMUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -21.949
+        },
+        {
+          "k": "CFXUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -1.067
+        },
+        {
+          "k": "VETUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.72
+        },
+        {
+          "k": "IOTAUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.595
+        },
+        {
+          "k": "OPUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.578
+        },
+        {
+          "k": "ILVUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.493
+        },
+        {
+          "k": "STRKUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.489
+        },
+        {
+          "k": "JTOUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.476
+        }
+      ]
+    },
+    {
+      "label": "axis/atr BLOCK OFF",
+      "tactic": "axis",
+      "range": "atr",
+      "block": false,
+      "ms": 1032,
+      "pf": 0.562,
+      "wr": 46,
+      "n": 537,
+      "net": -15.834,
+      "mdd": 0.0022,
+      "ddt": 4269,
+      "sl": 324,
+      "tp": 197,
+      "avgOpenPos": 1.36,
+      "avgOrders": 80.46,
+      "avgPartialOrders": 0.3,
+      "peakPos": 42,
+      "peakOrd": 394,
+      "totalPartialOrders": 772,
+      "blockOrders": 0,
+      "blockVol": 0,
+      "blockN": 0,
+      "blockPf": 0,
+      "relVol": 0,
+      "lastN12": {
+        "n": 12,
+        "pf": 0.549,
+        "net": -0.428
+      },
+      "lastN40": {
+        "n": 40,
+        "pf": 0.409
+      },
+      "h4": {
+        "n": 4,
+        "pf": 0.194
+      },
+      "h12": {
+        "n": 15,
+        "pf": 0.369
+      },
+      "h45": {
+        "n": 36,
+        "pf": 0.44
+      },
+      "byInd": [
+        {
+          "k": "active",
+          "n": 476,
+          "pf": 0.594,
+          "wr": 0.473,
+          "net": -15.892
+        },
+        {
+          "k": "trend",
+          "n": 4,
+          "pf": 0.355,
+          "wr": 0.5,
+          "net": -0.136
+        },
+        {
+          "k": "direction",
+          "n": 15,
+          "pf": 0.341,
+          "wr": 0.533,
+          "net": -0.557
+        },
+        {
+          "k": "break",
+          "n": 42,
+          "pf": 0.186,
+          "wr": 0.286,
+          "net": -2.19
+        }
+      ],
+      "byPlay": [],
+      "byKind": [],
+      "byTac": [
+        {
+          "k": "hybrid",
+          "n": 70,
+          "pf": 0.822,
+          "wr": 0.714,
+          "net": -1.593
+        },
+        {
+          "k": "axis",
+          "n": 467,
+          "pf": 0.494,
+          "wr": 0.422,
+          "net": -17.182
+        }
+      ],
+      "bestSym": [
+        {
+          "k": "TRBUSDT",
+          "n": 8,
+          "pf": 3.28,
+          "net": 0.355
+        },
+        {
+          "k": "MEMEUSDT",
+          "n": 8,
+          "pf": 3.138,
+          "net": 0.395
+        },
+        {
+          "k": "ENAUSDT",
+          "n": 9,
+          "pf": 3.128,
+          "net": 0.572
+        },
+        {
+          "k": "MANAUSDT",
+          "n": 9,
+          "pf": 2.543,
+          "net": 0.41
+        },
+        {
+          "k": "JUPUSDT",
+          "n": 9,
+          "pf": 1.942,
+          "net": 0.212
+        },
+        {
+          "k": "ACTUSDT",
+          "n": 8,
+          "pf": 1.836,
+          "net": 0.331
+        },
+        {
+          "k": "NEIROUSDT",
+          "n": 8,
+          "pf": 1.828,
+          "net": 0.31
+        },
+        {
+          "k": "FETUSDT",
+          "n": 8,
+          "pf": 1.519,
+          "net": 0.169
+        }
+      ],
+      "worstSym": [
+        {
+          "k": "POLUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.755
+        },
+        {
+          "k": "AVAXUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.661
+        },
+        {
+          "k": "VETUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.648
+        },
+        {
+          "k": "CFXUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.63
+        },
+        {
+          "k": "NEARUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.623
+        },
+        {
+          "k": "ONDOUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.602
+        },
+        {
+          "k": "STRKUSDT",
+          "n": 3,
+          "pf": 0,
+          "net": -0.487
+        },
+        {
+          "k": "TIAUSDT",
+          "n": 4,
+          "pf": 0,
+          "net": -0.48
+        }
+      ]
+    }
+  ],
+  "pairs": [
+    {
+      "tactic": "trailing",
+      "pfOn": 1.361,
+      "pfOff": 0.65,
+      "dPf": 0.711,
+      "nOn": 1148,
+      "nOff": 984,
+      "netOn": 616.644,
+      "netOff": -3.341,
+      "dNet": 619.985,
+      "posOn": 6.79,
+      "posOff": 6.21,
+      "blkOn": 6479
+    },
+    {
+      "tactic": "hybrid",
+      "pfOn": 1.4,
+      "pfOff": 0.537,
+      "dPf": 0.863,
+      "nOn": 987,
+      "nOff": 802,
+      "netOn": 621.326,
+      "netOff": -8.4,
+      "dNet": 629.726,
+      "posOn": 5.35,
+      "posOff": 5.2,
+      "blkOn": 5246
+    },
+    {
+      "tactic": "axis",
+      "pfOn": 1.338,
+      "pfOff": 0.562,
+      "dPf": 0.776,
+      "nOn": 552,
+      "nOff": 537,
+      "netOn": 321.705,
+      "netOff": -15.834,
+      "dNet": 337.539,
+      "posOn": 0.87,
+      "posOff": 1.36,
+      "blkOn": 4247
+    }
+  ]
+}

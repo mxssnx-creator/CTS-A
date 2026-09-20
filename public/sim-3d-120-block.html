@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/><title>72h × 120 · Block ON vs OFF</title>
+<style>
+:root { color-scheme: light; --ink:#161616; --muted:#525252; --line:#e0e0e0; --ok:#0e6027; --bad:#a2191f; --accent:#0f62fe; }
+body { margin:0; font: 14px/1.45 "IBM Plex Sans", system-ui, sans-serif; color:var(--ink); background:#f4f4f4; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 64px; }
+h1 { font-weight: 500; font-size: 22px; margin: 0 0 6px; }
+.sub { color: var(--muted); margin-bottom: 22px; }
+table { width: 100%; border-collapse: collapse; background: #fff; margin: 0 0 28px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 500; }
+.ok { color: var(--ok); } .fail { color: var(--bad); }
+.bar { height: 10px; background: #d0e2ff; position: relative; min-width: 80px; }
+.bar > i { display:block; height:100%; background: var(--accent); }
+.grid { display:grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+section h2 { font-size: 16px; font-weight: 500; margin: 0 0 10px; }
+.card { background:#fff; padding: 14px 16px; border: 1px solid var(--line); }
+code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; }
+</style></head><body><main>
+<h1>72h × 120 symbols · actual settings</h1>
+<p class="sub">short 0.35 / 1.5 · trail 1.5 · Axis full · overall Block vol 1.0 · relation 0.4 · PF 1.35 / 1.0 / 1.15 / 1.2 · short 0.95 / 0.7 · 9346 ms</p>
+<h2>Block ON vs OFF</h2>
+<table><thead><tr><th>Tactic</th><th>PF on</th><th>PF off</th><th>Δ PF</th><th>n on</th><th>n off</th><th>net on</th><th>net off</th><th>Δ net</th><th>avg pos on</th><th>avg pos off</th><th>block orders</th></tr></thead><tbody>
+<tr><td>trailing</td><td class="ok">1.361</td><td class="fail">0.65</td><td>+0.711</td><td>1148</td><td>984</td><td>616.644</td><td>-3.341</td><td>+619.985</td><td>6.79</td><td>6.21</td><td>6479</td></tr><tr><td>hybrid</td><td class="ok">1.4</td><td class="fail">0.537</td><td>+0.863</td><td>987</td><td>802</td><td>621.326</td><td>-8.4</td><td>+629.726</td><td>5.35</td><td>5.2</td><td>5246</td></tr><tr><td>axis</td><td class="ok">1.338</td><td class="fail">0.562</td><td>+0.776</td><td>552</td><td>537</td><td>321.705</td><td>-15.834</td><td>+337.539</td><td>0.87</td><td>1.36</td><td>4247</td></tr>
+</tbody></table>
+<h2>Runs</h2>
+<table><thead><tr><th></th><th>PF</th><th>WR</th><th>n</th><th>net</th><th>MDD</th><th>DDT</th><th>avg pos</th><th>avg ord</th><th>peak pos</th><th>partials</th><th>block ords</th><th>last-12 PF</th><th>4h PF</th></tr></thead><tbody>
+<tr><td>trailing/atr BLOCK ON</td><td class="ok">1.361<div class="bar"><i style="width:97.21428571428572%"></i></div></td><td>55%</td><td>1148</td><td>616.644</td><td>0.0603</td><td>3669</td><td>6.79</td><td>204.22</td><td>39</td><td>3455</td><td>6479</td><td>0.055</td><td>0.011</td></tr><tr><td>trailing/atr BLOCK OFF</td><td class="fail">0.65<div class="bar"><i style="width:46.42857142857144%"></i></div></td><td>59.5%</td><td>984</td><td>-3.341</td><td>0.0018</td><td>4233</td><td>6.21</td><td>176.91</td><td>44</td><td>1122</td><td>0</td><td>0.705</td><td>0.266</td></tr><tr><td>hybrid/atr BLOCK ON</td><td class="ok">1.4<div class="bar"><i style="width:100%"></i></div></td><td>38.1%</td><td>987</td><td>621.326</td><td>0.0561</td><td>1974</td><td>5.35</td><td>196.42</td><td>39</td><td>2883</td><td>5246</td><td>0.277</td><td>0.1</td></tr><tr><td>hybrid/atr BLOCK OFF</td><td class="fail">0.537<div class="bar"><i style="width:38.35714285714286%"></i></div></td><td>47%</td><td>802</td><td>-8.4</td><td>0.0022</td><td>4233</td><td>5.2</td><td>161.95</td><td>42</td><td>850</td><td>0</td><td>0.691</td><td>0.268</td></tr><tr><td>axis/atr BLOCK ON</td><td class="ok">1.338<div class="bar"><i style="width:95.57142857142858%"></i></div></td><td>42%</td><td>552</td><td>321.705</td><td>0.0528</td><td>2933</td><td>0.87</td><td>71.41</td><td>44</td><td>1852</td><td>4247</td><td>0.087</td><td>0.03</td></tr><tr><td>axis/atr BLOCK OFF</td><td class="fail">0.562<div class="bar"><i style="width:40.142857142857146%"></i></div></td><td>46%</td><td>537</td><td>-15.834</td><td>0.0022</td><td>4269</td><td>1.36</td><td>80.46</td><td>42</td><td>772</td><td>0</td><td>0.549</td><td>0.194</td></tr>
+</tbody></table>
+<div class="grid">
+<section class="card"><h2>trailing/atr BLOCK ON</h2>
+<p>indications <code>active 2.822</code> <code>direction 0.386</code> <code>break 0.14</code> <code>trend 0</code></p>
+<p>playbooks <code>block 2.752</code></p>
+<p>best <code>AAVEUSDT 333.302</code> <code>MOVEUSDT 149.627</code> <code>OMUSDT 64.183</code> <code>MAGICUSDT 56.347</code></p>
+<p>worst <code>ZKUSDT 0</code> <code>LINKUSDT 0</code> <code>BLURUSDT 0</code> <code>GRTUSDT 0</code></p>
+</section><section class="card"><h2>trailing/atr BLOCK OFF</h2>
+<p>indications <code>direction 0.484</code> <code>active 0.478</code> <code>break 0.084</code> <code>trend 0</code></p>
+<p>playbooks —</p>
+<p>best <code>MANAUSDT 2.679</code> <code>AAVEUSDT 2.291</code> <code>IOTAUSDT 2.063</code> <code>PYTHUSDT 2.059</code></p>
+<p>worst <code>BOMEUSDT 0</code> <code>BLURUSDT 0</code> <code>THETAUSDT 0</code> <code>XLMUSDT 0</code></p>
+</section><section class="card"><h2>hybrid/atr BLOCK ON</h2>
+<p>indications <code>active 1.771</code> <code>break 0.184</code> <code>direction 0.108</code> <code>trend 0</code></p>
+<p>playbooks <code>block 1.748</code></p>
+<p>best <code>MAGICUSDT 473.633</code> <code>PNUTUSDT 353.917</code> <code>OMUSDT 100.021</code> <code>VIRTUALUSDT 95.216</code></p>
+<p>worst <code>BONKUSDT 0</code> <code>ZKUSDT 0</code> <code>SHIBUSDT 0</code> <code>BLURUSDT 0</code></p>
+</section><section class="card"><h2>hybrid/atr BLOCK OFF</h2>
+<p>indications <code>active 0.409</code> <code>trend 0.259</code> <code>break 0.116</code> <code>direction 0.105</code></p>
+<p>playbooks —</p>
+<p>best <code>MANAUSDT 4.248</code> <code>ICPUSDT 2.747</code> <code>PENDLEUSDT 2.486</code> <code>IOTAUSDT 2.252</code></p>
+<p>worst <code>BLURUSDT 0</code> <code>ARBUSDT 0</code> <code>THETAUSDT 0</code> <code>NEARUSDT 0</code></p>
+</section><section class="card"><h2>axis/atr BLOCK ON</h2>
+<p>indications <code>active 1.347</code> <code>direction 0.32</code> <code>break 0.146</code> <code>trend 0</code></p>
+<p>playbooks <code>block 1.338</code></p>
+<p>best <code>PNUTUSDT 247.504</code> <code>MOVEUSDT 199.852</code> <code>VIRTUALUSDT 172.657</code> <code>BIGTIMEUSDT 98.535</code></p>
+<p>worst <code>OMUSDT 0</code> <code>CFXUSDT 0</code> <code>VETUSDT 0</code> <code>IOTAUSDT 0</code></p>
+</section><section class="card"><h2>axis/atr BLOCK OFF</h2>
+<p>indications <code>active 0.594</code> <code>trend 0.355</code> <code>direction 0.341</code> <code>break 0.186</code></p>
+<p>playbooks —</p>
+<p>best <code>TRBUSDT 3.28</code> <code>MEMEUSDT 3.138</code> <code>ENAUSDT 3.128</code> <code>MANAUSDT 2.543</code></p>
+<p>worst <code>POLUSDT 0</code> <code>AVAXUSDT 0</code> <code>VETUSDT 0</code> <code>CFXUSDT 0</code></p>
+</section>
+</div>
+</main></body></html>
