@@ -1341,7 +1341,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       indication: o.indication ?? classifyIndication(e, o.symbol),
       kind: o.kind ?? kindFromIndication(o.indication ?? classifyIndication(e, o.symbol), playbookOf(e, o), e.lastTactic),
       playbook: o.playbook ?? playbookOf(e, o),
-      blockLevel: /^Block/i.test(o.note || "") ? Math.max(1, o.level || 1) : undefined,
+      blockLevel: /Block/i.test(o.note || "") ? Math.max(1, o.level || 1) : undefined,
       peakPx: px,
     };
     e.positions.push(pos);
@@ -2364,7 +2364,7 @@ export function pfLaneOf(rel: { tactic?: string; playbook?: string; kind?: strin
   const note = String(rel?.note || "");
   const kind = String(rel?.kind || "");
   const tac = String(rel?.tactic || "");
-  if (play === "block" || kind === "block" || /^Block/i.test(note) || (rel?.blockLevel ?? 0) >= 1) return "block";
+  if (play === "block" || kind === "block" || /Block/i.test(note) || (rel?.blockLevel ?? 0) >= 1) return "block";
   if (play === "axis" || tac === "axis" || kind === "axis") return "axis";
   if (play === "short" || kind === "short" || /short/i.test(note)) return "short";
   if (play === "normal" || kind === "normal") return "base";

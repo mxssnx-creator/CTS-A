@@ -435,7 +435,7 @@ export function isBlockAdjustedRel(rel: {
   if (rel.adjusted) return true;
   if ((rel.blockLevel ?? 0) >= 1) return true;
   if (rel.playbook === "block") return true;
-  return /^Block/i.test(String(rel.note || ""));
+  return /Block/i.test(String(rel.note || ""));
 }
 
 export const VENUE_ORDER_TYPES: Record<Venue, OrderTypeId[]> = {
