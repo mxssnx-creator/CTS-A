@@ -1212,6 +1212,8 @@ describe("VST engine", () => {
 
   it("classifies trend, break, active and direction independently from live quotes", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 8, arm: false });
+    e.shortRange = false;
+    e.shortProgress = sanitizeShortProgress({ enabled: false, indications: ["trend", "break", "active", "direction"] });
     const q = e.quotes.BTCUSDT;
     q.px = 100;
     q.axis = 99.2;
