@@ -24,7 +24,7 @@ Environment=CTS_A_CONN=bingx-x01
 Environment=CTS_A_NETWORK=mainnet
 Environment=CTS_A_LIVE_MIN_PF=1.35
 Environment=CTS_A_LIVE_MAX_POS=100
-Environment=CTS_A_SYMBOLS=80
+Environment=CTS_A_SYMBOLS=120
 Environment=CTS_A_TICK_MS=1000
 Environment=NODE_OPTIONS=--max-old-space-size=256
 LimitNOFILE=4096

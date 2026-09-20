@@ -37,11 +37,11 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
   {
     id: "x01-live",
     label: "x01 live",
-    blurb: "Mainnet · 80 symbols · trail 1.5 · Block 1–6 · PF 1.35",
+    blurb: "Mainnet · 120 symbols · trail 1.5 · Block 1–6 · PF 1.35",
     builtin: true,
     patch: {
       activeConnId: "bingx-x01",
-      symbolCount: 80,
+      symbolCount: 120,
       tactic: "trailing",
       rangeType: "geometric",
       tacticConfig: { ...LIVE_CFG },
@@ -59,11 +59,11 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
   {
     id: "vst-paper",
     label: "VST paper",
-    blurb: "Demo VST-02 · hybrid / geometric · 80 symbols",
+    blurb: "Demo VST-02 · hybrid / geometric · 120 symbols",
     builtin: true,
     patch: {
       activeConnId: "bingx-vst-02",
-      symbolCount: 80,
+      symbolCount: 120,
       tactic: "hybrid",
       rangeType: "geometric",
       tacticConfig: { ...LIVE_CFG },
@@ -125,11 +125,11 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
   {
     id: "short-block-live",
     label: "Short + Block",
-    blurb: "x01 · 80 · indications only · short TP/SL · Block Active 1-step · min PF 1.8",
+    blurb: "x01 · 120 · indications only · short TP/SL · Block Active 1-step · min PF 1.8",
     builtin: true,
     patch: {
       activeConnId: "bingx-x01",
-      symbolCount: 80,
+      symbolCount: 120,
       tactic: "trailing",
       rangeType: "atr",
       orderType: "limit",
@@ -271,11 +271,11 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
   {
     id: "stable-02",
     label: "Stable 02",
-    blurb: "x01 · 80 · short 0.35/1.5 · Axis full rungs · Block 1–6 0.4 · PF 1.35/1.0/1.15/1.2 · short 0.95/0.7",
+    blurb: "x01 · 120 · short 0.35/1.5 · Axis full rungs · Block 1–6 0.4 · PF 1.35/1.0/1.15/1.2 · short 0.95/0.7",
     builtin: true,
     patch: {
       activeConnId: "bingx-x01",
-      symbolCount: 80,
+      symbolCount: 120,
       tactic: "trailing",
       rangeType: "atr",
       orderType: "limit",

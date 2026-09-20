@@ -83,7 +83,7 @@ const DEFAULT_CFG: TacticConfig = {
 
 export const TP_SL_RATIO = 1;
 export const SL_ATR_MULT = 1;
-export const VST_MAX_SYMBOLS = 80;
+export const VST_MAX_SYMBOLS = 120;
 export const VST_MAX_POSITIONS = 100;
 export const VST_BATCH_SIZE = 20;
 export const VST_RATE_PER_SEC = 10;
@@ -442,6 +442,46 @@ export const VST_SYMBOLS: VstSymbol[] = [
   ["COMPUSDT", "COMP", 52.4, .018],
   ["SNXUSDT", "SNX", 1.72, .02],
   ["TRUMPUSDT", "TRUMP", 8.4, .028],
+  ["PENGUUSDT", "PENGU", 0.032, .03],
+  ["VIRTUALUSDT", "VIRTUAL", 1.85, .028],
+  ["NEIROUSDT", "NEIRO", 0.0018, .032],
+  ["POPCATUSDT", "POPCAT", 0.92, .029],
+  ["MEWUSDT", "MEW", 0.0064, .03],
+  ["TURBOUSDT", "TURBO", 0.0058, .031],
+  ["GOATUSDT", "GOAT", 0.084, .03],
+  ["PNUTUSDT", "PNUT", 0.22, .028],
+  ["ACTUSDT", "ACT", 0.048, .027],
+  ["MOVEUSDT", "MOVE", 0.42, .026],
+  ["KAITOUSDT", "KAITO", 1.12, .025],
+  ["SUSDT", "S", 0.52, .024],
+  ["CAKEUSDT", "CAKE", 2.15, .02],
+  ["SUSHIUSDT", "SUSHI", 0.92, .021],
+  ["CHZUSDT", "CHZ", 0.068, .022],
+  ["FLOWUSDT", "FLOW", 0.62, .02],
+  ["KAVAUSDT", "KAVA", 0.41, .021],
+  ["SSVUSDT", "SSV", 24.8, .022],
+  ["MAGICUSDT", "MAGIC", 0.48, .024],
+  ["KASUSDT", "KAS", 0.128, .023],
+  ["MINAUSDT", "MINA", 0.52, .021],
+  ["TRBUSDT", "TRB", 72.4, .026],
+  ["ZKUSDT", "ZK", 0.148, .025],
+  ["WUSDT", "W", 0.084, .026],
+  ["CFXUSDT", "CFX", 0.162, .022],
+  ["JASMYUSDT", "JASMY", 0.018, .024],
+  ["GMTUSDT", "GMT", 0.148, .023],
+  ["YGGUSDT", "YGG", 0.52, .024],
+  ["ILVUSDT", "ILV", 38.6, .021],
+  ["SUPERUSDT", "SUPER", 0.92, .023],
+  ["BLURUSDT", "BLUR", 0.24, .024],
+  ["MEMEUSDT", "MEME", 0.012, .028],
+  ["AEVOUSDT", "AEVO", 0.42, .025],
+  ["MANTAUSDT", "MANTA", 0.82, .024],
+  ["ALTUSDT", "ALT", 0.092, .026],
+  ["BIGTIMEUSDT", "BIGTIME", 0.084, .025],
+  ["RSRUSDT", "RSR", 0.0068, .023],
+  ["IOTAUSDT", "IOTA", 0.18, .02],
+  ["THETAUSDT", "THETA", 1.42, .019],
+  ["ZILUSDT", "ZIL", 0.018, .021],
 ].map((row) => {
   const [id, base, start, vol] = row as [string, string, number, number];
   return { id, base, quote: "USDT", start, vol };

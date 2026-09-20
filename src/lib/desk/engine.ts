@@ -439,7 +439,7 @@ export const VENUE_ORDER_TYPES: Record<Venue, OrderTypeId[]> = {
 };
 
 export const SYMBOL_COUNT_MIN = 8;
-export const SYMBOL_COUNT_MAX = 80;
+export const SYMBOL_COUNT_MAX = 120;
 
 export const SYMBOLS = [
   { id: "BTCUSDT", base: "BTC", quote: "USDT", venues: ["bingx", "bybit"] as const, start: 64250, vol: 0.007 },
@@ -508,7 +508,7 @@ export const X01_DEFAULTS = {
   connId: "bingx-x01" as const,
   network: "mainnet" as const,
   minPf: DEFAULT_MIN_PF,
-  symbolCount: 80,
+  symbolCount: 120,
   slAtrMin: 0.8,
   tpRatioMin: 0.8,
   tpAtrMin: 0.8,
