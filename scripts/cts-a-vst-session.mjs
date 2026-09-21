@@ -1843,7 +1843,18 @@ async function mirrorToExchange(e, network, cfg) {
   let failed = 0;
   const fillJobs = [];
   const queueIntents = (e.queue ?? [])
-    .filter((o) => o && (o.kind === "short" || o.playbook === "short" || /Block|short/i.test(String(o.note || ""))))
+    .filter((o) => {
+      if (!o) return false;
+      if (o.playbook === "dca" || o.tactic === "dca" || /dca/i.test(String(o.note || ""))) return false;
+      if (IS_X01) return true;
+      return (
+        o.kind === "short" ||
+        o.playbook === "short" ||
+        o.playbook === "block" ||
+        o.playbook === "axis" ||
+        /Block|short/i.test(String(o.note || ""))
+      );
+    })
     .map((o) => ({
       id: `q:${o.id}`,
       orderId: o.id,

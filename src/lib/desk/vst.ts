@@ -1868,7 +1868,15 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       }
       const tac = pickLiveTactic(e, ind, e.lastTactic);
       const axisInd = tac === "axis";
-      const book = cfgUsesShortRange(cfg) ? "short" : openPlaybook(tac, ind);
+      const book = cfgUsesShortRange(cfg)
+        ? "short"
+        : tac === "dca"
+          ? "dca"
+          : tac === "axis"
+            ? "axis"
+            : e.strategyToggles?.normal === false
+              ? "short"
+              : openPlaybook(tac, ind);
       const kind = cfgUsesShortRange(cfg) ? "short" : kindFromIndication(ind, book, tac);
       const range = pickIndicationRange(e, ind, rangeType ?? e.lastRange ?? "atr");
       const shortLane = cfgUsesShortRange(cfg);
@@ -7881,7 +7889,7 @@ export function lanePassExec(
   if (internAllPhase(e)) return true;
   // Independent combo tape: intern always processes this TP×SL; last-N is scored, not a self-kill.
   if (e.shortComboOnly && paperMode(e)) return true;
-  if (rel.tpAtr != null && rel.slOfTp != null) {
+  if (rel.tpAtr != null && rel.slOfTp != null && isShortComboRel(e, rel)) {
     return shortComboProven(e, rel.tpAtr, rel.slOfTp);
   }
   const coord = e.lastNCoord;
@@ -7936,6 +7944,16 @@ export function laneLastNStack(
 }
 
 /** Live / Real counted execute: only lanes that passed progress valid-execute. */
+export function isShortComboRel(
+  e: VstEngine,
+  rel: { tpAtr?: number; slOfTp?: number },
+): boolean {
+  if (!e.shortRange) return false;
+  const tp = Number(rel.tpAtr);
+  const sl = Number(rel.slOfTp);
+  return Number.isFinite(tp) && Number.isFinite(sl) && tp <= 0.6 + 1e-9;
+}
+
 export function liveShouldExecute(
   e: VstEngine,
   rel: {
@@ -7959,7 +7977,7 @@ export function liveShouldExecute(
   if (isDca) return t.dca;
   const blockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   if (blockFill) return t.block !== false;
-  const shortCombo = rel.tpAtr != null && rel.slOfTp != null;
+  const shortCombo = isShortComboRel(e, rel);
   const shortLane = rel.kind === "short" || play === "short" || /short/i.test(note) || Boolean(e.shortRange && shortCombo);
   if (shortCombo && !(e.shortComboOnly && paperMode(e))) {
     if (!shortComboProven(e, rel.tpAtr!, rel.slOfTp!)) return false;
