@@ -2550,7 +2550,7 @@ async function main() {
       cachedOverall = null;
       cachedOverallTick = -1;
       locked = false;
-      writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: false });
+      writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
       adjustments.push(
         w
           ? `complete ${complete.cells.length} cells · winner ${w.tactic}/${w.range} ${w.hours}h PF ${w.pf.toFixed(2)} · ${complete.elapsedMs}ms`
@@ -2770,7 +2770,7 @@ async function main() {
       }
       const short = cfgUsesShortRange(pick.cfg) ? ` short ${pick.cfg.tpAtr}/${pick.cfg.slOfTp}` : "";
       adjustments.push(`cycle ${gridCursor + 1}/${live.length} ${pick.tactic}/${pick.range}${short}`);
-      writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: false });
+      writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
     }
 
     if (wantStatus(false)) writeStatus(snapshot(engine, { ...statusBase(), computeDone }));
