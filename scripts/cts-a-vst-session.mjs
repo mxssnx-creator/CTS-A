@@ -1089,6 +1089,10 @@ function x01CanAfford(symbol, equity) {
   return 2 / lev <= eq * 0.55;
 }
 
+function liveBudgetNow() {
+  return liveEntryBudget(Number(lastBook.equity) || 0);
+}
+
 function pfGateClosed() {
   return lastExec.n >= 8 && lastExec.pf + 1e-9 < LIVE_MIN_PF;
 }
