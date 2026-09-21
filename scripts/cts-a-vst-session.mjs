@@ -26,7 +26,6 @@ import {
   universeSymbols,
   absorbEvalSymbols,
   ensureQuotes,
-  universeSymbols,
   rankUniverse,
   vol1hOf,
   adjustActiveBlocks,
