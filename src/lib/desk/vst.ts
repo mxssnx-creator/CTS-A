@@ -6140,7 +6140,9 @@ export function seedStatsFromComplete(stats: SeedableStats, e: VstEngine): Seeda
 }
 
 export function overallLiveStats(e: VstEngine) {
-  const closed = e.closed.filter((c) => isDeskConn(c.connId));
+  const conn = isDeskConn(e.activeConnId) ? e.activeConnId : undefined;
+  const closed = e.closed.filter((c) => ownedByDesk(c, conn));
+  const deskPos = e.positions.filter((p) => ownedByDesk(p, conn));
   const bySymbol: OverallBucket[] = Object.values(e.symbolStats)
     .map((s) => {
       const pf = profitFactor(s.profit, s.loss);
@@ -6202,29 +6204,29 @@ export function overallLiveStats(e: VstEngine) {
   ) as Record<string, OverallBucket>;
   const liveBuckets = [...byPlaybook, ...byIndication, ...byTactic, ...byRange].filter((b) => b.n > 0);
   const open = pnlBucket(
-    e.positions.map((p) => ({ pnl: p.unrealized + p.realized })),
+    deskPos.map((p) => ({ pnl: p.unrealized + p.realized })),
     "open",
   );
   const ov = pnlBucket(closed, "closed");
-  const workingOrders = e.orders.filter((o) => o.status === "open" || o.status === "partial");
+  const workingOrders = e.orders.filter((o) => ownedByDesk(o, conn) && (o.status === "open" || o.status === "partial"));
   const working = workingOrders.length;
   const blockLive = collectBlockOrders(e, e.activeConnId);
   const blockPart = blockLive.filter((o) => o.status === "partial" || (o.filled > 0 && o.remaining > 1e-12));
   const blockClosed = closed.filter((c) => (c.blockQty || 0) > 0 || c.playbook === "block");
-  const blockVol = e.positions.reduce((s, p) => s + (p.blockQty || 0), 0) + blockClosed.reduce((s, c) => s + (c.blockQty || 0), 0);
+  const blockVol = deskPos.reduce((s, p) => s + (p.blockQty || 0), 0) + blockClosed.reduce((s, c) => s + (c.blockQty || 0), 0);
   const blockBucket = {
     ...pnlBucket(blockClosed, "block"),
     orders: blockLive.length,
     partials: blockPart.length,
     ids: blockLive.map((o) => o.id),
     volume: blockVol,
-    queued: e.queue.filter((o) => isBlockOrder(o)).length,
+    queued: e.queue.filter((o) => isBlockOrder(o) && ownedByDesk(o, conn)).length,
     overall: e.blockCfg?.overall !== false,
   };
   const activePos =
     (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).normal === false
-      ? e.positions.filter((p) => (p.kind ?? "") !== "normal")
-      : e.positions;
+      ? deskPos.filter((p) => (p.kind ?? "") !== "normal")
+      : deskPos;
   const stats = {
     overall: ov,
     open,
@@ -6273,9 +6275,29 @@ export function overlayExchangeBook(
   e: VstEngine,
 ): ReturnType<typeof overallLiveStats> {
   if (!stats) return stats;
-  const pos = book?.positions ?? [];
-  const orders = book?.orders ?? [];
+  const conn = isDeskConn(e.activeConnId) ? e.activeConnId : undefined;
+  const pos = (book?.positions ?? []).filter((p) => {
+    if ((p as { owned?: boolean }).owned === false) return false;
+    if (p.connId && conn && p.connId !== conn && isDeskConn(p.connId)) return false;
+    return true;
+  });
+  const orders = (book?.orders ?? []).filter((o) => {
+    if (o.owned === false) return false;
+    if (o.clientOrderId && conn && !o.owned && o.clientOrderId) {
+      const id = String(o.clientOrderId);
+      if (id && !id.toUpperCase().startsWith("CTSA")) return false;
+    }
+    return true;
+  });
   const occ = new Set(pos.map((p) => p.symbol).filter(Boolean));
+  if (book && !pos.length) {
+    stats.open = { key: "open", n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0, openN: 0 };
+    stats.avgPositions = 0;
+    stats.slots = 0;
+    stats.configsActive = 0;
+    stats.runningSymbols = 0;
+    stats.occupied = 0;
+  }
   if (occ.size) {
     stats.runningSymbols = occ.size;
     stats.occupied = occ.size;

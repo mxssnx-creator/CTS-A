@@ -5,7 +5,7 @@
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
-import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget } from "../src/lib/desk/feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
@@ -84,17 +84,18 @@ function ownKey(symbol, side) {
 }
 function isOwnedLeg(symbol, side) {
   const k = ownKey(symbol, side);
-  return taggedKeys.has(k) || mirrored.has(`own:${k}`) || mirrored.has(`live:${k}`) || mirrored.has(`seed:${k}`);
+  if (taggedKeys.has(k)) return true;
+  if (mirrored.has(`own:${k}`) || mirrored.has(`live:${k}`)) return true;
+  // Seed is only a restart claim until tagged tickets are on the book.
+  if (taggedKeys.size > 0) return false;
+  return mirrored.has(`seed:${k}`);
 }
 function isDeskOrder(o) {
   return isOwnedExchangeOrder(o, CONN) || isDeskClientOrderId(o?.clientOrderId, CONN);
 }
-/** Cancel/replace only tagged desk orders, or untagged leftovers on a fully-legacy owned leg. */
+/** Cancel/replace only tickets tagged for this connection. Never touch foreign or other CTS slots. */
 function mayCancelOrder(o) {
-  if (!o) return false;
-  if (isDeskOrder(o)) return true;
-  const k = ownKey(o.symbol, o.side);
-  return isOwnedLeg(o.symbol, o.side) && !taggedKeys.has(k);
+  return Boolean(o) && isDeskOrder(o);
 }
 function refreshTaggedKeys(orders) {
   taggedKeys.clear();
@@ -459,7 +460,13 @@ function snapshot(e, extra) {
   };
   const livePf = clampPf(rawLive, last12?.n ?? e.ledger.trades);
   const pf = clampPf(rawPf, e.ledger.trades);
-  const net = Number.isFinite(lastBook.pnl) ? lastBook.pnl : e.stats.net;
+  const closedNet = lastExec.n >= 2 ? lastExec.net : e.ledger.profit - e.ledger.loss;
+  const openNet = Number.isFinite(lastBook.pnl) ? lastBook.pnl : 0;
+  const { systemNet } = systemProcessedNet(closedNet, openNet);
+  const net = systemNet;
+  overall.systemNet = systemNet;
+  overall.closedNet = closedNet;
+  overall.openNet = openNet;
   const wr = lastExec.n >= 2 ? lastExec.wr : tapeReady ? e.stats.wr : Number(last12?.wr || e.stats.wr);
   const tapeThin = e.ledger.trades < 12;
   const positive = Number.isFinite(livePf) && livePf >= 1 && (tapeThin || ((last12?.net ?? net) >= -0.05 && ((last12?.wr ?? wr) >= 0.36 || livePf >= 1.5)));
@@ -517,7 +524,9 @@ function snapshot(e, extra) {
       const cap = cachedMaxLeverage(NETWORK_PREF === "mainnet" ? "mainnet" : "testnet", CONN, venue);
       return cap > 0 && cur + 1e-9 < cap;
     }).length,
-    closedNet: lastExec.n >= 2 ? lastExec.net : e.ledger.profit - e.ledger.loss,
+    closedNet,
+    openNet,
+    systemNet,
     avgLivePos: bookAvg.n ? bookAvg.pos / bookAvg.n : lastBook.pos,
     avgLiveOrd: bookAvg.n ? bookAvg.ord / bookAvg.n : lastBook.ord,
     overall,
@@ -810,10 +819,10 @@ function sideFromOrders(symbol, t) {
 
 function ingestExec(ex) {
   if (!ex?.ok) return;
-  if (Array.isArray(ex.orders) && ex.orders.length) lastIncomeOrders = ex.orders;
-  const income = Array.isArray(ex.income) ? ex.income : [];
-  const rows = income
-    .filter((x) => String(x.type || "") === "REALIZED_PNL" && isDeskSymbol(x.symbol))
+  const desk = filterDeskRealized(ex.orders, ex.income, CONN);
+  lastIncomeOrders = desk.tagged;
+  const rows = desk.pnl
+    .filter((x) => isDeskSymbol(x.symbol))
     .map((x) => {
       const symbol = String(x.symbol || "");
       const t = Number(x.time) || 0;
@@ -831,6 +840,9 @@ function ingestExec(ex) {
     })
     .filter((r) => r.t > 0 && Number.isFinite(r.v));
   if (rows.length) lastPnl = rows;
+  if (desk.realized.n > 0 && lastExec.n < 2) {
+    lastExec = { ...lastExec, ...desk.realized };
+  }
 }
 
 async function pruneUnlisted(network) {
@@ -1620,9 +1632,9 @@ async function mirrorToExchange(e, network, cfg) {
     }
   }
   const deskPos = (book.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
-  const deskOrd = (book.orders ?? []).filter((o) => isDeskOrder(o) || mayCancelOrder(o));
+  const deskOrd = (book.orders ?? []).filter((o) => isDeskOrder(o));
   const foreignPosN = (book.positions ?? []).filter((p) => !isOwnedLeg(p.symbol, p.side)).length;
-  const foreignOrdN = (book.orders ?? []).filter((o) => !isDeskOrder(o) && !mayCancelOrder(o)).length;
+  const foreignOrdN = (book.orders ?? []).filter((o) => !isDeskOrder(o)).length;
   const prot = countProtect(deskPos, deskOrd);
   lastBook = {
     pos: deskPos.length,
@@ -1653,6 +1665,7 @@ async function mirrorToExchange(e, network, cfg) {
         tactic,
         playbook,
         kind: kindFromIndication(indication, playbook, tactic),
+        owned: true,
       };
     }),
     orders: deskOrd.slice(0, 250).map((o) => ({

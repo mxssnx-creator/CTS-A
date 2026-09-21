@@ -251,7 +251,7 @@ export function SessionProgress({
       <div className="mt-4 grid grid-cols-2 gap-x-4 sm:grid-cols-4 xl:grid-cols-8">
         <StatLine k="Equity" v={fmtEquity(liveSnap.hasLive ? liveSnap.equity : st.equity)} tone={(liveSnap.hasLive ? liveSnap.net : st.net) >= 0 ? "up" : "down"} />
         <StatLine k="Live PF" v={fmtPf(liveSnap.hasLive ? liveSnap.pf : st.pf)} tone={pfTone(liveSnap.hasLive ? liveSnap.pf : st.pf)} />
-        <StatLine k="Net" v={fmtUsd(liveSnap.hasLive ? liveSnap.net : st.net)} tone={(liveSnap.hasLive ? liveSnap.net : st.net) >= 0 ? "up" : "down"} />
+        <StatLine k="System Net" v={fmtUsd(liveSnap.hasLive ? liveSnap.systemNet : st.net)} tone={(liveSnap.hasLive ? liveSnap.systemNet : st.net) >= 0 ? "up" : "down"} />
         <StatLine k="Win rate" v={fmtWr(liveSnap.hasLive ? liveSnap.wr : st.wr)} />
         <StatLine k="Max DD" v={fmtMdd(liveSnap.hasLive ? liveSnap.mdd : st.mdd)} />
         <StatLine k="Vol factor" v={th.minVf.toFixed(2)} />

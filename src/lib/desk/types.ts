@@ -444,6 +444,7 @@ export interface ExchangePosition {
   indication?: IndicationId;
   playbook?: string;
   kind?: StrategyKind;
+  owned?: boolean;
 }
 
 export interface ExchangeOrder {

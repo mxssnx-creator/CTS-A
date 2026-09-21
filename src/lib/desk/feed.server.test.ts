@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, deskClientPrefix, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect, liveEntryBudget } from "./feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, deskClientPrefix, filterDeskRealized, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, systemProcessedNet } from "./feed.ts";
 import {
   buildCanonical,
   configureLiveExecution,
@@ -196,6 +196,39 @@ describe("live feed", () => {
     assert.equal(keys.has("ETHUSDT:long"), true);
     assert.equal(keys.has("BTCUSDT:short"), false);
     assert.equal(keys.size, 1);
+  });
+
+  it("filterDeskRealized keeps only this connection's processed PnL", () => {
+    const ours = makeClientOrderId("bingx-vst-02", "C");
+    const other = makeClientOrderId("bingx-x01", "C");
+    const t = Date.now();
+    const { pnl, realized } = filterDeskRealized(
+      [
+        { id: "1", symbol: "ETHUSDT", side: "long", type: "TAKE_PROFIT_MARKET", status: "FILLED", pnl: 0.4, time: t, info: ours },
+        { id: "2", symbol: "BTCUSDT", side: "short", type: "STOP_MARKET", status: "FILLED", pnl: -2, time: t, info: other },
+        { id: "3", symbol: "SOLUSDT", side: "long", type: "STOP_MARKET", status: "FILLED", pnl: -1, time: t, info: "manual-bot" },
+      ],
+      [
+        { symbol: "ETHUSDT", type: "REALIZED_PNL", income: 0.4, info: "1", time: t },
+        { symbol: "BTCUSDT", type: "REALIZED_PNL", income: -2, info: "2", time: t },
+        { symbol: "SOLUSDT", type: "REALIZED_PNL", income: -1, info: "3", time: t },
+        { symbol: "ADAUSDT", type: "REALIZED_PNL", income: 9, info: "", time: t },
+      ],
+      "bingx-vst-02",
+    );
+    assert.equal(pnl.every((r) => r.symbol === "ETHUSDT"), true);
+    assert.ok(Math.abs(realized.net - 0.4) < 1e-9, `net ${realized.net}`);
+    assert.equal(realized.n, 1);
+    const mixed = systemProcessedNet(realized.net, -0.1);
+    assert.ok(Math.abs(mixed.systemNet - 0.3) < 1e-9);
+  });
+
+  it("untagged leftover on an owned-looking leg is not owned", () => {
+    const leftover = {
+      clientOrderId: "other-system-1",
+      owned: false,
+    };
+    assert.equal(isOwnedExchangeOrder(leftover, "bingx-vst-02"), false);
   });
 
   it("common protect uses the widest SL and TP among partials", () => {

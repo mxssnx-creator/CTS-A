@@ -198,9 +198,10 @@ export function LiveExchangeStats({
     <div className="flex flex-col gap-4">
       <Panel title={`Live exchange results · ${venue}`}>
         <p className="text-sm text-muted">
-          Tape closes from the running session. Hour windows include symbols, order counts, average orders and DDT.
+          Tape closes and System Net are this connection only (CTS-A tagged tickets). Foreign exchange legs stay untouched.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+          <Kpi label="System Net" value={fmtUsd(Number(session?.systemNet ?? live.overall?.net ?? live.net ?? 0))} hint={`closed ${fmtUsd(Number(session?.closedNet ?? live.overall?.net ?? 0))} · open ${fmtUsd(Number(session?.openNet ?? live.open?.net ?? 0))}`} tone={Number(session?.systemNet ?? live.net ?? 0) >= 0 ? "up" : "down"} />
           <Kpi label="Running symbols" value={String(runSym)} hint={`${live.symbols ?? 50} universe`} />
           <Kpi label="Orders now" value={String(ordersNow)} hint={`pos ${exchangePos ?? live.avgPositions ?? 0}`} />
           <Kpi label="Avg orders" value={fmtNum(avgOrd, 1)} hint={`avg pos ${fmtNum(avgPos, 1)}`} />

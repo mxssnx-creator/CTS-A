@@ -3237,13 +3237,22 @@ describe("VST engine", () => {
     assert.equal(liveOv.hours["1"].n, 0);
     const book = overlayExchangeBook(liveOv, {
       positions: [
-        { symbol: "BTCUSDT", side: "long", qty: 1, entry: 100, mark: 101, pnl: 1, venueSymbol: "BTC-USDT", connId: "bingx-x01" },
-        { symbol: "ETHUSDT", side: "short", qty: 1, entry: 10, mark: 11, pnl: -1, venueSymbol: "ETH-USDT", connId: "bingx-x01" },
+        { symbol: "BTCUSDT", side: "long", qty: 1, entry: 100, mark: 101, pnl: 1, venueSymbol: "BTC-USDT", connId: e.activeConnId },
+        { symbol: "ETHUSDT", side: "short", qty: 1, entry: 10, mark: 11, pnl: -1, venueSymbol: "ETH-USDT", connId: e.activeConnId },
       ],
       orders: [],
     } as never, e);
     assert.equal(book.open?.n, 2);
     assert.ok(Math.abs((book.open?.net ?? 0) - 0) < 1e-9);
+    const skipped = overlayExchangeBook(structuredClone(liveOv), {
+      positions: [
+        { symbol: "BTCUSDT", side: "long", qty: 1, entry: 100, mark: 101, pnl: 9, venueSymbol: "BTC-USDT", connId: e.activeConnId, owned: false },
+        { symbol: "ETHUSDT", side: "short", qty: 1, entry: 10, mark: 11, pnl: -3, venueSymbol: "ETH-USDT", connId: "bingx-x01" },
+      ],
+      orders: [{ id: "fx", symbol: "BTCUSDT", side: "long", qty: 1, price: 100, status: "open", type: "STOP_MARKET", venueSymbol: "BTC-USDT", connId: e.activeConnId, clientOrderId: "manual-bot", owned: false }],
+    } as never, e);
+    assert.equal(skipped.open?.n ?? 0, 0);
+    assert.equal(skipped.avgOrders ?? 0, 0);
     const ids = universeSymbols(50).map((s) => s.id);
     assert.ok(ids.includes("TAOUSDT") && ids.includes("ENAUSDT"));
     assert.equal(ids.includes("MKRUSDT"), false);
@@ -3252,6 +3261,61 @@ describe("VST engine", () => {
     for (const id of ids) {
       assert.ok(BINGX_SYMBOL[id], `missing BingX map ${id}`);
     }
+  });
+
+  it("overallLiveStats net and open ignore foreign connection legs", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.positions.push({
+      id: "fx",
+      connId: "foreign",
+      symbol: "BTCUSDT",
+      side: "long",
+      qty: 1,
+      plannedQty: 1,
+      avgEntry: 100,
+      mark: 110,
+      sl: 99,
+      tp: 111,
+      slDist: 1,
+      tpDist: 11,
+      realized: 0,
+      unrealized: 99,
+      legs: [],
+      controllingRange: "atr",
+      rangeSpacing: 1,
+      status: "open",
+      openedTick: 0,
+    } as never);
+    e.closed.unshift({
+      id: "c-fx",
+      connId: "foreign",
+      symbol: "ETHUSDT",
+      side: "short",
+      pnl: -50,
+      qty: 1,
+      entry: 10,
+      exit: 11,
+      reason: "sl",
+      tick: 1,
+      r: -1,
+    } as never);
+    e.closed.unshift({
+      id: "c-own",
+      connId: e.activeConnId,
+      symbol: "SOLUSDT",
+      side: "long",
+      pnl: 1.5,
+      qty: 1,
+      entry: 100,
+      exit: 101,
+      reason: "tp",
+      tick: 2,
+      r: 1,
+    } as never);
+    const ov = overallLiveStats(e);
+    assert.equal(ov.open?.n ?? 0, 0);
+    assert.equal(ov.overall.n, 1);
+    assert.ok(Math.abs(ov.net - 1.5) < 1e-9, `net ${ov.net}`);
   });
 
   it("overlays last-N and hour windows from BingX realized PnL", () => {

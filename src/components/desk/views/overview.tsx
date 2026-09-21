@@ -255,10 +255,12 @@ export function OverviewView() {
             <StatLine k="Tactic / range" v={`${String(session.tactic ?? "—")} · ${String(session.range ?? "—")}`} />
             <StatLine k="Elapsed" v={`${Number(session.elapsedMin ?? 0).toFixed(1)} min`} />
             <StatLine k="PF / WR" v={`${fmtPf(Number(session.pf))} · ${fmtWr(Number(session.wr))}`} />
-            <StatLine k="Net" v={fmtUsd(Number(session.net))} tone={Number(session.net) >= 0 ? "up" : "down"} />
+            <StatLine k="System Net" v={fmtUsd(Number(session.systemNet ?? session.net))} tone={Number(session.systemNet ?? session.net) >= 0 ? "up" : "down"} />
+            <StatLine k="Closed / open" v={`${fmtUsd(Number(session.closedNet ?? 0))} / ${fmtUsd(Number(session.openNet ?? session.livePnl ?? 0))}`} />
             <StatLine k="Slots" v={`${session.slots ?? 0} · ${session.liveOrders ?? 0} orders`} />
             <StatLine k="Ping" v={session.pingOk ? "ok" : "down"} tone={session.pingOk ? "up" : "down"} />
-            <StatLine k="Exchange book" v={`${session.livePos ?? "—"} pos · ${session.liveOrd ?? "—"} ord`} />
+            <StatLine k="Exchange book" v={`${session.liveOwned ?? session.livePos ?? "—"} own · ${session.liveOrd ?? "—"} ord`} />
+            <StatLine k="Foreign held" v={`${session.foreignPos ?? 0}p / ${session.foreignOrd ?? 0}o`} />
             <StatLine k="Positive" v={session.positive ? "yes" : "building"} />
             <StatLine k="Last" v={String(session.lastMsg ?? "—")} />
           </div>
@@ -370,7 +372,8 @@ export function OverviewView() {
         <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
           <StatLine k="Closed PF" v={fmtPf(closedPf)} />
           <StatLine k="Closed WR" v={fmtWr(closedWr)} />
-          <StatLine k="Net" v={fmtUsd(closedNet)} tone={closedNet >= 0 ? "up" : "down"} />
+          <StatLine k="System Net" v={fmtUsd(liveSnap.hasLive ? liveSnap.systemNet : closedNet)} tone={(liveSnap.hasLive ? liveSnap.systemNet : closedNet) >= 0 ? "up" : "down"} />
+          <StatLine k="Closed / open" v={`${fmtUsd(closedNet)} / ${fmtUsd(liveSnap.openNet)}`} />
           <StatLine k="Occupied" v={`${liveSnap.occupied || overall.occupied || 0} / ${overall.symbols ?? liveSnap.session?.symbols ?? 50}`} />
           <StatLine k="Legs" v={`${liveSnap.livePos || liveSnap.slots || overall.slots || 0} · ${liveSnap.liveLong}L/${liveSnap.liveShort}S`} />
         </div>

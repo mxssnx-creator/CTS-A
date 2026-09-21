@@ -39,6 +39,12 @@ export type LiveNumbers = {
   liveLevMin: number;
   liveLevMax: number;
   liveLevAvg: number;
+  closedNet: number;
+  openNet: number;
+  systemNet: number;
+  foreignPos: number;
+  foreignOrd: number;
+  liveOwned: number;
   at: number;
   hasLive: boolean;
   conn: string;
@@ -133,7 +139,7 @@ export function liveNumbers(
     equity,
     pf: num(session?.livePf ?? session?.pf),
     wr: num(session?.wr),
-    net: num(session?.net),
+    net: num(session?.systemNet ?? session?.net),
     trades: num(session?.trades),
     mdd: num(session?.mdd),
     livePos,
@@ -154,6 +160,12 @@ export function liveNumbers(
     liveLevMin: num(session?.liveLevMin),
     liveLevMax: num(session?.liveLevMax),
     liveLevAvg: num(session?.liveLevAvg),
+    closedNet: num(session?.closedNet),
+    openNet: num(session?.openNet ?? session?.livePnl),
+    systemNet: num(session?.systemNet ?? session?.net),
+    foreignPos: num(session?.foreignPos),
+    foreignOrd: num(session?.foreignOrd),
+    liveOwned: num(session?.liveOwned, livePos),
     at: num(session?.at, payload?.at ?? 0),
     hasLive: Boolean(session || (exchange && exchange.ok)),
     conn,
@@ -195,6 +207,11 @@ function sameSnap(a: LiveNumbers, b: LiveNumbers) {
     a.network === b.network &&
     a.liveLevMax === b.liveLevMax &&
     a.liveLevMin === b.liveLevMin &&
+    a.closedNet === b.closedNet &&
+    a.openNet === b.openNet &&
+    a.systemNet === b.systemNet &&
+    a.foreignPos === b.foreignPos &&
+    a.foreignOrd === b.foreignOrd &&
     a.lastMsg === b.lastMsg &&
     a.at === b.at &&
     a.overall === b.overall &&

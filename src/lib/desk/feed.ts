@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import type { ExchangeBook, VstEngine } from "./types";
-import { refreshLiveIndications } from "./engine.ts";
+import { profitFactor, refreshLiveIndications } from "./engine.ts";
 
 export interface LiveTicker {
   id: string;
@@ -157,8 +157,10 @@ export function isOwnedExchangeOrder(
   connId?: string | null,
 ): boolean {
   if (!o) return false;
-  if (o.owned === true) return isDeskClientOrderId(o.clientOrderId, connId) || !o.clientOrderId;
-  return isDeskClientOrderId(o.clientOrderId, connId);
+  if (isDeskClientOrderId(o.clientOrderId, connId)) return true;
+  // API omitted clientOrderId but the parser already marked this connection's ticket.
+  if (o.owned === true && !o.clientOrderId) return true;
+  return false;
 }
 
 export function ownKeysFromOrders(
@@ -171,6 +173,186 @@ export function ownKeysFromOrders(
     if (o.symbol && o.side) keys.add(`${o.symbol}:${o.side}`);
   }
   return keys;
+}
+
+export type DeskExecOrder = {
+  id: string;
+  symbol: string;
+  side?: string;
+  type?: string;
+  status?: string;
+  qty?: number;
+  px?: number;
+  pnl?: number;
+  time: number;
+  info: string;
+};
+
+export type DeskIncome = {
+  symbol: string;
+  type: string;
+  income: number;
+  info?: string;
+  time: number;
+};
+
+export type DeskRealized = {
+  n: number;
+  wins: number;
+  pf: number;
+  wr: number;
+  net: number;
+  ddt: number;
+  mdd: number;
+};
+
+const CLOSE_TYPE_RE = /STOP|TAKE_PROFIT|TRAILING|CLOSE|LIQUID/;
+const FILL_STATUS_RE = /FILLED|PARTIAL/;
+const MATCH_MS = 15 * 60_000;
+
+function ddtFromSigned(rows: { t: number; v: number }[]): number {
+  const sorted = [...rows].sort((a, b) => a.t - b.t);
+  let peak = 0;
+  let eq = 0;
+  let dd = 0;
+  let maxDd = 0;
+  for (const r of sorted) {
+    eq += r.v;
+    if (eq > peak) {
+      peak = eq;
+      dd = 0;
+    } else if (peak - eq > 1e-9) {
+      dd += 1;
+      if (dd > maxDd) maxDd = dd;
+    }
+  }
+  return maxDd;
+}
+
+function mddFromSigned(rows: { t: number; v: number }[]): number {
+  const sorted = [...rows].sort((a, b) => a.t - b.t);
+  let peak = 0;
+  let eq = 0;
+  let mdd = 0;
+  for (const r of sorted) {
+    eq += r.v;
+    if (eq > peak) peak = eq;
+    const d = peak > 0 ? Math.max(0, (peak - eq) / peak) : 0;
+    if (d > mdd) mdd = Math.min(1, d);
+  }
+  return mdd;
+}
+
+function realizedOf(rows: { income: number }[]): DeskRealized {
+  const wins = rows.filter((x) => x.income > 0);
+  const profit = wins.reduce((s, x) => s + x.income, 0);
+  const loss = Math.abs(rows.filter((x) => x.income < 0).reduce((s, x) => s + x.income, 0));
+  const net = profit - loss;
+  const pf = profitFactor(profit, loss);
+  const series = rows.map((x, i) => ({ t: i, v: x.income }));
+  return {
+    n: rows.length,
+    wins: wins.length,
+    pf: Number.isFinite(pf) ? pf : 0,
+    wr: rows.length ? wins.length / rows.length : 0,
+    net,
+    ddt: 0,
+    mdd: 0,
+  };
+}
+
+export function isDeskCloseOrder(o: DeskExecOrder, connId?: string | null): boolean {
+  if (!isDeskClientOrderId(o.info, connId)) return false;
+  const pnl = Number(o.pnl) || 0;
+  if (pnl) return true;
+  const t = String(o.type || "").toUpperCase();
+  const st = String(o.status || "").toUpperCase();
+  return CLOSE_TYPE_RE.test(t) && FILL_STATUS_RE.test(st);
+}
+
+/** Realized PnL that belongs to this desk connection — foreign and other CTS slots dropped. */
+export function filterDeskRealized(
+  orders: DeskExecOrder[] | null | undefined,
+  income: DeskIncome[] | null | undefined,
+  connId: string,
+  since = 0,
+): {
+  tagged: DeskExecOrder[];
+  closes: DeskExecOrder[];
+  pnl: DeskIncome[];
+  realized: DeskRealized;
+} {
+  const all = orders ?? [];
+  const tagged = all.filter((o) => isDeskClientOrderId(o.info, connId));
+  const taggedIds = new Set<string>();
+  for (const o of tagged) {
+    if (o.id) taggedIds.add(String(o.id));
+    if (o.info) taggedIds.add(String(o.info));
+  }
+  const otherIds = new Set<string>();
+  const foreignIds = new Set<string>();
+  for (const o of all) {
+    if (isDeskClientOrderId(o.info, connId)) continue;
+    const ids = [o.id, o.info].map(String).filter(Boolean);
+    if (isDeskClientOrderId(o.info)) for (const id of ids) otherIds.add(id);
+    else for (const id of ids) foreignIds.add(id);
+  }
+  const closes = tagged.filter((o) => isDeskCloseOrder(o, connId));
+  const taggedSym = new Set(tagged.map((o) => o.symbol).filter(Boolean));
+  const seen = new Set<string>();
+  const pnl: DeskIncome[] = [];
+  const push = (row: DeskIncome) => {
+    if (since && Number(row.time) > 0 && Number(row.time) < since) return;
+    if (!row.symbol || !Number.isFinite(Number(row.income))) return;
+    const key = `${row.symbol}:${Number(row.time) || 0}:${Number(row.income).toFixed(8)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    pnl.push({
+      symbol: row.symbol,
+      type: "REALIZED_PNL",
+      income: Number(row.income) || 0,
+      info: String(row.info || ""),
+      time: Number(row.time) || 0,
+    });
+  };
+
+  for (const x of income ?? []) {
+    if (String(x.type || "") !== "REALIZED_PNL") continue;
+    const info = String(x.info || "");
+    if (isDeskClientOrderId(info) && !isDeskClientOrderId(info, connId)) continue;
+    if (info && (otherIds.has(info) || foreignIds.has(info))) continue;
+    if (isDeskClientOrderId(info, connId) || (info && taggedIds.has(info))) {
+      push(x);
+      continue;
+    }
+    if (!taggedSym.has(x.symbol)) continue;
+    const nearby = closes.some((o) => o.symbol === x.symbol && Math.abs((Number(o.time) || 0) - (Number(x.time) || 0)) < MATCH_MS);
+    if (nearby) push(x);
+  }
+
+  for (const o of closes) {
+    const v = Number(o.pnl) || 0;
+    if (!v) continue;
+    push({
+      symbol: o.symbol,
+      type: "REALIZED_PNL",
+      income: v,
+      info: o.info || o.id,
+      time: o.time,
+    });
+  }
+
+  const realized = realizedOf(pnl);
+  const series = [...pnl].map((x) => ({ t: x.time, v: x.income }));
+  realized.ddt = ddtFromSigned(series);
+  realized.mdd = mddFromSigned(series);
+  return { tagged, closes, pnl, realized };
+}
+
+export function systemProcessedNet(closedNet: number, openNet: number) {
+  const closed = Number.isFinite(closedNet) ? closedNet : 0;
+  const open = Number.isFinite(openNet) ? openNet : 0;
+  return { closedNet: closed, openNet: open, systemNet: closed + open };
 }
 
 /** Common SL/TP: farthest stop and farthest target among independent partials. */

@@ -7,6 +7,7 @@ import {
   LIVE_IDS,
   MIN_SIZE_RATIO,
   clientOrderKindOf,
+  filterDeskRealized,
   isDeskClientOrderId,
   makeClientOrderId,
   type AccountPing,
@@ -1313,20 +1314,24 @@ export async function fetchLiveExecutions(input: {
     }
   }
   const since = Number(input.since) || 0;
-  const ourTagged = orders.filter((o) => isDeskClientOrderId(o.info, input.connId));
-  const ourSym = new Set(ourTagged.map((o) => o.symbol).filter(Boolean));
-  const otherSym = new Set(
-    orders
-      .filter((o) => isDeskClientOrderId(o.info) && !isDeskClientOrderId(o.info, input.connId))
-      .map((o) => o.symbol)
-      .filter((s) => s && !ourSym.has(s)),
+  const desk = filterDeskRealized(
+    orders.map((o) => ({
+      id: o.id,
+      symbol: o.symbol,
+      side: o.side,
+      type: o.type,
+      status: o.status,
+      qty: o.qty,
+      px: o.px,
+      pnl: o.pnl,
+      time: o.time,
+      info: o.info,
+    })),
+    income,
+    input.connId,
+    since,
   );
-  const pnl = income.filter((x) => {
-    if (x.type !== "REALIZED_PNL") return false;
-    if (since && x.time < since) return false;
-    if (otherSym.has(x.symbol)) return false;
-    return true;
-  });
+  const pnl = desk.pnl;
   const wins = pnl.filter((x) => x.income > 0);
   const profit = wins.reduce((s, x) => s + x.income, 0);
   const loss = Math.abs(pnl.filter((x) => x.income < 0).reduce((s, x) => s + x.income, 0));
@@ -1365,16 +1370,22 @@ export async function fetchLiveExecutions(input: {
     .sort((a, b) => b.net - a.net);
   return {
     ok: true,
-    orders,
-    income,
+    orders: orders.filter((o) => isDeskClientOrderId(o.info, input.connId)),
+    income: pnl.map((x) => ({
+      symbol: x.symbol,
+      type: x.type,
+      income: x.income,
+      info: String(x.info || ""),
+      time: x.time,
+    })),
     realized: {
       n: pnl.length,
       wins: wins.length,
-      pf: Number.isFinite(pf) ? pf : 0,
+      pf: Number.isFinite(pf) ? pf : desk.realized.pf,
       wr: pnl.length ? wins.length / pnl.length : 0,
       net,
-      ddt: ddtFromSeries(pnl.map((x) => ({ t: x.time, v: x.income }))),
-      mdd,
+      ddt: desk.realized.ddt || ddtFromSeries(pnl.map((x) => ({ t: x.time, v: x.income }))),
+      mdd: mdd || desk.realized.mdd,
     },
     bySymbol,
     at: Date.now(),

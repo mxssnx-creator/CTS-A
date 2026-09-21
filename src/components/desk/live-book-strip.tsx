@@ -10,9 +10,11 @@ export function LiveBookStrip({ title }: { title?: string }) {
         <StatLine k="Equity" v={live.equity ? fmtEquity(live.equity) : "—"} tone={live.pingOk ? "up" : "neutral"} />
         <StatLine k="Live PF" v={fmtPf(live.pf)} tone={pfTone(live.pf)} />
         <StatLine k="Win rate" v={fmtWr(live.wr)} />
-        <StatLine k="Net" v={fmtUsd(live.net)} tone={live.net >= 0 ? "up" : "down"} />
-        <StatLine k="Positions" v={String(live.livePos)} />
+        <StatLine k="System Net" v={fmtUsd(live.systemNet)} tone={live.systemNet >= 0 ? "up" : "down"} />
+        <StatLine k="Closed / open" v={`${fmtUsd(live.closedNet)} / ${fmtUsd(live.openNet)}`} />
+        <StatLine k="Positions" v={String(live.liveOwned || live.livePos)} />
         <StatLine k="Orders" v={String(live.liveOrd)} />
+        <StatLine k="Foreign held" v={`${live.foreignPos}p / ${live.foreignOrd}o`} />
         <StatLine k="Leverage" v={live.liveLevMax ? `${Math.round(live.liveLevMin)}–${Math.round(live.liveLevMax)}x` : "max / contract"} />
         <StatLine k="Closed" v={String(live.trades)} />
         <StatLine

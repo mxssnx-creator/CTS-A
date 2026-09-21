@@ -113,7 +113,7 @@ export function SystemPanel({
           hint={liveSnap.hasLive ? `SL ${liveSnap.liveSl} · TP ${liveSnap.liveTp}` : `${snap.book.orders.filled}f · ${snap.book.orders.live} live`}
         />
         <Kpi label="SL / TP" value={`${liveSnap.hasLive ? liveSnap.liveSl : ledger.slExits} / ${liveSnap.hasLive ? liveSnap.liveTp : ledger.tpExits}`} hint={`streak ${ledger.winStreak}`} />
-        <Kpi label="Net" value={fmtUsd(liveSnap.hasLive ? liveSnap.net : st.net, 0)} tone={(liveSnap.hasLive ? liveSnap.net : st.net) >= 0 ? "up" : "down"} hint={fmtMdd(liveSnap.hasLive ? liveSnap.mdd : st.mdd)} />
+        <Kpi label="System Net" value={fmtUsd(liveSnap.hasLive ? liveSnap.systemNet : st.net, 0)} tone={(liveSnap.hasLive ? liveSnap.systemNet : st.net) >= 0 ? "up" : "down"} hint={liveSnap.hasLive ? `closed ${fmtUsd(liveSnap.closedNet)} · open ${fmtUsd(liveSnap.openNet)}` : fmtMdd(st.mdd)} />
       </div>
       {(() => {
         const rows = ((liveSnap.overall as { byIndication?: { key: string; n: number; pf: number; openN?: number }[] } | null)?.byIndication) ?? [];
@@ -161,7 +161,7 @@ export function SystemPanel({
         <StatLine k="Win rate" v={fmtWr(liveSnap.hasLive ? liveSnap.wr : st.wr)} />
         <StatLine k="Max DD" v={fmtMdd(liveSnap.hasLive ? liveSnap.mdd : st.mdd)} />
         <StatLine k="Peak equity" v={fmtUsd(liveSnap.hasLive && liveSnap.equity ? liveSnap.equity : ledger.peak, 0)} />
-        <StatLine k="Profit / loss" v={liveSnap.hasLive ? fmtUsd(liveSnap.net) : `${fmtUsd(ledger.profit)} / ${fmtUsd(ledger.loss)}`} />
+        <StatLine k="Profit / loss" v={liveSnap.hasLive ? fmtUsd(liveSnap.systemNet) : `${fmtUsd(ledger.profit)} / ${fmtUsd(ledger.loss)}`} />
         <StatLine k="Wins / trades" v={`${ledger.wins} / ${ledger.trades}`} />
         <StatLine k="Win streak" v={`${ledger.winStreak} · max ${ledger.maxWinStreak}`} />
         <StatLine k="Loss streak" v={`${ledger.lossStreak} · max ${ledger.maxLossStreak}`} />
