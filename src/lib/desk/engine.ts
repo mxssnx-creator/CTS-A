@@ -49,6 +49,28 @@ export {
   DEFAULT_SHORT_MIN_TP_ATR,
   DEFAULT_SHORT_MIN_SL_OF_TP,
 };
+export {
+  DEFAULT_INTERVAL_STRATEGY,
+  sanitizeIntervalStrategy,
+  INTERVAL_MINUTES_OPTIONS,
+  DEFAULT_INTERVAL_MINUTES,
+} from "./interval-strategy.ts";
+export {
+  DEFAULT_LAST_N_PROGRESS,
+  sanitizeLastNProgress,
+  EVAL_POS_NS,
+  VALID_EXEC_NS,
+  LIVE_DISABLE_NS,
+  decideLastN,
+  lastNWindows,
+} from "./last-n-progress.ts";
+import {
+  EVAL_POS_N,
+  VALID_EXEC_POS_N,
+  LIVE_DISABLE_N,
+  DEFAULT_LAST_N_PROGRESS,
+} from "./last-n-progress.ts";
+export { EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N };
 
 export const BARS = 240;
 export const WARMUP = 55;
@@ -363,7 +385,7 @@ export const T0 = 1_725_000_000_000;
 export const BAR_MS = 15 * 60 * 1000;
 
 export const COST_STEPS: number[] = Array.from({ length: 28 }, (_, i) => i + 3);
-export const LAST_N_OPTIONS = [3, 5, 10, 12, 15, 20, 50] as const;
+export const LAST_N_OPTIONS = [3, 5, 10, 12, 15, 20, 30, 50] as const;
 export type LastNChoice = (typeof LAST_N_OPTIONS)[number];
 
 /** Auto-eval historic stages (hours). */
@@ -380,9 +402,20 @@ export const STAGE_META: { id: StageId; hours: StageHour; label: string; blurb: 
   { id: "mid", hours: 8, label: "Mid", blurb: "8h mid-historic independent validate" },
   { id: "end", hours: 16, label: "End", blurb: "16h end-stage — PF avg of effective valids" },
 ];
-/** Automated last-N pos evals for lanes / live mirror. */
-export const LANE_EVAL_NS = [5, 10, 15] as const;
-export const LIVE_DISABLE_N = 12;
+/** Progress last-N primaries: eval 50 · valid-execute 15 · disable 12. Multi-range grids live in last-n-progress. */
+export const LIVE_EXEC_POS_N = VALID_EXEC_POS_N;
+export const LANE_EVAL_NS = [LIVE_DISABLE_N, VALID_EXEC_POS_N, EVAL_POS_N] as const;
+
+export const LAST_N_PROGRESS_META: { id: "eval" | "valid" | "disable"; n: number; label: string; blurb: string }[] = [
+  { id: "eval", n: EVAL_POS_N, label: "Eval", blurb: "Base last-N 15–80 step 5 (primary 50): PF evals of every lane / config." },
+  {
+    id: "valid",
+    n: VALID_EXEC_POS_N,
+    label: "Valid execute",
+    blurb: "Valid last-N 8–24 step 4 (primary 15): lane is valid to execute. Real counted and Live run from this set.",
+  },
+  { id: "disable", n: LIVE_DISABLE_N, label: "Disable", blurb: "Disable last-N 6–20 step 2 (primary 12): disable the lane if average result is negative." },
+];
 
 export const LAST_N_STAGE_META: { id: LastNStage; label: string; blurb: string; usedFor: string }[] = [
   {
@@ -423,14 +456,14 @@ export const LAST_N_STAGE_META: { id: LastNStage; label: string; blurb: string; 
   },
 ];
 
-export const DEFAULT_LAST_N: LastNChoice = 10;
+export const DEFAULT_LAST_N: LastNChoice = 15;
 export const DEFAULT_LAST_N_CONFIG: LastNConfig = {
-  picks: 10,
-  lanes: 10,
-  last: 10,
-  ongoing: 10,
-  next: 10,
-  combos: 10,
+  picks: 15,
+  lanes: 30,
+  last: 12,
+  ongoing: 15,
+  next: 15,
+  combos: 30,
 };
 
 export function clampLastN(n: number): LastNChoice {
@@ -556,15 +589,18 @@ export const DEFAULT_SHORT_PF = 0.95;
 export const DEFAULT_SHORT_BASE_PF = 0.7;
 export const DEFAULT_SHORT_AXIS_PF = 0.9;
 export const DEFAULT_SHORT_BLOCK_PF = 1.15;
-export const DEFAULT_BLOCK_VOLUME_RATIO = 0.1;
-export const DEFAULT_OVERALL_BLOCK_VOLUME_RATIO = 1;
-export const DEFAULT_SHARED_BLOCK_VOLUME_RATIO = 1;
+export const DEFAULT_BLOCK_VOLUME_RATIO = 0.2;
+export const DEFAULT_OVERALL_BLOCK_VOLUME_RATIO = 1.5;
+export const DEFAULT_SHARED_BLOCK_VOLUME_RATIO = 1.5;
+export const DEFAULT_MAX_VOLUME_MULTIPLIER = 2.5;
 export const BLOCK_VOLUME_RATIO_MIN = 0.1;
 export const BLOCK_VOLUME_RATIO_MAX = 1;
 export const BLOCK_SHARED_VOLUME_MAX = 3;
 export const BLOCK_SHARED_VOLUME_MIN = 0.4;
+export const BLOCK_MAX_VOLUME_MUL_MIN = 1.5;
+export const BLOCK_MAX_VOLUME_MUL_MAX = 3.5;
 
-/** Additive Block vol. 0.08 was Axis partials — reject; 0.1 is the live additive floor. */
+/** Additive Block vol. 0.08 was Axis partials — reject; 0.1 floor, live default 0.2. */
 export function clampBlockVol(n: unknown, fallback = DEFAULT_BLOCK_VOLUME_RATIO): number {
   const x = Number(n);
   if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return fallback;
@@ -575,9 +611,15 @@ export function clampSharedVol(n: unknown, fallback = DEFAULT_SHARED_BLOCK_VOLUM
   if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return fallback;
   return Math.min(BLOCK_SHARED_VOLUME_MAX, Math.max(BLOCK_SHARED_VOLUME_MIN, x));
 }
-/** Overall Block volume — same band as Shared (1.5 / 3.0), not the additive 0.1–1 cap. */
+/** Overall Block volume — same band as Shared (default 1.5, cap 3.0), not the additive 0.1–1 cap. */
 export function clampOverallVol(n: unknown, fallback = DEFAULT_OVERALL_BLOCK_VOLUME_RATIO): number {
   return clampSharedVol(n, fallback);
+}
+/** Hard ceiling on extra+base vs parent. Shared 1.5 ⇒ total ≤ 2.5× base. */
+export function clampMaxVolumeMul(n: unknown, fallback = DEFAULT_MAX_VOLUME_MULTIPLIER): number {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0) return fallback;
+  return Math.min(BLOCK_MAX_VOLUME_MUL_MAX, Math.max(BLOCK_MAX_VOLUME_MUL_MIN, x));
 }
 /** Extra Axis rungs: full size of the validated base qty (not 0.08). */
 export const AXIS_PARTIAL_RATIO = 1;
@@ -655,9 +697,9 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   volumeRatio: DEFAULT_BLOCK_VOLUME_RATIO,
   overallVolumeRatio: DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
   sharedVolumeRatio: DEFAULT_SHARED_BLOCK_VOLUME_RATIO,
-  maxVolumeMultiplier: 2.5,
-  pfRatio: 1.45,
-  pauseCountRatio: 0,
+  maxVolumeMultiplier: DEFAULT_MAX_VOLUME_MULTIPLIER,
+  pfRatio: 1.3,
+  pauseCountRatio: 1,
   evalPosCount: 6,
   activeLive: true,
   minActiveLevel: 1,
@@ -673,12 +715,15 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   relVolumeRatio: DEFAULT_BLOCK_VOLUME_RATIO,
   minRelPf: DEFAULT_BLOCK_PF,
   evalLastNs: [1, 2, 3, 4, 5, 6],
-  liveLastN: 12,
+  liveLastN: LIVE_DISABLE_N,
+  validExecN: VALID_EXEC_POS_N,
+  liveExecN: VALID_EXEC_POS_N,
   liveDisable: true,
   liveDisableMinPf: DEFAULT_BLOCK_PF,
   liveDisableMinSamples: 4,
   symbolEvalHours: 100,
   hourCoord: true,
+  lastNProgress: { ...DEFAULT_LAST_N_PROGRESS, evalNs: [...DEFAULT_LAST_N_PROGRESS.evalNs], validNs: [...DEFAULT_LAST_N_PROGRESS.validNs], disableNs: [...DEFAULT_LAST_N_PROGRESS.disableNs] },
 };
 
 /** Additive: each count uses `ratio`. Shared (old): extra/n when n>2. */
@@ -715,7 +760,7 @@ export function blockVolumeIncrement(count: number, volumeRatio: number) {
 export function blockMaxAdditionalRatio(
   maxStack: number,
   volumeRatio: number,
-  maxMultiplier = 2.25,
+  maxMultiplier = DEFAULT_MAX_VOLUME_MULTIPLIER,
   mode: "additive" | "shared" = "shared",
 ) {
   const inc = blockVolumeIncrement(maxStack, volumeRatio);
@@ -734,7 +779,7 @@ export function blockStepQty(
   baseQty: number,
   count: number,
   volumeRatio: number,
-  maxMultiplier = 2.25,
+  maxMultiplier = DEFAULT_MAX_VOLUME_MULTIPLIER,
   liveCount = 2,
   minQty = 0,
   mode: "additive" | "shared" = "shared",
@@ -1356,41 +1401,62 @@ export const INDICATION_CONFIGS: IndicationConfig[] = [
   { id: "trend-ema", kind: "trend", label: "Trend EMA 9/21", params: { adx: 16 } },
   { id: "trend-adx", kind: "trend", label: "Trend ADX 26", params: { adx: 26 } },
   { id: "trend-st", kind: "trend", label: "Trend Supertrend", params: { multiplier: 3 } },
+  { id: "trend-ribbon", kind: "trend", label: "Trend EMA ribbon 9/21/55", params: { adx: 14 } },
   { id: "break-vol", kind: "break", label: "Break volume 1.6×", params: { volMult: 1.45 } },
   { id: "break-atr", kind: "break", label: "Break ATR 1.15×", params: { atrMult: 1.15 } },
   { id: "break-hi", kind: "break", label: "Break 12-bar range", params: { lookback: 12 } },
+  { id: "break-close", kind: "break", label: "Break close+vol 16", params: { lookback: 16, volMult: 1.25 } },
+  { id: "break-retest", kind: "break", label: "Break retest hold", params: { lookback: 12 } },
+  { id: "break-fail", kind: "break", label: "Break failed fade", params: { lookback: 12 } },
+  { id: "break-squeeze", kind: "break", label: "Break squeeze expand", params: { lookback: 10, atrMult: 1.08 } },
+  { id: "break-nr", kind: "break", label: "Break NR7 expansion", params: { lookback: 7, atrMult: 1.1 } },
   { id: "active-hf", kind: "active", label: "Active high-freq", params: { lookback: 4, volMult: 1.08 } },
   { id: "active-range", kind: "active", label: "Active range shift", params: { lookback: 6, volMult: 1.02 } },
   { id: "active-burst", kind: "active", label: "Active burst", params: { lookback: 3, volMult: 1.25 } },
-  { id: "dir-cross", kind: "direction", label: "Dir EMA cross", params: { lookback: 5 } },
-  { id: "dir-st", kind: "direction", label: "Dir Supertrend flip", params: { lookback: 6 } },
-  { id: "dir-axis", kind: "direction", label: "Dir axis VWAP", params: { lookback: 5 } },
-  { id: "dir-macd", kind: "direction", label: "Dir MACD flip", params: { lookback: 5 } },
+  { id: "active-chop", kind: "active", label: "Active chop fade", params: { lookback: 5, volMult: 1.12 } },
+  { id: "dir-cross", kind: "direction", label: "Dir EMA cross", params: { lookback: 6 } },
+  { id: "dir-st", kind: "direction", label: "Dir Supertrend flip", params: { lookback: 8 } },
+  { id: "dir-axis", kind: "direction", label: "Dir axis VWAP", params: { lookback: 6 } },
+  { id: "dir-macd", kind: "direction", label: "Dir MACD flip", params: { lookback: 6 } },
+  { id: "dir-div", kind: "direction", label: "Dir RSI divergence", params: { lookback: 8 } },
+  { id: "dir-hold", kind: "direction", label: "Dir hold after flip", params: { lookback: 5 } },
+  { id: "dir-thrust", kind: "direction", label: "Dir 3-bar thrust", params: { lookback: 3 } },
+  { id: "dir-reclaim", kind: "direction", label: "Dir EMA21 reclaim", params: { lookback: 3 } },
   { id: "move-impulse", kind: "move", label: "Move impulse", params: { atrMult: 1.2, lookback: 4 } },
   { id: "move-swing", kind: "move", label: "Move swing 8", params: { atrMult: 1.05, lookback: 8 } },
+  { id: "move-cont", kind: "move", label: "Move continuation", params: { atrMult: 0.95, lookback: 3 } },
   { id: "rsi-ext", kind: "rsi", label: "RSI 14 extreme", params: { lo: 32, hi: 68 } },
   { id: "rsi-mid", kind: "rsi", label: "RSI 14 mid", params: { lo: 42, hi: 58 } },
+  { id: "rsi-div", kind: "rsi", label: "RSI divergence", params: { lo: 35, hi: 65 } },
   { id: "bb-bounce", kind: "bollinger", label: "Bollinger bounce", params: { lookback: 2 } },
   { id: "bb-squeeze", kind: "bollinger", label: "Bollinger squeeze", params: { lookback: 8 } },
+  { id: "bb-walk", kind: "bollinger", label: "Bollinger walk", params: { lookback: 4 } },
+  { id: "bb-mean", kind: "bollinger", label: "Bollinger mid reclaim", params: { lookback: 3 } },
+  { id: "bb-tag", kind: "bollinger", label: "Bollinger wick tag", params: { lookback: 2 } },
   { id: "sar-flip", kind: "sar", label: "SAR / Supertrend flip", params: { lookback: 4 } },
   { id: "sar-hold", kind: "sar", label: "SAR hold", params: { lookback: 6 } },
+  { id: "sar-trail", kind: "sar", label: "SAR trail with trend", params: { lookback: 8 } },
   { id: "macd-cross", kind: "macd", label: "MACD cross", params: { lookback: 4 } },
   { id: "macd-hist", kind: "macd", label: "MACD hist", params: { lookback: 3 } },
+  { id: "macd-zero", kind: "macd", label: "MACD zero-line", params: { lookback: 5 } },
   { id: "ema-fast", kind: "ema", label: "EMA 9/21", params: { lookback: 3 } },
   { id: "ema-slow", kind: "ema", label: "EMA 21/55", params: { lookback: 5 } },
+  { id: "ema-ribbon", kind: "ema", label: "EMA 9/21/55 ribbon", params: { lookback: 4 } },
+  { id: "ema-cross", kind: "ema", label: "EMA 9/21 cross", params: { lookback: 2 } },
+  { id: "ema-pull", kind: "ema", label: "EMA 21 pullback", params: { lookback: 3 } },
 ];
 
 export const INDICATION_KINDS: { id: IndicationId; label: string; blurb: string }[] = [
   { id: "trend", label: "Trend", blurb: "Independent trend indications on every lane" },
-  { id: "break", label: "Break", blurb: "Independent breakout indications on every lane" },
+  { id: "break", label: "Break", blurb: "Breakout: Donchian, volume, ATR, squeeze, NR7, retest, failed-break" },
   { id: "active", label: "Active", blurb: "High-frequency activity and ranging-change indications" },
-  { id: "direction", label: "Direction", blurb: "Direction-change tactics: EMA, Supertrend, VWAP axis, MACD" },
+  { id: "direction", label: "Direction", blurb: "Direction change: EMA/ST/VWAP/MACD flip, hold, 3-bar thrust, reclaim" },
   { id: "move", label: "Move", blurb: "Impulse / swing displacement vs ATR" },
   { id: "rsi", label: "RSI", blurb: "RSI extremes and mid-band mean reversion" },
-  { id: "bollinger", label: "Bollinger", blurb: "Band bounce and squeeze expansions" },
+  { id: "bollinger", label: "Bollinger", blurb: "Band bounce, wick-tag, mid reclaim, squeeze, walk" },
   { id: "sar", label: "SAR", blurb: "Parabolic / Supertrend flip and hold" },
   { id: "macd", label: "MACD", blurb: "MACD cross and histogram thrust" },
-  { id: "ema", label: "EMA", blurb: "Fast and slow EMA stack alignment" },
+  { id: "ema", label: "EMA", blurb: "9/21 cross, pullback-to-21, stack and ribbon" },
 ];
 
 function signalFor(id: string, candles: Candle[], ind: IndicatorPack): number[] {
@@ -1822,6 +1888,86 @@ function clampDir(n: number) {
   return clamp(n, -1, 1);
 }
 
+function rsiDivergence(pack: IndicatorPack, candles: Candle[], i: number, look: number): number {
+  const n = Math.max(4, look);
+  if (i < n + 1) return 0;
+  const rsiNow = pack.rsi14[i];
+  const rsiOld = pack.rsi14[i - n];
+  if (!finite(rsiNow) || !finite(rsiOld)) return 0;
+  const pxNow = candles[i]!.c;
+  const pxOld = candles[i - n]!.c;
+  if (pxNow < pxOld * 0.998 && rsiNow! > rsiOld! + 2) return 1;
+  if (pxNow > pxOld * 1.002 && rsiNow! < rsiOld! - 2) return -1;
+  return 0;
+}
+
+function emaSlope(pack: IndicatorPack, i: number, key: "ema9" | "ema21" | "ema55", bars = 3): number {
+  const a = pack[key][i];
+  const b = pack[key][Math.max(0, i - bars)];
+  if (!finite(a) || !finite(b) || Math.abs(b!) < 1e-12) return 0;
+  return (a! - b!) / b!;
+}
+
+function closeConviction(c: Candle): number {
+  const span = Math.max(c.h - c.l, 1e-12);
+  return (c.c - c.l) / span;
+}
+
+function rangeOf(candles: Candle[], i: number, look: number): { hi: number; lo: number } {
+  let hi = -Infinity;
+  let lo = Infinity;
+  const from = Math.max(0, i - look);
+  for (let k = from; k < i; k++) {
+    hi = Math.max(hi, candles[k]!.h);
+    lo = Math.min(lo, candles[k]!.l);
+  }
+  return { hi, lo };
+}
+
+function priorCompressed(candles: Candle[], i: number, look: number, atr: number): boolean {
+  const half = Math.max(4, Math.floor(look / 2));
+  const { hi, lo } = rangeOf(candles, Math.max(1, i - 1), half);
+  return atr > 0 && hi - lo < atr * 2.35;
+}
+
+function adxRising(pack: IndicatorPack, i: number, bars = 3): boolean {
+  const a = pack.adx[i];
+  const b = pack.adx[Math.max(0, i - bars)];
+  return finite(a) && finite(b) && a! > b! + 0.35;
+}
+
+/** Prior bar is the narrowest of the last n (NR7-style nested range). */
+function isNestedRange(candles: Candle[], i: number, n = 7): boolean {
+  if (i < n + 1) return false;
+  const prev = candles[i - 1]!;
+  const rng = prev.h - prev.l;
+  if (rng <= 1e-12) return false;
+  for (let k = i - n; k < i - 1; k++) {
+    if (candles[k]!.h - candles[k]!.l <= rng + 1e-12) return false;
+  }
+  return true;
+}
+
+/** Close held the broken Donchian after a recent through-bar (2–8 bars ago). */
+function retestHoldDir(candles: Candle[], i: number, look: number, atr: number): number {
+  if (i < look + 3) return 0;
+  const now = candles[i]!;
+  for (let k = i - 2; k >= i - 8 && k >= look; k--) {
+    const { hi, lo } = rangeOf(candles, k, look);
+    const ck = candles[k]!;
+    const brk = ck.c > hi ? 1 : ck.c < lo ? -1 : 0;
+    if (!brk) continue;
+    const level = brk === 1 ? hi : lo;
+    const hold =
+      brk === 1
+        ? now.c >= level - atr * 0.18 && now.l <= level + atr * 0.4 && now.c >= now.o
+        : now.c <= level + atr * 0.18 && now.h >= level - atr * 0.4 && now.c <= now.o;
+    const notChase = brk === 1 ? now.c < level + atr * 0.9 : now.c > level - atr * 0.9;
+    if (hold && notChase) return brk;
+  }
+  return 0;
+}
+
 export function processIndication(
   cfg: IndicationConfig,
   pack: IndicatorPack,
@@ -1853,37 +1999,129 @@ export function processIndication(
     }
     if (stUp && dir === 1) strength = Math.min(1, strength + 0.15);
     if (pack.stDir[i] === -1 && dir === -1) strength = Math.min(1, strength + 0.15);
+    if (cfg.id === "trend-ribbon" && finite(pack.ema9[i]) && finite(pack.ema21[i]) && finite(pack.ema55[i])) {
+      const stacked =
+        (pack.ema9[i]! > pack.ema21[i]! && pack.ema21[i]! > pack.ema55[i]!) ||
+        (pack.ema9[i]! < pack.ema21[i]! && pack.ema21[i]! < pack.ema55[i]!);
+      const slope = emaSlope(pack, i, "ema21", 3);
+      if (stacked && Math.abs(slope) > 0.00015) {
+        dir = slope > 0 ? 1 : -1;
+        strength = Math.min(1, 0.62 + Math.min(0.3, Math.abs(slope) * 80) + (adxOk ? 0.12 : 0));
+      } else {
+        dir = 0;
+        strength = 0;
+      }
+    }
+    const conv = closeConviction(c);
+    if (dir === 1 && conv < 0.35) strength *= 0.55;
+    if (dir === -1 && conv > 0.65) strength *= 0.55;
+    if (dir !== 0 && i >= 2 && Math.sign(candles[i]!.c - candles[i - 2]!.c) === dir) strength = Math.min(1, strength + 0.08);
   } else if (cfg.kind === "break") {
-    const volMult = cfg.params.volMult ?? 1.6;
-    const atrMult = cfg.params.atrMult ?? 1.15;
+    const volMult = cfg.params.volMult ?? 1.25;
+    const atrMult = cfg.params.atrMult ?? 1.12;
     const look = Math.max(6, Math.round(cfg.params.lookback ?? 12));
     const volOk = finite(pack.volSma[i]) && c.v > pack.volSma[i]! * volMult;
+    const volSoft = finite(pack.volSma[i]) && c.v > pack.volSma[i]! * Math.min(1.08, volMult * 0.82);
     const atr = Math.max(pack.atr[i] ?? 0, 1e-9);
     const barAtr = (c.h - c.l) / atr;
-    const expand = barAtr >= Math.max(1.08, atrMult * 0.9) || (pack.rangeChange[i] ?? 0) >= Math.max(1.08, atrMult * 0.9);
-    const closeDir = c.c >= c.o ? 1 : -1;
+    const expand = barAtr >= Math.max(1.02, atrMult * 0.82) || (pack.rangeChange[i] ?? 0) >= Math.max(1.04, atrMult * 0.85);
+    const conv = closeConviction(c);
+    const closeDir = conv >= 0.58 ? 1 : conv <= 0.42 ? -1 : c.c >= c.o ? 1 : -1;
     const ema = pack.ema21[i];
-    const withTrend = !finite(ema) || (closeDir > 0 ? c.c >= ema! * 0.999 : c.c <= ema! * 1.001);
-    if (cfg.id === "break-hi" && i >= look) {
-      let hi = -Infinity;
-      let lo = Infinity;
-      for (let k = i - look; k < i; k++) {
-        hi = Math.max(hi, candles[k]!.h);
-        lo = Math.min(lo, candles[k]!.l);
+    const withTrend = !finite(ema) || (closeDir > 0 ? c.c >= ema! * 0.997 : c.c <= ema! * 1.003);
+    const squeezed = priorCompressed(candles, i, look, atr);
+    const { hi, lo } = i >= look ? rangeOf(candles, i, look) : { hi: Infinity, lo: -Infinity };
+    const beyond = i >= look ? (c.c > hi ? 1 : c.c < lo ? -1 : 0) : 0;
+    const dist = beyond === 1 ? (c.c - hi) / atr : beyond === -1 ? (lo - c.c) / atr : 0;
+    const wickUp = i >= look && c.h > hi && c.c <= hi;
+    const wickDn = i >= look && c.l < lo && c.c >= lo;
+    const wickOnly = beyond === 0 && ((wickUp && conv < 0.55) || (wickDn && conv > 0.45));
+    const near =
+      i >= look &&
+      beyond === 0 &&
+      ((c.c > hi - atr * 0.22 && closeDir > 0 && conv >= 0.62) || (c.c < lo + atr * 0.22 && closeDir < 0 && conv <= 0.38));
+    const stAlign = (pack.stDir[i] ?? 0) === closeDir;
+    const slopeAlign = Math.sign(emaSlope(pack, i, "ema21", 2)) === closeDir;
+    const adx = pack.adx[i] ?? 0;
+    const plus = pack.plusDI[i];
+    const minus = pack.minusDI[i];
+    const diAlign =
+      finite(plus) && finite(minus) && ((closeDir > 0 && plus! > minus!) || (closeDir < 0 && minus! > plus!));
+    const adxUp = adxRising(pack, i);
+    const from12 = Math.max(0, i - 12);
+    const swing12 = from12 < i ? (c.c - candles[from12]!.c) / atr : 0;
+    const chasing = Math.abs(swing12) >= 2.85 && Math.sign(swing12) === closeDir && !squeezed;
+    const confirm = volOk || expand || squeezed || barAtr >= 1.06 || (volSoft && dist >= 0.08);
+    if (cfg.id === "break-fail") {
+      const failUp = wickUp && conv <= 0.42;
+      const failDn = wickDn && conv >= 0.58;
+      if ((failUp || failDn) && (volSoft || expand || barAtr >= 1.05)) {
+        dir = failUp ? -1 : 1;
+        strength = Math.min(1, 0.68 + (volOk ? 0.14 : 0.04) + (barAtr >= 1.2 ? 0.08 : 0));
       }
-      const beyond = c.c > hi ? 1 : c.c < lo ? -1 : 0;
-      if (beyond && withTrend && (volOk || expand || barAtr >= 1.05)) {
+    } else if (cfg.id === "break-retest") {
+      const rt = retestHoldDir(candles, i, look, atr);
+      if (rt !== 0 && !chasing && (volSoft || withTrend || squeezed)) {
+        const convOk = (rt === 1 && conv >= 0.48) || (rt === -1 && conv <= 0.52);
+        if (convOk) {
+          dir = rt;
+          strength = Math.min(1, 0.7 + (withTrend ? 0.08 : 0) + (stAlign ? 0.06 : 0) + (squeezed ? 0.06 : 0));
+        }
+      }
+    } else if (cfg.id === "break-squeeze") {
+      if (squeezed && expand && withTrend && (volSoft || barAtr >= 1.08) && !chasing) {
+        dir = beyond || closeDir;
+        strength = Math.min(1, 0.74 + (volOk ? 0.12 : 0) + (beyond ? 0.08 : 0) + (diAlign ? 0.06 : 0));
+      }
+    } else if (cfg.id === "break-nr") {
+      if (isNestedRange(candles, i, Math.max(5, Math.min(9, look))) && expand && (beyond || barAtr >= 1.1) && !chasing) {
+        dir = beyond || closeDir;
+        strength = Math.min(1, 0.72 + (volOk ? 0.12 : 0.04) + (squeezed ? 0.08 : 0) + (beyond ? 0.06 : 0));
+      }
+    } else if (wickOnly) {
+      dir = 0;
+      strength = 0;
+    } else if (cfg.id === "break-hi" || cfg.id === "break-close") {
+      const needConv = cfg.id === "break-close" ? 0.56 : 0.5;
+      const okClose = (beyond === 1 && conv >= needConv) || (beyond === -1 && conv <= 1 - needConv);
+      if (beyond && okClose && confirm && !chasing) {
         dir = beyond;
-        strength = volOk && expand ? 0.92 : 0.7;
+        strength = Math.min(
+          1,
+          (volOk && expand ? 0.9 : 0.66) +
+            (squeezed ? 0.12 : 0) +
+            (withTrend ? 0.06 : 0) +
+            (stAlign ? 0.04 : 0) +
+            Math.min(0.1, dist * 0.12),
+        );
+      } else if (near && (volOk || squeezed) && withTrend && !chasing) {
+        dir = closeDir;
+        strength = Math.min(1, 0.52 + (volOk ? 0.1 : 0) + (squeezed ? 0.08 : 0));
       }
     } else if (cfg.id === "break-vol") {
-      if (volOk && withTrend && (expand || barAtr >= 1.05)) {
-        dir = closeDir;
-        strength = expand ? 0.88 : 0.7;
+      const near8 = i >= 8 ? rangeOf(candles, i, 8) : { hi: Infinity, lo: -Infinity };
+      const thru = c.c > near8.hi ? 1 : c.c < near8.lo ? -1 : 0;
+      if (volOk && (thru || (expand && barAtr >= 1.06)) && !chasing) {
+        dir = thru || closeDir;
+        strength = Math.min(1, 0.7 + (expand ? 0.12 : 0) + (squeezed ? 0.1 : 0) + (withTrend ? 0.05 : 0));
       }
-    } else if (expand && withTrend) {
-      dir = closeDir;
-      strength = volOk ? 0.9 : 0.7;
+    } else {
+      /* break-atr: range expansion through EMA/ATR band */
+      const band = atr * Math.max(1.02, atrMult);
+      const thruAtr = finite(ema) && ((c.c > ema! + band && closeDir > 0) || (c.c < ema! - band && closeDir < 0));
+      if (((expand && withTrend && (volSoft || squeezed || barAtr >= 1.08)) || thruAtr) && !chasing) {
+        dir = closeDir;
+        strength = Math.min(1, (volOk ? 0.86 : 0.66) + (squeezed ? 0.1 : 0) + (thruAtr ? 0.08 : 0) + (diAlign ? 0.05 : 0));
+      }
+    }
+    if (dir !== 0) {
+      if (cfg.id !== "break-fail" && ((dir === 1 && conv < 0.45) || (dir === -1 && conv > 0.55))) strength *= 0.62;
+      if (slopeAlign) strength = Math.min(1, strength + 0.08);
+      if (squeezed && cfg.id !== "break-squeeze") strength = Math.min(1, strength + 0.06);
+      if (stAlign) strength = Math.min(1, strength + 0.04);
+      if (diAlign && adxUp) strength = Math.min(1, strength + 0.08);
+      if (adx >= 22 && diAlign) strength = Math.min(1, strength + 0.05);
+      if (Math.abs(swing12) >= 3.4 && Math.sign(swing12) === dir) strength *= 0.5;
     }
   } else if (cfg.kind === "active") {
     const look = Math.max(3, Math.round(cfg.params.lookback ?? 6));
@@ -1898,6 +2136,21 @@ export function processIndication(
       dir = c.c >= c.o ? 1 : -1;
       strength = Math.min(1, 0.35 + act * 0.28);
     }
+    if (cfg.id === "active-chop") {
+      const adx = pack.adx[i] ?? 0;
+      const rc = pack.rangeChange[i] ?? 0;
+      if (act >= 1.05 && adx < 22 && rc < 1.18) {
+        const mid = pack.bbMid[i];
+        if (finite(mid)) {
+          dir = c.c >= mid! ? -1 : 1;
+          strength = Math.min(1, 0.4 + act * 0.22);
+        }
+      } else {
+        dir = 0;
+        strength = 0;
+      }
+    }
+    if (dir !== 0 && (pack.rangeChange[i] ?? 0) > 1.35 && cfg.id !== "active-burst") strength *= 0.45;
   } else if (cfg.kind === "direction" && i > 0) {
     const look = Math.max(2, Math.round(cfg.params.lookback ?? 8));
     const signAt = (k: number): number => {
@@ -1911,30 +2164,118 @@ export function processIndication(
       const e21 = pack.ema21[k];
       return finite(e9) && finite(e21) ? Math.sign(e9! - e21!) : 0;
     };
-    for (let k = i; k > i - look && k > 0; k--) {
-      const now = signAt(k);
-      const was = signAt(k - 1);
-      if (now !== 0 && now !== was) {
-        dir = now;
-        const age = i - k;
-        const base = cfg.id === "dir-st" ? 0.85 : cfg.id === "dir-axis" ? 0.8 : cfg.id === "dir-macd" ? 0.78 : 0.75;
-        strength = base * (1 - age / look);
-        break;
+    const maxAge = cfg.id === "dir-st" ? 3 : cfg.id === "dir-hold" ? 4 : 2;
+    if (cfg.id === "dir-thrust" && i >= 3) {
+      const a = candles[i - 2]!.c;
+      const b = candles[i - 1]!.c;
+      const prev = candles[i - 3]!.c;
+      const up = c.c > b && b > a && c.c >= c.o;
+      const dn = c.c < b && b < a && c.c <= c.o;
+      const fresh = (up && prev >= a) || (dn && prev <= a);
+      const volOk = finite(pack.volSma[i]) && c.v > pack.volSma[i]! * 0.92;
+      const bar = (c.h - c.l) / Math.max(pack.atr[i] ?? 1e-9, 1e-9);
+      if (fresh && (volOk || bar >= 1.05)) {
+        dir = up ? 1 : -1;
+        strength = Math.min(1, 0.64 + Math.min(0.24, bar * 0.12) + (volOk ? 0.08 : 0));
+      }
+    } else if (cfg.id === "dir-reclaim" && finite(pack.ema21[i]) && finite(pack.ema21[i - 1])) {
+      const e = pack.ema21[i]!;
+      const prev = candles[i - 1]!;
+      const conv = closeConviction(c);
+      if (prev.c <= e && c.c > e && conv >= 0.46) {
+        dir = 1;
+        strength = 0.8;
+      } else if (prev.c >= e && c.c < e && conv <= 0.54) {
+        dir = -1;
+        strength = 0.8;
+      }
+    } else if (cfg.id === "dir-div") {
+      const div = rsiDivergence(pack, candles, i, look);
+      if (div !== 0) {
+        dir = div;
+        strength = Math.min(1, 0.7 + Math.abs(pack.rsi14[i] ?? 50) / 400);
+      }
+    } else {
+      let flipK = -1;
+      for (let k = i; k > i - look && k > 0; k--) {
+        const now = signAt(k);
+        const was = signAt(k - 1);
+        if (now !== 0 && now !== was) {
+          flipK = k;
+          break;
+        }
+      }
+      if (flipK > 0) {
+        const age = i - flipK;
+        const now = signAt(i) || signAt(flipK);
+        if (cfg.id === "dir-hold") {
+          if (age >= 1 && age <= maxAge && now === signAt(flipK) && now !== 0 && (pack.activity[i] ?? 0) >= 0.88) {
+            dir = now;
+            strength = 0.78 * (1 - age / 8);
+          }
+        } else if (age <= maxAge && now !== 0) {
+          dir = now;
+          const base = cfg.id === "dir-st" ? 0.86 : cfg.id === "dir-axis" ? 0.8 : cfg.id === "dir-macd" ? 0.78 : 0.76;
+          strength = base * (1 - age / Math.max(4, look));
+          if (cfg.id === "dir-axis" && finite(pack.vwap[i]) && finite(pack.atr[i])) {
+            if (Math.abs(c.c - pack.vwap[i]!) < pack.atr[i]! * 0.07) {
+              dir = 0;
+              strength = 0;
+            }
+          }
+        }
       }
     }
-    if (dir !== 0 && (pack.activity[i] ?? 0) >= 1.1) strength = Math.min(1, strength + 0.12);
+    if (dir !== 0 && cfg.id !== "dir-div") {
+      const conv = closeConviction(c);
+      const convOk = (dir === 1 && conv >= 0.44) || (dir === -1 && conv <= 0.56);
+      const volOk = finite(pack.volSma[i]) && c.v > pack.volSma[i]! * 0.88;
+      const actOk = (pack.activity[i] ?? 0) >= 0.82;
+      const adx = pack.adx[i] ?? 0;
+      const trendDir = finite(pack.ema21[i]) && finite(pack.ema55[i]) ? Math.sign(pack.ema21[i]! - pack.ema55[i]!) : 0;
+      if (!convOk && !volOk && !actOk) {
+        dir = 0;
+        strength = 0;
+      } else if (!convOk) {
+        strength *= 0.62;
+      } else if (adx > 28 && trendDir !== 0 && dir !== trendDir) {
+        strength *= 0.45;
+      } else if ((pack.activity[i] ?? 0) >= 1.05) {
+        strength = Math.min(1, strength + 0.12);
+      }
+    }
   } else if (cfg.kind === "move") {
     const atr = Math.max(pack.atr[i] ?? 0, 1e-9);
     const bar = (c.h - c.l) / atr;
     const look = Math.max(2, Math.round(cfg.params.lookback ?? 4));
     const atrMult = cfg.params.atrMult ?? 1.2;
-    let swing = 0;
     const from = Math.max(0, i - look);
-    if (from < i) swing = Math.abs(c.c - candles[from]!.c) / atr;
-    if (bar >= atrMult || swing >= atrMult) {
+    const swing = from < i ? Math.abs(c.c - candles[from]!.c) / atr : 0;
+    const from12 = Math.max(0, i - 12);
+    const swing12 = from12 < i ? (c.c - candles[from12]!.c) / atr : 0;
+    const volOk = finite(pack.volSma[i]) && c.v > pack.volSma[i]! * 1.05;
+    const conv = closeConviction(c);
+    const emaDir = finite(pack.ema9[i]) && finite(pack.ema21[i]) ? Math.sign(pack.ema9[i]! - pack.ema21[i]!) : 0;
+    const slopeDir = Math.sign(emaSlope(pack, i, "ema21", 3));
+    if (cfg.id === "move-cont") {
+      if (emaDir !== 0 && (bar >= atrMult * 0.9 || swing >= atrMult * 0.9) && Math.sign(c.c - c.o) === emaDir && (volOk || bar >= atrMult)) {
+        dir = emaDir;
+        strength = Math.min(1, 0.52 + Math.max(bar, swing) * 0.18);
+      }
+    } else if (bar >= atrMult || swing >= atrMult) {
       dir = c.c >= (from < i ? candles[from]!.c : c.o) ? 1 : -1;
-      strength = Math.min(1, 0.45 + Math.max(bar, swing) * 0.22);
+      const exhausted = Math.abs(swing12) >= 2.5 && Math.sign(swing12) === dir && bar < atrMult * 1.15;
+      const convOk = (dir === 1 && conv >= 0.55) || (dir === -1 && conv <= 0.45);
+      const withTrend = emaDir === 0 || emaDir === dir || slopeDir === dir;
+      if (exhausted || !convOk || (!volOk && bar < atrMult * 1.15) || !withTrend) {
+        dir = 0;
+        strength = 0;
+      } else {
+        strength = Math.min(1, 0.48 + Math.max(bar, swing) * 0.2 + (volOk ? 0.08 : 0));
+      }
     }
+    if (dir !== 0 && slopeDir === dir) strength = Math.min(1, strength + 0.1);
+    if (dir !== 0 && Math.abs(swing12) >= 3.2 && Math.sign(swing12) === dir) strength *= 0.45;
   } else if (cfg.kind === "rsi") {
     const rsi = pack.rsi14[i];
     const lo = cfg.params.lo ?? 32;
@@ -1948,37 +2289,136 @@ export function processIndication(
         strength = Math.min(1, (rsi! - hi) / 18 + 0.45);
       }
     }
+    if (cfg.id === "rsi-mid") {
+      const prev = i > 0 ? pack.rsi14[i - 1] : undefined;
+      if (finite(rsi) && finite(prev)) {
+        if (prev! < 38 && rsi! > 42 && rsi! < 55) {
+          dir = 1;
+          strength = 0.7;
+        } else if (prev! > 62 && rsi! < 58 && rsi! > 45) {
+          dir = -1;
+          strength = 0.7;
+        } else {
+          dir = 0;
+          strength = 0;
+        }
+      } else {
+        dir = 0;
+        strength = 0;
+      }
+    }
+    if (cfg.id === "rsi-div") {
+      const div = rsiDivergence(pack, candles, i, 8);
+      if (div !== 0) {
+        dir = div;
+        strength = Math.min(1, 0.72 + (finite(rsi) ? Math.abs(50 - rsi!) / 80 : 0));
+      } else {
+        dir = 0;
+        strength = 0;
+      }
+    }
+    if (dir !== 0) {
+      const adx = pack.adx[i] ?? 0;
+      if (adx > 28 && cfg.id !== "rsi-div") {
+        const trendDir = finite(pack.ema21[i]) && finite(pack.ema55[i]) ? Math.sign(pack.ema21[i]! - pack.ema55[i]!) : 0;
+        if (trendDir !== 0 && dir !== trendDir) strength *= 0.35;
+      }
+      const conv = closeConviction(c);
+      if ((dir === 1 && conv < 0.45) || (dir === -1 && conv > 0.55)) strength *= 0.5;
+    }
   } else if (cfg.kind === "bollinger") {
     const mid = pack.bbMid[i];
     const up = pack.bbUpper[i];
     const lo = pack.bbLower[i];
     if (finite(mid) && finite(up) && finite(lo) && up! > lo!) {
       const width = (up! - lo!) / Math.max(mid!, 1e-9);
-      if (cfg.id === "bb-squeeze" && width < 0.012 && (pack.rangeChange[i] ?? 0) > 1) {
-        dir = c.c >= c.o ? 1 : -1;
-        strength = 0.72;
-      } else if (c.c <= lo!) {
-        dir = 1;
-        strength = 0.8;
-      } else if (c.c >= up!) {
-        dir = -1;
-        strength = 0.8;
+      const conv = closeConviction(c);
+      const adx = pack.adx[i] ?? 0;
+      const volOk = finite(pack.volSma[i]) && c.v > pack.volSma[i]! * 0.98;
+      const emaDir = finite(pack.ema9[i]) && finite(pack.ema21[i]) ? Math.sign(pack.ema9[i]! - pack.ema21[i]!) : 0;
+      const prev = i > 0 ? candles[i - 1]! : c;
+      if (cfg.id === "bb-squeeze" && width < 0.018 && (pack.rangeChange[i] ?? 0) > 0.98) {
+        const beyond = c.c >= mid! ? 1 : -1;
+        const convOk = (beyond === 1 && conv >= 0.5) || (beyond === -1 && conv <= 0.5);
+        if ((volOk || (pack.rangeChange[i] ?? 0) > 1.08) && convOk) {
+          dir = beyond;
+          strength = 0.72 + (volOk ? 0.08 : 0);
+        }
+      } else if (cfg.id === "bb-walk") {
+        if (c.c >= up! * 0.997 && (emaDir >= 0 || conv >= 0.55)) {
+          dir = 1;
+          strength = 0.76;
+        } else if (c.c <= lo! * 1.003 && (emaDir <= 0 || conv <= 0.45)) {
+          dir = -1;
+          strength = 0.76;
+        }
+      } else if (cfg.id === "bb-mean") {
+        const crossedUp = prev.c <= mid! && c.c > mid! && conv >= 0.5;
+        const crossedDn = prev.c >= mid! && c.c < mid! && conv <= 0.5;
+        if (crossedUp) {
+          dir = 1;
+          strength = 0.74 + (emaDir > 0 ? 0.1 : 0);
+        } else if (crossedDn) {
+          dir = -1;
+          strength = 0.74 + (emaDir < 0 ? 0.1 : 0);
+        }
+      } else if (cfg.id === "bb-tag") {
+        const tagLo = c.l <= lo! * 1.002 && c.c > lo! && conv >= 0.48;
+        const tagUp = c.h >= up! * 0.998 && c.c < up! && conv <= 0.52;
+        if (tagLo && adx < 30) {
+          dir = 1;
+          strength = 0.8 + (volOk ? 0.06 : 0);
+        } else if (tagUp && adx < 30) {
+          dir = -1;
+          strength = 0.8 + (volOk ? 0.06 : 0);
+        }
+      } else if (cfg.id === "bb-bounce" && adx < 28) {
+        const nearLo = c.l <= lo! * 1.002 || c.c <= lo! * 1.003;
+        const nearUp = c.h >= up! * 0.998 || c.c >= up! * 0.997;
+        if (nearLo && conv >= 0.48) {
+          dir = 1;
+          strength = 0.78;
+        } else if (nearUp && conv <= 0.52) {
+          dir = -1;
+          strength = 0.78;
+        }
+        if (dir !== 0 && ((dir === 1 && conv < 0.48) || (dir === -1 && conv > 0.52))) strength *= 0.6;
+      }
+      if (dir !== 0 && (cfg.id === "bb-bounce" || cfg.id === "bb-tag") && adx >= 22 && emaDir !== 0 && dir !== emaDir) {
+        dir = 0;
+        strength = 0;
       }
     }
   } else if (cfg.kind === "sar") {
     const look = Math.max(2, Math.round(cfg.params.lookback ?? 4));
     const now = pack.stDir[i] ?? 0;
     const was = i >= look ? pack.stDir[i - look] ?? 0 : 0;
-    if (cfg.id === "sar-hold" && now !== 0) {
-      dir = now;
-      strength = now === was ? 0.7 : 0.5;
-    } else if (now !== 0 && now !== was) {
-      dir = now;
-      strength = 0.88;
+    const prev = i > 0 ? pack.stDir[i - 1] ?? 0 : 0;
+    const emaDir = finite(pack.ema9[i]) && finite(pack.ema21[i]) ? Math.sign(pack.ema9[i]! - pack.ema21[i]!) : 0;
+    const adx = pack.adx[i] ?? 0;
+    const conv = closeConviction(c);
+    const volOk = finite(pack.volSma[i]) && c.v > pack.volSma[i]! * 1.02;
+    if (cfg.id === "sar-hold") {
+      if (now !== 0 && now === was && now === prev && (emaDir === 0 || emaDir === now) && adx >= 16) {
+        dir = now;
+        strength = Math.min(1, 0.62 + (adx >= 22 ? 0.12 : 0) + (volOk ? 0.08 : 0));
+      }
+    } else if (cfg.id === "sar-trail") {
+      if (now !== 0 && emaDir === now && adx >= 14) {
+        dir = now;
+        strength = now === was ? 0.82 : 0.68;
+      }
+    } else if (now !== 0 && now !== prev && (volOk || adx >= 18)) {
+      const convOk = (now === 1 && conv >= 0.52) || (now === -1 && conv <= 0.48);
+      if (convOk) {
+        dir = now;
+        strength = 0.88;
+      }
     }
   } else if (cfg.kind === "macd") {
     const hist = pack.macdHist[i] ?? 0;
-    if (cfg.id === "macd-hist" && Math.abs(hist) > 0) {
+    const prevHist = i > 0 ? pack.macdHist[i - 1] ?? 0 : 0;
+    if (cfg.id === "macd-hist" && Math.abs(hist) > 0 && Math.abs(hist) >= Math.abs(prevHist) * 0.85) {
       dir = Math.sign(hist);
       strength = Math.min(1, 0.5 + Math.abs(hist) * 4);
     } else if (i > 0 && crossUp(pack.macd, pack.macdSignal, i)) {
@@ -1988,18 +2428,76 @@ export function processIndication(
       dir = -1;
       strength = 0.82;
     }
+    if (cfg.id === "macd-zero" && i > 0) {
+      const line = pack.macd[i] ?? 0;
+      if (prevHist <= 0 && hist > 0 && line > 0) {
+        dir = 1;
+        strength = 0.8;
+      } else if (prevHist >= 0 && hist < 0 && line < 0) {
+        dir = -1;
+        strength = 0.8;
+      } else {
+        dir = 0;
+        strength = 0;
+      }
+    }
+    if (dir !== 0 && i > 0) {
+      if (Math.sign(hist - prevHist) === dir) strength = Math.min(1, strength + 0.1);
+    }
   } else if (cfg.kind === "ema") {
     const e9 = pack.ema9[i];
     const e21 = pack.ema21[i];
     const e55 = pack.ema55[i];
-    if (cfg.id === "ema-slow" && finite(e21) && finite(e55)) {
-      dir = e21! > e55! ? 1 : -1;
-      strength = 0.7;
-    } else if (finite(e9) && finite(e21)) {
-      dir = e9! > e21! ? 1 : -1;
-      strength = 0.74;
-      if (finite(e55) && Math.sign(e9! - e21!) === Math.sign(e21! - e55!)) strength = 0.88;
+    const adx = pack.adx[i] ?? 0;
+    const slope = emaSlope(pack, i, "ema21", 3);
+    const slope9 = emaSlope(pack, i, "ema9", 2);
+    const conv = closeConviction(c);
+    const volOk = finite(pack.volSma[i]) && c.v > pack.volSma[i]! * 0.95;
+    if (cfg.id === "ema-cross" && finite(e9) && finite(e21) && i > 0) {
+      if (crossUp(pack.ema9, pack.ema21, i) && conv >= 0.48) {
+        dir = 1;
+        strength = 0.82 + (adx >= 14 ? 0.08 : 0) + (volOk ? 0.06 : 0);
+      } else if (crossDn(pack.ema9, pack.ema21, i) && conv <= 0.52) {
+        dir = -1;
+        strength = 0.82 + (adx >= 14 ? 0.08 : 0) + (volOk ? 0.06 : 0);
+      }
+    } else if (cfg.id === "ema-pull" && finite(e9) && finite(e21)) {
+      const raw = e9! > e21! ? 1 : -1;
+      const stacked = finite(e55) && Math.sign(e9! - e21!) === Math.sign(e21! - e55!);
+      const tagged =
+        raw === 1
+          ? c.l <= e21! * 1.0015 && c.c >= e21! && conv >= 0.5
+          : c.h >= e21! * 0.9985 && c.c <= e21! && conv <= 0.5;
+      if (tagged && (stacked || Math.sign(slope) === raw) && adx >= 10) {
+        dir = raw;
+        strength = 0.8 + (stacked ? 0.08 : 0) + (volOk ? 0.06 : 0);
+      }
+    } else if (cfg.id === "ema-slow" && finite(e21) && finite(e55)) {
+      const stacked = (e21! > e55! && slope > 0) || (e21! < e55! && slope < 0);
+      if (stacked && adx >= 12 && Math.abs(slope) > 0.00007) {
+        dir = e21! > e55! ? 1 : -1;
+        strength = Math.min(1, 0.62 + (adx >= 20 ? 0.12 : 0) + Math.min(0.16, Math.abs(slope) * 80));
+      }
+    } else if (cfg.id === "ema-ribbon" && finite(e9) && finite(e21) && finite(e55)) {
+      const stackedUp = e9! > e21! && e21! > e55!;
+      const stackedDn = e9! < e21! && e21! < e55!;
+      if (stackedUp && slope > 0 && adx >= 12) {
+        dir = 1;
+        strength = 0.88;
+      } else if (stackedDn && slope < 0 && adx >= 12) {
+        dir = -1;
+        strength = 0.88;
+      }
+    } else if (cfg.id !== "ema-cross" && cfg.id !== "ema-pull" && finite(e9) && finite(e21)) {
+      const stacked = finite(e55) && Math.sign(e9! - e21!) === Math.sign(e21! - e55!);
+      const raw = e9! > e21! ? 1 : -1;
+      const slopeOk = Math.abs(slope) > 0.00007 && Math.sign(slope) === raw;
+      if (adx >= 13 && slopeOk && (stacked || Math.abs(slope9) > 0.00012)) {
+        dir = raw;
+        strength = stacked ? 0.84 : 0.68;
+      }
     }
+    if (dir !== 0 && ((dir === 1 && conv < 0.38) || (dir === -1 && conv > 0.62))) strength *= 0.58;
   }
   return { configId: cfg.id, kind: cfg.kind, dir, strength, activity };
 }
@@ -2023,10 +2521,11 @@ export function summarizeIndications(hits: IndicationHit[]): IndicationSummary {
   };
   let activity = 0;
   for (const h of hits) {
+    activity += h.activity;
+    if (h.dir === 0 || !(h.strength > 0)) continue;
     by[h.kind].w += h.dir * h.strength;
     by[h.kind].s += h.strength;
     by[h.kind].n += 1;
-    activity += h.activity;
   }
   const trend = by.trend.s ? clampDir(by.trend.w / by.trend.s) : 0;
   const brk = by.break.s ? clampDir(by.break.w / by.break.s) : 0;
@@ -2107,14 +2606,131 @@ const EMPTY_IND: IndicationSummary = {
 const IND_CACHE: Record<string, IndicationSummary> = {};
 const LIVE_IND: Record<string, IndicationSummary> = {};
 
-function mixInd(a: number, b: number, w = 0.82) {
+type TickSnap = { px: number; hi: number; lo: number; atr: number; vol: number; vol1h: number; axis: number; chg: number };
+const TICK_RING: Record<string, TickSnap[]> = {};
+const TICK_RING_MAX = 72;
+
+export function resetIndicationHistory(symbol?: string) {
+  if (symbol) delete TICK_RING[symbol];
+  else for (const k of Object.keys(TICK_RING)) delete TICK_RING[k];
+}
+
+export function indicationRingDepth(symbol?: string): number {
+  if (!symbol) return 0;
+  return TICK_RING[symbol]?.length ?? 0;
+}
+
+function pushTick(id: string, q: { px: number; hi: number; lo: number; atr: number; vol: number; axis: number; chg: number; vol1h?: number }): TickSnap[] {
+  const arr = TICK_RING[id] ?? (TICK_RING[id] = []);
+  const px = Math.max(q.px, 1e-9);
+  const last = arr[arr.length - 1];
+  if (last && Math.abs(last.px / px - 1) > 0.25) arr.length = 0;
+  arr.push({
+    px,
+    hi: q.hi,
+    lo: q.lo,
+    atr: Math.max(q.atr, px * 0.0008, 1e-9),
+    vol: Math.max(0, Number(q.vol) || 0),
+    vol1h: Math.max(0, Number(q.vol1h) || 0),
+    axis: q.axis || px,
+    chg: Number.isFinite(q.chg) ? q.chg : 0,
+  });
+  if (arr.length > TICK_RING_MAX) arr.shift();
+  return arr;
+}
+
+function emaLast(closes: number[], period: number): number {
+  if (!closes.length) return 0;
+  const k = 2 / (period + 1);
+  let e = closes[0]!;
+  for (let i = 1; i < closes.length; i++) e = closes[i]! * k + e * (1 - k);
+  return e;
+}
+
+function rsiLast(closes: number[], period = 14): number {
+  if (closes.length < period + 1) return 50;
+  let g = 0;
+  let l = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const d = closes[i]! - closes[i - 1]!;
+    if (d > 0) g += d;
+    else l -= d;
+  }
+  if (l < 1e-12) return 100;
+  return 100 - 100 / (1 + g / l);
+}
+
+function stdevOf(xs: number[]): number {
+  if (xs.length < 2) return 0;
+  const m = xs.reduce((s, x) => s + x, 0) / xs.length;
+  let v = 0;
+  for (const x of xs) v += (x - m) * (x - m);
+  return Math.sqrt(v / (xs.length - 1));
+}
+
+function mixInd(a: number, b: number, w = 0.88) {
   return clampDir(a * w + b * (1 - w));
 }
 
-/** Live tape → independent trend / break / active / direction scores. */
+function retN(closes: number[], n: number): number {
+  if (closes.length <= n) return 0;
+  const a = closes[closes.length - 1 - n]!;
+  if (Math.abs(a) < 1e-12) return 0;
+  return (closes[closes.length - 1]! - a) / a;
+}
+
+/** Quality 0–1.6: gates weak extras so they don't arm unless the setup is real. */
+export function indicationQuality(id: IndicationId, pack: IndicationSummary): number {
+  const mag = Math.abs((pack as unknown as Record<string, number>)[id] ?? 0);
+  const signed = Number((pack as unknown as Record<string, number>)[id] ?? 0);
+  const agree = pack.agree ? 0.16 : 0;
+  const rel = 0.35 * Math.min(1.4, Math.max(0, pack.activity)) +
+    0.25 * Math.min(1, Math.abs(pack.lastPart ?? 0)) +
+    0.2 * (1 - Math.min(1, Math.max(0, pack.drawdown ?? 0))) +
+    0.2 * Math.min(1, Math.abs(pack.prevRel ?? 0));
+  let q = mag * 0.72 + agree + rel * 0.18;
+  const trendAlign = Math.abs(pack.trend) >= 0.18 && Math.sign(signed || 0) === Math.sign(pack.trend || 0);
+  if (id === "trend") q *= 1.18;
+  if (id === "break") {
+    q *= mag >= 0.24 ? 1.28 : mag >= 0.16 ? 1.08 : mag >= 0.1 ? 0.7 : 0.34;
+    if (pack.activity >= 1.02 && mag >= 0.14) q *= 1.08;
+    if (pack.agree && mag >= 0.16) q *= 1.06;
+  }
+  if (id === "active") q *= pack.activity >= 1.0 && mag >= 0.18 && Math.abs(pack.break) < 0.72 ? 1.08 : 0.42;
+  if (id === "direction") q *= mag >= 0.2 ? (mag >= 0.34 ? 1.14 : 0.9) : mag >= 0.1 ? 0.58 : 0.26;
+  if (id === "move") q *= mag >= 0.4 && trendAlign && (pack.drawdown ?? 0) < 0.32 ? 1.12 : 0.16;
+  if (id === "rsi") q *= mag >= 0.55 && Math.abs(pack.trend) < 0.38 ? 1.08 : 0.18;
+  if (id === "bollinger") q *= mag >= 0.26 ? (mag >= 0.42 ? 1.16 : 0.92) : mag >= 0.14 ? 0.62 : 0.28;
+  if (id === "ema") q *= mag >= 0.26 && (trendAlign || mag >= 0.38) ? 1.18 : mag >= 0.16 ? 0.7 : 0.26;
+  if (id === "macd") q *= mag >= 0.5 && trendAlign && pack.agree ? 1.08 : 0.14;
+  if (id === "sar") q *= mag >= 0.58 && trendAlign && Math.abs(pack.direction) >= 0.2 ? 1.1 : 0.12;
+  return clamp(q, 0, 1.6);
+}
+
+export const INDICATION_QUALITY_FLOOR = 0.34;
+
+export const INDICATION_QUALITY_FLOORS: Record<IndicationId, number> = {
+  trend: 0.32,
+  break: 0.36,
+  active: 0.3,
+  direction: 0.32,
+  move: 0.58,
+  rsi: 0.55,
+  bollinger: 0.34,
+  sar: 0.62,
+  macd: 0.58,
+  ema: 0.36,
+};
+
+export function indicationQualityFloor(id: IndicationId): number {
+  return INDICATION_QUALITY_FLOORS[id] ?? INDICATION_QUALITY_FLOOR;
+}
+
+/** Live tape → independent trend / break / active / direction + extras from rolling ticks. */
 export function indicationFromQuote(
   q: { px: number; hi: number; lo: number; atr: number; vol: number; axis: number; chg: number; vol1h?: number },
   desk?: IndicationSummary | null,
+  symbol?: string,
 ): IndicationSummary {
   const px = Math.max(q.px, 1e-9);
   const atr = Math.max(q.atr, px * 0.0008, 1e-9);
@@ -2129,34 +2745,171 @@ export function indicationFromQuote(
   const trendM = (aligned ? 0.95 : 0.18) * Math.min(1, Math.abs(chg) * 100 + axisDist * 0.14);
   const breakM = Math.min(
     1,
-    Math.max(0, span - 1.15) * 0.95 +
-      (span > 1.2 ? Math.max(0, Math.abs(chg) * 70 - 0.08) : 0) +
-      (vol1h > 0.018 && span > 1.15 ? 0.3 : 0),
+    Math.max(0, span - 1.05) * 0.95 +
+      (span > 1.12 ? Math.max(0, Math.abs(chg) * 80 - 0.05) : 0) +
+      (vol1h > 0.014 && span > 1.08 ? 0.28 : 0) +
+      (span > 1.35 && Math.abs(chg) > 0.004 ? 0.18 : 0),
   );
   const activeM = Math.min(1, pulse * 28 + (span < 1.22 && pulse > 0.01 ? 0.4 : 0) + (Math.abs(chg) < 0.0035 && pulse > 0.012 ? 0.25 : 0));
-  const dirM = (!aligned ? 1.05 : 0.16) * Math.min(1, Math.abs(chg) * 105 + axisDist * 0.22);
+  const dirM = (!aligned ? 1.12 : 0.28) * Math.min(1, Math.abs(chg) * 115 + axisDist * 0.28);
   let trend = clampDir(side * trendM);
   let brk = clampDir(side * breakM);
   let active = clampDir(side * activeM);
   let direction = clampDir(side * dirM);
+  let move = clampDir(side * Math.min(1, Math.max(0, span - 0.9) * 0.7 + Math.abs(chg) * 40));
+  let rsi = clampDir(chg < -0.004 ? 0.7 : chg > 0.004 ? -0.7 : -chg * 80);
+  let bollinger = clampDir(px <= (q.lo || px) + atr * 0.15 ? 0.75 : px >= (q.hi || px) - atr * 0.15 ? -0.75 : 0);
+  let sar = clampDir(side * (aligned ? 0.72 : 0.28));
+  let macd = clampDir(side * Math.min(1, Math.abs(chg) * 90 + (aligned ? 0.2 : 0)));
+  let ema = clampDir(side * Math.min(1, axisDist * 0.35 + Math.abs(chg) * 50));
+  let lastPart = clampDir(side * Math.min(1, Math.abs(chg) * 80 + span * 0.12));
+  let drawdown = clamp(Math.max(0, axisDist - 0.4) / 2.2, 0, 1);
+  let prevRel = clampDir((desk?.direction ?? 0) * 0.55 + direction * 0.45);
+
+  const ring = symbol ? pushTick(symbol, q) : [];
+  if (ring.length >= 8) {
+    const closes = ring.map((t) => t.px);
+    const e9 = emaLast(closes, 9);
+    const e21 = emaLast(closes, 21);
+    const e55 = emaLast(closes, Math.min(55, closes.length - 1));
+    const rsiV = rsiLast(closes, 14);
+    const fast = emaLast(closes, 12);
+    const slow = emaLast(closes, 26);
+    const macdLine = fast - slow;
+    const prevCloses = closes.slice(0, -1);
+    const prevMacd = prevCloses.length >= 12 ? emaLast(prevCloses, 12) - emaLast(prevCloses, 26) : 0;
+    const macdHist = macdLine - prevMacd * 0.8;
+    const bbN = Math.min(20, closes.length);
+    const bbSlice = closes.slice(-bbN);
+    const bbMid = bbSlice.reduce((s, x) => s + x, 0) / bbSlice.length;
+    const bbSd = stdevOf(bbSlice);
+    const bbUp = bbMid + 2 * bbSd;
+    const bbLo = bbMid - 2 * bbSd;
+    const stacked = (e9 > e21 && e21 > e55) || (e9 < e21 && e21 < e55);
+    const emaDir = Math.sign(e9 - e21) || side;
+    const r3 = retN(closes, 3);
+    const r6 = retN(closes, 6);
+    const r12 = retN(closes, Math.min(12, closes.length - 1));
+    const peak = Math.max(...closes.slice(-12));
+    const ddRing = peak > 0 ? Math.max(0, (peak - px) / peak) : 0;
+    const last = ring[ring.length - 1]!;
+    const volNow = last.vol1h || last.vol;
+    const volAvg = ring.slice(-12, -1).reduce((s, t) => s + (t.vol1h || t.vol), 0) / Math.max(1, Math.min(11, ring.length - 1));
+    const volX = volAvg > 0 ? volNow / volAvg : 1;
+    const barAtr = (last.hi - last.lo) / Math.max(last.atr, atr, 1e-9);
+    let brkDir = 0;
+    let brkMag = 0;
+    for (const look of [6, 8, 12, 16, 20, 24]) {
+      if (ring.length < look + 2) continue;
+      const prior = ring.slice(ring.length - look - 1, ring.length - 1);
+      const hiN = Math.max(...prior.map((t) => t.hi));
+      const loN = Math.min(...prior.map((t) => t.lo));
+      const spanPrior = (hiN - loN) / Math.max(atr, 1e-9);
+      const squeezed = spanPrior < 2.45;
+      const closePos = (last.px - last.lo) / Math.max(last.hi - last.lo, 1e-12);
+      const up = last.px > hiN && closePos >= 0.5;
+      const dn = last.px < loN && closePos <= 0.5;
+      const failUp = last.hi > hiN && last.px < hiN && closePos < 0.4;
+      const failDn = last.lo < loN && last.px > loN && closePos > 0.6;
+      const expanding = barAtr >= 1.1 && (volX > 1.02 || squeezed);
+      if (!up && !dn) {
+        if (failUp || failDn) {
+          const dir = failUp ? -1 : 1;
+          const mag = Math.min(1, 0.5 + (volX > 1.05 ? 0.16 : 0.06) + (barAtr >= 1.15 ? 0.1 : 0));
+          if (mag > brkMag) {
+            brkDir = dir;
+            brkMag = mag;
+          }
+        } else if (squeezed && expanding && Math.abs(r3) > 0.002) {
+          const dir = Math.sign(r3) || side;
+          const mag = Math.min(1, 0.44 + barAtr * 0.14 + (volX > 1.08 ? 0.16 : 0.06));
+          if (mag > brkMag) {
+            brkDir = dir;
+            brkMag = mag;
+          }
+        }
+        continue;
+      }
+      const dir = up ? 1 : -1;
+      const dist = (up ? last.px - hiN : loN - last.px) / Math.max(atr, 1e-9);
+      if (dist < 0.04) continue;
+      const chasing = Math.abs(r3) > 0.012 && Math.sign(r3) === dir && dist > 0.85 && !squeezed && volX < 1.02;
+      if (chasing) continue;
+      if (!(volX > 1.02 || squeezed || barAtr >= 1.06 || dist >= 0.12)) continue;
+      const mag = Math.min(
+        1,
+        0.46 + dist * 0.38 + (volX > 1.06 ? 0.2 : 0.06) + (squeezed ? 0.16 : 0) + (barAtr >= 1.1 ? 0.12 : 0),
+      );
+      if (mag > brkMag) {
+        brkDir = dir;
+        brkMag = mag;
+      }
+    }
+    const richTrend = clampDir(emaDir * (stacked ? 0.85 : 0.45) * (aligned ? 1.1 : 0.55));
+    const richBreak = brkDir !== 0 ? clampDir(brkDir * Math.max(0.35, brkMag)) : 0;
+    const richActive = span < 1.2 && pulse > 0.012 ? clampDir(side * Math.min(1, pulse * 24)) : clampDir(side * pulse * 8);
+    const prevE9 = prevCloses.length >= 9 ? emaLast(prevCloses, 9) : e9;
+    const prevE21 = prevCloses.length >= 21 ? emaLast(prevCloses, 21) : e21;
+    const prevEmaDir = Math.sign(prevE9 - prevE21) || emaDir;
+    const flipped = Math.sign(r3) !== 0 && Math.sign(r6) !== 0 && Math.sign(r3) !== Math.sign(r6);
+    const r12Flip = Math.sign(r3) !== 0 && Math.sign(r12) !== 0 && Math.sign(r3) !== Math.sign(r12);
+    const emaFlip = prevEmaDir !== 0 && emaDir !== 0 && prevEmaDir !== emaDir;
+    const thrust = Math.sign(r3) !== 0 && Math.sign(r3) === Math.sign(r6) && Math.abs(r3) > 0.0018 && Math.abs(r3) >= Math.abs(r6) * 0.4;
+    let richDir = 0;
+    if (flipped && Math.abs(r3) > 0.0016) richDir = clampDir(Math.sign(r3) * Math.min(1, 0.68 + Math.abs(r3) * 42));
+    else if (emaFlip && Math.abs(r3) > 0.0012) richDir = clampDir(emaDir * 0.8);
+    else if (r12Flip && Math.abs(r3) > 0.0018) richDir = clampDir(Math.sign(r3) * 0.66);
+    else if (thrust) richDir = clampDir(Math.sign(r3) * Math.min(1, 0.52 + Math.abs(r3) * 32));
+    const exhausted = Math.abs(r12) > 0.016 && Math.abs(r3) < Math.abs(r12) * 0.4;
+    const moveCont = Math.sign(r3) !== 0 && Math.sign(r3) === Math.sign(r6);
+    const richMove = moveCont && Math.abs(r3) > 0.0032 && !exhausted && (volX > 1.02 || barAtr >= 1.05)
+      ? clampDir(Math.sign(r3) * Math.min(1, Math.abs(r3) * 58 + (volX > 1.08 ? 0.18 : 0) + span * 0.08))
+      : 0;
+    const richRsi = rsiV <= 28 ? 0.82 : rsiV >= 72 ? -0.82 : 0;
+    const richBb = stacked && ((px >= bbUp * 0.998 && emaDir > 0) || (px <= bbLo * 1.002 && emaDir < 0))
+      ? clampDir(emaDir * 0.7)
+      : px <= bbLo && Math.abs(r6) < 0.004
+        ? 0.72
+        : px >= bbUp && Math.abs(r6) < 0.004
+          ? -0.72
+          : 0;
+    const sarFlip = prevEmaDir !== 0 && emaDir !== 0 && prevEmaDir !== emaDir;
+    const richSar = sarFlip && (volX > 1.02 || barAtr >= 1.05) ? clampDir(emaDir * 0.88) : 0;
+    const macdThrust = Math.abs(macdHist) / Math.max(atr, 1e-9) > 0.12 && Math.sign(macdHist) === emaDir;
+    const richMacd = macdThrust ? clampDir(Math.sign(macdHist) * Math.min(1, 0.5 + Math.abs(macdHist) / Math.max(atr, 1e-9) * 0.45)) : 0;
+    const slopeOk = Math.abs(r6) > 0.0024 && Math.sign(r6) === emaDir && Math.abs(r3) > 0.001;
+    const richEma = stacked && slopeOk && emaDir !== 0 ? clampDir(emaDir * 0.86) : 0;
+    const w = 0.58;
+    trend = mixInd(richTrend, trend, w);
+    brk = brkDir !== 0 ? mixInd(richBreak, brk, 0.8) : mixInd(brk, 0, span > 1.18 ? 0.92 : 0.72);
+    active = mixInd(richActive, active, w);
+    direction = richDir !== 0 ? mixInd(richDir, direction, 0.78) : mixInd(direction, 0, 0.62);
+    move = richMove !== 0 ? mixInd(richMove, move, 0.72) : mixInd(0, move, 0.85);
+    rsi = mixInd(richRsi, rsi, w);
+    bollinger = mixInd(richBb, bollinger, w);
+    sar = richSar !== 0 ? mixInd(richSar, sar, 0.7) : mixInd(0, sar, 0.82);
+    macd = mixInd(richMacd, macd, w);
+    ema = richEma !== 0 ? mixInd(richEma, ema, 0.72) : mixInd(0, ema, 0.85);
+    lastPart = mixInd(clampDir(r3 * 40), lastPart, 0.7);
+    drawdown = clamp(ddRing * 0.65 + drawdown * 0.35, 0, 1);
+    prevRel = mixInd(clampDir(Math.sign(r6) === Math.sign(r12) ? Math.sign(r6) * 0.7 : Math.sign(r3) * 0.4), prevRel, 0.65);
+  }
+
   if (desk) {
     trend = mixInd(trend, desk.trend);
     brk = mixInd(brk, desk.break);
     active = mixInd(active, desk.active);
     direction = mixInd(direction, desk.direction);
+    move = mixInd(move, desk.move ?? 0);
+    rsi = mixInd(rsi, desk.rsi ?? 0);
+    bollinger = mixInd(bollinger, desk.bollinger ?? 0);
+    sar = mixInd(sar, desk.sar ?? 0);
+    macd = mixInd(macd, desk.macd ?? 0);
+    ema = mixInd(ema, desk.ema ?? 0);
   }
   const signed = [trend, brk, active, direction].filter((x) => Math.abs(x) > 0.12);
   const agree = signed.length >= 2 && signed.every((x) => Math.sign(x) === Math.sign(signed[0]!));
   const activity = clamp(vol * 10 + vol1h * 8 + Math.min(1.4, span * 0.35), 0, 2);
-  const lastPart = clampDir(side * Math.min(1, Math.abs(chg) * 80 + span * 0.12));
-  const drawdown = clamp(Math.max(0, axisDist - 0.4) / 2.2, 0, 1);
-  const prevRel = clampDir((desk?.direction ?? 0) * 0.55 + direction * 0.45);
-  const move = clampDir(side * Math.min(1, Math.max(0, span - 0.9) * 0.7 + Math.abs(chg) * 40));
-  const rsi = clampDir(chg < -0.004 ? 0.7 : chg > 0.004 ? -0.7 : -chg * 80);
-  const bollinger = clampDir(px <= (q.lo || px) + atr * 0.15 ? 0.75 : px >= (q.hi || px) - atr * 0.15 ? -0.75 : 0);
-  const sar = clampDir(side * (aligned ? 0.72 : 0.28));
-  const macd = clampDir(side * Math.min(1, Math.abs(chg) * 90 + (aligned ? 0.2 : 0)));
-  const ema = clampDir(side * Math.min(1, axisDist * 0.35 + Math.abs(chg) * 50));
   return {
     trend,
     break: brk,
@@ -2195,7 +2948,7 @@ export function refreshLiveIndications(quotes: Record<string, { id: string; px: 
   let n = 0;
   for (const q of Object.values(quotes)) {
     if (!q?.id || !(q.px > 0)) continue;
-    LIVE_IND[q.id] = indicationFromQuote(q, null);
+    LIVE_IND[q.id] = indicationFromQuote(q, LIVE_IND[q.id], q.id);
     n += 1;
   }
   return n;

@@ -117,12 +117,36 @@ export function ResultsView() {
       avgNotional?: number;
     }[];
   } | null>(null);
+  const [blockSweep, setBlockSweep] = useState<{
+    hours?: number;
+    symbols?: number;
+    startEquity?: number;
+    winner?: string;
+    cells?: {
+      label: string;
+      pf: number;
+      wr: number;
+      net: number;
+      trades: number;
+      mdd: number;
+      ddt?: number;
+      avgBlock?: number;
+      avgPos?: number;
+      placed?: number;
+    }[];
+  } | null>(null);
   useEffect(() => {
     let live = true;
     fetch("/sim-72h-1usd.json")
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (live) setPaper(j);
+      })
+      .catch(() => {});
+    fetch("/sim-24h-80-block.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (live) setBlockSweep(j);
       })
       .catch(() => {});
     return () => {
@@ -339,6 +363,46 @@ export function ResultsView() {
           Live {liveSnap.venueLabel} executions, independent indication and strategy stats, PF / DDT, and config matrix.
         </p>
       </div>
+      {blockSweep?.cells?.length ? (
+        <Panel title={`Block reccoordinate · 24h × ${blockSweep.symbols ?? 80} · $${blockSweep.startEquity ?? 10}`}>
+          <p className="text-sm text-muted">
+            Complete computing · all indications · hourly line-by-line. Winner {blockSweep.winner ?? "—"}.{" "}
+            <a className="text-primary underline-offset-2 hover:underline" href="/sim-24h-80-block.html" target="_blank" rel="noreferrer">
+              Detailed HTML
+            </a>
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-widest text-subtle">
+                  <th className="py-2 pr-3">Config</th>
+                  <th className="py-2 pr-3">PF</th>
+                  <th className="py-2 pr-3">WR</th>
+                  <th className="py-2 pr-3">N</th>
+                  <th className="py-2 pr-3">Net</th>
+                  <th className="py-2 pr-3">MDD</th>
+                  <th className="py-2 pr-3">DDT</th>
+                  <th className="py-2">Avg blk</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...blockSweep.cells].sort((a, b) => b.pf - a.pf).map((c) => (
+                  <tr key={c.label} className="border-t border-border">
+                    <td className="py-2 pr-3 font-medium">{c.label}</td>
+                    <td className={`py-2 pr-3 font-mono tabular ${c.pf >= 1 ? "text-up" : "text-down"}`}>{fmtPf(c.pf)}</td>
+                    <td className="py-2 pr-3 font-mono tabular">{fmtWr(c.wr)}</td>
+                    <td className="py-2 pr-3 font-mono tabular">{c.trades}</td>
+                    <td className={`py-2 pr-3 font-mono tabular ${c.net >= 0 ? "text-up" : "text-down"}`}>{fmtUsd(c.net)}</td>
+                    <td className="py-2 pr-3 font-mono tabular">{fmtMdd(c.mdd)}</td>
+                    <td className="py-2 pr-3 font-mono tabular">{fmtNum(c.ddt ?? 0, 0)}</td>
+                    <td className="py-2 font-mono tabular">{fmtNum(c.avgBlock ?? 0, 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      ) : null}
       {paper?.cells?.length ? (
         <Panel title={`Paper 72h × ${paper.symbols ?? 120} · $${paper.equity ?? 1} · min volume`}>
           <p className="text-sm text-muted">

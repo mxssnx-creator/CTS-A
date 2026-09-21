@@ -276,9 +276,9 @@ export interface BlockConfig {
   sets?: boolean;
   counts: number[];
   volumeRatio: number;
-  /** Overall Block (all positions, independent of lanes). Default 1. */
+  /** Overall Block (all positions, independent of lanes). Default 1.5. */
   overallVolumeRatio?: number;
-  /** Shared (old split) volume ratio. Default 1. */
+  /** Shared (old split) volume ratio. Default 1.5. */
   sharedVolumeRatio?: number;
   /** Extra Overall layer per symbol (independent of book Overall). Default true. */
   overallSymbol?: boolean;
@@ -286,6 +286,7 @@ export interface BlockConfig {
   overallDirection?: boolean;
   /** Shared Overall: stack book+symbol+dir additively (default) vs split one cap. */
   overallSharedStack?: "additive" | "split";
+  /** Extra+base ceiling vs parent. Default 2.5 (shared extra 1.5). */
   maxVolumeMultiplier: number;
   pfRatio: number;
   pauseCountRatio: number;
@@ -313,6 +314,11 @@ export interface BlockConfig {
   minRelPf?: number;
   evalLastNs?: number[];
   liveLastN?: number;
+  /** Progress last-N that must pass PF before a lane is valid to execute. Default 15. Real counted + Live run from this set. */
+  validExecN?: number;
+  /** @deprecated alias of validExecN */
+  liveExecN?: number;
+  lastNProgress?: LastNProgressConfig;
   liveDisable?: boolean;
   liveDisableMinPf?: number;
   liveDisableMinSamples?: number;
@@ -541,6 +547,41 @@ export interface ShortProgressConfig {
   evalHours?: number;
   /** Only keep PF≥1 and net>0 cells. Default true. */
   evalPositiveOnly?: boolean;
+}
+
+export type LastNPassMode = "independent" | "combined" | "parallel";
+
+/** Multi last-N progress: Base eval 15–80 / Valid 8–24 / Disable 6–20. Independent, combined, or both (parallel stack). */
+export interface LastNProgressConfig {
+  evalNs: number[];
+  validNs: number[];
+  disableNs: number[];
+  mode: LastNPassMode;
+  parallelStack: boolean;
+  parallelVolRatio: number;
+}
+
+/** 20-min (configurable) interval strategy: Block volume scale + relation evals. Never a halt. */
+export interface IntervalStrategyConfig {
+  enabled: boolean;
+  /** Window length in minutes (10–60). 1 tick = 1 minute. Default 20. */
+  minutes: number;
+  /** Scale Block volume from last-interval PF. Default true. */
+  scaleVol: boolean;
+  /** Re-score Block relations from last-interval PF. Default true. */
+  scoreRelations: boolean;
+  /** Recalc Block relations every interval on live/complete. Default true. */
+  evalOnCadence: boolean;
+  minScale: number;
+  maxScale: number;
+  leanPf: number;
+  cutPf: number;
+  histWindows: number;
+  stableGreen: number;
+  redCut: number;
+  relationHaircut: number;
+  relationBoost: number;
+  relationKeepPf: number;
 }
 
 export interface LastNConfig {
@@ -860,6 +901,23 @@ export interface SimReport {
     notional?: number;
     blockOrd?: number;
   }[];
+  intervals?: {
+    m: number;
+    minutes: number;
+    net: number;
+    trades: number;
+    eq: number;
+    pf?: number;
+    hourPf?: number;
+    hourProfit?: number;
+    hourLoss?: number;
+    mtm?: number;
+    wr?: number;
+    mdd?: number;
+    ddt?: number;
+    pos?: number;
+    netCum?: number;
+  }[];
   avgR: number;
   rHist: { bin: string; n: number }[];
   book: BookCounts;
@@ -873,6 +931,24 @@ export interface SimReport {
   startEquity?: number;
   costStep?: number;
   unitNotional?: number;
+  lastN?: {
+    eval: { n: number; pf: number; net: number; avg: number };
+    valid: { n: number; pf: number; net: number; avg: number };
+    /** @deprecated alias of valid — progress valid-execute, not live exchange */
+    exec?: { n: number; pf: number; net: number; avg: number };
+    disable: { n: number; pf: number; net: number; avg: number };
+    byIndication?: Record<
+      string,
+      {
+        eval: { n: number; pf: number; net: number; avg: number };
+        valid: { n: number; pf: number; net: number; avg: number };
+        exec?: { n: number; pf: number; net: number; avg: number };
+        disable: { n: number; pf: number; net: number; avg: number };
+      }
+    >;
+  };
+  liveGated?: { n: number; of?: number; pf?: number; avg?: number; net?: number };
+  disabled?: string[];
 }
 
 export interface HorizonMark {
@@ -1019,6 +1095,42 @@ export interface HourCoord {
   at: number;
 }
 
+export interface ProgressEvalRow {
+  n: number;
+  pf: number;
+  net: number;
+  ok: boolean;
+}
+
+/** Engine-progress PF validation of last-N types, Block types, indications, tactics, ranges. */
+export interface ProgressEval {
+  at: number;
+  lastNMode: LastNPassMode;
+  lastNModes: Record<LastNPassMode, { pass: boolean; pf: number }>;
+  evalNs: Record<string, ProgressEvalRow>;
+  validNs: Record<string, ProgressEvalRow>;
+  disableNs: Record<string, ProgressEvalRow>;
+  blockCounts: Record<string, ProgressEvalRow>;
+  volumeModes: Record<string, ProgressEvalRow>;
+  overallModes: Record<string, ProgressEvalRow>;
+  indications: Record<string, ProgressEvalRow>;
+  tactics: Record<string, ProgressEvalRow>;
+  ranges: Record<string, ProgressEvalRow>;
+  playbooks: Record<string, ProgressEvalRow>;
+}
+
+export interface LosingHourState {
+  red: boolean;
+  net: number;
+  pf: number;
+  n: number;
+  greenPlays: string[];
+  greenInds: string[];
+  stayPlays: Record<string, { redH: number; greenH: number }>;
+  stayInds: Record<string, { redH: number; greenH: number }>;
+  at: number;
+}
+
 export interface VstEngine {
   quotes: Record<string, VstQuote>;
   queue: LiveOrder[];
@@ -1057,6 +1169,11 @@ export interface VstEngine {
   blockRelBest?: Record<string, { key: string; n: number; pf: number; net: number; vol: number; major: boolean }>;
   lastRelEvalTick?: number;
   relVolumeFactor?: number;
+  /** 20m PF → Block volume scale (0.4–1.2). Never a halt. */
+  intervalVolScale?: number;
+  intervalPf?: number;
+  /** Last completed hour: which strategies stayed green while the hour was red. */
+  losingHour?: LosingHourState;
   liveDisabled?: Record<string, { pf: number; n: number; at: number }>;
   liveHealth?: { n: number; at: number; disabled: string[]; kept: string[] };
   indRangeBest?: Partial<Record<IndicationId, RangeType>>;
@@ -1074,8 +1191,13 @@ export interface VstEngine {
   shortAxisPf?: number;
   shortBlockPf?: number;
   shortProgress?: ShortProgressConfig;
+  intervalStrategy?: IntervalStrategyConfig;
+  lastNProgress?: LastNProgressConfig;
+  progressEval?: ProgressEval;
   /** Paper-only: arm every indication × config independently (thousands of orders). */
   completeSim?: boolean;
+  /** Pre-historic eval finished — valid-execute (last 15) and disable (last 12) gates apply. Real counted + Live run from valid. */
+  preEvalDone?: boolean;
   liveTape?: boolean;
   shortRange?: boolean;
   strategyToggles?: StrategyToggles;

@@ -5,6 +5,7 @@ import {
   combosFiltered,
   DEFAULT_THRESHOLDS,
   equitySeries,
+  LAST_N_PROGRESS_META,
   RANGE_META,
   TACTIC_META,
 } from "@/lib/desk/engine";
@@ -380,9 +381,9 @@ export function PerformanceView() {
       {stageEval ? (
         <Panel title="Stage eval · pre / mid / end">
           <p className="mb-3 text-sm text-muted">
-            Full historic compute at {stageEval.hours.join("/")}h. Last-N {stageEval.lastNs.join("/")} pos evals
-            run independently on every lane. End-stage PF average is only effective (active + valid) processings.
-            {stageEval.mirrored ? " Mirrored to live exchange execution." : " Live book held until end passes."}
+            Full historic compute at {stageEval.hours.join("/")}h. Progress last-N {stageEval.lastNs.join("/")} pos evals
+            run independently on every lane (Eval {LAST_N_PROGRESS_META[0]?.n ?? 50} · Valid execute {LAST_N_PROGRESS_META[1]?.n ?? 15} · Disable {LAST_N_PROGRESS_META[2]?.n ?? 12}). End-stage PF average is only effective (active + valid) processings.
+            {stageEval.mirrored ? " Mirrored to Real counted and Live exchange from Valid." : " Live book held until end passes."}
           </p>
           <div className="flex flex-wrap gap-2">
             {stageEval.stages.map((s) => (
@@ -398,7 +399,7 @@ export function PerformanceView() {
           <div className="mt-3 flex flex-wrap gap-2">
             {stageEval.liveNs.map((r) => (
               <Pill key={r.n} tone={r.ok ? "up" : "neutral"}>
-                Live N{r.n} PF {r.pf.toFixed(2)} · {r.trades}
+                Tape N{r.n} PF {r.pf.toFixed(2)} · {r.trades}
               </Pill>
             ))}
             {stageEval.coords

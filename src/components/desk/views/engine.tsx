@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Pause, Play, RotateCcw, Square } from "lucide-react";
+import { LAST_N_PROGRESS_META } from "@/lib/desk/engine";
 import { VST_MAX_SYMBOLS, universeSymbols } from "@/lib/desk/vst";
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
@@ -216,6 +217,21 @@ export function EngineView() {
               v={`${sim.book.orders.placed} · ${sim.book.orders.filled}f ${sim.book.orders.cancelled}x ${sim.book.orders.rejected}r`}
             />
           </div>
+          {sim.lastN ? (
+            <div className="mt-3 grid grid-cols-2 gap-x-6 sm:grid-cols-3">
+              {LAST_N_PROGRESS_META.map((st) => {
+                const snap = st.id === "eval" ? sim.lastN?.eval : st.id === "valid" ? sim.lastN?.valid ?? sim.lastN?.exec : sim.lastN?.disable;
+                return (
+                  <StatLine
+                    key={st.id}
+                    k={`${st.label} N${st.n}`}
+                    v={`PF ${fmtPf(snap?.pf ?? 0)} · n ${snap?.n ?? 0}`}
+                    tone={pfTone(snap?.pf ?? 0)}
+                  />
+                );
+              })}
+            </div>
+          ) : null}
           {sim.issues.length ? (
             <ul className="mt-3 list-disc px-4 text-sm text-down">
               {sim.issues.map((msg, i) => (

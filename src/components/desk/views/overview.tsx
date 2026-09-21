@@ -6,6 +6,7 @@ import {
   coordinate,
   DESK,
   heatmapForDesk,
+  LAST_N_PROGRESS_META,
   posSliceStats,
   STRATEGIES,
   TACTIC_META,
@@ -146,6 +147,26 @@ export function OverviewView() {
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
       <SessionProgress book={book} />
+
+      <Panel title="Progress last-N">
+        <p className="text-sm text-muted">
+          Eval → Valid execute → Disable. Real counted and Live exchange run from Valid — not from the tape Last-N table.
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
+          {LAST_N_PROGRESS_META.map((st) => {
+            const b = overall.lastN?.[String(st.n)];
+            return (
+              <Kpi
+                key={st.id}
+                label={`${st.label} N${st.n}`}
+                value={fmtPf(b?.pf ?? 0)}
+                tone={pfTone(b?.pf ?? 0)}
+                hint={`${b?.n ?? 0} closes`}
+              />
+            );
+          })}
+        </div>
+      </Panel>
 
       <Panel title="Overall last positions">
         <p className="text-sm text-muted">

@@ -26,6 +26,11 @@ import type {
   BlockPosWindow,
   SymbolHourRow,
   HourCoord,
+  IntervalStrategyConfig,
+  LastNProgressConfig,
+  LastNPassMode,
+  ProgressEval,
+  ProgressEvalRow,
 } from "./types.ts";
 import {
   DEFAULT_BLOCK_CONFIG,
@@ -48,6 +53,8 @@ import {
   blockStepQty,
   positionNotional,
   RANGE_TYPES,
+  TACTICS,
+  INDICATION_KINDS,
   snapTpRatio,
   snapSlAtr,
   profitFactor,
@@ -61,7 +68,9 @@ import {
   DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
   clampSharedVol,
   clampOverallVol,
+  clampMaxVolumeMul,
   DEFAULT_SHARED_BLOCK_VOLUME_RATIO,
+  DEFAULT_MAX_VOLUME_MULTIPLIER,
   clampAxisPartial,
   trailStopFromPeak,
   symbolIndications,
@@ -71,8 +80,18 @@ import {
   SHORT_EVAL_HOURS,
   SYMBOL_EVAL_HOURS,
   SYMBOL_HOUR_WINDOWS,
+  EVAL_POS_N,
+  VALID_EXEC_POS_N,
+  LIVE_DISABLE_N,
   sanitizeShortProgress,
   SHORT_PROGRESS_INDICATIONS,
+  sanitizeIntervalStrategy,
+  sanitizeLastNProgress,
+  decideLastN,
+  lastNWindows,
+  indicationQuality,
+  indicationQualityFloor,
+  indicationRingDepth,
 } from "./engine.ts";
 
 const DEFAULT_CFG: TacticConfig = {
@@ -101,6 +120,20 @@ export const VST_RATE_WINDOW = 100;
 export const VST_TICK_MS = 400;
 export const VST_MINUTES_PER_TICK = 1;
 export const TICKS_PER_HOUR = 60;
+export const INTERVAL_MINUTES = 20;
+export const TICKS_PER_INTERVAL = INTERVAL_MINUTES;
+
+export function intervalCfg(e?: { intervalStrategy?: IntervalStrategyConfig } | null): IntervalStrategyConfig {
+  return sanitizeIntervalStrategy(e?.intervalStrategy);
+}
+
+export function intervalMinutesOf(e?: { intervalStrategy?: IntervalStrategyConfig } | null): number {
+  return intervalCfg(e).minutes;
+}
+
+export function ticksPerIntervalOf(e?: { intervalStrategy?: IntervalStrategyConfig } | null): number {
+  return Math.max(5, Math.round(intervalMinutesOf(e)));
+}
 export const VST_MAX_WORKING_ORDERS = 1200;
 export const VST_MAX_QUEUE = 800;
 const PAPER_MAX_POSITIONS = 2500;
@@ -822,6 +855,8 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.blockRelBest = e.blockRelBest ?? {};
   e.lastRelEvalTick = e.lastRelEvalTick ?? 0;
   e.relVolumeFactor = e.relVolumeFactor ?? 0;
+  e.intervalVolScale = e.intervalVolScale ?? 1;
+  e.intervalPf = e.intervalPf ?? 0;
   e.liveDisabled = e.liveDisabled ?? {};
   e.liveHealth = e.liveHealth ?? { n: 12, at: 0, disabled: [], kept: [] };
   e.symbolEval = e.symbolEval ?? {};
@@ -837,12 +872,15 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.shortBlockPf = e.shortBlockPf ?? DEFAULT_THRESHOLDS.shortBlockPf;
   e.shortRange = e.shortRange ?? false;
   e.shortProgress = sanitizeShortProgress(e.shortProgress);
+  e.intervalStrategy = sanitizeIntervalStrategy(e.intervalStrategy);
+  e.lastNProgress = sanitizeLastNProgress(e.lastNProgress);
   e.completeSim = e.completeSim ?? false;
   if (e.blockCfg) {
     e.blockCfg.volumeRatio = clampBlockVol(e.blockCfg.volumeRatio);
     e.blockCfg.overallVolumeRatio = clampOverallVol(e.blockCfg.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
     e.blockCfg.sharedVolumeRatio = clampSharedVol(e.blockCfg.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO);
     e.blockCfg.relVolumeRatio = clampBlockVol(e.blockCfg.relVolumeRatio ?? e.blockCfg.volumeRatio);
+    e.blockCfg.maxVolumeMultiplier = clampMaxVolumeMul(e.blockCfg.maxVolumeMultiplier ?? DEFAULT_MAX_VOLUME_MULTIPLIER);
     if (e.blockCfg.overallMode !== "additive" && e.blockCfg.overallMode !== "parallel") e.blockCfg.overallMode = "shared";
     if (e.blockCfg.overallSymbol !== false) e.blockCfg.overallSymbol = true;
     if (e.blockCfg.overallDirection !== false) e.blockCfg.overallDirection = true;
@@ -910,6 +948,19 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     blockRelBest: {},
     lastRelEvalTick: 0,
     relVolumeFactor: 0,
+    intervalVolScale: 1,
+    losingHour: {
+      red: false,
+      net: 0,
+      pf: 0,
+      n: 0,
+      greenPlays: [...DEFAULT_LOSING_HOUR_PLAYS],
+      greenInds: [...DEFAULT_LOSING_HOUR_INDS],
+      stayPlays: {},
+      stayInds: {},
+      at: 0,
+    },
+    intervalPf: 0,
     liveDisabled: {},
     liveHealth: { n: 12, at: 0, disabled: [], kept: [] },
     indRangeBest: {},
@@ -926,6 +977,9 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     shortBasePf: DEFAULT_THRESHOLDS.shortBasePf,
     shortRange: Boolean(cfg.shortRange),
     shortProgress: sanitizeShortProgress(undefined),
+    intervalStrategy: sanitizeIntervalStrategy(undefined),
+    lastNProgress: sanitizeLastNProgress(opts.block?.lastNProgress),
+    progressEval: undefined,
     completeSim: Boolean(opts.complete),
     liveTape: false,
     strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
@@ -1024,6 +1078,202 @@ export function bookCounts(e: VstEngine) {
     }
   };
 }
+export function lastIntervalNet(e: VstEngine, minutes = intervalMinutesOf(e)): { net: number; n: number } {
+  const s = lastIntervalStats(e, minutes);
+  return { net: s.net, n: s.n };
+}
+
+export function lastIntervalStats(e: VstEngine, minutes = intervalMinutesOf(e)) {
+  const minTick = e.tick - minutes;
+  const rows: { pnl: number }[] = [];
+  for (const c of e.closed) {
+    if ((c.tick || 0) < minTick) continue;
+    if (!isDeskConn(c.connId)) continue;
+    rows.push(c);
+  }
+  return laneLastNStats(rows);
+}
+
+export function currentIntervalNet(e: VstEngine, minutes = intervalMinutesOf(e)): { net: number; n: number } {
+  const start = Math.floor(Math.max(0, e.tick) / minutes) * minutes;
+  let net = 0;
+  let n = 0;
+  for (const c of e.closed) {
+    if ((c.tick || 0) < start) continue;
+    if (!isDeskConn(c.connId)) continue;
+    net += c.pnl;
+    n += 1;
+  }
+  return { net, n };
+}
+
+/** Completed 20m buckets (newest first), excluding the in-progress window. */
+export function intervalWindowHistory(
+  e: VstEngine,
+  minutes = intervalMinutesOf(e),
+  count = intervalCfg(e).histWindows,
+): { i: number; pf: number; net: number; n: number }[] {
+  const cur = Math.floor(Math.max(0, e.tick) / minutes);
+  const from = Math.max(0, cur - count);
+  const buckets = new Map<number, { pnl: number }[]>();
+  for (const c of e.closed) {
+    if (!isDeskConn(c.connId)) continue;
+    const b = Math.floor(Math.max(0, c.tick || 0) / minutes);
+    if (b < from || b >= cur) continue;
+    const row = buckets.get(b);
+    if (row) row.push(c);
+    else buckets.set(b, [c]);
+  }
+  const out: { i: number; pf: number; net: number; n: number }[] = [];
+  for (let i = cur - 1; i >= from; i--) {
+    const rows = buckets.get(i);
+    if (!rows?.length) continue;
+    const st = laneLastNStats(rows);
+    out.push({ i, pf: st.pf, net: st.net, n: st.n });
+  }
+  return out;
+}
+
+/**
+ * Interval is an eval / volume-scale horizon — never a halt.
+ * Stable green windows lean in slightly; red / unstable cut Block size.
+ */
+export function intervalVolumeScale(e: VstEngine, minutes = intervalMinutesOf(e)): number {
+  const iv = intervalCfg(e);
+  if (!iv.enabled || !iv.scaleVol) return 1;
+  if (e.tick < minutes) return 1;
+  const s = lastIntervalStats(e, minutes);
+  if (s.n < 2) return 1;
+  const hist = intervalWindowHistory(e, minutes, iv.histWindows);
+  const green = hist.filter((h) => h.n >= 1 && h.net >= 0 && h.pf >= 1).length;
+  const red = hist.filter((h) => h.n >= 1 && h.net < 0).length;
+  let scale = 1;
+  if (s.pf >= iv.leanPf && s.net > 0) scale = Math.min(iv.maxScale, 1.15);
+  else if (s.pf >= 1.2 && s.net >= 0) scale = Math.min(iv.maxScale, 1.05);
+  else if (s.pf >= 1.05) scale = 1;
+  else if (s.pf >= iv.cutPf) scale = Math.max(iv.minScale, 0.72);
+  else scale = iv.minScale;
+  if (green >= iv.stableGreen) scale = Math.min(iv.maxScale, scale + 0.08);
+  if (red >= iv.redCut && green === 0) scale = Math.min(scale, Math.max(iv.minScale, 0.5));
+  return Math.min(iv.maxScale, Math.max(iv.minScale, scale));
+}
+
+/** Kept for callers: entries always process. 20m only scales Block vol / evals. */
+export function intervalAllowsEntry(_e: VstEngine, _minutes = INTERVAL_MINUTES): boolean {
+  return true;
+}
+
+export function pickLiveTactic(e: VstEngine, ind: IndicationId, fallback: TacticKind): TacticKind {
+  const tog = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  const hinted = tacticForIndication(ind, { axis: tog.axis !== false, trailing: tog.trailing !== false });
+  const preferred = e.indTacticBest?.[ind];
+  const ev = e.progressEval?.tactics;
+  const allow = (t: TacticKind | undefined): t is TacticKind => {
+    if (!t) return false;
+    if (t === "dca" && !tog.dca) return false;
+    if (t === "axis" && tog.axis === false) return false;
+    if (t === "trailing" && tog.trailing === false) return false;
+    const row = ev?.[t];
+    if (row && row.n >= 6 && !row.ok) return false;
+    return t === "trailing" || t === "axis" || t === "hybrid" || t === "dca";
+  };
+  if (allow(preferred)) return preferred;
+  if (allow(hinted)) return hinted;
+  if (allow(fallback)) return fallback;
+  return tog.axis !== false ? "hybrid" : "trailing";
+}
+
+const TICKS_PER_LOSING_HOUR = 60;
+export const DEFAULT_LOSING_HOUR_PLAYS = ["block"] as const;
+export const DEFAULT_LOSING_HOUR_INDS = ["ema", "direction", "bollinger"] as const;
+
+function pfOfRows(rows: { pnl: number }[]) {
+  let gp = 0;
+  let gl = 0;
+  let net = 0;
+  for (const r of rows) {
+    const p = Number(r.pnl) || 0;
+    net += p;
+    if (p > 0) gp += p;
+    else if (p < 0) gl -= p;
+  }
+  return { n: rows.length, net, pf: profitFactor(gp, gl) };
+}
+
+export function refreshLosingHour(e: VstEngine) {
+  const from = Math.max(0, e.tick - TICKS_PER_LOSING_HOUR);
+  const rows = e.closed.filter((c) => isDeskConn(c.connId) && (c.tick || 0) > from && (c.tick || 0) <= e.tick);
+  const prev = e.losingHour;
+  const stayPlays = { ...(prev?.stayPlays ?? {}) };
+  const stayInds = { ...(prev?.stayInds ?? {}) };
+  const sc = pfOfRows(rows);
+  const byPlay = new Map<string, { pnl: number }[]>();
+  const byInd = new Map<string, { pnl: number }[]>();
+  for (const c of rows) {
+    const play = String(c.playbook || "short");
+    const ind = String(c.indication || "trend");
+    (byPlay.get(play) ?? (byPlay.set(play, []), byPlay.get(play)!)).push(c);
+    (byInd.get(ind) ?? (byInd.set(ind, []), byInd.get(ind)!)).push(c);
+  }
+  const greenPlays: string[] = [];
+  const greenInds: string[] = [];
+  const red = rows.length >= 2 && (sc.net < 0 || sc.pf + 1e-9 < 1);
+  if (red) {
+    for (const [k, list] of byPlay) {
+      const st = pfOfRows(list);
+      const rec = stayPlays[k] ?? { redH: 0, greenH: 0 };
+      rec.redH += 1;
+      if (st.n >= 2 && st.pf + 1e-9 >= 1 && st.net >= 0) {
+        rec.greenH += 1;
+        greenPlays.push(k);
+      }
+      stayPlays[k] = rec;
+    }
+    for (const [k, list] of byInd) {
+      const st = pfOfRows(list);
+      const rec = stayInds[k] ?? { redH: 0, greenH: 0 };
+      rec.redH += 1;
+      if (st.n >= 2 && st.pf + 1e-9 >= 1 && st.net >= 0) {
+        rec.greenH += 1;
+        greenInds.push(k);
+      }
+      stayInds[k] = rec;
+    }
+  } else {
+    for (const [k, list] of byPlay) {
+      const st = pfOfRows(list);
+      if (st.n >= 2 && st.pf + 1e-9 >= 1 && st.net >= 0) greenPlays.push(k);
+    }
+    for (const [k, list] of byInd) {
+      const st = pfOfRows(list);
+      if (st.n >= 2 && st.pf + 1e-9 >= 1 && st.net >= 0) greenInds.push(k);
+    }
+  }
+  const plays = greenPlays.length ? greenPlays : [...DEFAULT_LOSING_HOUR_PLAYS];
+  const inds = greenInds.length ? greenInds : [...DEFAULT_LOSING_HOUR_INDS];
+  e.losingHour = { red, net: sc.net, pf: sc.pf, n: sc.n, greenPlays: plays, greenInds: inds, stayPlays, stayInds, at: e.tick };
+  return e.losingHour;
+}
+
+/** When last hour is red, lean into Block / ema / direction / bollinger; cut Short / trend / move. */
+export function losingHourScale(
+  e: VstEngine,
+  rel: { playbook?: string; indication?: string; kind?: string; note?: string; blockLevel?: number },
+): number {
+  const lh = e.losingHour;
+  if (!lh?.red) return 1;
+  const play = String(rel.playbook || "");
+  const ind = String(rel.indication || "");
+  const note = String(rel.note || "");
+  const blockFill = play === "block" || (rel.blockLevel ?? 0) >= 1 || /Block/i.test(note);
+  if (blockFill) return 1.28;
+  if (lh.greenPlays.includes(play)) return 1.16;
+  if (ind && (lh.greenInds.includes(ind) || (DEFAULT_LOSING_HOUR_INDS as readonly string[]).includes(ind))) return 1.14;
+  if (play === "short" || play === "normal" || rel.kind === "short" || rel.kind === "normal") return 0.48;
+  if (ind === "trend" || ind === "move" || ind === "active") return 0.52;
+  return 0.78;
+}
+
 export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind, rangeType?: RangeType) {
   if (!isDeskConn(e.activeConnId)) e.activeConnId = VST_DEFAULT_CONN;
   const connId = e.activeConnId;
@@ -1042,7 +1292,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   universe.forEach((s, rank) => {
     const q = e.quotes[s.id];
     if (!q || !(q.px > 0)) return;
-    if (!complete && skipLiveSymbol(e, s.id, winN)) return;
+    if (skipLiveSymbol(e, s.id, winN)) return;
     if ((e.cooldown[cooldownKey(connId, s.id)] ?? 0) > e.tick) return;
     if (pn >= pMax) return;
     const mode = e.blockCfg?.sides ?? "both";
@@ -1053,40 +1303,89 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     const meanSide: Side = q.px >= (q.axis || q.px) ? "short" : "long";
     const pack = symbolIndications(s.id);
     const winner = classifyIndication(e, s.id);
-    const inds: IndicationId[] = complete
-      ? ((e.shortProgress?.indications?.length ? e.shortProgress.indications : SHORT_PROGRESS_INDICATIONS) as IndicationId[])
-      : [winner];
-    let trySides = axisTactic ? [meanSide] : symbolSideSet(s.id, mode, direction(q));
-    if (!axisTactic && winner === "break" && !complete) {
-      const spanNow = (q.hi - q.lo) / atr;
-      const weak = Math.abs(pack.break) < 0.12 && spanNow < 1.15 && Math.abs(q.chg) < 0.003;
-      if (weak) return;
-      const brk: Side =
-        pack.break > 0.08 ? "long" : pack.break < -0.08 ? "short" : q.px >= (q.axis || q.px) ? "long" : "short";
-      if (mode === "long" || mode === "short") {
-        if (brk !== mode) return;
-        trySides = [mode];
-      } else if (mode === "one") {
-        trySides = trySides.filter((x) => x === brk);
-        if (!trySides.length) return;
-      } else {
-        trySides = [brk];
+    let liveInd: IndicationId = winner;
+    if (!complete && winner !== "break") {
+      const qb = indicationQuality("break", pack);
+      const qw = indicationQuality(winner, pack);
+      if (
+        Math.abs(pack.break) >= 0.14 &&
+        qb >= indicationQualityFloor("break") * 0.9 &&
+        qb + 0.06 >= qw * 0.82
+      ) {
+        liveInd = "break";
       }
     }
+    const inds: IndicationId[] = complete
+      ? ((e.shortProgress?.indications?.length ? e.shortProgress.indications : SHORT_PROGRESS_INDICATIONS) as IndicationId[])
+      : liveInd === "break" && winner !== "break"
+        ? [liveInd, winner]
+        : [liveInd];
+    if (!complete && e.losingHour?.red) {
+      const extra = (e.losingHour.greenInds.length ? e.losingHour.greenInds : DEFAULT_LOSING_HOUR_INDS)
+        .filter((id) => id !== liveInd && id !== winner)
+        .slice(0, 2);
+      for (const id of extra) {
+        if (!inds.includes(id as IndicationId)) inds.push(id as IndicationId);
+      }
+    }
+    if (!complete) {
+      for (const extra of ["ema", "bollinger", "direction"] as const) {
+        if (inds.includes(extra)) continue;
+        const mag = Math.abs(Number((pack as unknown as Record<string, number>)[extra]) || 0);
+        const qe = indicationQuality(extra, pack);
+        if (qe >= indicationQualityFloor(extra) * 0.6 || mag >= 0.12) inds.push(extra);
+      }
+    }
+    let trySides = axisTactic ? [meanSide] : symbolSideSet(s.id, mode, direction(q));
     const dual = trySides.length === 2;
     if (!dual && !complete && e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     for (const ind of inds) {
-      const book = cfgUsesShortRange(cfg) ? "short" : openPlaybook(e.lastTactic, ind);
-      const kind = cfgUsesShortRange(cfg) ? "short" : kindFromIndication(ind, book, e.lastTactic);
+      let sides = trySides;
+      if (!complete && !axisTactic && ind === "break") {
+        const spanNow = (q.hi - q.lo) / atr;
+        const weak = Math.abs(pack.break) < 0.08 && spanNow < 1.08 && Math.abs(q.chg) < 0.0022;
+        if (weak) continue;
+        const brk: Side =
+          pack.break > 0.06 ? "long" : pack.break < -0.06 ? "short" : q.px >= (q.axis || q.px) ? "long" : "short";
+        if (mode === "long" || mode === "short") {
+          if (brk !== mode) continue;
+          sides = [mode];
+        } else if (mode === "one") {
+          sides = trySides.filter((x) => x === brk);
+          if (!sides.length) continue;
+        } else {
+          sides = [brk];
+        }
+      }
+      const tac = pickLiveTactic(e, ind, e.lastTactic);
+      const axisInd = tac === "axis";
+      const book = cfgUsesShortRange(cfg) ? "short" : openPlaybook(tac, ind);
+      const kind = cfgUsesShortRange(cfg) ? "short" : kindFromIndication(ind, book, tac);
       const range = pickIndicationRange(e, ind, rangeType ?? e.lastRange ?? "atr");
-      for (const side of trySides) {
+      const indEv = e.progressEval?.indications?.[ind];
+      if (!complete && indEv && indEv.n >= 6 && !indEv.ok) continue;
+      if (complete) {
+        if (ind !== winner && indicationRingDepth(s.id) < 10) continue;
+        const qScore = indicationQuality(ind, pack);
+        const floor = indicationQualityFloor(ind);
+        if (qScore < floor) continue;
+        if (ind !== winner) {
+          const qWin = indicationQuality(winner, pack);
+          if (REDUNDANT_INDS[winner]?.includes(ind) && qScore + 0.04 < qWin) continue;
+          if (qScore < qWin * (ind === "break" || ind === "ema" || ind === "bollinger" ? 0.55 : 0.72)) continue;
+        }
+      } else if (ind === "break" && winner !== "break") {
+        const qScore = indicationQuality("break", pack);
+        if (qScore < indicationQualityFloor("break") * 0.85) continue;
+      }
+      for (const side of sides) {
         if (qn >= qMax || pn >= pMax) break;
         if (!complete && dual && e.blockCfg?.windows !== false && blockRelPaused(e, `leg:${s.id}:${side}`, winN)) continue;
         if (
           !complete &&
           blockComboPaused(
             e,
-            { symbol: s.id, side, indication: ind, kind, tactic: e.lastTactic, rangeType: range, playbook: book },
+            { symbol: s.id, side, indication: ind, kind, tactic: tac, rangeType: range, playbook: book },
             winN,
           )
         )
@@ -1098,12 +1397,37 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             side,
             indication: ind,
             kind,
-            tactic: e.lastTactic,
+            tactic: tac,
             rangeType: range,
             playbook: book,
           })
         )
           continue;
+        if (
+          !complete &&
+          (e.preEvalDone || e.liveTape) &&
+          !liveShouldExecute(e, {
+            symbol: s.id,
+            side,
+            indication: ind,
+            kind,
+            tactic: tac,
+            rangeType: range,
+            playbook: book,
+          })
+        )
+          continue;
+        const execRel = {
+          symbol: s.id,
+          side,
+          indication: ind,
+          kind,
+          tactic: tac,
+          rangeType: range,
+          playbook: book,
+        };
+        const pfScale =
+          complete && (e.preEvalDone || e.liveTape) && !liveShouldExecute(e, execRel) ? 0.22 : 1;
         const legKey = complete ? `${s.id}:${side}:${ind}` : `${s.id}:${side}`;
         if (complete) {
           if (busyLegs.has(legKey)) continue;
@@ -1112,22 +1436,34 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         } else if (busy.has(s.id) || busyLegs.has(`${s.id}:${side}`)) continue;
         const hi = pickRange(q, cfg, range);
         const short = cfgUsesShortRange(cfg);
-        const prot = short ? { slMul: 1, tpMul: 1, holdMul: 0.7 } : indicationProtect(ind);
-        const pxHint = meanSide === "long" || !axisTactic
+        const prot = short && ind !== "break" ? { slMul: 1, tpMul: 1, holdMul: 0.7 } : indicationProtect(ind);
+        const pxHint = meanSide === "long" || !axisInd
           ? (side === "long" ? q.axis - (hi.levels[0] || hi.spacing) : q.axis + (hi.levels[0] || hi.spacing))
           : side === "long"
             ? q.axis - (hi.levels[0] || hi.spacing)
             : q.axis + (hi.levels[0] || hi.spacing);
-        const axisLv = axisTactic && !short ? axisProtect(pxHint > 0 ? pxHint : q.px, side, q, hi.spacing, cfg) : null;
-        const sl0 = axisLv ? axisLv.slDist : slDist(q.atr, hi.spacing, (cfg.slAtr ?? SL_ATR_MULT) * prot.slMul, short);
-        const tp0 = axisLv ? axisLv.tpDist : tpDistFromSl(sl0, (cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul, short);
-        const volMul = Math.min(1.4, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
+        const axisLv = axisInd && !short ? axisProtect(pxHint > 0 ? pxHint : q.px, side, q, hi.spacing, cfg) : null;
+        const slBase = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT, short);
+        const sl0 = axisLv ? axisLv.slDist : slBase * prot.slMul;
+        const tpRatio = short ? Math.max(0.3, cfg.tpRatio ?? TP_SL_RATIO) : snapTpRatio(cfg.tpRatio ?? TP_SL_RATIO);
+        const tp0 = axisLv ? axisLv.tpDist : slBase * tpRatio * prot.tpMul;
+        const volMul = Math.min(1.05, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
+        const nStack = complete ? 1 : laneLastNStack(e, {
+          symbol: s.id,
+          side,
+          indication: ind,
+          kind,
+          tactic: tac,
+          rangeType: range,
+          playbook: book,
+        });
+        const loseScale = losingHourScale(e, { playbook: book, indication: ind, kind, blockLevel: 0 });
         if (!complete && rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
-        const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul;
+        const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul * nStack * loseScale * pfScale;
         const axisPartial = clampAxisPartial(cfg.axisPartialRatio);
         const depth = complete
           ? Math.min(2, hi.levels.length)
-          : axisTactic
+          : axisInd
             ? Math.min(Math.max(2, cfg.axisLevels), hi.levels.length)
             : rank < 10
               ? hi.levels.length
@@ -1139,8 +1475,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const px = side === "long" ? q.axis - offset : q.axis + offset;
           if (px <= 0) return;
           const baseQty = notional / px;
-          const qty = axisTactic && li > 0 ? baseQty * axisPartial : baseQty;
-          const lv = axisTactic && !short ? axisProtect(px, side, q, hi.spacing, cfg) : protectLevels(px, side, sl0, tp0, (cfg.tpRatio ?? TP_SL_RATIO) * prot.tpMul, short);
+          const qty = axisInd && li > 0 ? baseQty * axisPartial : baseQty;
+          const lv = axisInd && !short ? axisProtect(px, side, q, hi.spacing, cfg) : protectLevels(px, side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
           e.queue.push({
             id: nextId(e, "q"),
             connId,
@@ -1159,11 +1495,11 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             slDist: lv.slDist,
             tpDist: lv.tpDist,
             batchId: "",
-            note: `${e.lastTactic} ${hi.rangeType} ${ind} L${li + 1}${short && (e.blockCfg?.enabled !== false) ? " · Block 1" : ""} · ${connId}`,
+            note: `${tac} ${hi.rangeType} ${ind} L${li + 1} · ${connId}`,
             indication: ind,
             kind,
             playbook: book,
-            tactic: e.lastTactic,
+            tactic: tac,
           });
           qn += 1;
           countPlaced(e);
@@ -1287,17 +1623,29 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
   const rel = (pack.lastPart ?? 0) * 0.4 + (1 - (pack.drawdown ?? 0)) * 0.3 + Math.abs(pack.prevRel ?? 0) * 0.3;
   const scores: Partial<Record<IndicationId, number>> = {
     trend: Math.abs(pack.trend) * 1.55 + (aligned ? Math.abs(chg) * 14 : Math.abs(chg) * 2.2) + rel * 0.2,
-    break: Math.abs(pack.break) * 3.4 + Math.max(0, span - 1.15) * 2.8 + ((q.vol1h ?? 0) > 0.018 && span > 1.15 ? 0.45 : 0),
+    break:
+      Math.abs(pack.break) * 4.05 +
+      Math.max(0, span - 1.08) * 3.15 +
+      ((q.vol1h ?? 0) > 0.014 && span > 1.1 ? 0.55 : 0) +
+      (Math.abs(chg) > 0.004 && span > 1.12 ? 0.35 : 0),
     active: Math.abs(pack.active) * 2.2 + Math.min(2.0, (q.vol1h ?? 0) * 40) + rel * 0.15,
-    direction: Math.abs(pack.direction) * 2.6 + (!aligned ? Math.abs(chg) * 28 + 0.9 : Math.abs(chg) * 3),
+    direction: Math.abs(pack.direction) * 3.15 + (!aligned ? Math.abs(chg) * 28 + 0.9 : Math.abs(chg) * 5) + 0.18,
     move: Math.abs(pack.move ?? 0) * 2.8 + Math.max(0, span - 1) * 1.6,
     rsi: Math.abs(pack.rsi ?? 0) * 2.4 + (Math.abs(chg) < 0.002 ? 0.35 : 0),
-    bollinger: Math.abs(pack.bollinger ?? 0) * 2.5 + (span < 1.05 ? 0.4 : 0),
+    bollinger: Math.abs(pack.bollinger ?? 0) * 3.2 + (span < 1.12 ? 0.55 : 0.18) + (!aligned ? 0.22 : 0),
     sar: Math.abs(pack.sar ?? 0) * 2.3 + (aligned ? 0.35 : 0.15),
     macd: Math.abs(pack.macd ?? 0) * 2.2 + Math.abs(chg) * 12,
-    ema: Math.abs(pack.ema ?? 0) * 2.1 + (aligned ? 0.4 : 0),
+    ema: Math.abs(pack.ema ?? 0) * 3.15 + (aligned ? 0.55 : 0.18) + rel * 0.18,
   };
-  if (Math.abs(pack.break) < 0.12 && span < 1.18 && Math.abs(chg) < 0.0035 && scores.break != null) scores.break *= 0.18;
+  if (Math.abs(pack.break) < 0.08 && span < 1.08 && Math.abs(chg) < 0.0025 && scores.break != null) scores.break *= 0.22;
+  if (extra) {
+    for (const id of Object.keys(scores) as IndicationId[]) {
+      if (scores[id] == null) continue;
+      const qn = indicationQuality(id, pack);
+      if (qn < indicationQualityFloor(id)) scores[id]! *= 0.08;
+      else scores[id]! *= 0.42 + 0.58 * Math.min(1.25, qn);
+    }
+  }
   const lead = rankedPack[0];
   if (lead && lead[1] >= 0.08 && scores[lead[0]] != null) scores[lead[0]]! += 0.85;
   const ranked = (Object.entries(scores) as [IndicationId, number][])
@@ -1367,12 +1715,27 @@ const IND_RANGE_PREF: Record<IndicationId, RangeType[]> = {
   ema: ["fibonacci", "atr", "linear"],
 };
 
+const REDUNDANT_INDS: Partial<Record<IndicationId, IndicationId[]>> = {
+  trend: ["sar", "macd"],
+  ema: ["sar"],
+  sar: ["trend", "ema"],
+  macd: ["trend"],
+  break: ["move"],
+  move: ["break"],
+  rsi: ["bollinger"],
+  bollinger: ["rsi"],
+};
+
 export function indicationProtect(id: IndicationId): { slMul: number; tpMul: number; holdMul: number } {
-  if (id === "break" || id === "move") return { slMul: 1.28, tpMul: 1.45, holdMul: 1.35 };
+  if (id === "break") return { slMul: 1.18, tpMul: 1.55, holdMul: 1.45 };
+  if (id === "move") return { slMul: 1.28, tpMul: 1.52, holdMul: 1.38 };
   if (id === "active") return { slMul: 0.92, tpMul: 1.0, holdMul: 0.85 };
-  if (id === "direction" || id === "rsi" || id === "bollinger") return { slMul: 1.06, tpMul: 1.0, holdMul: 1.0 };
-  if (id === "sar" || id === "ema") return { slMul: 1.12, tpMul: 1.08, holdMul: 1.1 };
-  if (id === "macd") return { slMul: 1.08, tpMul: 1.12, holdMul: 1.05 };
+  if (id === "direction") return { slMul: 1.1, tpMul: 1.22, holdMul: 0.88 };
+  if (id === "rsi") return { slMul: 1.06, tpMul: 1.0, holdMul: 1.0 };
+  if (id === "bollinger") return { slMul: 1.08, tpMul: 1.22, holdMul: 0.9 };
+  if (id === "sar") return { slMul: 1.16, tpMul: 1.32, holdMul: 1.22 };
+  if (id === "ema") return { slMul: 1.12, tpMul: 1.32, holdMul: 1.12 };
+  if (id === "macd") return { slMul: 1.1, tpMul: 1.22, holdMul: 1.12 };
   return { slMul: 1, tpMul: 1, holdMul: 1 };
 }
 
@@ -1383,7 +1746,8 @@ export function pickIndicationRange(e: VstEngine, id: IndicationId, fallback?: R
   return IND_RANGE_PREF[id][0] ?? "atr";
 }
 export function playbookOf(e: VstEngine, o: LiveOrder): string {
-  if (/Block/i.test(o.note || "")) return "block";
+  if (o.playbook && o.playbook !== "normal") return o.playbook;
+  if (/^Block\b/i.test(o.note || "") || /Overall Block/i.test(o.note || "")) return "block";
   if (/^DCA/i.test(o.note || "") || e.lastTactic === "dca") return "dca";
   if (e.lastTactic === "axis" || /^axis\b/i.test(o.note || "")) return "axis";
   return "normal";
@@ -1416,7 +1780,8 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       e.lastMsg = "Position cap 100 — rejected new lane";
       return;
     }
-    const lv = protectLevels(px, o.side, o.slDist, o.tpDist, e.tpRatio);
+    const rawR = o.slDist > 1e-12 ? o.tpDist / o.slDist : 1;
+    const lv = protectLevels(px, o.side, o.slDist, o.tpDist, rawR, true);
     pos = {
       id: nextId(e, "p"),
       connId: o.connId,
@@ -1439,9 +1804,9 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       openedTick: e.tick,
       tactic: o.tactic ?? e.lastTactic,
       indication: o.indication ?? classifyIndication(e, o.symbol),
-      kind: o.kind ?? kindFromIndication(o.indication ?? classifyIndication(e, o.symbol), playbookOf(e, o), e.lastTactic),
+      kind: o.kind ?? kindFromIndication(o.indication ?? classifyIndication(e, o.symbol), o.playbook ?? playbookOf(e, o), e.lastTactic),
       playbook: o.playbook ?? playbookOf(e, o),
-      blockLevel: /Block/i.test(o.note || "") ? Math.max(1, o.level || 1) : undefined,
+      blockLevel: o.playbook === "block" || /^Block\b/i.test(o.note || "") || /Overall Block/i.test(o.note || "") ? Math.max(1, o.level || 1) : undefined,
       peakPx: px,
     };
     e.positions.push(pos);
@@ -1553,6 +1918,18 @@ function cancelLane(e: VstEngine, p: LivePosition) {
   for (const o of e.orders) if (o.symbol === p.symbol && o.side === p.side && o.connId === p.connId && (o.status === "open" || o.status === "partial" || o.status === "queued")) markTerminal(e, o, "cancelled");
   cancelQueued(e, (o) => o.symbol === p.symbol && o.side === p.side && o.connId === p.connId);
 }
+function bookRealized(e: VstEngine, pnl: number, reason: "sl" | "tp" | "time" | "partial") {
+  const x = Number.isFinite(pnl) ? pnl : 0;
+  if (reason !== "partial") e.ledger.trades += 1;
+  if (x > 0) {
+    if (reason !== "partial") e.ledger.wins += 1;
+    e.ledger.profit += x;
+  } else {
+    e.ledger.loss += Math.abs(x);
+  }
+  return x;
+}
+
 function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl" | "tp" | "time") {
   if (!(p.qty > 0) || !Number.isFinite(p.qty) || !Number.isFinite(exit) || exit <= 0) {
     cancelLane(e, p);
@@ -1565,11 +1942,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   if (Math.abs(pnl) > risk * 8) pnl = Math.sign(pnl) * risk * 8;
   if (!Number.isFinite(pnl)) pnl = 0;
   p.realized += pnl;
-  e.ledger.trades += 1;
-  if (pnl > 0) {
-    e.ledger.wins += 1;
-    e.ledger.profit += pnl;
-  } else e.ledger.loss += Math.abs(pnl);
+  bookRealized(e, pnl, reason);
   if (reason === "sl") {
     e.ledger.slExits += 1;
     e.cooldown[cooldownKey(p.connId, p.symbol)] = e.tick + 20;
@@ -1590,6 +1963,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     if (e.ledger.lossStreak > e.ledger.maxLossStreak) e.ledger.maxLossStreak = e.ledger.lossStreak;
   }
   const r = pnl / Math.max(p.slDist * p.qty, 1e-9);
+  const originBook = p.playbook || "normal";
+  const originKind = p.kind;
   const tape = e.symbolStats[p.symbol] ??= {
     id: p.symbol,
     trades: 0,
@@ -1619,12 +1994,12 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     tick: e.tick,
     r,
     holdTicks: Math.max(0, e.tick - p.openedTick),
-    at: Date.now(),
+    at: e.liveTape ? Date.now() : undefined,
     tactic: p.tactic ?? e.lastTactic,
     rangeType: p.controllingRange ?? e.lastRange,
-    kind: (p.blockLevel ?? 0) >= 1 ? "block" : p.kind,
+    kind: originKind,
     indication: p.indication,
-    playbook: (p.blockLevel ?? 0) >= 1 ? "block" : (p.playbook ?? "normal"),
+    playbook: originBook,
     level: p.blockLevel ?? Math.max(1, p.legs.length),
     blockQty: p.blockQty,
   });
@@ -1803,7 +2178,9 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const partial = ownTactic === "axis" ? false : p.status === "partial" || fillRatio < 0.55;
     if (ownTactic === "dca" && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid") handleAxis(e, p, cfg);
-    clampRatio(p, e.tpRatio);
+    const shortPos = cfgUsesShortRange(cfg) || p.playbook === "short";
+    const holdR = shortPos && p.tpDist > 1e-12 && p.slDist > 1e-12 ? p.tpDist / p.slDist : e.tpRatio;
+    clampRatio(p, holdR, shortPos);
     if (e.tick === p.openedTick || e.tick - p.openedTick < Math.max(1, opts?.minHold ?? 1)) {
       keep.push(p);
       continue;
@@ -1853,7 +2230,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       if (p.side === "long" ? next > p.sl : next < p.sl) {
         p.sl = next;
         p.slDist = Math.abs(p.sl - p.avgEntry);
-        clampRatio(p, e.tpRatio);
+        clampRatio(p, holdR, shortPos);
       }
     }
     keep.push(p);
@@ -1920,8 +2297,11 @@ export function syncLivePartials(
       } else {
         const take = Math.abs(dQty);
         const signed = pos.side === "long" ? 1 : -1;
-        const pnl = Number.isFinite(px) && px > 0 ? (px - pos.avgEntry) * take * signed : 0;
+        const fee = (pos.avgEntry + (Number.isFinite(px) ? px : pos.avgEntry)) * take * 0.00025;
+        const rawPnl = Number.isFinite(px) && px > 0 ? (px - pos.avgEntry) * take * signed - fee : 0;
+        const pnl = bookRealized(e, rawPnl, "partial");
         pos.qty = qty;
+        pos.realized += pnl;
         e.fills.unshift({
           id: nextId(e, "f"),
           orderId: pos.id,
@@ -2000,8 +2380,8 @@ function safeStage(e: VstEngine, name: string, fn: () => void) {
   }
 }
 
-function clampRatio(p: LivePosition, ratio = TP_SL_RATIO) {
-  const r = snapTpRatio(ratio);
+function clampRatio(p: LivePosition, ratio = TP_SL_RATIO, raw = false) {
+  const r = raw ? Math.max(0.25, Number(ratio) || 1) : snapTpRatio(ratio);
   const slD = Math.abs(p.sl - p.avgEntry);
   const tpD = Math.abs(p.tp - p.avgEntry);
   if (!(tpD > 0) || !Number.isFinite(slD) || !Number.isFinite(tpD)) return;
@@ -2082,7 +2462,7 @@ export function sanitizeBook(e: VstEngine): number {
     p.slDist = finiteOr(p.slDist, Math.abs(p.avgEntry - p.sl));
     p.tpDist = finiteOr(p.tpDist, Math.abs(p.tp - p.avgEntry));
     if (!Array.isArray(p.legs)) p.legs = [];
-    clampRatio(p, e.tpRatio || TP_SL_RATIO);
+    clampRatio(p, e.tpRatio || TP_SL_RATIO, Boolean(e.shortRange));
     livePos.push(p);
   }
   if (livePos.length !== e.positions.length) fixes += 1;
@@ -2178,7 +2558,7 @@ function blockLaneKey(symbol: string, side: Side, mode: "shared" | "additive" = 
 
 function blockVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
   const m = block?.volumeMode;
-  if (m === "parallel") return ["shared", "additive"];
+  if (m === "parallel") return ["additive", "shared"];
   if (m === "additive") return ["additive"];
   return ["shared"];
 }
@@ -2464,11 +2844,18 @@ export function minPfFor(e: VstEngine, lane: PfLane = "overall"): number {
   const overall = numPf(e.minPf, DEFAULT_THRESHOLDS.minPf);
   if (lane === "overall") return overall;
   if (lane === "base") return numPf(e.basePf, DEFAULT_THRESHOLDS.basePf);
-  if (lane === "axis") return numPf(e.axisPf, DEFAULT_THRESHOLDS.axisPf);
   if (lane === "short") return numPf(e.shortPf, DEFAULT_THRESHOLDS.shortPf);
   if (lane === "shortBase") return numPf(e.shortBasePf, DEFAULT_THRESHOLDS.shortBasePf);
-  if (lane === "axis" && e.shortRange) return numPf(e.shortAxisPf, DEFAULT_THRESHOLDS.shortAxisPf ?? DEFAULT_SHORT_AXIS_PF);
-  if (lane === "block" && e.shortRange) return numPf(e.shortBlockPf, DEFAULT_THRESHOLDS.shortBlockPf ?? DEFAULT_SHORT_BLOCK_PF);
+  if (lane === "axis") {
+    return e.shortRange
+      ? numPf(e.shortAxisPf, DEFAULT_THRESHOLDS.shortAxisPf ?? DEFAULT_SHORT_AXIS_PF)
+      : numPf(e.axisPf, DEFAULT_THRESHOLDS.axisPf);
+  }
+  if (lane === "block") {
+    return e.shortRange
+      ? numPf(e.shortBlockPf, DEFAULT_THRESHOLDS.shortBlockPf ?? DEFAULT_SHORT_BLOCK_PF)
+      : numPf(e.blockPf ?? e.blockCfg?.liveDisableMinPf, DEFAULT_THRESHOLDS.blockPf);
+  }
   return numPf(e.blockPf ?? e.blockCfg?.liveDisableMinPf, DEFAULT_THRESHOLDS.blockPf);
 }
 
@@ -2477,7 +2864,7 @@ export function pfLaneOf(rel: { tactic?: string; playbook?: string; kind?: strin
   const note = String(rel?.note || "");
   const kind = String(rel?.kind || "");
   const tac = String(rel?.tactic || "");
-  if (play === "block" || kind === "block" || /Block/i.test(note) || (rel?.blockLevel ?? 0) >= 1) return "block";
+  if (play === "block" || kind === "block" || /Block/i.test(note)) return "block";
   if (play === "axis" || tac === "axis" || kind === "axis") return "axis";
   if (play === "short" || kind === "short" || /short/i.test(note)) return "short";
   if (play === "normal" || kind === "normal") return "base";
@@ -2521,6 +2908,43 @@ export function symbolLastNPf(e: VstEngine, symbol: string, n = 6): number | nul
   const take = e.closed.filter((c) => c.symbol === symbol && isDeskConn(c.connId)).slice(0, Math.max(4, n));
   if (take.length < 4) return null;
   return pfFromPnls(take);
+}
+
+/** Closed tape for an independent config/lane (indication × tactic × range × playbook × side). */
+export function laneClosed(
+  e: VstEngine,
+  rel: {
+    symbol?: string;
+    side?: Side;
+    indication?: string;
+    kind?: string;
+    tactic?: string;
+    rangeType?: string;
+    playbook?: string;
+  },
+  n: number,
+) {
+  const need = Math.max(1, Math.round(n) || 1);
+  const out: { pnl: number }[] = [];
+  for (const c of e.closed) {
+    if (!isDeskConn(c.connId)) continue;
+    if (rel.symbol && c.symbol !== rel.symbol) continue;
+    if (rel.side && c.side !== rel.side) continue;
+    if (rel.indication && (c.indication ?? "trend") !== rel.indication) continue;
+    if (rel.kind && (c.kind ?? "") !== rel.kind) continue;
+    if (rel.tactic && (c.tactic ?? "") !== rel.tactic) continue;
+    if (rel.rangeType && (c.rangeType ?? "") !== rel.rangeType) continue;
+    if (rel.playbook && (c.playbook ?? "") !== rel.playbook) continue;
+    out.push(c);
+    if (out.length >= need) break;
+  }
+  return out;
+}
+
+export function laneLastNStats(rows: { pnl: number }[]) {
+  const n = rows.length;
+  const net = rows.reduce((s, r) => s + (Number(r.pnl) || 0), 0);
+  return { n, net, avg: n ? net / n : 0, pf: pfFromPnls(rows) };
 }
 
 export function applyRealizedSymbolStats(
@@ -2613,7 +3037,13 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
       const ind = classifyIndication(e, symbol);
       if (ind === "direction" || ind === "break") {
         const take = e.closed.filter((c) => isDeskConn(c.connId) && c.indication === ind).slice(0, 40);
-        if (take.length >= 12 && pfFromPnls(take) + 1e-9 < 1) return true;
+        const need = ind === "break" ? 24 : 12;
+        const floorPf = ind === "break" ? 0.7 : 1;
+        if (take.length >= need && pfFromPnls(take) + 1e-9 < floorPf) {
+          if (ind === "break" && (e.liveOpenN ?? 99) < 18) {
+            /* keep break filling until the live book is thick */
+          } else return true;
+        }
       }
     } catch {
       /* quotes may be thin */
@@ -2635,20 +3065,22 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
     if (pf != null && pf + 1e-9 < floor) return true;
     if (!e.liveTape && (st?.trades ?? 0) >= 4 && pf != null && pf + 1e-9 < floor) return true;
   }
-  if (e.liveDisabled?.[`ind:trend`]) {
+  if (!e.completeSim && e.liveDisabled?.[`ind:trend`]) {
     try {
       if (classifyIndication(e, symbol) === "trend") return true;
     } catch {
       /* quotes may be thin */
     }
   }
-  try {
-    const ind = classifyIndication(e, symbol);
-    const kind = kindFromIndication(ind, openPlaybook(e.lastTactic, ind), e.lastTactic);
-    if (!thin && e.liveDisabled?.[`kind:${kind}`]) return true;
-    if (!thin && e.liveDisabled?.[`ind:${ind}`]) return true;
-  } catch {
-    /* quotes may be thin */
+  if (!e.completeSim) {
+    try {
+      const ind = classifyIndication(e, symbol);
+      const kind = kindFromIndication(ind, openPlaybook(e.lastTactic, ind), e.lastTactic);
+      if (!thin && e.liveDisabled?.[`kind:${kind}`]) return true;
+      if (!thin && e.liveDisabled?.[`ind:${ind}`]) return true;
+    } catch {
+      /* quotes may be thin */
+    }
   }
   if (!e.liveTape) {
     const trend = e.closed.filter((c) => isDeskConn(c.connId) && c.indication === "trend").slice(0, 8);
@@ -2669,7 +3101,7 @@ export function skipLiveSymbol(e: VstEngine, symbol: string, evalN = 6) {
 function sitHour(c: { tick: number; at?: number }): number {
   const at = Number(c.at);
   if (at > 1e12) return new Date(at).getUTCHours();
-  return Math.floor(Math.max(0, c.tick) / TICKS_PER_HOUR) % 24;
+  return Math.floor(Math.max(0, Number(c.tick) || 0) / TICKS_PER_HOUR) % 24;
 }
 
 function bucketPnls(rows: { pnl: number }[]) {
@@ -2841,12 +3273,55 @@ export function blockWindowSnapshot(e: VstEngine, n = 6) {
 const MAJOR_REL = new Set(["ind", "kind", "tac", "rng", "side", "book"]);
 const MINOR_REL = new Set(["cfg", "sub", "combo"]);
 
+function closedMatchesRelKey(
+  c: { indication?: string; kind?: string; tactic?: string; rangeType?: string; side?: string; playbook?: string; symbol?: string },
+  key: string,
+): boolean {
+  const i = key.indexOf(":");
+  if (i < 0) return false;
+  const prefix = key.slice(0, i);
+  const val = key.slice(i + 1);
+  if (prefix === "ind") return (c.indication ?? "") === val;
+  if (prefix === "kind") return (c.kind ?? "") === val;
+  if (prefix === "tac") return (c.tactic ?? "") === val;
+  if (prefix === "rng") return (c.rangeType ?? "") === val;
+  if (prefix === "side") return (c.side ?? "") === val;
+  if (prefix === "book") return (c.playbook ?? "") === val;
+  if (prefix === "sym") return (c.symbol ?? "") === val;
+  if (prefix === "sub") {
+    const [ind, kind] = val.split(":");
+    return (c.indication ?? "") === ind && (c.kind ?? "") === kind;
+  }
+  if (prefix === "combo") {
+    const p = val.split(":");
+    return (
+      (c.indication ?? "") === (p[0] ?? "") &&
+      (c.kind ?? "") === (p[1] ?? "") &&
+      (c.tactic ?? "") === (p[2] ?? "") &&
+      (c.rangeType ?? "") === (p[3] ?? "") &&
+      (c.side ?? "") === (p[4] ?? "")
+    );
+  }
+  return false;
+}
+
 export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BLOCK_CONFIG) {
   const ns = (block.evalLastNs?.length ? block.evalLastNs : [1, 2, 3, 4, 5, 6])
     .map((n) => Math.max(1, Math.min(6, Math.round(n))));
   const minPf = block.minRelPf ?? minPfFor(e, "block");
+  const iv = intervalCfg(e);
+  const minutes = iv.minutes;
+  const ivScale = iv.enabled && iv.scaleVol ? intervalVolumeScale(e, minutes) : 1;
+  e.intervalVolScale = ivScale;
+  e.intervalPf = lastIntervalStats(e, minutes).pf;
   const vr = clampBlockVol(block.relVolumeRatio ?? block.volumeRatio);
   const maps = e.blockRelWindows ?? {};
+  const ivMin = e.tick - minutes;
+  const ivClosed = e.closed.filter((c) => isDeskConn(c.connId) && (c.tick || 0) >= ivMin);
+  const ivFor = (key: string) => {
+    const rows = ivClosed.filter((c) => closedMatchesRelKey(c, key));
+    return laneLastNStats(rows);
+  };
   const candidates: { key: string; n: number; pf: number; net: number; closed: number }[] = [];
   for (const [key, byN] of Object.entries(maps)) {
     let best: (typeof candidates)[number] | null = null;
@@ -2874,14 +3349,28 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
     if (MINOR_REL.has(p)) picks.push({ ...c, vol: vr, major: false });
   }
   const seen = new Set<string>();
-  const uniq = picks.filter((p) => (seen.has(p.key) ? false : (seen.add(p.key), true))).sort((a, b) => b.pf - a.pf || b.net - a.net);
-  const used = uniq.slice(0, 8);
+  const uniq = picks.filter((p) => (seen.has(p.key) ? false : (seen.add(p.key), true)));
+  const scored = uniq.map((p) => {
+    const ivRow = iv.enabled && iv.scoreRelations && e.tick >= minutes ? ivFor(p.key) : { n: 0, pf: 0, net: 0, avg: 0 };
+    let volMul = ivScale;
+    if (ivRow.n >= 3 && ivRow.pf + 1e-9 < 0.95) volMul *= iv.relationHaircut;
+    else if (ivRow.n >= 3 && ivRow.pf >= minPf) volMul = Math.min(iv.maxScale, volMul * iv.relationBoost);
+    return { ...p, vol: vr * volMul, ivN: ivRow.n, ivPf: ivRow.pf };
+  });
+  scored.sort((a, b) => {
+    const ap = a.ivN >= 3 ? a.ivPf : a.pf;
+    const bp = b.ivN >= 3 ? b.ivPf : b.pf;
+    return bp - ap || b.net - a.net;
+  });
+  const kept = scored.filter((p, i) => i === 0 || p.ivN < 3 || p.ivPf >= iv.relationKeepPf);
+  const used = kept.slice(0, 8).map(({ ivN: _n, ivPf: _p, ...row }) => row);
   e.blockRelBest = Object.fromEntries(used.map((p) => [p.key, p]));
-  e.relVolumeFactor = block.relAdditive === false ? 0 : used.length * vr;
+  e.relVolumeFactor = block.relAdditive === false ? 0 : used.reduce((s, p) => s + Math.max(0, p.vol), 0);
   e.lastRelEvalTick = e.tick;
   pruneBlockRelWindows(e);
   refreshIndicationSets(e, block);
-  if (e.liveTape) refreshLiveDisable(e, block);
+  refreshProgressEvals(e, block);
+  refreshLiveDisable(e, block);
   refreshSymbolHourEval(e, { hours: block.symbolEvalHours ?? SYMBOL_EVAL_HOURS, minPf: entryMinPf(e, block) });
   return { picks: used, winners: used.length, factor: e.relVolumeFactor || 0, at: e.tick, candidates: uniq.length };
 }
@@ -2902,7 +3391,8 @@ function refreshIndicationSets(e: VstEngine, block: BlockConfig) {
   }
   const ranges: Partial<Record<IndicationId, RangeType>> = {};
   const tacs: Partial<Record<IndicationId, TacticKind>> = {};
-  for (const id of ["trend", "break", "active", "direction"] as const) {
+  const ids = INDICATION_KINDS.map((k) => k.id);
+  for (const id of ids) {
     let bestR: { k: RangeType; pf: number; n: number } | null = null;
     let bestT: { k: TacticKind; pf: number; n: number } | null = null;
     for (const [key, rows] of byIndRange) {
@@ -2926,6 +3416,106 @@ function refreshIndicationSets(e: VstEngine, block: BlockConfig) {
   }
   e.indRangeBest = ranges;
   e.indTacticBest = tacs;
+}
+
+function groupPf(rows: { pnl: number }[], minPf: number, minN = 3): ProgressEvalRow {
+  const sc = pfRows(rows);
+  return { n: sc.n, pf: sc.pf, net: sc.net, ok: sc.n >= minN && sc.pf + 1e-9 >= minPf && sc.net >= 0 };
+}
+
+function scoreGroupMap(closed: { pnl: number; key: string }[], minPf: number, minN = 3): Record<string, ProgressEvalRow> {
+  const m = new Map<string, { pnl: number }[]>();
+  for (const c of closed) {
+    (m.get(c.key) ?? (m.set(c.key, []), m.get(c.key)!)).push(c);
+  }
+  const out: Record<string, ProgressEvalRow> = {};
+  for (const [k, rows] of m) out[k] = groupPf(rows, minPf, minN);
+  return out;
+}
+
+function pickPositiveKeys(rows: Record<string, ProgressEvalRow>, fallback: string[]): string[] {
+  const ok = Object.entries(rows).filter(([, r]) => r.ok || r.n < 4).map(([k]) => k);
+  return ok.length ? ok : fallback;
+}
+
+/** Score every last-N / Block / indication / tactic / range type by PF; keep only positive ones processing. */
+export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockCfg ?? DEFAULT_BLOCK_CONFIG): ProgressEval {
+  const closed = e.closed
+    .filter((c) => isDeskConn(c.connId))
+    .slice()
+    .sort((a, b) => (b.tick || 0) - (a.tick || 0));
+  const minPf = entryMinPf(e, block);
+  const basePf = minPfFor(e, e.shortRange ? "shortBase" : "base");
+  const ln = lastNProgressOf(e);
+  const evalHits = lastNWindows(closed, ln.evalNs);
+  const validHits = lastNWindows(closed, ln.validNs);
+  const disableHits = lastNWindows(closed, ln.disableNs);
+  const toMap = (hits: ReturnType<typeof lastNWindows>, min: number) => {
+    const out: Record<string, ProgressEvalRow> = {};
+    for (const h of hits) out[String(h.n)] = { n: h.samples, pf: h.pf, net: h.net, ok: h.pf + 1e-9 >= min && h.avg >= 0 };
+    for (const n of (hits === evalHits ? ln.evalNs : hits === validHits ? ln.validNs : ln.disableNs)) {
+      if (!out[String(n)]) out[String(n)] = { n: 0, pf: 0, net: 0, ok: true };
+    }
+    return out;
+  };
+  const evalNs = toMap(evalHits, basePf);
+  const validNs = toMap(validHits, minPf);
+  const disableNs: Record<string, ProgressEvalRow> = {};
+  for (const h of disableHits) disableNs[String(h.n)] = { n: h.samples, pf: h.pf, net: h.net, ok: h.avg >= 0 };
+  for (const n of ln.disableNs) if (!disableNs[String(n)]) disableNs[String(n)] = { n: 0, pf: 0, net: 0, ok: true };
+
+  const lastNModes = {} as ProgressEval["lastNModes"];
+  for (const mode of ["independent", "combined", "parallel"] as LastNPassMode[]) {
+    const d = decideLastN(closed, { ...ln, mode }, minPf, basePf);
+    lastNModes[mode] = { pass: d.pass, pf: validHits.find((h) => h.n === (ln.validNs[ln.validNs.length - 1] ?? 16))?.pf ?? d.validHits[0]?.pf ?? 0 };
+  }
+  const passingModes = (Object.entries(lastNModes) as [LastNPassMode, { pass: boolean; pf: number }][]).filter(([, v]) => v.pass);
+  let lastNMode: LastNPassMode = ln.mode;
+  if (passingModes.some(([m]) => m === "parallel")) lastNMode = "parallel";
+  else if (passingModes.length) lastNMode = passingModes.sort((a, b) => b[1].pf - a[1].pf)[0]![0];
+
+  const blockCounts: Record<string, ProgressEvalRow> = {};
+  for (const n of [1, 2, 3, 4, 5, 6]) {
+    const w = e.blockWindows?.[n];
+    const nClosed = w?.closed ?? 0;
+    const pf = w?.lastPf ?? 0;
+    const net = w?.lastNet ?? 0;
+    blockCounts[String(n)] = { n: nClosed, pf, net, ok: blockCountPositive(e, n, minPf) };
+  }
+  const volumeModes: Record<string, ProgressEvalRow> = {};
+  const sharedRows: { pnl: number }[] = [];
+  const addRows: { pnl: number }[] = [];
+  for (const [k, lane] of Object.entries(e.blockLanes ?? {})) {
+    if (k.endsWith(":shared")) for (const x of lane.parentPf ?? []) sharedRows.push({ pnl: x });
+    if (k.endsWith(":additive")) for (const x of lane.parentPf ?? []) addRows.push({ pnl: x });
+  }
+  volumeModes.shared = groupPf(sharedRows, minPf, 4);
+  volumeModes.additive = groupPf(addRows, minPf, 4);
+  volumeModes.parallel = groupPf([...sharedRows, ...addRows], minPf, 4);
+  const overallModes = { ...volumeModes };
+
+  const indications = scoreGroupMap(closed.map((c) => ({ pnl: c.pnl, key: String(c.indication || "trend") })), minPf);
+  const tactics = scoreGroupMap(closed.map((c) => ({ pnl: c.pnl, key: String(c.tactic || e.lastTactic) })), minPf);
+  const ranges = scoreGroupMap(closed.map((c) => ({ pnl: c.pnl, key: String(c.rangeType || e.lastRange) })), minPf);
+  const playbooks = scoreGroupMap(closed.map((c) => ({ pnl: c.pnl, key: String(c.playbook || "short") })), minPf);
+
+  const snap: ProgressEval = {
+    at: e.tick,
+    lastNMode,
+    lastNModes,
+    evalNs,
+    validNs,
+    disableNs,
+    blockCounts,
+    volumeModes,
+    overallModes,
+    indications,
+    tactics,
+    ranges,
+    playbooks,
+  };
+  e.progressEval = snap;
+  return snap;
 }
 
 function pfRows(rows: { pnl: number }[]) {
@@ -2958,9 +3548,8 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
       else kept.push(key);
     }
   }
-  const take = e.closed
-    .filter((c) => isDeskConn(c.connId) && (!e.liveTape || String(c.id || "").startsWith("x:")))
-    .slice(0, Math.max(n * 3, minS));
+  const liveOnly = Boolean(e.liveTape && !e.completeSim);
+  const take = e.closed.filter((c) => isDeskConn(c.connId) && (!liveOnly || String(c.id || "").startsWith("x:")));
   if (take.length >= minS) {
     const groups = new Map<string, { pnl: number }[]>();
     const add = (key: string, pnl: number) => {
@@ -2976,34 +3565,44 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
       add(`rng:${c.rangeType ?? e.lastRange}`, c.pnl);
       add(`book:${c.playbook ?? "normal"}`, c.pnl);
       add(`sym:${c.symbol}`, c.pnl);
-      add(
-        `combo:${c.indication ?? "trend"}:${c.kind ?? "normal"}:${c.tactic ?? e.lastTactic}:${c.rangeType ?? e.lastRange}:${c.side}`,
-        c.pnl,
-      );
+      add(comboDisableKey(c, e), c.pnl);
     }
-    const byAxis = new Map<string, { key: string; pf: number; n: number }[]>();
+    const disableNs = lastNProgressOf(e).disableNs;
+    const byAxis = new Map<string, { key: string; pf: number; n: number; avg: number; kill: boolean }[]>();
     for (const [key, rows] of groups) {
       if (rows.length < minS) continue;
-      const sc = pfRows(rows);
+      const hits = lastNWindows(rows, disableNs);
+      const sampled = hits.filter((h) => h.samples >= minS);
+      if (!sampled.length) continue;
+      const mode = lastNProgressOf(e).mode;
+      const bad = sampled.filter((h) => h.avg < -1e-12);
+      const kill = mode === "combined"
+        ? bad.length * 2 > sampled.length
+        : bad.length === sampled.length;
+      const sc = pfRows(rows.slice(0, sampled[sampled.length - 1]!.n));
+      const avg = rows.slice(0, sampled[0]!.n).reduce((s, r) => s + r.pnl, 0) / Math.max(1, sampled[0]!.n);
       const axis = key.split(":")[0] ?? "x";
       const list = byAxis.get(axis) ?? [];
-      list.push({ key, pf: sc.pf, n: sc.n });
+      list.push({ key, pf: sc.pf, n: sampled[sampled.length - 1]!.n, avg, kill });
       byAxis.set(axis, list);
     }
     for (const list of byAxis.values()) {
       list.sort((a, b) => b.pf - a.pf || b.n - a.n);
-      const anyKept = list.some((y) => y.pf + 1e-9 >= floorForDisableKey(e, y.key));
       for (const x of list) {
         if (e.liveTape && x.key.startsWith("sym:") && kept.includes(x.key)) continue;
-        if (x.pf + 1e-9 < floorForDisableKey(e, x.key)) {
+        const negative = x.kill;
+        if (negative) {
           disabled[x.key] = { pf: x.pf, n: x.n, at: e.tick };
         } else {
           kept.push(x.key);
           delete disabled[x.key];
         }
       }
-      if (!anyKept && !e.liveTape) {
-        for (const x of list) delete disabled[x.key];
+      const anyKept = list.some((y) => !disabled[y.key]);
+      if (!anyKept && list.length) {
+        const best = list[0]!;
+        delete disabled[best.key];
+        kept.push(best.key);
       }
     }
   }
@@ -3013,6 +3612,13 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
   }
   e.liveHealth = { n, at: e.tick, disabled: Object.keys(e.liveDisabled), kept: [...new Set(kept)].filter((k) => k !== "kind:normal") };
   return e.liveHealth;
+}
+
+function comboDisableKey(
+  c: { indication?: string; kind?: string; tactic?: string; rangeType?: string; playbook?: string; side?: string },
+  e: VstEngine,
+) {
+  return `combo:${c.indication ?? "trend"}:${c.kind ?? "normal"}:${c.tactic ?? e.lastTactic}:${c.rangeType ?? e.lastRange}:${c.playbook ?? "normal"}:${c.side ?? "long"}`;
 }
 
 export function liveRelationDisabled(
@@ -3030,6 +3636,15 @@ export function liveRelationDisabled(
   if (e.liveTape && (e.liveOpenN ?? 99) < 12) return false;
   const d = e.liveDisabled;
   if (!d || !Object.keys(d).length) return false;
+  const combo =
+    rel.indication && rel.kind && rel.tactic && rel.rangeType
+      ? comboDisableKey(rel, e)
+      : "";
+  if (combo) {
+    if (d[combo]) return true;
+    if (d[`sym:${rel.symbol}`]) return true;
+    return false;
+  }
   const keys = [
     `sym:${rel.symbol}`,
     `side:${rel.side}`,
@@ -3038,9 +3653,6 @@ export function liveRelationDisabled(
     rel.tactic ? `tac:${rel.tactic}` : "",
     rel.rangeType ? `rng:${rel.rangeType}` : "",
     rel.playbook && rel.playbook !== "block" && rel.playbook !== "normal" ? `book:${rel.playbook}` : "",
-    rel.indication && rel.kind && rel.tactic && rel.rangeType
-      ? `combo:${rel.indication}:${rel.kind}:${rel.tactic}:${rel.rangeType}:${rel.side}`
-      : "",
   ].filter(Boolean);
   return keys.some((k) => Boolean(d[k]));
 }
@@ -3115,7 +3727,8 @@ function overallWindowOk(
   const w =
     scope === "symbol" ? e.blockWindowsBySymbol?.[p.symbol]?.[next] : e.blockWindowsBySide?.[p.side]?.[next];
   if (!w || w.closed < need) return true;
-  return w.lastPf + 1e-9 >= Math.min(1.05, minPf);
+  const floor = next <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.min(1.05, minPf || 1.05);
+  return w.lastPf + 1e-9 >= floor;
 }
 
 function collectBlockOrders(e: VstEngine, conn: string) {
@@ -3179,9 +3792,11 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   const cfg = e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
   const mode = blockModeOf(o);
   const vr = mode === "shared" ? clampSharedVol(cfg.sharedVolumeRatio) : clampBlockVol(cfg.volumeRatio);
+  const maxMul = clampMaxVolumeMul(cfg.maxVolumeMultiplier ?? DEFAULT_MAX_VOLUME_MULTIPLIER);
+  const extraCap = Math.max(0, maxMul - 1);
   const target =
     lane.baseQty *
-    (mode === "shared" ? blockMaxAdditionalRatio(n, vr, cfg.maxVolumeMultiplier || 2.5, mode) : n * vr);
+    (mode === "shared" ? blockMaxAdditionalRatio(n, vr, maxMul, mode) : Math.min(n * vr, extraCap));
   const done = o.remaining <= 1e-12;
   if (done) {
     if (lane.confirmedAdd + 1e-12 >= target) lane.satisfied[n] = true;
@@ -3224,8 +3839,9 @@ function blockCountPositive(e: VstEngine, n: number, minPf: number) {
   if (n < 1 || n > 6) return false;
   const w = e.blockWindows?.[n];
   const need = Math.max(8, n);
-  if (!w || w.closed < need) return true;
-  return w.lastPf + 1e-9 >= Math.min(1.05, minPf);
+  if (!w || w.closed < need) return false;
+  const floor = n <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.min(minPf || 1.05, 1.2);
+  return w.lastPf + 1e-9 >= floor;
 }
 
 function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minPf: number) {
@@ -3343,9 +3959,14 @@ export function adjustActiveBlocks(
 
   syncBlockParents(e, conn, block);
   const counts = liveBlockCounts(block);
-  const vrRel = clampBlockVol(block.volumeRatio);
-  const vrShared = clampSharedVol(block.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO);
-  const vrOv = clampOverallVol(block.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
+  const iv = intervalCfg(e);
+  const ivScale = iv.enabled && iv.scaleVol ? intervalVolumeScale(e) : 1;
+  e.intervalVolScale = ivScale;
+  e.intervalPf = lastIntervalStats(e).pf;
+  const vrRel = clampBlockVol(block.volumeRatio) * ivScale;
+  const vrShared = clampSharedVol(block.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO) * ivScale;
+  const vrOv = clampOverallVol(block.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO) * ivScale;
+  const maxMul = clampMaxVolumeMul(block.maxVolumeMultiplier ?? DEFAULT_MAX_VOLUME_MULTIPLIER);
   const minPf = block.minRelPf ?? minPfFor(e, "block");
   const evalN = Math.min(16, Math.max(1, Math.round(block.evalPosCount || 6)));
   const overall = block.overall !== false;
@@ -3373,11 +3994,25 @@ export function adjustActiveBlocks(
       const q = e.quotes[p.symbol];
       if (!q || finiteOr(q.vol, 0) < MIN_QUOTE_VOL) continue;
       if ((e.cooldown[cooldownKey(conn, p.symbol)] ?? 0) > e.tick) continue;
+      let usedQty = p.qty;
+      for (const o of collectBlockOrders(e, conn)) {
+        if (o.symbol === p.symbol && o.side === p.side) usedQty += Math.max(0, o.remaining || 0);
+      }
+      const planned: {
+        overallKind: boolean;
+        next: number;
+        qty: number;
+        scope: OverallScope;
+        mode: "additive" | "shared";
+        lane: BlockLaneState;
+      }[] = [];
+      let parentBase = Math.max(p.legs[0]?.qty || p.qty || 0, 1e-12);
       for (const mode of volModes) {
-        if (adds >= addCap) break;
+        if (adds + planned.length >= addCap) break;
         const k = blockLaneKey(p.symbol, p.side, mode);
         const lane = e.blockLanes[k];
         if (!lane || !lane.active || lane.baseQty <= 0) continue;
+        if (lane.baseQty > 0) parentBase = Math.min(parentBase, lane.baseQty);
         const liveBlock = collectBlockOrders(e, conn).filter((o) => o.symbol === p.symbol && o.side === p.side && blockModeOf(o) === mode);
         const liveRelLevels = new Set(liveBlock.filter((o) => !isOverallBlockOrder(o)).map((o) => Math.max(1, o.level || 1)));
         const scopes = overallVolumeModes(block).includes(mode) ? overallScopes(block) : [];
@@ -3392,53 +4027,14 @@ export function adjustActiveBlocks(
         let modeAdds = 0;
         const stackAdd = block.overallSharedStack !== "split";
         const ovVrScale = !stackAdd && mode === "shared" && scopes.length > 1 ? 1 / scopes.length : 1;
-        const enqueue = (kind: "relation" | "overall", next: number, vr: number, extraQty: number, scope: OverallScope = "book") => {
+        const extraCap = Math.max(0, maxMul - 1);
+        const plan = (kind: "relation" | "overall", next: number, vr: number, extraQty: number, scope: OverallScope = "book") => {
           const overallKind = kind === "overall";
           const stepMode: "additive" | "shared" = overallKind && stackAdd ? "additive" : mode;
-          const stepMul = Math.max(block.maxVolumeMultiplier || 2.5, 1 + vr * Math.max(1, next), 2);
-          const step = blockStepQty(lane.baseQty, next, vr, stepMul, 1, 0, stepMode);
-          const qty = step + extraQty;
+          const step = blockStepQty(lane.baseQty, next, vr, maxMul, 1, 0, stepMode);
+          const qty = step + Math.max(0, extraQty);
           if (!(qty > 0)) return false;
-          const hi = pickRange(q, cfg, rangeType);
-          const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg));
-          const tp0 = tpDistFromSl(sl0, cfg.tpRatio, cfgUsesShortRange(cfg));
-          const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
-          if (px <= 0) return false;
-          const lv = protectLevels(px, p.side, sl0, tp0, cfg.tpRatio);
-          const tag =
-            !overallKind
-              ? "Block"
-              : scope === "symbol"
-                ? "Overall Block symbol"
-                : scope === "dir"
-                  ? "Overall Block dir"
-                  : "Overall Block";
-          const oid = nextId(e, overallKind ? (scope === "symbol" ? "obs" : scope === "dir" ? "obd" : "ob") : "b");
-          e.queue.push({
-            id: oid,
-            connId: conn,
-            symbol: p.symbol,
-            side: p.side,
-            type: e.orderType,
-            qty,
-            filled: 0,
-            price: px,
-            remaining: qty,
-            status: "queued",
-            rangeType: hi.rangeType,
-            level: next,
-            sl: lv.sl,
-            tp: lv.tp,
-            slDist: lv.slDist,
-            tpDist: lv.tpDist,
-            batchId: `${p.id}:${scope}:${next}`,
-            tactic: p.tactic ?? tactic,
-            indication: p.indication,
-            kind: "block",
-            playbook: "block",
-            note: `${tag} ${mode} #${next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
-          });
-          countPlaced(e);
+          planned.push({ overallKind, next, qty, scope, mode, lane });
           if (overallKind) {
             liveOvLevels[scope].add(next);
             ovQty[scope] += qty;
@@ -3447,14 +4043,11 @@ export function adjustActiveBlocks(
             liveRelLevels.add(next);
             relQty += qty;
           }
-          added += 1;
-          adds += 1;
           modeAdds += 1;
-          e.lastBlockAt = e.tick;
           return true;
         };
         for (const next of counts) {
-          if (adds >= addCap || modeAdds >= counts.length * (1 + scopes.length)) break;
+          if (adds + planned.length >= addCap || modeAdds >= counts.length * (1 + scopes.length)) break;
           if (next < minM || next > maxM) continue;
           if (block.windows !== false && !blockCountPositive(e, next, minPf)) {
             /* relation still gated by book window; overall scopes use their own */
@@ -3462,8 +4055,7 @@ export function adjustActiveBlocks(
           if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
           const vrModeRel = mode === "shared" ? vrShared : vrRel;
           const vrModeOv = mode === "shared" ? vrShared : vrOv;
-          const maxMul = Math.max(block.maxVolumeMultiplier || 2.5, 1 + vrShared, 1 + vrOv, 2);
-          const relCap = lane.baseQty * (mode === "additive" ? next * vrModeRel : blockMaxAdditionalRatio(next, vrModeRel, maxMul, mode));
+          const relCap = lane.baseQty * (mode === "additive" ? Math.min(next * vrModeRel, extraCap) : blockMaxAdditionalRatio(next, vrModeRel, maxMul, mode));
           const extra =
             block.relAdditive === false
               ? 0
@@ -3485,17 +4077,72 @@ export function adjustActiveBlocks(
             blockPfOk(lane, next, block, minPf) &&
             (block.windows === false || blockCountPositive(e, next, minPf))
           ) {
-            enqueue("relation", next, vrModeRel, extra);
+            plan("relation", next, vrModeRel, extra);
           }
           if (overall && overallVolumeModes(block).includes(mode)) {
             for (const scope of scopes) {
-              if (adds >= addCap) break;
+              if (adds + planned.length >= addCap) break;
               if (!overallWindowOk(e, scope, p, next, minPf)) continue;
               if (liveOvLevels[scope].has(next)) continue;
               const vrThis = vrModeOv * ovVrScale;
-              const ovCap = lane.baseQty * next * vrThis;
-              if (ovQty[scope] + 1e-12 < ovCap) enqueue("overall", next, vrThis, 0, scope);
+              const ovCap = lane.baseQty * Math.min(next * vrThis, extraCap);
+              if (ovQty[scope] + 1e-12 < ovCap) plan("overall", next, vrThis, 0, scope);
             }
+          }
+        }
+      }
+      const capQty = parentBase * maxMul;
+      const room = capQty - usedQty;
+      if (room > 1e-12 && planned.length) {
+        const raw = planned.reduce((s, x) => s + x.qty, 0);
+        const scale = raw > room ? room / raw : 1;
+        const hi = pickRange(q, cfg, rangeType);
+        const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg));
+        const tp0 = tpDistFromSl(sl0, cfg.tpRatio, cfgUsesShortRange(cfg));
+        const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
+        if (px > 0) {
+          const lv = protectLevels(px, p.side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
+          for (const item of planned) {
+            if (adds >= addCap) break;
+            const qty = item.qty * scale;
+            if (!(qty > 0)) continue;
+            const tag = !item.overallKind
+              ? "Block"
+              : item.scope === "symbol"
+                ? "Overall Block symbol"
+                : item.scope === "dir"
+                  ? "Overall Block dir"
+                  : "Overall Block";
+            const oid = nextId(e, item.overallKind ? (item.scope === "symbol" ? "obs" : item.scope === "dir" ? "obd" : "ob") : "b");
+            e.queue.push({
+              id: oid,
+              connId: conn,
+              symbol: p.symbol,
+              side: p.side,
+              type: e.orderType,
+              qty,
+              filled: 0,
+              price: px,
+              remaining: qty,
+              status: "queued",
+              rangeType: hi.rangeType,
+              level: item.next,
+              sl: lv.sl,
+              tp: lv.tp,
+              slDist: lv.slDist,
+              tpDist: lv.tpDist,
+              batchId: `${p.id}:${item.scope}:${item.next}`,
+              tactic: p.tactic ?? tactic,
+              indication: p.indication,
+              kind: "block",
+              playbook: "block",
+              note: `${tag} ${item.mode} #${item.next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
+            });
+            countPlaced(e);
+            usedQty += qty;
+            added += 1;
+            adds += 1;
+            e.lastBlockAt = e.tick;
           }
         }
       }
@@ -3546,15 +4193,23 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
       adjustActiveBlocks(e, cfg, tactic, block, opts?.rangeType, { endStage: opts?.endStage || e.tick >= endTick });
     });
   }
-  const evalEvery = e.liveTape
-    ? 30
-    : Math.max(TICKS_PER_HOUR, Math.round((block.evalHours || 2) * TICKS_PER_HOUR));
-  if (block.autoEval !== false && block.enabled && e.tick > 0 && e.tick % evalEvery === 0 && !over()) {
-    safeStage(e, "block-eval", () => {
-      evalBlockRelations(e, block);
-    });
+  const iv = intervalCfg(e);
+  const ivTicks = ticksPerIntervalOf(e);
+  const evalEvery = (e.completeSim || e.liveTape) && iv.enabled && iv.evalOnCadence
+    ? ivTicks
+    : Math.max(ivTicks, Math.round((block.evalHours || 2) * TICKS_PER_HOUR));
+  if (e.tick > 0 && e.tick % evalEvery === 0 && !over()) {
+    if (block.autoEval !== false && block.enabled) {
+      safeStage(e, "block-eval", () => {
+        evalBlockRelations(e, block);
+      });
+    } else {
+      safeStage(e, "progress-eval", () => {
+        refreshProgressEvals(e, block);
+      });
+    }
   }
-  if (block.liveDisable !== false && e.liveTape && e.tick % 30 === 0 && e.closed.length >= (block.liveLastN || 12) && !over()) {
+  if (block.liveDisable !== false && e.tick % 30 === 0 && e.closed.length >= (block.liveLastN || 12) && !over()) {
     safeStage(e, "live-disable", () => {
       refreshLiveDisable(e, block);
     });
@@ -3564,14 +4219,19 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
       refreshSymbolHourEval(e, { hours: block.symbolEvalHours ?? SYMBOL_EVAL_HOURS });
     });
   }
+  if (e.tick > 0 && e.tick % TICKS_PER_HOUR === 0 && !over()) {
+    safeStage(e, "losing-hour", () => {
+      refreshLosingHour(e);
+    });
+  }
   if ((e.tick % 4 === 0 || (opts?.skipWalk && e.orders.length > maxWorking(e))) && !over()) {
     safeStage(e, "compact", () => {
       compactOrders(e);
     });
   }
   const qn = e.queue.filter((o) => o.connId === e.activeConnId).length;
-  const armEvery = e.completeSim ? 6 : 24;
-  const qArm = e.completeSim ? Math.max(80, maxQueue(e) * 0.45) : 30;
+  const armEvery = e.completeSim ? 6 : 12;
+  const qArm = e.completeSim ? Math.max(80, maxQueue(e) * 0.45) : 48;
   if (
     !opts?.skipWalk &&
     e.tick % armEvery === 0 &&
@@ -3847,11 +4507,17 @@ export function horizonFromEngine(e: VstEngine, hours: number, _peak?: number): 
   };
 }
 
-export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean }) {
+export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; prehours?: number; minPf?: number; basePf?: number; blockPf?: number; shortPf?: number; shortBasePf?: number; shortBlockPf?: number }) {
   const ticks = Math.max(1, Math.round(hours * TICKS_PER_HOUR));
   const rangeType = opts?.rangeType ?? "atr";
   const startEq = Number(opts?.equity) > 0 ? Number(opts.equity) : 1e4;
   const costStep = Number.isFinite(Number(opts?.costStep)) ? Math.min(30, Math.max(3, Number(opts?.costStep))) : 10;
+  const complete = Boolean(opts?.complete);
+  const prehours = opts?.prehours != null
+    ? Math.max(0, Math.round(opts.prehours))
+    : complete && hours >= 12 ? SHORT_EVAL_HOURS : 0;
+  const preTicks = prehours * TICKS_PER_HOUR;
+  const totalTicks = preTicks + ticks;
   const engine = initVstEngine(cfg, {
     warmup: 0,
     symbolCount: opts?.symbolCount,
@@ -3859,11 +4525,20 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     block: opts?.block,
     equity: startEq,
     costStep,
-    complete: Boolean(opts?.complete),
+    complete,
   });
-  engine.completeSim = Boolean(opts?.complete);
+  engine.completeSim = complete;
+  engine.preEvalDone = preTicks <= 0;
   engine.shortRange = Boolean(cfg.shortRange);
+  if (opts?.minPf != null) engine.minPf = opts.minPf;
+  if (opts?.basePf != null) engine.basePf = opts.basePf;
+  if (opts?.blockPf != null) engine.blockPf = opts.blockPf;
+  if (opts?.shortPf != null) engine.shortPf = opts.shortPf;
+  if (opts?.shortBasePf != null) engine.shortBasePf = opts.shortBasePf;
+  if (opts?.shortBlockPf != null) engine.shortBlockPf = opts.shortBlockPf;
   engine.shortProgress = sanitizeShortProgress(engine.shortProgress);
+  engine.intervalStrategy = sanitizeIntervalStrategy(engine.intervalStrategy);
+  engine.lastNProgress = sanitizeLastNProgress(opts?.block?.lastNProgress ?? engine.lastNProgress);
   let peak = startEq;
   const curve = [{
     t: 0,
@@ -3872,11 +4547,18 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   }];
   const sampleEvery = Math.max(1, Math.round(ticks / 24));
   const hourly = [];
+  const intervals = [];
   const markAt = new Set((opts?.marks ?? []).map((n) => Math.round(n)).filter((n) => n > 0 && n <= hours));
   const marks: HorizonMark[] = [];
   let hourTrades = 0;
   let prevClosed = 0;
   let prevNet = 0;
+  let prevProfit = 0;
+  let prevLoss = 0;
+  let prevIntClosed = 0;
+  let prevIntNet = 0;
+  let prevIntProfit = 0;
+  let prevIntLoss = 0;
   let posSum = 0;
   let ordSum = 0;
   let slotSum = 0;
@@ -3931,6 +4613,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const tacAcc = accMap();
   const playAcc = accMap();
   const kindAcc = accMap();
+  const hourIndAcc = accMap();
+  const hourPlayAcc = accMap();
+  const hourKindAcc = accMap();
   const bump = (map: ReturnType<typeof accMap>, id: string, pnl: number) => {
     const key = id || "na";
     let row = map.get(key);
@@ -3944,31 +4629,111 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       row.profit += pnl;
     } else row.loss += Math.abs(pnl);
   };
-  for (let i = 0; i < ticks; i++) {
+  const bumpClose = (t: { pnl: number; indication?: string; tactic?: string; playbook?: string; kind?: string; qty?: number; blockQty?: number }) => {
+    const pnl = Number(t.pnl) || 0;
+    bump(indAcc, String(t.indication || "trend"), pnl);
+    bump(tacAcc, String(t.tactic || tactic), pnl);
+    bump(kindAcc, String(t.kind || "normal"), pnl);
+    bump(hourIndAcc, String(t.indication || "trend"), pnl);
+    bump(hourKindAcc, String(t.kind || "normal"), pnl);
+    const qty = Math.max(0, Number(t.qty) || 0);
+    const bq = Math.min(qty, Math.max(0, Number(t.blockQty) || 0));
+    const blockShare = qty > 1e-12 && bq > 1e-12 ? Math.min(1, bq / qty) : t.playbook === "block" ? 1 : 0;
+    const origin = String(t.playbook || "normal");
+    if (blockShare > 0 && origin !== "block") {
+      bump(playAcc, origin, pnl * (1 - blockShare));
+      bump(playAcc, "block", pnl * blockShare);
+      bump(hourPlayAcc, origin, pnl * (1 - blockShare));
+      bump(hourPlayAcc, "block", pnl * blockShare);
+    } else {
+      bump(playAcc, origin, pnl);
+      bump(hourPlayAcc, origin, pnl);
+    }
+  };
+  const finish = (map: ReturnType<typeof accMap>) =>
+    [...map.values()]
+      .map((r) => ({ ...r, pf: profitFactor(r.profit, r.loss), wr: r.n ? r.wins / r.n : 0 }))
+      .sort((a, b) => b.n - a.n);
+  const clearAcc = (map: ReturnType<typeof accMap>) => map.clear();
+  let preSnap = {
+    hours: prehours,
+    trades: 0,
+    wins: 0,
+    profit: 0,
+    loss: 0,
+    pf: 0,
+    wr: 0,
+    realized: 0,
+    slExits: 0,
+    tpExits: 0,
+    equity: startEq,
+  };
+  let liveProfit = 0;
+  let liveLoss = 0;
+  let livePeak = startEq;
+  for (let i = 0; i < totalTicks; i++) {
     tickVst(engine, cfg, tactic, {
       rangeType,
       symbolCount: opts?.symbolCount,
       orderType: opts?.orderType,
       block: opts?.block,
     });
+    if (preTicks > 0 && i + 1 === preTicks) {
+      engine.preEvalDone = true;
+      const blk = opts?.block ?? engine.blockCfg ?? DEFAULT_BLOCK_CONFIG;
+      evalBlockRelations(engine, blk);
+      refreshLiveDisable(engine, blk);
+      prevClosed = engine.ledger.trades;
+      prevProfit = engine.ledger.profit;
+      prevLoss = engine.ledger.loss;
+      prevNet = engine.stats.net;
+      prevIntClosed = engine.ledger.trades;
+      prevIntProfit = engine.ledger.profit;
+      prevIntLoss = engine.ledger.loss;
+      prevIntNet = engine.stats.net;
+      preSnap = {
+        hours: prehours,
+        trades: engine.ledger.trades,
+        wins: engine.ledger.wins,
+        profit: engine.ledger.profit,
+        loss: engine.ledger.loss,
+        pf: engine.stats.pf,
+        wr: engine.stats.wr,
+        realized: engine.ledger.profit - engine.ledger.loss,
+        slExits: engine.ledger.slExits,
+        tpExits: engine.ledger.tpExits,
+        equity: engine.stats.equity,
+      };
+      peak = engine.stats.equity;
+      livePeak = peak;
+      rSum = 0;
+      rN = 0;
+      for (const s of rSlots) s.n = 0;
+      clearAcc(indAcc);
+      clearAcc(tacAcc);
+      clearAcc(playAcc);
+      clearAcc(kindAcc);
+      seenClosed = engine.ledger.trades;
+    }
+    const inLive = i >= preTicks;
     if (engine.ledger.trades > seenClosed) {
       const added = engine.ledger.trades - seenClosed;
       for (let k = 0; k < added && k < engine.closed.length; k++) {
         const t = engine.closed[k];
+        if (!inLive) continue;
         rSum += t.r;
         rN += 1;
         const slot = rSlots.find((b) => t.r >= b.lo && t.r < b.hi) ?? rSlots[rSlots.length - 1];
         slot.n += 1;
-        bump(indAcc, String(t.indication || "trend"), t.pnl);
-        bump(tacAcc, String(t.tactic || tactic), t.pnl);
-        bump(playAcc, String(t.playbook || "normal"), t.pnl);
-        bump(kindAcc, String(t.kind || "normal"), t.pnl);
+        bumpClose(t);
       }
       seenClosed = engine.ledger.trades;
     }
     const eq = engine.stats.equity;
     if (eq > peak) peak = eq;
     const dd = peak > 0 ? Math.max(0, (peak - eq) / peak) : 0;
+    if (!inLive) continue;
+    if (eq > livePeak) livePeak = eq;
     posSum += engine.positions.length;
     ordSum += engine.stats.openOrders || engine.orders.filter((o) => o.status === "open" || o.status === "partial").length;
     slotSum += bookCounts(engine).positions.slots;
@@ -3986,54 +4751,121 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     const hourMargin = hourNotional / MARGIN_LEV;
     marginSum += hourMargin;
     if (hourMargin > maxMarginSeen) maxMarginSeen = hourMargin;
-    if ((i + 1) % sampleEvery === 0) curve.push({
-      t: (i + 1) / TICKS_PER_HOUR,
+    const liveI = i - preTicks;
+    if ((liveI + 1) % sampleEvery === 0) curve.push({
+      t: (liveI + 1) / TICKS_PER_HOUR,
       eq,
       dd
     });
-    if ((i + 1) % TICKS_PER_HOUR === 0 || i === ticks - 1) {
-      const h = Math.ceil((i + 1) / TICKS_PER_HOUR);
+    if ((liveI + 1) % TICKS_PER_HOUR === 0 || i === totalTicks - 1) {
+      const h = Math.ceil((liveI + 1) / TICKS_PER_HOUR);
       hourTrades = engine.ledger.trades - prevClosed;
       prevClosed = engine.ledger.trades;
-      const hourNet = engine.stats.net - prevNet;
+      const hp = engine.ledger.profit - prevProfit;
+      const hl = engine.ledger.loss - prevLoss;
+      prevProfit = engine.ledger.profit;
+      prevLoss = engine.ledger.loss;
+      liveProfit += hp;
+      liveLoss += hl;
+      const realized = hp - hl;
+      const hourMtm = engine.stats.net - prevNet;
       prevNet = engine.stats.net;
+      const hourPf = profitFactor(hp, hl);
+      const livePf = profitFactor(liveProfit, liveLoss);
       const book = bookCounts(engine);
+      const hourIndSnap = finish(hourIndAcc);
+      const hourPlaySnap = finish(hourPlayAcc);
+      const hourKindSnap = finish(hourKindAcc);
+      const liveWinsNow = engine.ledger.wins - preSnap.wins;
+      const liveTradesNow = engine.ledger.trades - preSnap.trades;
+      const unreal = engine.positions.reduce((s, p) => s + (p.unrealized || 0), 0);
       hourly.push({
         h,
-        net: hourNet,
+        net: realized,
+        mtm: hourMtm,
+        unreal,
         trades: hourTrades,
         eq,
-        pf: engine.stats.pf,
-        wr: engine.stats.wr,
-        mdd: engine.stats.mdd,
+        pf: livePf,
+        hourPf,
+        hourProfit: hp,
+        hourLoss: hl,
+        wr: liveTradesNow > 0 ? liveWinsNow / liveTradesNow : 0,
+        mdd: livePeak > 0 ? Math.max(0, (livePeak - eq) / livePeak) : 0,
         ddt: engine.stats.ddt,
         pos: engine.positions.length,
         slots: book.positions.slots,
         orders: book.orders.working,
         queued: book.orders.queued,
-        sl: engine.ledger.slExits,
-        tp: engine.ledger.tpExits,
-        netCum: engine.stats.net,
+        sl: engine.ledger.slExits - preSnap.slExits,
+        tp: engine.ledger.tpExits - preSnap.tpExits,
+        netCum: liveProfit - liveLoss,
         vol: engine.relVolumeFactor ?? 0,
         notional: hourNotional,
         margin: hourMargin,
         marginPct: eq > 0 ? hourMargin / eq : 0,
         blockOrd: hourBlock,
+        inds: Object.fromEntries(hourIndSnap.map((r) => [r.id, { n: r.n, pf: r.pf, wr: r.wr }])),
+        plays: Object.fromEntries(hourPlaySnap.map((r) => [r.id, { n: r.n, pf: r.pf }])),
+        kinds: Object.fromEntries(hourKindSnap.map((r) => [r.id, { n: r.n, pf: r.pf }])),
       });
+      clearAcc(hourIndAcc);
+      clearAcc(hourPlayAcc);
+      clearAcc(hourKindAcc);
       if (markAt.has(h)) marks.push(horizonFromEngine(engine, h, peak));
+    }
+    if ((liveI + 1) % ticksPerIntervalOf(engine) === 0 || i === totalTicks - 1) {
+      const step = ticksPerIntervalOf(engine);
+      const m = Math.ceil((liveI + 1) / step);
+      const intTrades = engine.ledger.trades - prevIntClosed;
+      prevIntClosed = engine.ledger.trades;
+      const ip = engine.ledger.profit - prevIntProfit;
+      const il = engine.ledger.loss - prevIntLoss;
+      prevIntProfit = engine.ledger.profit;
+      prevIntLoss = engine.ledger.loss;
+      const intMtm = engine.stats.net - prevIntNet;
+      prevIntNet = engine.stats.net;
+      intervals.push({
+        m,
+        minutes: intervalMinutesOf(engine),
+        net: ip - il,
+        mtm: intMtm,
+        trades: intTrades,
+        eq,
+        pf: profitFactor(ip, il),
+        hourPf: profitFactor(ip, il),
+        hourProfit: ip,
+        hourLoss: il,
+        mdd: livePeak > 0 ? Math.max(0, (livePeak - eq) / livePeak) : 0,
+        ddt: engine.stats.ddt,
+        pos: engine.positions.length,
+        netCum: (engine.ledger.profit - engine.ledger.loss) - (prehours > 0 ? preSnap.profit - preSnap.loss : 0),
+      });
     }
   }
   const audit = auditEngine(engine);
   const issues = [...audit.issues];
-  if (engine.ledger.trades < 1) issues.push("No closed trades");
-  if (hours >= 8) {
-    if (engine.ledger.slExits < 1) issues.push("No stop-loss exits");
-    if (engine.ledger.tpExits < 1) issues.push("No take-profit exits");
-  }
   const profit = engine.ledger.profit;
   const loss = engine.ledger.loss;
-  const trades = engine.ledger.trades;
-  const wins = engine.ledger.wins;
+  const tradesAll = engine.ledger.trades;
+  const winsAll = engine.ledger.wins;
+  const liveTrades = Math.max(0, tradesAll - preSnap.trades);
+  const liveWinsCount = Math.max(0, winsAll - preSnap.wins);
+  const liveSl = Math.max(0, engine.ledger.slExits - preSnap.slExits);
+  const liveTp = Math.max(0, engine.ledger.tpExits - preSnap.tpExits);
+  const liveRealized = liveProfit - liveLoss;
+  const livePf = profitFactor(liveProfit, liveLoss);
+  const liveWr = liveTrades ? liveWinsCount / liveTrades : 0;
+  const liveMdd = livePeak > 0 ? Math.max(0, (livePeak - engine.stats.equity) / livePeak) : 0;
+  if ((prehours > 0 ? liveTrades : tradesAll) < 1) issues.push("No closed trades");
+  if (hours >= 8) {
+    if ((prehours > 0 ? liveSl : engine.ledger.slExits) < 1) issues.push("No stop-loss exits");
+    if ((prehours > 0 ? liveTp : engine.ledger.tpExits) < 1) issues.push("No take-profit exits");
+  }
+  const trades = prehours > 0 ? liveTrades : tradesAll;
+  const wins = prehours > 0 ? liveWinsCount : winsAll;
+  const liveProfitRep = prehours > 0 ? liveProfit : profit;
+  const liveLossRep = prehours > 0 ? liveLoss : loss;
   const bySymbol = Object.values(engine.symbolStats).map((s) => ({
     id: s.id,
     trades: s.trades,
@@ -4043,10 +4875,6 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     sl: s.sl,
     tp: s.tp
   })).sort((a, b) => b.net - a.net);
-  const finish = (map: ReturnType<typeof accMap>) =>
-    [...map.values()]
-      .map((r) => ({ ...r, pf: profitFactor(r.profit, r.loss), wr: r.n ? r.wins / r.n : 0 }))
-      .sort((a, b) => b.n - a.n);
   const byIndication = finish(indAcc);
   const byTactic = finish(tacAcc);
   const byPlaybook = finish(playAcc);
@@ -4056,19 +4884,60 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     bin,
     n
   }));
+  const deskClosed = engine.closed.filter((c) => isDeskConn(c.connId));
+  const lastNSnap = (n: number) => {
+    const rows = deskClosed.slice(0, n);
+    const st = laneLastNStats(rows);
+    return { n: st.n, pf: st.pf, net: st.net, avg: st.avg };
+  };
+  const ln = lastNProgressOf(engine);
+  const lastNByIndication: Record<string, { eval: ReturnType<typeof lastNSnap>; valid: ReturnType<typeof lastNSnap>; exec: ReturnType<typeof lastNSnap>; disable: ReturnType<typeof lastNSnap> }> = {};
+  const seenInd = new Set<string>();
+  for (const c of deskClosed) {
+    const id = String(c.indication || "trend");
+    if (seenInd.has(id)) continue;
+    seenInd.add(id);
+    lastNByIndication[id] = {
+      eval: laneLastNStats(laneClosed(engine, { indication: id }, EVAL_POS_N)),
+      valid: laneLastNStats(laneClosed(engine, { indication: id }, VALID_EXEC_POS_N)),
+      exec: laneLastNStats(laneClosed(engine, { indication: id }, VALID_EXEC_POS_N)),
+      disable: laneLastNStats(laneClosed(engine, { indication: id }, LIVE_DISABLE_N)),
+    };
+  }
+  const liveTapeRows = deskClosed.filter((c) => (c.tick || 0) > preTicks);
+  const gatedRows = liveTapeRows.filter((c) =>
+    lanePassExec(engine, {
+      symbol: c.symbol,
+      side: c.side,
+      indication: c.indication,
+      kind: c.kind,
+      tactic: c.tactic,
+      rangeType: c.rangeType,
+      playbook: c.playbook,
+    }),
+  );
+  const liveGated = {
+    n: gatedRows.length,
+    ...laneLastNStats(gatedRows),
+    of: liveTapeRows.length,
+  };
+  const reportPf = prehours > 0 ? livePf : engine.stats.pf;
+  const reportWr = prehours > 0 ? liveWr : engine.stats.wr;
+  const reportNet = prehours > 0 ? liveRealized + engine.positions.reduce((s, p) => s + (p.unrealized || 0), 0) : engine.stats.net;
+  const reportMdd = prehours > 0 ? liveMdd : engine.stats.mdd;
   const report = {
     hours,
     ticks,
     symbols: engine.symbolCount,
     trades,
     wins,
-    wr: engine.stats.wr,
-    pf: engine.stats.pf,
-    net: engine.stats.net,
-    mdd: engine.stats.mdd,
+    wr: reportWr,
+    pf: reportPf,
+    net: reportNet,
+    mdd: reportMdd,
     equity: engine.stats.equity,
-    slExits: engine.ledger.slExits,
-    tpExits: engine.ledger.tpExits,
+    slExits: prehours > 0 ? liveSl : engine.ledger.slExits,
+    tpExits: prehours > 0 ? liveTp : engine.ledger.tpExits,
     openPositions: engine.positions.length,
     openOrders: engine.stats.openOrders,
     maxPositionsSeen: engine.ledger.maxPositions,
@@ -4081,12 +4950,12 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     passed: issues.length === 0,
     issues,
     curve,
-    expectancy: trades ? engine.stats.net / trades : 0,
-    avgWin: wins ? profit / wins : 0,
-    avgLoss: trades - wins ? loss / (trades - wins) : 0,
-    recovery: engine.stats.mdd > 1e-9 ? engine.stats.net / (engine.stats.mdd * startEq) : engine.stats.net > 0 ? 8 : 0,
-    profit,
-    loss,
+    expectancy: trades ? (prehours > 0 ? liveRealized : engine.stats.net) / trades : 0,
+    avgWin: wins ? liveProfitRep / wins : 0,
+    avgLoss: trades - wins ? liveLossRep / (trades - wins) : 0,
+    recovery: reportMdd > 1e-9 ? (prehours > 0 ? liveRealized : engine.stats.net) / (reportMdd * startEq) : (prehours > 0 ? liveRealized : engine.stats.net) > 0 ? 8 : 0,
+    profit: liveProfitRep,
+    loss: liveLossRep,
     maxWinStreak: engine.ledger.maxWinStreak,
     maxLossStreak: engine.ledger.maxLossStreak,
     bySymbol,
@@ -4097,6 +4966,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     ordersPlaced: engine.ledger.ordersPlaced,
     ordersFilled: engine.ledger.ordersFilled,
     hourly,
+    intervals,
     avgR,
     rHist,
     book: bookCounts(engine),
@@ -4112,6 +4982,22 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     startEquity: startEq,
     costStep,
     unitNotional: positionNotional(startEq, costStep),
+    realizedNet: prehours > 0 ? liveRealized : profit - loss,
+    prehours,
+    pre: preSnap,
+    lastN: {
+      eval: lastNSnap(EVAL_POS_N),
+      valid: lastNSnap(VALID_EXEC_POS_N),
+      exec: lastNSnap(VALID_EXEC_POS_N),
+      disable: lastNSnap(LIVE_DISABLE_N),
+      byIndication: lastNByIndication,
+      mode: ln.mode,
+      evalNs: Object.fromEntries(ln.evalNs.map((n) => [n, lastNSnap(n)])),
+      validNs: Object.fromEntries(ln.validNs.map((n) => [n, lastNSnap(n)])),
+      disableNs: Object.fromEntries(ln.disableNs.map((n) => [n, lastNSnap(n)])),
+    },
+    disabled: Object.keys(engine.liveDisabled ?? {}),
+    liveGated,
   };
   engine.sim = report;
   engine.lastMsg = report.passed ? `${hours}h sim passed · ${report.trades} trades · PF ${report.pf.toFixed(2)}` : `${hours}h sim issues: ${issues.slice(0, 3).join("; ")}`;
@@ -4196,8 +5082,9 @@ function pnlBucket(rows: { pnl: number }[], key = "all"): OverallBucket {
   };
 }
 
-export const LIVE_POS_NS = [5, 10, 12, 15, 40, 120, 650] as const;
+export const LIVE_POS_NS = [5, 10, 12, 15, 30, 40, 120, 650] as const;
 export const LIVE_HOUR_NS = [1, 2, 4, 6, 8, 12, 45, 50] as const;
+export const LIVE_INTERVAL_MINS = [20] as const;
 export const OVERVIEW_POS_NS = [12, 40, 120, 650] as const;
 export const OVERVIEW_HOUR_NS = [2, 6, 12, 45] as const;
 export const LIVE_POS_LABELS: Record<string, string> = Object.fromEntries(LIVE_POS_NS.map((n) => [`n${n}`, `Last ${n}`]));
@@ -4253,6 +5140,7 @@ export function overlayLiveExecutions(
   stats: {
     lastN?: Record<string, OverallBucket>;
     hours?: Record<string, OverallBucket>;
+    intervals?: Record<string, OverallBucket>;
   },
   pnl: LivePnlRow[],
   now = Date.now(),
@@ -4276,6 +5164,15 @@ export function overlayLiveExecutions(
       const b = pnlBucket(asRows(take), `${h}h`);
       const symbols = new Set(take.map((r) => String(r.symbol || "")).filter(Boolean)).size;
       stats.hours[String(h)] = { ...b, symbols, orders: take.length, avgOrders: take.length };
+    }
+  }
+  if (stats.intervals) {
+    for (const m of LIVE_INTERVAL_MINS) {
+      const since = now - m * 60_000;
+      const take = newest.filter((r) => Number(r.t) >= since);
+      const b = pnlBucket(asRows(take), `${m}m`);
+      const symbols = new Set(take.map((r) => String(r.symbol || "")).filter(Boolean)).size;
+      stats.intervals[String(m)] = { ...b, symbols, orders: take.length, avgOrders: take.length };
     }
   }
   return stats;
@@ -4323,6 +5220,35 @@ function hourBucket(e: VstEngine, hours: number): OverallBucket {
     orders,
     avgOrders: Number.isFinite(avgOrders) ? avgOrders : liveOrd,
   };
+}
+
+function windowMinutes<T extends { tick: number; at?: number; connId?: string }>(rows: T[], nowTick: number, minutes: number) {
+  const desk = rows.filter((c) => !c.connId || isDeskConn(c.connId));
+  const dated = desk.filter((c) => typeof c.at === "number" && c.at > 0);
+  let span = 0;
+  if (dated.length >= 3) {
+    let minAt = Infinity;
+    let maxAt = 0;
+    for (const c of dated) {
+      const t = Number(c.at);
+      if (t < minAt) minAt = t;
+      if (t > maxAt) maxAt = t;
+    }
+    span = maxAt - minAt;
+  }
+  if (span >= minutes * 60_000 * 0.25) {
+    const cutoff = Date.now() - minutes * 60_000;
+    return desk.filter((c) => Number(c.at ?? 0) >= cutoff);
+  }
+  const minTick = nowTick - minutes;
+  return desk.filter((c) => c.tick >= minTick);
+}
+
+function intervalBucket(e: VstEngine, minutes: number): OverallBucket {
+  const rows = windowMinutes(e.closed, e.tick, minutes);
+  const base = pnlBucket(rows, `${minutes}m`);
+  const symbols = new Set(rows.map((c) => (c as { symbol?: string }).symbol).filter(Boolean)).size;
+  return { ...base, symbols, orders: rows.length, avgOrders: rows.length };
 }
 
 type SeedableStats = {
@@ -4418,22 +5344,22 @@ export function overallLiveStats(e: VstEngine) {
     pnlBucket(closed.filter((c) => c.reason === k), k),
   );
   const bySide = (["long", "short"] as const).map((k) => pnlBucket(closed.filter((c) => c.side === k), k));
-  const byIndication = (["trend", "break", "active", "direction"] as const).map((k) =>
+  const byIndication = SHORT_PROGRESS_INDICATIONS.map((k) =>
     pnlBucket(closed.filter((c) => (c.indication ?? "trend") === k), k),
   );
-  const byKind = (["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block"] as const).map((k) =>
+  const byKind = (["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block", "short"] as const).map((k) =>
     pnlBucket(closed.filter((c) => (c.kind ?? "normal") === k), k),
   );
   const byTactic = (["trailing", "dca", "axis", "hybrid"] as const).map((k) =>
     pnlBucket(closed.filter((c) => (c.tactic ?? e.lastTactic) === k), k),
   );
-  const byPlaybook = (["normal", "axis", "block", "dca"] as const).map((k) =>
+  const byPlaybook = (["normal", "axis", "block", "dca", "short"] as const).map((k) =>
     pnlBucket(closed.filter((c) => (c.playbook ?? "normal") === k), k),
   );
   const byRange = (["linear", "geometric", "atr", "volume", "fibonacci"] as const).map((k) =>
     pnlBucket(closed.filter((c) => (c.rangeType ?? e.lastRange) === k), k),
   );
-  const playbooks: PlaybookDetail[] = (["normal", "axis", "block", "dca"] as const).map((k) => {
+  const playbooks: PlaybookDetail[] = (["normal", "axis", "block", "dca", "short"] as const).map((k) => {
     const rows = closed.filter((c) => (c.playbook ?? "normal") === k);
     const active = rows.filter((c) => c.indication === "active" || c.kind === "active");
     const maxStep = k === "block" || k === "dca" || k === "axis" ? 6 : 0;
@@ -4452,6 +5378,10 @@ export function overallLiveStats(e: VstEngine) {
   ) as Record<string, OverallBucket>;
   const hours = Object.fromEntries(
     LIVE_HOUR_NS.map((h) => [String(h), hourBucket(e, h)]),
+  ) as Record<string, OverallBucket>;
+  const intervalMins = [intervalMinutesOf(e)];
+  const intervals = Object.fromEntries(
+    intervalMins.map((m) => [String(m), intervalBucket(e, m)]),
   ) as Record<string, OverallBucket>;
   const liveBuckets = [...byPlaybook, ...byIndication, ...byTactic, ...byRange].filter((b) => b.n > 0);
   const open = pnlBucket(
@@ -4492,6 +5422,7 @@ export function overallLiveStats(e: VstEngine) {
     playbooks,
     lastN,
     hours,
+    intervals,
     bestSymbols: rankedPf.slice(0, 6),
     worstSymbols: [...rankedPf].reverse().slice(0, 6),
     runningSymbols: new Set(activePos.map((p) => p.symbol)).size,
@@ -4512,6 +5443,8 @@ export function overallLiveStats(e: VstEngine) {
     mdd: e.stats.mdd,
     ddt: e.stats.ddt ?? ov.ddt,
     block: blockBucket,
+    intervalVolScale: e.intervalVolScale ?? intervalVolumeScale(e),
+    intervalPf: e.intervalPf ?? lastIntervalStats(e).pf,
   };
   seedStatsFromComplete(stats, e);
   return stats;
@@ -5256,7 +6189,7 @@ export function liveDeskBook(
       qty: t.qty,
       cost: Math.abs(t.qty * t.entry),
       pnl: t.pnl,
-      pnlPct: t.entry ? ((t.exit - t.entry) / t.entry) * (t.side === "long" ? 1 : -1) : 0,
+      pnlPct: t.entry ? (t.pnl || 0) / Math.max(Math.abs((t.qty || 0) * t.entry), 1e-9) : 0,
       openedBar: Math.max(0, t.tick - 1),
       closedBar: t.tick,
       tactic: "hybrid" as const,
@@ -5374,7 +6307,56 @@ export function positionBlockAdjusted(e: VstEngine, symbol: string, side: Side):
   return false;
 }
 
-/** Live exchange: additional strategies only. Normal/general stays calc-only when off. */
+export function lastNProgressOf(e: VstEngine): LastNProgressConfig {
+  return sanitizeLastNProgress(e.lastNProgress ?? e.blockCfg?.lastNProgress);
+}
+
+export function laneLastNDecision(
+  e: VstEngine,
+  rel: Parameters<typeof lanePassExec>[1],
+) {
+  const cfg = lastNProgressOf(e);
+  const need = Math.max(8, ...cfg.evalNs, ...cfg.validNs, ...cfg.disableNs);
+  const rows = laneClosed(e, rel, need);
+  const minPf = entryMinPfFor(e, rel);
+  const basePf = minPfFor(e, rel.kind === "short" || rel.playbook === "short" ? "shortBase" : "base");
+  return decideLastN(rows, cfg, minPf, basePf);
+}
+
+export function lanePassExec(
+  e: VstEngine,
+  rel: {
+    symbol?: string;
+    side?: Side;
+    indication?: IndicationId;
+    kind?: string;
+    tactic?: TacticKind;
+    rangeType?: RangeType;
+    playbook?: string;
+  },
+): boolean {
+  if (liveRelationDisabled(e, rel as Parameters<typeof liveRelationDisabled>[1])) return false;
+  return laneLastNDecision(e, rel).pass;
+}
+
+function laneExecProven(
+  e: VstEngine,
+  rel: Parameters<typeof lanePassExec>[1],
+): boolean {
+  const d = laneLastNDecision(e, rel);
+  return d.validHits.length > 0;
+}
+
+export function laneLastNStack(
+  e: VstEngine,
+  rel: Parameters<typeof lanePassExec>[1],
+): number {
+  const d = laneLastNDecision(e, rel);
+  if (!d.pass) return 1;
+  return d.stack;
+}
+
+/** Live / Real counted execute: only lanes that passed progress valid-execute. */
 export function liveShouldExecute(
   e: VstEngine,
   rel: {
@@ -5394,6 +6376,16 @@ export function liveShouldExecute(
   const play = String(rel.playbook || "");
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca) return t.dca;
+  const blockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
+  if (!blockFill && (e.preEvalDone || e.liveTape) && !lanePassExec(e, rel)) return false;
+  const gated = Boolean(e.preEvalDone || e.liveTape);
+  if (!blockFill && gated && laneExecProven(e, rel)) {
+    if (rel.kind === "normal" || play === "normal") return t.normal;
+    if (rel.kind === "short" || play === "short" || /short/i.test(note)) return Boolean(t.block || t.trailing || t.axis);
+    if (play === "axis" || rel.tactic === "axis") return t.axis;
+    if (rel.tactic === "trailing" || rel.tactic === "hybrid") return t.trailing !== false;
+    return Boolean(t.trailing || t.axis || t.block);
+  }
   if (rel.kind === "short" || play === "short" || /short/i.test(note)) {
     if (!(t.block || t.trailing || t.axis)) return false;
     if (t.block && e.blockCfg?.activeLive !== false && e.liveTape) {

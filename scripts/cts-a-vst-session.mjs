@@ -589,7 +589,7 @@ function writeSettingsPick(pick, extra = {}) {
     thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, shortPf: DEFAULT_SHORT_PF, shortBasePf: DEFAULT_SHORT_BASE_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
     activeConnId: CONN,
     evalHours: [...AUTO_EVAL_HOURS],
-    evalLastNs: [5, 10, 15],
+    evalLastNs: [12, 15, 30],
     sessionPhase: extra.sessionPhase ?? "running",
     hedgeMode: true,
     marginMode: "cross",

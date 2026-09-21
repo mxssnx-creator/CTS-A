@@ -19,6 +19,8 @@ import type {
   TacticKind,
   Thresholds,
   ShortProgressConfig,
+  IntervalStrategyConfig,
+  LastNProgressConfig,
   VstEngine,
 } from "./types";
 import type { CompleteComputeReport } from "./vst";
@@ -33,6 +35,8 @@ import {
   DEFAULT_TACTIC_CONFIG,
   DEFAULT_THRESHOLDS,
   DEFAULT_SHORT_PROGRESS,
+  DEFAULT_INTERVAL_STRATEGY,
+  DEFAULT_LAST_N_PROGRESS,
   DESK,
   LANE_EVAL_NS,
   LAST_N_OPTIONS,
@@ -42,6 +46,8 @@ import {
   clampLastN,
   clampBlockVol,
   sanitizeShortProgress,
+  sanitizeIntervalStrategy,
+  sanitizeLastNProgress,
   combosFiltered,
   pickBestCombo,
   WARMUP,
@@ -154,6 +160,8 @@ interface DeskStore {
   userPresets: import("./presets").SettingsPreset[];
   strategyToggles: StrategyToggles;
   shortProgress: ShortProgressConfig;
+  intervalStrategy: IntervalStrategyConfig;
+  lastNProgress: LastNProgressConfig;
   exchange: ExchangeBook | null;
   settingsRev: number;
   settingsAt: number;
@@ -181,6 +189,8 @@ interface DeskStore {
   setBlockConfig: (p: Partial<BlockConfig>) => void;
   setStrategyToggles: (p: Partial<StrategyToggles>) => void;
   setShortProgress: (p: Partial<ShortProgressConfig>) => void;
+  setIntervalStrategy: (p: Partial<IntervalStrategyConfig>) => void;
+  setLastNProgress: (p: Partial<LastNProgressConfig>) => void;
   setComboOnlyPositive: (v: boolean) => void;
   setComboTactic: (t: TacticKind | "all") => void;
   setComboRange: (r: RangeType | "all") => void;
@@ -317,7 +327,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   strategyId: "normal",
   lastN: DEFAULT_LAST_N,
   lastNs: { ...DEFAULT_LAST_N_CONFIG },
-  lastNLinked: true,
+  lastNLinked: false,
   overlayLastN: 40 as const,
   costStep: 10,
   rangeType: "atr",
@@ -360,6 +370,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
   userPresets: [] as SettingsPreset[],
   strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
   shortProgress: sanitizeShortProgress(DEFAULT_SHORT_PROGRESS),
+  intervalStrategy: sanitizeIntervalStrategy(DEFAULT_INTERVAL_STRATEGY),
+  lastNProgress: sanitizeLastNProgress(DEFAULT_LAST_N_PROGRESS),
   exchange: null,
   liveSession: null,
   liveOverall: null,
@@ -455,6 +467,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
       blockConfig: { ...DEFAULT_BLOCK_CONFIG },
       strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
       shortProgress: sanitizeShortProgress(DEFAULT_SHORT_PROGRESS),
+      intervalStrategy: sanitizeIntervalStrategy(DEFAULT_INTERVAL_STRATEGY),
+      lastNProgress: sanitizeLastNProgress(DEFAULT_LAST_N_PROGRESS),
       comboOnlyPositive: true,
       comboTactic: "all",
       comboRange: "all",
@@ -608,6 +622,21 @@ export const useDesk = create<DeskStore>((set, get) => ({
       shortAxisPf: shortProgress.axisPf,
       shortBlockPf: shortProgress.blockPf,
     });
+  },
+  setIntervalStrategy: (p) => {
+    const intervalStrategy = sanitizeIntervalStrategy({ ...get().intervalStrategy, ...p });
+    set({ intervalStrategy });
+    const e = get().vst;
+    e.intervalStrategy = intervalStrategy;
+    get().syncSettings();
+  },
+  setLastNProgress: (p) => {
+    const lastNProgress = sanitizeLastNProgress({ ...get().lastNProgress, ...p });
+    set({ lastNProgress });
+    const e = get().vst;
+    e.lastNProgress = lastNProgress;
+    if (e.blockCfg) e.blockCfg = { ...e.blockCfg, lastNProgress };
+    get().syncSettings();
   },
   setComboOnlyPositive: (comboOnlyPositive) => {
     set({ comboOnlyPositive });
@@ -909,6 +938,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.shortAxisPf = get().thresholds.shortAxisPf;
     e.shortBlockPf = get().thresholds.shortBlockPf;
     e.shortProgress = get().shortProgress;
+    e.intervalStrategy = get().intervalStrategy;
+    e.lastNProgress = get().lastNProgress;
     e.shortRange = Boolean(get().tacticConfig.shortRange);
     e.blockCfg = {
       ...get().blockConfig,
@@ -1481,6 +1512,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
         blockConfig: snap.blockConfig,
         strategyToggles: snap.strategyToggles,
         shortProgress: snap.shortProgress ?? sanitizeShortProgress(undefined),
+        intervalStrategy: snap.intervalStrategy ?? sanitizeIntervalStrategy(undefined),
+        lastNProgress: snap.lastNProgress ?? sanitizeLastNProgress(undefined),
         symbolCount: snap.symbolCount,
         orderType: snap.orderType,
         enabledKinds: snap.enabledKinds,

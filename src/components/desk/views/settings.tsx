@@ -10,8 +10,8 @@ import {
   getBacktest,
   LAST_N_OPTIONS,
   LAST_N_STAGE_META,
+  LAST_N_PROGRESS_META,
   lastNEval,
-  LANE_EVAL_NS,
   ORDER_TYPES,
   paramBounds,
   paramKey,
@@ -41,8 +41,24 @@ import {
   snapShortSlOfTp,
   SHORT_PROGRESS_INDICATIONS,
   DEFAULT_SHORT_PROGRESS,
+  DEFAULT_INTERVAL_STRATEGY,
+  INTERVAL_MINUTES_OPTIONS,
+  EVAL_POS_NS,
+  VALID_EXEC_NS,
+  LIVE_DISABLE_NS,
+  DEFAULT_LAST_N_PROGRESS,
   shortSlAtrOf,
   shortTpRatioOf,
+  DEFAULT_BLOCK_VOLUME_RATIO,
+  DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
+  DEFAULT_SHARED_BLOCK_VOLUME_RATIO,
+  DEFAULT_MAX_VOLUME_MULTIPLIER,
+  BLOCK_MAX_VOLUME_MUL_MIN,
+  BLOCK_MAX_VOLUME_MUL_MAX,
+  BLOCK_VOLUME_RATIO_MIN,
+  BLOCK_VOLUME_RATIO_MAX,
+  BLOCK_SHARED_VOLUME_MIN,
+  BLOCK_SHARED_VOLUME_MAX,
   volumeCoord,
   WARMUP,
   orderTypesForVenue,
@@ -91,6 +107,7 @@ const SECTIONS = [
   { id: "gates", label: "Gates" },
   { id: "tactics", label: "Protect" },
   { id: "short-progress", label: "Short Progress" },
+  { id: "interval", label: "Interval" },
   { id: "block", label: "Block" },
   { id: "dca", label: "DCA" },
   { id: "indicators", label: "Indicators" },
@@ -235,6 +252,10 @@ export function SettingsView() {
   const settingsSource = useDesk((s) => s.settingsSource);
   const shortProgress = useDesk((s) => s.shortProgress);
   const setShortProgress = useDesk((s) => s.setShortProgress);
+  const intervalStrategy = useDesk((s) => s.intervalStrategy);
+  const setIntervalStrategy = useDesk((s) => s.setIntervalStrategy);
+  const lastNProgress = useDesk((s) => s.lastNProgress);
+  const setLastNProgress = useDesk((s) => s.setLastNProgress);
   const evalHours = useDesk((s) => s.evalHours);
   const evalLastNs = useDesk((s) => s.evalLastNs);
   const setEvalHours = useDesk((s) => s.setEvalHours);
@@ -609,25 +630,124 @@ export function SettingsView() {
             </div>
           </div>
           <div className="mt-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-subtle">Lane last-N evals</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-subtle">Progress last-N</p>
+            <p className="mt-1 text-xs text-muted">
+              Base eval 15–80 step 5 · Valid 8–24 step 4 · Disable 6–20 step 2. Independent (valid windows on their own, more flow) · Combined (base then valid, majority) · Parallel (both, extra stack when they agree).
+              Primaries Eval {LAST_N_PROGRESS_META[0]!.n} · Valid {LAST_N_PROGRESS_META[1]!.n} · Disable {LAST_N_PROGRESS_META[2]!.n}.
+            </p>
             <div className="mt-2 flex flex-wrap gap-1">
-              {LANE_EVAL_NS.map((n) => {
-                const on = evalLastNs.includes(n);
-                return (
-                  <button
-                    key={n}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() =>
-                      setEvalLastNs(on ? evalLastNs.filter((x) => x !== n) : [...evalLastNs, n])
-                    }
-                    className={`${chip} ${on ? chipOn : chipOff}`}
-                  >
-                    N{n}
-                  </button>
-                );
-              })}
+              {(["independent", "combined", "parallel"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={lastNProgress.mode === m}
+                  className={`${chip} ${lastNProgress.mode === m ? chipOn : chipOff}`}
+                  onClick={() => setLastNProgress({ mode: m })}
+                >
+                  {m === "independent" ? "Independent" : m === "combined" ? "Combined" : "Parallel stack"}
+                </button>
+              ))}
+              <button
+                type="button"
+                aria-pressed={lastNProgress.parallelStack}
+                className={`${chip} ${lastNProgress.parallelStack ? chipOn : chipOff}`}
+                onClick={() => setLastNProgress({ parallelStack: !lastNProgress.parallelStack })}
+              >
+                {lastNProgress.parallelStack ? "Stack extra vol" : "No extra stack"}
+              </button>
+              <button
+                type="button"
+                className={`${chip} ${chipOff}`}
+                onClick={() => setLastNProgress({ ...DEFAULT_LAST_N_PROGRESS })}
+              >
+                Reset last-N
+              </button>
             </div>
+            <div className="mt-3">
+              <p className="mb-1 text-[11px] uppercase tracking-widest text-subtle">Base eval</p>
+              <div className="flex flex-wrap gap-1">
+                {EVAL_POS_NS.map((n) => {
+                  const on = lastNProgress.evalNs.includes(n);
+                  return (
+                    <button
+                      key={`e${n}`}
+                      type="button"
+                      aria-pressed={on}
+                      className={`${chip} ${on ? chipOn : chipOff}`}
+                      onClick={() =>
+                        setLastNProgress({
+                          evalNs: on ? lastNProgress.evalNs.filter((x) => x !== n) : [...lastNProgress.evalNs, n],
+                        })
+                      }
+                    >
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mt-3">
+              <p className="mb-1 text-[11px] uppercase tracking-widest text-subtle">Valid execute</p>
+              <div className="flex flex-wrap gap-1">
+                {VALID_EXEC_NS.map((n) => {
+                  const on = lastNProgress.validNs.includes(n);
+                  return (
+                    <button
+                      key={`v${n}`}
+                      type="button"
+                      aria-pressed={on}
+                      className={`${chip} ${on ? chipOn : chipOff}`}
+                      onClick={() =>
+                        setLastNProgress({
+                          validNs: on ? lastNProgress.validNs.filter((x) => x !== n) : [...lastNProgress.validNs, n],
+                        })
+                      }
+                    >
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mt-3">
+              <p className="mb-1 text-[11px] uppercase tracking-widest text-subtle">Disable</p>
+              <div className="flex flex-wrap gap-1">
+                {LIVE_DISABLE_NS.map((n) => {
+                  const on = lastNProgress.disableNs.includes(n);
+                  return (
+                    <button
+                      key={`d${n}`}
+                      type="button"
+                      aria-pressed={on}
+                      className={`${chip} ${on ? chipOn : chipOff}`}
+                      onClick={() =>
+                        setLastNProgress({
+                          disableNs: on ? lastNProgress.disableNs.filter((x) => x !== n) : [...lastNProgress.disableNs, n],
+                        })
+                      }
+                    >
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mt-3 max-w-sm">
+              <RangeKnob
+                label="Parallel vol ratio"
+                value={lastNProgress.parallelVolRatio}
+                min={1}
+                max={2}
+                step={0.05}
+                format={(n) => `×${n.toFixed(2)}`}
+                onChange={(n) => setLastNProgress({ parallelVolRatio: n })}
+                ariaLabel="Parallel last-N extra volume ratio"
+              />
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              {lastNProgress.mode} · eval {lastNProgress.evalNs.join("/")} · valid {lastNProgress.validNs.join("/")} · disable {lastNProgress.disableNs.join("/")}
+              {lastNProgress.mode === "parallel" && lastNProgress.parallelStack ? ` · stack ×${lastNProgress.parallelVolRatio.toFixed(2)}` : ""}
+            </p>
           </div>
           {stageEval ? (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -642,7 +762,9 @@ export function SettingsView() {
               </Pill>
             </div>
           ) : (
-            <p className="mt-3 text-xs text-muted">Run stages to compute pre / mid / end and last-N 5/10/15 tracks.</p>
+            <p className="mt-3 text-xs text-muted">
+              Run stages to compute pre / mid / end and progress last-N Eval {LAST_N_PROGRESS_META[0]!.n} / Valid {LAST_N_PROGRESS_META[1]!.n} / Disable {LAST_N_PROGRESS_META[2]!.n}.
+            </p>
           )}
         </Panel>
       </div>
@@ -1393,10 +1515,177 @@ export function SettingsView() {
         </Panel>
       </div>
 
+      <div id="interval" className="scroll-mt-24">
+        <Panel title="20-min interval strategy">
+          <p className="mb-3 text-sm text-muted">
+            Rolling interval for Block volume scale and relation coordinations. Red windows cut size (never halt entries);
+            stable green windows lean in. Default 20 minutes. Syncs system-wide with live evals and stats.
+          </p>
+          <div className="mb-3 flex flex-wrap gap-1">
+            <button
+              type="button"
+              aria-pressed={intervalStrategy.enabled}
+              className={`${chip} ${intervalStrategy.enabled ? chipOn : chipOff}`}
+              onClick={() => setIntervalStrategy({ enabled: !intervalStrategy.enabled })}
+            >
+              {intervalStrategy.enabled ? "Interval on" : "Interval off"}
+            </button>
+            <button
+              type="button"
+              aria-pressed={intervalStrategy.scaleVol}
+              className={`${chip} ${intervalStrategy.scaleVol ? chipOn : chipOff}`}
+              onClick={() => setIntervalStrategy({ scaleVol: !intervalStrategy.scaleVol })}
+            >
+              {intervalStrategy.scaleVol ? "Scale Block vol" : "No vol scale"}
+            </button>
+            <button
+              type="button"
+              aria-pressed={intervalStrategy.scoreRelations}
+              className={`${chip} ${intervalStrategy.scoreRelations ? chipOn : chipOff}`}
+              onClick={() => setIntervalStrategy({ scoreRelations: !intervalStrategy.scoreRelations })}
+            >
+              {intervalStrategy.scoreRelations ? "Rescore relations" : "No relation score"}
+            </button>
+            <button
+              type="button"
+              aria-pressed={intervalStrategy.evalOnCadence}
+              className={`${chip} ${intervalStrategy.evalOnCadence ? chipOn : chipOff}`}
+              onClick={() => setIntervalStrategy({ evalOnCadence: !intervalStrategy.evalOnCadence })}
+            >
+              {intervalStrategy.evalOnCadence ? "Eval on cadence" : "Eval by hours"}
+            </button>
+            <button
+              type="button"
+              className={`${chip} ${chipOff}`}
+              onClick={() => setIntervalStrategy({ ...DEFAULT_INTERVAL_STRATEGY })}
+            >
+              Reset 20m defaults
+            </button>
+          </div>
+          <div className="mb-3">
+            <p className="mb-1 text-xs font-medium uppercase tracking-widest text-subtle">Minutes</p>
+            <div className="flex flex-wrap gap-1">
+              {INTERVAL_MINUTES_OPTIONS.map((m) => {
+                const on = intervalStrategy.minutes === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={on}
+                    className={`${chip} ${on ? chipOn : chipOff}`}
+                    onClick={() => setIntervalStrategy({ minutes: m })}
+                  >
+                    {m}m
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <RangeKnob
+              label="Min vol scale"
+              value={intervalStrategy.minScale}
+              min={0.2}
+              max={1}
+              step={0.05}
+              format={(n) => `×${n.toFixed(2)}`}
+              onChange={(n) => setIntervalStrategy({ minScale: n })}
+              ariaLabel="Interval min volume scale"
+            />
+            <RangeKnob
+              label="Max vol scale"
+              value={intervalStrategy.maxScale}
+              min={0.8}
+              max={1.5}
+              step={0.05}
+              format={(n) => `×${n.toFixed(2)}`}
+              onChange={(n) => setIntervalStrategy({ maxScale: n })}
+              ariaLabel="Interval max volume scale"
+            />
+            <RangeKnob
+              label="Lean-in PF"
+              value={intervalStrategy.leanPf}
+              min={1.1}
+              max={2.5}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setIntervalStrategy({ leanPf: n })}
+              ariaLabel="Interval lean-in profit factor"
+            />
+            <RangeKnob
+              label="Cut PF"
+              value={intervalStrategy.cutPf}
+              min={0.5}
+              max={1.2}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setIntervalStrategy({ cutPf: n })}
+              ariaLabel="Interval cut profit factor"
+            />
+            <RangeKnob
+              label="History windows"
+              value={intervalStrategy.histWindows}
+              min={2}
+              max={8}
+              step={1}
+              format={(n) => String(n)}
+              onChange={(n) => setIntervalStrategy({ histWindows: n })}
+              ariaLabel="Interval history windows"
+            />
+            <RangeKnob
+              label="Stable green"
+              value={intervalStrategy.stableGreen}
+              min={2}
+              max={6}
+              step={1}
+              format={(n) => String(n)}
+              onChange={(n) => setIntervalStrategy({ stableGreen: n })}
+              ariaLabel="Interval stable green windows"
+            />
+            <RangeKnob
+              label="Red cut windows"
+              value={intervalStrategy.redCut}
+              min={1}
+              max={6}
+              step={1}
+              format={(n) => String(n)}
+              onChange={(n) => setIntervalStrategy({ redCut: n })}
+              ariaLabel="Interval red cut windows"
+            />
+            <RangeKnob
+              label="Relation haircut"
+              value={intervalStrategy.relationHaircut}
+              min={0.2}
+              max={1}
+              step={0.05}
+              format={(n) => `×${n.toFixed(2)}`}
+              onChange={(n) => setIntervalStrategy({ relationHaircut: n })}
+              ariaLabel="Interval relation haircut"
+            />
+            <RangeKnob
+              label="Relation keep PF"
+              value={intervalStrategy.relationKeepPf}
+              min={0.5}
+              max={1.2}
+              step={0.05}
+              format={(n) => n.toFixed(2)}
+              onChange={(n) => setIntervalStrategy({ relationKeepPf: n })}
+              ariaLabel="Interval relation keep PF"
+            />
+          </div>
+          <p className="mt-3 text-xs text-muted">
+            {intervalStrategy.enabled ? "On" : "Off"} · {intervalStrategy.minutes}m · scale {intervalStrategy.minScale.toFixed(2)}–{intervalStrategy.maxScale.toFixed(2)} ·
+            lean PF {intervalStrategy.leanPf.toFixed(2)} / cut {intervalStrategy.cutPf.toFixed(2)} ·
+            {intervalStrategy.scaleVol ? "vol scale" : "no vol"} · {intervalStrategy.scoreRelations ? "relations" : "no relations"} ·
+            eval {intervalStrategy.evalOnCadence ? `every ${intervalStrategy.minutes}m` : "by Block hours"}.
+          </p>
+        </Panel>
+      </div>
+
       <div id="block" className="scroll-mt-24">
         <Panel title="Block strategy · overall + Active">
           <p className="text-sm text-muted">
-            <strong>Overall</strong> adds volume on the whole book, plus independent extra layers per <strong>symbol</strong> and per <strong>direction</strong>. Shared stacks those lanes additively (not split).
+            <strong>Overall</strong> adds volume on the whole book, plus independent extra layers per <strong>symbol</strong> and per <strong>direction</strong>. Shared stacks those lanes additively (not split). Defaults: shared/overall vol 2.5 · additive 0.1 · pause 1 · N=1 gated at PF 1.15.
             <strong> Active</strong> only executes Block-adjusted legs (not unadjusted general size).
             Normal/general stays calc-only when Strategy → Normal is off.
           </p>
@@ -1569,7 +1858,7 @@ export function SettingsView() {
               className="h-11 sm:h-8"
               onClick={() => setBlockCfg({ liveDisable: !(blockCfg.liveDisable !== false) })}
             >
-              {blockCfg.liveDisable !== false ? "Live last-N disable" : "Live disable off"}
+              {blockCfg.liveDisable !== false ? "Disable last-N" : "Disable last-N off"}
             </Button>
           </div>
           <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -1605,9 +1894,9 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Volume ratio"
-              value={blockCfg.volumeRatio ?? 0.1}
-              min={0.1}
-              max={1}
+              value={blockCfg.volumeRatio ?? DEFAULT_BLOCK_VOLUME_RATIO}
+              min={BLOCK_VOLUME_RATIO_MIN}
+              max={BLOCK_VOLUME_RATIO_MAX}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ volumeRatio: n })}
@@ -1615,43 +1904,73 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Shared Block vol"
-              value={blockCfg.sharedVolumeRatio ?? 1}
-              min={0.4}
-              max={1.5}
-              step={0.05}
+              value={blockCfg.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO}
+              min={BLOCK_SHARED_VOLUME_MIN}
+              max={BLOCK_SHARED_VOLUME_MAX}
+              step={0.1}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ sharedVolumeRatio: n })}
               ariaLabel="Shared Block volume ratio"
             />
             <RangeKnob
               label="Overall Block vol"
-              value={blockCfg.overallVolumeRatio ?? 1}
-              min={0.4}
-              max={1}
-              step={0.05}
+              value={blockCfg.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO}
+              min={BLOCK_SHARED_VOLUME_MIN}
+              max={BLOCK_SHARED_VOLUME_MAX}
+              step={0.1}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ overallVolumeRatio: n })}
               ariaLabel="Overall Block volume ratio"
             />
             <RangeKnob
               label="Relation vol ratio"
-              value={blockCfg.relVolumeRatio ?? 0.4}
-              min={0.4}
-              max={1}
+              value={blockCfg.relVolumeRatio ?? DEFAULT_BLOCK_VOLUME_RATIO}
+              min={BLOCK_VOLUME_RATIO_MIN}
+              max={BLOCK_VOLUME_RATIO_MAX}
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setBlockCfg({ relVolumeRatio: n })}
               ariaLabel="Relation additive volume ratio"
             />
             <RangeKnob
-              label="Live last N"
+              label="Max volume multiple"
+              value={blockCfg.maxVolumeMultiplier ?? DEFAULT_MAX_VOLUME_MULTIPLIER}
+              min={BLOCK_MAX_VOLUME_MUL_MIN}
+              max={BLOCK_MAX_VOLUME_MUL_MAX}
+              step={0.1}
+              format={(n) => n.toFixed(1)}
+              onChange={(n) => setBlockCfg({ maxVolumeMultiplier: n })}
+              ariaLabel="Block max volume multiplier"
+            />
+            <RangeKnob
+              label="Pause count ratio"
+              value={blockCfg.pauseCountRatio ?? 1}
+              min={0}
+              max={4}
+              step={1}
+              format={(n) => String(n)}
+              onChange={(n) => setBlockCfg({ pauseCountRatio: n })}
+              ariaLabel="Block pause count ratio"
+            />
+            <RangeKnob
+              label="Valid execute N"
+              value={blockCfg.validExecN ?? blockCfg.liveExecN ?? 15}
+              min={8}
+              max={40}
+              step={1}
+              format={(n) => String(n)}
+              onChange={(n) => setBlockCfg({ validExecN: n, liveExecN: n })}
+              ariaLabel="Valid execute last N"
+            />
+            <RangeKnob
+              label="Disable last N"
               value={blockCfg.liveLastN ?? 12}
               min={4}
               max={40}
               step={1}
               format={(n) => String(n)}
               onChange={(n) => setBlockCfg({ liveLastN: n })}
-              ariaLabel="Live last N disable"
+              ariaLabel="Disable last N"
             />
             <RangeKnob
               label="Block min PF"
@@ -1688,8 +2007,8 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Min relation PF"
-              value={blockCfg.minRelPf ?? 1.8}
-              min={1.8}
+              value={blockCfg.minRelPf ?? 1.2}
+              min={1}
               max={3}
               step={0.05}
               format={(n) => n.toFixed(2)}
@@ -1698,7 +2017,7 @@ export function SettingsView() {
             />
             <RangeKnob
               label="PF ratio"
-              value={blockCfg.pfRatio ?? 1.45}
+              value={blockCfg.pfRatio ?? 1.3}
               min={1.25}
               max={3}
               step={0.05}

@@ -5,6 +5,7 @@ import {
   DESK,
   LAST_N_OPTIONS,
   LAST_N_STAGE_META,
+  LAST_N_PROGRESS_META,
   ORDER_TYPES,
   RANGE_META,
   RANGE_TYPES,
@@ -307,6 +308,10 @@ export function SessionProgress({
             <Link to="/settings" className="font-medium text-primary hover:underline">
               Settings
             </Link>
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            Progress {LAST_N_PROGRESS_META.map((s) => `${s.label} N${s.n}`).join(" · ")}. Real counted and Live
+            exchange run from Valid.
           </p>
         </div>
         <label className="flex min-w-0 flex-col gap-1">

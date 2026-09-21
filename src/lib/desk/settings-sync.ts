@@ -16,6 +16,10 @@ import {
   DEFAULT_SHORT_BLOCK_PF,
   DEFAULT_SHORT_PROGRESS,
   sanitizeShortProgress,
+  DEFAULT_INTERVAL_STRATEGY,
+  sanitizeIntervalStrategy,
+  DEFAULT_LAST_N_PROGRESS,
+  sanitizeLastNProgress,
   DEFAULT_STRATEGY_TOGGLES,
   LANE_EVAL_NS,
   MIN_VOLUME_FACTOR,
@@ -34,7 +38,12 @@ import {
   clampBlockVol,
   clampSharedVol,
   clampOverallVol,
+  clampMaxVolumeMul,
   clampAxisPartial,
+  DEFAULT_BLOCK_VOLUME_RATIO,
+  DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
+  DEFAULT_SHARED_BLOCK_VOLUME_RATIO,
+  DEFAULT_MAX_VOLUME_MULTIPLIER,
   tpRatioOf,
   STAGE_HOURS,
   AUTO_EVAL_HOURS,
@@ -106,6 +115,8 @@ export interface DeskSettingsSnap {
   userPresets: import("./presets.ts").SettingsPreset[];
   strategyToggles: StrategyToggles;
   shortProgress: import("./types").ShortProgressConfig;
+  intervalStrategy: import("./types").IntervalStrategyConfig;
+  lastNProgress: import("./types").LastNProgressConfig;
 }
 
 function asNum(n: unknown, fallback: number) {
@@ -140,7 +151,7 @@ export function defaultDeskSettings(): DeskSettingsSnap {
     rev: 0,
     lastN: DEFAULT_LAST_N,
     lastNs: { ...DEFAULT_LAST_N_CONFIG },
-    lastNLinked: true,
+    lastNLinked: false,
     costStep: 10,
     rangeType: "atr",
     tactic: "hybrid",
@@ -168,6 +179,8 @@ export function defaultDeskSettings(): DeskSettingsSnap {
     userPresets: [],
     strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
     shortProgress: { ...DEFAULT_SHORT_PROGRESS, indications: [...DEFAULT_SHORT_PROGRESS.indications], lastParts: [...DEFAULT_SHORT_PROGRESS.lastParts], activityWindows: [...DEFAULT_SHORT_PROGRESS.activityWindows] },
+    intervalStrategy: { ...DEFAULT_INTERVAL_STRATEGY },
+    lastNProgress: { ...DEFAULT_LAST_N_PROGRESS, evalNs: [...DEFAULT_LAST_N_PROGRESS.evalNs], validNs: [...DEFAULT_LAST_N_PROGRESS.validNs], disableNs: [...DEFAULT_LAST_N_PROGRESS.disableNs] },
   };
 }
 
@@ -279,12 +292,12 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
             : [...(d.blockConfig.counts ?? [1, 2])];
           return rawCounts.length ? rawCounts.slice(0, 16) : [1, 2];
         })(),
-        volumeRatio: clampBlockVol(asNum(b.volumeRatio, d.blockConfig.volumeRatio ?? 0.1)),
-        overallVolumeRatio: clampOverallVol(asNum((b as { overallVolumeRatio?: number }).overallVolumeRatio, d.blockConfig.overallVolumeRatio ?? 1)),
-        sharedVolumeRatio: clampSharedVol(asNum((b as { sharedVolumeRatio?: number }).sharedVolumeRatio, d.blockConfig.sharedVolumeRatio ?? 1)),
-        maxVolumeMultiplier: Math.min(5, Math.max(1.2, asNum(b.maxVolumeMultiplier, d.blockConfig.maxVolumeMultiplier ?? 1.8))),
-        pfRatio: Math.min(5, Math.max(1.25, asNum(b.pfRatio, d.blockConfig.pfRatio ?? 1.45))),
-        pauseCountRatio: Math.min(6, Math.max(0, Math.round(asNum(b.pauseCountRatio, d.blockConfig.pauseCountRatio ?? 0)))),
+        volumeRatio: clampBlockVol(asNum(b.volumeRatio, d.blockConfig.volumeRatio ?? DEFAULT_BLOCK_VOLUME_RATIO)),
+        overallVolumeRatio: clampOverallVol(asNum((b as { overallVolumeRatio?: number }).overallVolumeRatio, d.blockConfig.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO)),
+        sharedVolumeRatio: clampSharedVol(asNum((b as { sharedVolumeRatio?: number }).sharedVolumeRatio, d.blockConfig.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO)),
+        maxVolumeMultiplier: clampMaxVolumeMul(asNum(b.maxVolumeMultiplier, d.blockConfig.maxVolumeMultiplier ?? DEFAULT_MAX_VOLUME_MULTIPLIER)),
+        pfRatio: Math.min(5, Math.max(1.25, asNum(b.pfRatio, d.blockConfig.pfRatio ?? 1.3))),
+        pauseCountRatio: Math.min(6, Math.max(0, Math.round(asNum(b.pauseCountRatio, d.blockConfig.pauseCountRatio ?? 1)))),
         evalPosCount: Math.min(16, Math.max(1, Math.round(asNum(b.evalPosCount, d.blockConfig.evalPosCount ?? 6)))),
         activeLive: asBool(b.activeLive, d.blockConfig.activeLive ?? true),
         minActiveLevel: Math.min(6, Math.max(1, Math.round(asNum(b.minActiveLevel, d.blockConfig.minActiveLevel ?? 1)))),
@@ -302,17 +315,20 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         evalHours: Math.min(12, Math.max(1, Math.round(asNum(b.evalHours, d.blockConfig.evalHours ?? 2)))),
         autoEval: asBool(b.autoEval, d.blockConfig.autoEval ?? true),
         relAdditive: asBool(b.relAdditive, d.blockConfig.relAdditive ?? true),
-        relVolumeRatio: clampBlockVol(asNum(b.relVolumeRatio, d.blockConfig.relVolumeRatio ?? 0.1)),
+        relVolumeRatio: clampBlockVol(asNum(b.relVolumeRatio, d.blockConfig.relVolumeRatio ?? DEFAULT_BLOCK_VOLUME_RATIO)),
         minRelPf: Math.min(5, Math.max(1, asNum(b.minRelPf, asNum(th.blockPf, d.blockConfig.minRelPf ?? DEFAULT_BLOCK_PF)))),
         evalLastNs: Array.isArray(b.evalLastNs)
           ? [...new Set(b.evalLastNs.map((n) => Math.round(Number(n))).filter((n) => n >= 1 && n <= 6))].sort((a, c) => a - c)
           : [...(d.blockConfig.evalLastNs ?? [1, 2, 3, 4, 5, 6])],
         liveLastN: Math.min(40, Math.max(4, Math.round(asNum(b.liveLastN, d.blockConfig.liveLastN ?? 12)))),
+        validExecN: Math.min(40, Math.max(8, Math.round(asNum(b.validExecN ?? b.liveExecN, d.blockConfig.validExecN ?? d.blockConfig.liveExecN ?? 15)))),
+        liveExecN: Math.min(40, Math.max(8, Math.round(asNum(b.validExecN ?? b.liveExecN, d.blockConfig.validExecN ?? d.blockConfig.liveExecN ?? 15)))),
         liveDisable: asBool(b.liveDisable, d.blockConfig.liveDisable ?? true),
         liveDisableMinPf: Math.min(5, Math.max(1, asNum(b.liveDisableMinPf, asNum(th.blockPf, d.blockConfig.liveDisableMinPf ?? DEFAULT_BLOCK_PF)))),
         liveDisableMinSamples: Math.min(12, Math.max(3, Math.round(asNum(b.liveDisableMinSamples, d.blockConfig.liveDisableMinSamples ?? 4)))),
         symbolEvalHours: Math.min(168, Math.max(24, Math.round(asNum(b.symbolEvalHours, d.blockConfig.symbolEvalHours ?? 100)))),
         hourCoord: asBool(b.hourCoord, d.blockConfig.hourCoord ?? true),
+        lastNProgress: sanitizeLastNProgress((b as { lastNProgress?: Partial<import("./types").LastNProgressConfig> }).lastNProgress ?? d.blockConfig.lastNProgress),
       };
     })(),
     symbolCount: clampSymbolCount(asNum(raw.symbolCount, d.symbolCount)),
@@ -337,7 +353,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       ? AUTO_EVAL_HOURS.filter((h) => raw.evalHours!.includes(h))
       : [...AUTO_EVAL_HOURS],
     evalLastNs: Array.isArray(raw.evalLastNs)
-      ? LANE_EVAL_NS.filter((n) => raw.evalLastNs!.includes(n))
+      ? LANE_EVAL_NS.filter((n) => raw.evalLastNs!.map((x) => (Number(x) === 30 ? 50 : Number(x))).includes(n))
       : [...LANE_EVAL_NS],
     sessionPhase:
       raw.sessionPhase === "paused" || raw.sessionPhase === "stopped" || raw.sessionPhase === "idle" || raw.sessionPhase === "running"
@@ -352,9 +368,13 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     userPresets: sanitizeUserPresets((raw as { userPresets?: unknown }).userPresets),
     strategyToggles: sanitizeStrategyToggles((raw as { strategyToggles?: Partial<StrategyToggles> }).strategyToggles),
     shortProgress: sanitizeShortProgress((raw as { shortProgress?: Partial<import("./types").ShortProgressConfig> }).shortProgress),
+    intervalStrategy: sanitizeIntervalStrategy((raw as { intervalStrategy?: Partial<import("./types").IntervalStrategyConfig> }).intervalStrategy),
+    lastNProgress: sanitizeLastNProgress((raw as { lastNProgress?: Partial<import("./types").LastNProgressConfig> }).lastNProgress),
   };
   if (!snap.evalHours.length) snap.evalHours = [...AUTO_EVAL_HOURS];
   if (!snap.evalLastNs.length) snap.evalLastNs = [...LANE_EVAL_NS];
+  snap.lastNProgress = sanitizeLastNProgress(snap.lastNProgress ?? snap.blockConfig.lastNProgress);
+  snap.blockConfig.lastNProgress = snap.lastNProgress;
   return snap;
 }
 
@@ -390,6 +410,9 @@ export function collectDeskSettings(s: {
   activePresetId?: string;
   userPresets?: import("./presets.ts").SettingsPreset[];
   strategyToggles?: StrategyToggles;
+  shortProgress?: import("./types").ShortProgressConfig;
+  intervalStrategy?: import("./types").IntervalStrategyConfig;
+  lastNProgress?: import("./types").LastNProgressConfig;
 }): DeskSettingsSnap {
   return sanitizeDeskSettings({
     v: SETTINGS_VERSION,
@@ -425,6 +448,8 @@ export function collectDeskSettings(s: {
     userPresets: s.userPresets,
     strategyToggles: s.strategyToggles,
     shortProgress: sanitizeShortProgress((s as { shortProgress?: Partial<import("./types").ShortProgressConfig> }).shortProgress),
+    intervalStrategy: sanitizeIntervalStrategy((s as { intervalStrategy?: Partial<import("./types").IntervalStrategyConfig> }).intervalStrategy),
+    lastNProgress: sanitizeLastNProgress((s as { lastNProgress?: Partial<import("./types").LastNProgressConfig> }).lastNProgress),
   });
 }
 

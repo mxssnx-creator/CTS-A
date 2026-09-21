@@ -2,6 +2,7 @@ import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot } from "@/lib/desk/live-ctx";
 import {
   LAST_N_STAGE_META,
+  LAST_N_PROGRESS_META,
   ORDER_TYPES,
   RANGE_META,
   TACTIC_META,
@@ -189,6 +190,18 @@ export function SystemPanel({
         <StatLine k="Settings sync" v={`${settingsSource} · rev ${settingsRev}`} />
         <StatLine k="Cost step" v={String(costStep)} />
         <StatLine k="Last N" v={lastNLinked ? `linked N${lastN}` : LAST_N_STAGE_META.map((s) => `${s.id} N${lastNs[s.id]}`).join(" · ")} />
+        <StatLine
+          k="Progress last-N"
+          v={LAST_N_PROGRESS_META.map((s) => `${s.label} ${s.n}`).join(" · ")}
+        />
+        <StatLine
+          k="Interval"
+          v={
+            vst.intervalStrategy?.enabled === false
+              ? "off"
+              : `${vst.intervalStrategy?.minutes ?? 20}m · vol ×${(vst.intervalVolScale ?? 1).toFixed(2)} · PF ${(vst.intervalPf ?? 0).toFixed(2)}`
+          }
+        />
         <StatLine k="Types on" v={enabledKinds.join(" · ")} />
         <StatLine k="Min PF / VF" v={`${th.minPf.toFixed(2)} / ${th.minVf.toFixed(2)}`} />
         <StatLine k="Max DD / DDT" v={`${(th.maxMdd * 100).toFixed(0)}% / ${th.maxDdt} bars`} />

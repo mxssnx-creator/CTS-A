@@ -1,6 +1,6 @@
-import { INDICATION_KINDS, RANGE_META, RANGE_TYPES, STRATEGY_KINDS, TACTIC_META, TACTICS } from "@/lib/desk/engine";
+import { INDICATION_KINDS, LAST_N_PROGRESS_META, RANGE_META, RANGE_TYPES, STRATEGY_KINDS, TACTIC_META, TACTICS } from "@/lib/desk/engine";
 import type { OverallBucket, PlaybookDetail } from "@/lib/desk/vst";
-import { LIVE_HOUR_NS, LIVE_POS_LABELS, LIVE_POS_NS } from "@/lib/desk/vst";
+import { LIVE_HOUR_NS, LIVE_INTERVAL_MINS, LIVE_POS_LABELS, LIVE_POS_NS } from "@/lib/desk/vst";
 import { venueLabelFor } from "@/lib/desk/live-ctx";
 import { fmtNum, fmtUsd } from "@/lib/utils";
 import { fmtMdd, fmtPf, fmtWr, Kpi, Panel, pfTone, Pill, StatLine } from "./widgets";
@@ -106,6 +106,9 @@ export type LiveOverview = {
   playbooks?: PlaybookDetail[];
   lastN?: Record<string, OverallBucket>;
   hours?: Record<string, OverallBucket>;
+  intervals?: Record<string, OverallBucket>;
+  intervalVolScale?: number;
+  intervalPf?: number;
   bestSymbols?: OverallBucket[];
   worstSymbols?: OverallBucket[];
   runningSymbols?: number;
@@ -152,6 +155,9 @@ export function LiveExchangeStats({
   const lastN = LIVE_POS_NS.map((n) => live.lastN?.[String(n)] ?? { key: `n${n}`, n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 });
   const hourShort = LIVE_HOUR_NS.filter((h) => h <= 6).map((h) => live.hours?.[String(h)] ?? emptyHour(h));
   const hourLong = LIVE_HOUR_NS.filter((h) => h > 6).map((h) => live.hours?.[String(h)] ?? emptyHour(h));
+  const intervalRows = Object.keys(live.intervals ?? {}).length
+    ? Object.keys(live.intervals ?? {}).map((k) => live.intervals?.[k] ?? { key: `${k}m`, n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0, symbols: 0, orders: 0, avgOrders: 0 })
+    : LIVE_INTERVAL_MINS.map((m) => live.intervals?.[String(m)] ?? { key: `${m}m`, n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0, symbols: 0, orders: 0, avgOrders: 0 });
   const playbooks = live.playbooks?.length
     ? live.playbooks
     : (live.byPlaybook ?? []).map((p) => ({ ...p, active: { ...p, key: `${p.key}:active`, n: 0 }, steps: [] }));
@@ -181,6 +187,15 @@ export function LiveExchangeStats({
         </div>
       </Panel>
 
+      <Panel title={`${intervalRows[0]?.key?.replace(/m$/, "") || "20"}-min intervals`}>
+        <p className="mb-2 text-xs text-muted">
+          Interval strategy for Block volume and relation coordinations. Red windows cut size (not halt entries); stable green windows lean in.
+          {live.intervalVolScale != null ? ` Vol scale ×${Number(live.intervalVolScale).toFixed(2)}` : ""}
+          {live.intervalPf != null ? ` · interval PF ${Number(live.intervalPf).toFixed(2)}` : ""}
+        </p>
+        <HourTable rows={intervalRows} />
+      </Panel>
+
       <Panel title="Hour windows · 1 / 2 / 4 / 6">
         <HourTable rows={hourShort} />
       </Panel>
@@ -190,6 +205,9 @@ export function LiveExchangeStats({
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title={`Last N positions · ${LIVE_POS_NS.join(" / ")}`}>
+          <p className="mb-2 text-xs text-muted">
+            Real counted / Live exchange tape windows. Progress stages (Eval {LAST_N_PROGRESS_META[0]?.n ?? 50} · Valid execute {LAST_N_PROGRESS_META[1]?.n ?? 15} · Disable {LAST_N_PROGRESS_META[2]?.n ?? 12}) gate which lanes run — they are not this table.
+          </p>
           <BucketTable rows={lastN} labels={LIVE_POS_LABELS} />
         </Panel>
         <Panel title="All hour windows">
