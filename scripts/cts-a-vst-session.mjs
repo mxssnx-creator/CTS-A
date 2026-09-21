@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -202,7 +202,7 @@ const BLOCK = {
   relAdditive: true,
   relVolumeRatio: IS_X01 ? 0.1 : 0.2,
   minRelPf: 1.05,
-  evalLastNs: [...LIVE_BLOCK_COUNTS],
+  evalLastNs: [...BLOCK_POS_COUNTS],
   liveLastN: 12,
   liveDisable: true,
   liveDisableMinPf: DEFAULT_BLOCK_PF,
@@ -2018,6 +2018,8 @@ function applyPfGates(engine, remote) {
     overallDirection: true,
     overallSharedStack: "additive",
     enabled: true,
+    counts: sanitizeBlockCounts(bc.counts ?? BLOCK.counts),
+    evalLastNs: [...BLOCK_POS_COUNTS],
     ...vol,
     overallMode: "parallel",
     volumeMode: "parallel",

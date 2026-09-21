@@ -12,7 +12,7 @@ One-line: **Intern scores everything. Live executes performing only. Headline is
 - Live tape = exchange closes `x:` only. Intern paper must not enter last-N / hours / headline.
 - Headline = **selected** min-PF subset (n≥4 net>0). Isolated 6h+6h pass: selected PF **1.91**, gated 116/116 PF **1.32**, green **5/6**. Screenshot target: Mixed-combo leaks **0**, Base-positive **28**, 0.42/1.50 PF **1.45**, 0.48/1.00 PF **1.40**, Block overlays **2.20 / 2.05**.
 - Do **not** exclusive-lock 0.48/0.75. Use **all performing**. Live floors min TP 0.38 / min SL/TP 0.75.
-- Block: additive **0.2**, shared **1.5**, overall **1.5**, maxMul **2.5**, counts 1–6 independent. Axis volume **3.0×** a normal position (live depth 2). **0.08 is forbidden** (Axis leftover that killed live).
+- Block: additive **0.2**, shared **1.5**, overall **1.5**, maxMul **2.5**, scores N=1–6, **live volume 1,3,4,5,6 (skip N=2)**. Axis volume **3.0×** a normal position (live depth 2). **0.08 is forbidden** (Axis leftover that killed live).
 - Last-N eval **50** / valid **15** / disable **12**. Disable only if last-N **net < 0** (min samples 4) and valid PF no longer passes.
 - Normal **off** (intern still computes). DCA **off**. Trail **1.5%** only. Max leverage. Hedge both. Handle only `CTSA`+conn tags. System Net = owned closed + owned open.
 - Higher min PF must **keep winners** on the same path, not collapse paper to 0.20.

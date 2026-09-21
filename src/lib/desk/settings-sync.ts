@@ -45,6 +45,8 @@ import {
   DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
   DEFAULT_SHARED_BLOCK_VOLUME_RATIO,
   DEFAULT_MAX_VOLUME_MULTIPLIER,
+  sanitizeBlockCounts,
+  LIVE_BLOCK_COUNTS,
   tpRatioOf,
   STAGE_HOURS,
   AUTO_EVAL_HOURS,
@@ -287,12 +289,10 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         overallDirection: asBool((b as { overallDirection?: boolean }).overallDirection, d.blockConfig.overallDirection ?? true),
         overallSharedStack:
           (b as { overallSharedStack?: string }).overallSharedStack === "split" ? "split" : "additive",
-        counts: (() => {
-          const rawCounts = Array.isArray(b.counts)
-            ? [...new Set(b.counts.map((n) => Math.round(Number(n))).filter((n) => n >= 1 && n <= 16))].sort((a, c) => a - c)
-            : [...(d.blockConfig.counts ?? [1, 2])];
-          return rawCounts.length ? rawCounts.slice(0, 16) : [1, 2];
-        })(),
+        counts: sanitizeBlockCounts(
+          Array.isArray(b.counts) ? b.counts : d.blockConfig.counts,
+          d.blockConfig.counts?.length ? d.blockConfig.counts : LIVE_BLOCK_COUNTS,
+        ),
         volumeRatio: clampBlockVol(asNum(b.volumeRatio, d.blockConfig.volumeRatio ?? DEFAULT_BLOCK_VOLUME_RATIO)),
         overallVolumeRatio: clampOverallVol(asNum((b as { overallVolumeRatio?: number }).overallVolumeRatio, d.blockConfig.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO)),
         sharedVolumeRatio: clampSharedVol(asNum((b as { sharedVolumeRatio?: number }).sharedVolumeRatio, d.blockConfig.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO)),

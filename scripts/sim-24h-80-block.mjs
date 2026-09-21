@@ -23,7 +23,7 @@ function blockOf({
   on = true,
   shared = 2,
   additive = 0.1,
-  counts = [2, 3, 4, 5, 6],
+  counts = [1, 3, 4, 5, 6],
   pause = 1,
   keep = true,
   minActive = 2,

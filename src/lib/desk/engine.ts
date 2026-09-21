@@ -719,12 +719,26 @@ export const X01_DEFAULTS = {
   tpRatioMin: 0.8,
   tpAtrMin: 0.8,
   volumeRatio: DEFAULT_BLOCK_VOLUME_RATIO,
-  counts: [1, 2, 3, 4, 5, 6] as number[],
+  counts: [1, 3, 4, 5, 6] as number[],
   maxMultiple: 6,
   sides: "both" as const,
 };
 
-export const LIVE_BLOCK_COUNTS = [1, 2, 3, 4, 5, 6] as const;
+export const LIVE_BLOCK_COUNTS = [1, 3, 4, 5, 6] as const;
+/** N=2 is scored but not used for volume — it is not productive. */
+export const BLOCK_SKIP_NS = [2] as const;
+export const BLOCK_SKIP = new Set<number>(BLOCK_SKIP_NS);
+
+export function sanitizeBlockCounts(raw: unknown, fallback: readonly number[] = LIVE_BLOCK_COUNTS): number[] {
+  const src = Array.isArray(raw)
+    ? raw.map((n) => Math.round(Number(n))).filter((n) => Number.isFinite(n) && n >= 1 && n <= 6)
+    : [];
+  let uniq = [...new Set(src)].sort((a, b) => a - b);
+  if (!uniq.length) uniq = [...fallback];
+  if (!uniq.includes(1) && uniq.some((n) => n >= 2 && n <= 6)) uniq = [1, ...uniq];
+  uniq = uniq.filter((n) => !BLOCK_SKIP.has(n));
+  return uniq.length ? uniq : [...LIVE_BLOCK_COUNTS];
+}
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
   minPf: DEFAULT_MIN_PF,

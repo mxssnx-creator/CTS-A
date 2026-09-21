@@ -31,7 +31,7 @@ const block = {
   sharedVolumeRatio: 2.5,
   overallVolumeRatio: 2.5,
   maxVolumeMultiplier: 6,
-  counts: [2, 3, 4, 5, 6],
+  counts: [1, 3, 4, 5, 6],
   maxMultiple: 6,
   minActiveLevel: 2,
   pauseCountRatio: 1,

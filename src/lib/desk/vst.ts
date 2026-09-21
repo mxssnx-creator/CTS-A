@@ -108,6 +108,8 @@ import {
   indicationQualityFloor,
   indicationRingDepth,
   resetIndicationHistory,
+  sanitizeBlockCounts,
+  LIVE_BLOCK_COUNTS,
 } from "./engine.ts";
 
 const DEFAULT_CFG: TacticConfig = {
@@ -1139,6 +1141,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
     if (e.blockCfg.overallSymbol !== false) e.blockCfg.overallSymbol = true;
     if (e.blockCfg.overallDirection !== false) e.blockCfg.overallDirection = true;
     if (e.blockCfg.overallSharedStack !== "split") e.blockCfg.overallSharedStack = "additive";
+    e.blockCfg.counts = sanitizeBlockCounts(e.blockCfg.counts);
   }
   e.liveTape = e.liveTape ?? false;
   for (const lane of Object.values(e.blockLanes)) {
@@ -3198,8 +3201,7 @@ function blockModeOf(o: { note?: string }): "shared" | "additive" {
 
 function liveBlockCounts(block: BlockConfig) {
   const cap = Math.max(1, Math.min(6, Math.round(block.maxMultiple || 2)));
-  const raw = Array.isArray(block.counts) && block.counts.length ? block.counts : [1, 2, 3];
-  return [...new Set(raw.map((n) => Math.round(n)).filter((n) => n >= 1 && n <= cap))].sort((a, b) => a - b);
+  return sanitizeBlockCounts(block.counts).filter((n) => n <= cap);
 }
 
 function evalBlockNs(block?: BlockConfig) {
@@ -4373,7 +4375,7 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
     activeTacs,
     activeRanges,
     activePlays,
-    activeBlockNs: activeBlockNs.length ? activeBlockNs : [...(block.counts ?? [1, 2, 3, 4, 5, 6])],
+    activeBlockNs: (activeBlockNs.length ? activeBlockNs : [...LIVE_BLOCK_COUNTS]).filter((n) => n !== 2),
     combos,
   };
   e.lastNCoord = coord;

@@ -16,6 +16,8 @@ import {
   additiveBlockQty,
   blockVolumeIncrement,
   BLOCK_POS_COUNTS,
+  LIVE_BLOCK_COUNTS,
+  sanitizeBlockCounts,
   DESK,
   activityRelations,
   buildLanes,
@@ -2508,7 +2510,7 @@ describe("VST engine", () => {
     assert.equal(X01_DEFAULTS.slAtrMin, 0.8);
     assert.equal(X01_DEFAULTS.tpRatioMin, 0.8);
     assert.equal(DEFAULT_BLOCK_CONFIG.evalHours, 2);
-    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(DEFAULT_BLOCK_CONFIG.counts, [1, 3, 4, 5, 6]);
     assert.deepEqual(DEFAULT_BLOCK_CONFIG.evalLastNs, [1, 2, 3, 4, 5, 6]);
     assert.equal(DEFAULT_BLOCK_CONFIG.maxMultiple, 6);
     assert.equal(DEFAULT_BLOCK_CONFIG.evalPosCount, 6);
@@ -2625,6 +2627,10 @@ describe("VST engine", () => {
 
   it("all Block counts 1-6 additive pause/keep volume are independent", () => {
     assert.deepEqual([...BLOCK_POS_COUNTS], [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual([...LIVE_BLOCK_COUNTS], [1, 3, 4, 5, 6]);
+    assert.deepEqual(sanitizeBlockCounts([2, 3, 4, 5, 6]), [1, 3, 4, 5, 6]);
+    assert.deepEqual(sanitizeBlockCounts([1, 2, 3, 4, 5, 6]), [1, 3, 4, 5, 6]);
+    assert.ok(!sanitizeBlockCounts([1, 2, 3]).includes(2));
     for (const vr of [0.4, 0.8]) {
       const q = additiveBlockQty(1.2, BLOCK_POS_COUNTS, vr, 3, vr);
       assert.equal(q.n, 6);
@@ -3855,7 +3861,7 @@ describe("VST engine", () => {
     assert.equal(stable?.patch.tacticConfig?.shortRange, true);
     assert.equal(stable?.patch.tacticConfig?.tpAtr, 0.48);
     assert.equal(stable?.patch.tacticConfig?.slOfTp, 0.75);
-    assert.deepEqual(stable?.patch.blockConfig?.counts, [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(stable?.patch.blockConfig?.counts, [1, 3, 4, 5, 6]);
     assert.equal(stable?.patch.blockConfig?.activeLive, true);
     assert.equal(stable?.patch.blockConfig?.volumeMode, "parallel");
     assert.equal(stable?.patch.thresholds?.minPf, 1.8);
@@ -5711,7 +5717,7 @@ describe("calculations, relations, adjustments, stats", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     e.minPf = 1.1;
     e.basePf = 1.0;
-    e.blockCfg = { ...DEFAULT_BLOCK_CONFIG, counts: [1, 2, 3, 4, 5, 6], volumeMode: "parallel" };
+    e.blockCfg = { ...DEFAULT_BLOCK_CONFIG, counts: sanitizeBlockCounts([1, 2, 3, 4, 5, 6]), volumeMode: "parallel" };
     e.blockWindows = {
       1: { n: 1, closed: 20, lastPf: 0.4, lastNet: -2, lastAvg: -0.1, windows: 20, lossWindows: 12, pauseLeft: 0, adjusted: false, ring: [] },
       2: { n: 2, closed: 20, lastPf: 1.8, lastNet: 3, lastAvg: 0.15, windows: 10, lossWindows: 2, pauseLeft: 0, adjusted: true, ring: [] },
@@ -5744,8 +5750,8 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.ok(snap.tactics.axis || snap.tactics.trailing);
     assert.ok(snap.blockCounts["2"]?.ok || snap.blockCounts["3"]?.ok);
     assert.equal(e.lastNProgress?.mode === "independent" || e.lastNProgress?.mode === "combined" || e.lastNProgress?.mode === "parallel", true);
-    assert.ok((e.blockCfg?.counts ?? []).every((n) => n >= 1 && n <= 6));
-    assert.equal((e.blockCfg?.counts ?? []).join(","), "1,2,3,4,5,6");
+    assert.ok((e.blockCfg?.counts ?? []).every((n) => n >= 1 && n <= 6 && n !== 2));
+    assert.equal((e.blockCfg?.counts ?? []).join(","), "1,3,4,5,6");
     assert.equal(e.blockCfg?.volumeMode, "parallel");
     assert.ok((e.lastNProgress?.evalNs?.length ?? 0) >= 10, "eval grid not shrunk");
     assert.ok(snap.relations);

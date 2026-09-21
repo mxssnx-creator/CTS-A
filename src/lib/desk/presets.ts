@@ -221,7 +221,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       blockConfig: {
         ...BLOCK_LIVE,
         enabled: true,
-        counts: [1, 2, 3, 4, 5, 6],
+        counts: [...LIVE_BLOCK_COUNTS],
         maxMultiple: 6,
         minMultiple: 1,
         addOnWin: false,
@@ -308,7 +308,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       blockConfig: {
         ...BLOCK_LIVE,
         enabled: true,
-        counts: [1, 2, 3, 4, 5, 6],
+        counts: [...LIVE_BLOCK_COUNTS],
         maxMultiple: 6,
         minMultiple: 1,
         addOnWin: false,
