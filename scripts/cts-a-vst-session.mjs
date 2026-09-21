@@ -1125,7 +1125,6 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   });
   const extras = [...grouped.entries()].some(([key, g]) => liveOwnedSet.has(key) && ((g.sl?.length ?? 0) > 1 || (g.tp?.length ?? 0) > 1));
   const stray = [...grouped.keys()].some((key) => !liveOwnedSet.has(key));
-  if (!missing.length && !extras && !stray) return null;
   const map = await fetchContractMap(network);
   const notes = [];
   const cancelOne = async (o) => {
