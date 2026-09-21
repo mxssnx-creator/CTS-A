@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ResultsView } from "@/components/desk/views/results";
+import { StatisticsView } from "@/components/desk/views/statistics";
 
 export const Route = createFileRoute("/_desk/statistics")({
-  component: ResultsView,
+  component: StatisticsView,
 });

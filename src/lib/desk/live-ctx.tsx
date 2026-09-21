@@ -154,7 +154,7 @@ export function liveNumbers(
     liveLevMin: num(session?.liveLevMin),
     liveLevMax: num(session?.liveLevMax),
     liveLevAvg: num(session?.liveLevAvg),
-    at: payload?.at ?? Date.now(),
+    at: num(session?.at, payload?.at ?? 0),
     hasLive: Boolean(session || (exchange && exchange.ok)),
     conn,
     network,
@@ -195,7 +195,11 @@ function sameSnap(a: LiveNumbers, b: LiveNumbers) {
     a.network === b.network &&
     a.liveLevMax === b.liveLevMax &&
     a.liveLevMin === b.liveLevMin &&
-    a.lastMsg === b.lastMsg
+    a.lastMsg === b.lastMsg &&
+    a.at === b.at &&
+    a.overall === b.overall &&
+    a.session === b.session &&
+    a.exchange === b.exchange
   );
 }
 

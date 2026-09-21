@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   getReplayTape,
   INDICATION_KINDS,
@@ -16,7 +17,7 @@ import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
 import { fmtNum, fmtUsd } from "@/lib/utils";
 import { HBarChart, MetricBarChart, OccupancyChart } from "../charts";
 import { fmtMdd, fmtPf, fmtWr, Kpi, Panel, pfTone, StatLine } from "../widgets";
-import { LiveExchangeStats, type LiveOverview } from "../live-exchange-stats";
+import { LiveExchangeStats, pickLiveOverview, type LiveOverview } from "../live-exchange-stats";
 
 type Cell = {
   tactic: TacticKind;
@@ -180,8 +181,8 @@ export function ResultsView() {
     return overallLiveStats(useDesk.getState().vst);
   }, [liveSnap.hasLive, liveSnap.trades, liveSnap.pf]);
 
-  const live = (file?.live ?? (session as { overall?: LiveOverview } | null)?.overall ?? liveNow ?? {}) as LiveOverview;
-  const tape = ((session as { overall?: LiveOverview } | null)?.overall ?? live ?? {}) as LiveOverview;
+  const live = pickLiveOverview(session as Record<string, unknown> | null, file, liveNow);
+  const tape = live;
   const completePack = (file as {
     complete?: {
       winner?: { pf?: number; wr?: number; net?: number; trades?: number; hours?: number; tactic?: string; range?: string };
@@ -384,10 +385,15 @@ export function ResultsView() {
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
       <div>
-        <p className="text-xs font-medium uppercase tracking-widest text-subtle">Statistics</p>
+        <p className="text-xs font-medium uppercase tracking-widest text-subtle">Config matrix</p>
         <h1 className="text-2xl font-semibold tracking-tight">Results</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Live {liveSnap.venueLabel} executions, independent indication and strategy stats, PF / DDT, and config matrix.
+          Sweep / complete compute and live {liveSnap.venueLabel} executions. Independent indication, kind and playbook
+          buckets live on{" "}
+          <Link to="/statistics" preload={false} className="text-primary underline-offset-2 hover:underline">
+            Statistics
+          </Link>
+          .
         </p>
       </div>
       {!liveSnap.hasLive && completeHourly?.hourly?.length ? (

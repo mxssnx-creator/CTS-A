@@ -3285,6 +3285,54 @@ describe("VST engine", () => {
     assert.ok((ov.hours["1"].symbols ?? 0) >= 1);
   });
 
+  it("overlayLiveExecutions keeps tagged buckets and fills from row tags", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.liveTape = true;
+    const now = Date.now();
+    e.closed.unshift({
+      id: "t0",
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long",
+      pnl: 1,
+      qty: 1,
+      entry: 100,
+      exit: 101,
+      reason: "tp",
+      tick: 1,
+      r: 1,
+      tactic: "trailing",
+      rangeType: "atr",
+      kind: "short",
+      indication: "trend",
+      playbook: "short",
+      at: now - 30_000,
+    } as never);
+    const ov = overallLiveStats(e);
+    const byInd0 = ov.byIndication.find((b) => b.key === "trend")!;
+    assert.equal(byInd0.n, 1);
+    overlayLiveExecutions(ov, [{ t: now - 10_000, v: 0.5, symbol: "ETHUSDT" }], now, e);
+    assert.equal(ov.byIndication.find((b) => b.key === "trend")!.n, 1, "untagged overlay must not wipe indication buckets");
+    overlayLiveExecutions(
+      ov,
+      [
+        { t: now - 20_000, v: 0.4, symbol: "ETHUSDT", side: "short", indication: "active", playbook: "block", kind: "block", tactic: "trailing" },
+        { t: now - 10_000, v: -0.1, symbol: "BTCUSDT", side: "long", indication: "trend", playbook: "short", kind: "short", tactic: "trailing" },
+      ],
+      now,
+      e,
+    );
+    const byInd = Object.fromEntries(ov.byIndication.map((b) => [b.key, b]));
+    const byBook = Object.fromEntries(ov.byPlaybook.map((b) => [b.key, b]));
+    const bySide = Object.fromEntries(ov.bySide.map((b) => [b.key, b]));
+    assert.equal(byInd.active.n, 1);
+    assert.equal(byInd.trend.n, 1);
+    assert.equal(byBook.block.n, 1);
+    assert.equal(byBook.short.n, 1);
+    assert.equal(bySide.short.n, 1);
+    assert.equal(bySide.long.n, 1);
+  });
+
   it("Block last-N PF is independent per batch size", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     const cfg = { ...DEFAULT_BLOCK_CONFIG, pauseCountRatio: 1, keepAdjusted: false };

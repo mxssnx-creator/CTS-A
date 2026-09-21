@@ -407,6 +407,7 @@ function gridIndex(pick, list = GRID) {
 }
 
 function snapshot(e, extra) {
+  if (lastPnl.length) ingestLivePnls(e, lastPnl, BLOCK);
   const audit = e.tick % 40 === 0 ? auditEngine(e) : { nanCount: 0, issues: [] };
   const book = bookCounts(e);
   if (!cachedOverall || e.tick - cachedOverallTick >= 8) {
@@ -430,7 +431,22 @@ function snapshot(e, extra) {
     overall.net = lastExec.net;
     overall.trades = lastExec.n;
   }
-  if (lastPnl.length) overlayLiveExecutions(overall, lastPnl);
+  if (lastPnl.length) {
+    lastPnl = lastPnl.map((r) => {
+      if (r.indication && r.side) return r;
+      const closed = e.closed.find((c) => c.symbol === r.symbol && Math.abs(Number(c.at || 0) - Number(r.t)) < 180000);
+      const hint = e.liveLegHint?.[r.symbol];
+      return {
+        ...r,
+        side: r.side || closed?.side || hint?.side,
+        indication: r.indication || closed?.indication || hint?.indication,
+        playbook: r.playbook || closed?.playbook || hint?.playbook,
+        kind: r.kind || closed?.kind || hint?.kind,
+        tactic: r.tactic || closed?.tactic || hint?.tactic,
+      };
+    });
+    overlayLiveExecutions(overall, lastPnl, Date.now(), e);
+  }
   const last12 = overall.lastN?.["12"] ?? null;
   const tapeReady = (lastExec.n >= 2) || (e.ledger.trades >= 4 && Number(e.stats.pf) > 0);
   const rawLive = lastExec.n >= 2 ? lastExec.pf : last12?.n >= 4 ? last12.pf : e.stats.pf;
@@ -504,7 +520,16 @@ function snapshot(e, extra) {
     avgLivePos: bookAvg.n ? bookAvg.pos / bookAvg.n : lastBook.pos,
     avgLiveOrd: bookAvg.n ? bookAvg.ord / bookAvg.n : lastBook.ord,
     overall,
-    tape: lastPnl.slice(0, 800).map((r) => ({ t: Number(r.t) || 0, v: Number(r.v) || 0, symbol: r.symbol || "" })),
+    tape: lastPnl.slice(0, 800).map((r) => ({
+      t: Number(r.t) || 0,
+      v: Number(r.v) || 0,
+      symbol: r.symbol || "",
+      side: r.side || "",
+      indication: r.indication || "",
+      playbook: r.playbook || "",
+      kind: r.kind || "",
+      tactic: r.tactic || "",
+    })),
     livePf,
     last12,
     phase: e.phase,
@@ -771,9 +796,8 @@ function rememberLeg(symbol, side, extra = {}) {
   vanishedLegs.unshift({ symbol, side, t: Date.now(), ...extra });
   if (vanishedLegs.length > 500) vanishedLegs.length = 500;
 }
-function hintSide(symbol, t) {
-  const row = vanishedLegs.find((v) => v.symbol === symbol && Math.abs((Number(t) || Date.now()) - v.t) < 180_000);
-  return row?.side;
+function hintFor(symbol, t) {
+  return vanishedLegs.find((v) => v.symbol === symbol && Math.abs((Number(t) || Date.now()) - v.t) < 180_000);
 }
 
 function ingestExec(ex) {
@@ -784,7 +808,17 @@ function ingestExec(ex) {
     .map((x) => {
       const symbol = String(x.symbol || "");
       const t = Number(x.time) || 0;
-      return { t, v: Number(x.income) || 0, symbol, side: hintSide(symbol, t) };
+      const h = hintFor(symbol, t);
+      return {
+        t,
+        v: Number(x.income) || 0,
+        symbol,
+        side: h?.side,
+        indication: h?.indication,
+        playbook: h?.playbook,
+        kind: h?.kind,
+        tactic: h?.tactic,
+      };
     })
     .filter((r) => r.t > 0 && Number.isFinite(r.v));
   if (rows.length) lastPnl = rows;
@@ -1657,7 +1691,8 @@ async function mirrorToExchange(e, network, cfg) {
   };
   for (const k of vanished) {
     const [sym, side] = String(k).split(":");
-    rememberLeg(sym, side);
+    const pos = (e.positions || []).find((p) => p.symbol === sym && p.side === side);
+    rememberLeg(sym, side, pos ? { indication: pos.indication, playbook: pos.playbook, kind: pos.kind, tactic: pos.tactic } : {});
     if (!livePosKeys.has(k)) forget(k);
   }
   for (const tag of [...mirrored]) {

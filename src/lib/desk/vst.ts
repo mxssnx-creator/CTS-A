@@ -3017,7 +3017,16 @@ export function symbolBlockPaused(e: VstEngine, symbol: string, n?: number) {
 /** Fold BingX realized PnL into closed tape + block windows so live evals are real. */
 export function ingestLivePnls(
   e: VstEngine,
-  rows: { t: number; v: number; symbol: string; side?: Side }[],
+  rows: {
+    t: number;
+    v: number;
+    symbol: string;
+    side?: Side;
+    indication?: string;
+    playbook?: string;
+    kind?: string;
+    tactic?: string;
+  }[],
   block: BlockConfig = e.blockCfg ?? DEFAULT_BLOCK_CONFIG,
 ) {
   if (!rows?.length) return 0;
@@ -3037,10 +3046,10 @@ export function ingestLivePnls(
     const hint = e.liveLegHint?.[symbol];
     const last = e.closed.find((c) => c.symbol === symbol && (c.side === "long" || c.side === "short"));
     const side: Side = r.side === "short" || r.side === "long" ? r.side : hint?.side === "short" || hint?.side === "long" ? hint.side : last?.side === "short" ? "short" : "long";
-    const indication = hint?.indication ?? classifyIndication(e, symbol);
-    const tactic = hint?.tactic ?? tacticForIndication(indication);
-    const playbook = liveExecPlaybook(e, tactic, indication, hint?.playbook);
-    const kind = (hint?.kind as StrategyKind | undefined) ?? kindFromIndication(indication, playbook, tactic);
+    const indication = (r.indication || hint?.indication || classifyIndication(e, symbol)) as IndicationId;
+    const tactic = ((r.tactic || hint?.tactic || tacticForIndication(indication)) as TacticKind);
+    const playbook = liveExecPlaybook(e, tactic, indication, r.playbook || hint?.playbook);
+    const kind = (r.kind as StrategyKind | undefined) ?? (hint?.kind as StrategyKind | undefined) ?? kindFromIndication(indication, playbook, tactic);
     const rangeType = hint?.rangeType ?? pickIndicationRange(e, indication, e.lastRange);
     e.closed.unshift({
       id,
@@ -5846,7 +5855,7 @@ export const OVERVIEW_POS_NS = [12, 40, 120, 650] as const;
 export const OVERVIEW_HOUR_NS = [2, 6, 12, 45] as const;
 export const LIVE_POS_LABELS: Record<string, string> = Object.fromEntries(LIVE_POS_NS.map((n) => [`n${n}`, `Last ${n}`]));
 
-export type LivePnlRow = { t: number; v: number; symbol?: string };
+export type LivePnlRow = { t: number; v: number; symbol?: string; side?: "long" | "short"; indication?: string; playbook?: string; kind?: string; tactic?: string };
 export type WindowPoint = { i: number; eq: number; dd: number; pf: number; vol: number; net: number };
 
 function finitePnl(pnl: LivePnlRow[]) {
@@ -5898,9 +5907,17 @@ export function overlayLiveExecutions(
     lastN?: Record<string, OverallBucket>;
     hours?: Record<string, OverallBucket>;
     intervals?: Record<string, OverallBucket>;
+    bySymbol?: OverallBucket[];
+    bySide?: OverallBucket[];
+    byIndication?: OverallBucket[];
+    byKind?: OverallBucket[];
+    byTactic?: OverallBucket[];
+    byPlaybook?: OverallBucket[];
+    byRange?: OverallBucket[];
   },
   pnl: LivePnlRow[],
   now = Date.now(),
+  e?: VstEngine,
 ) {
   if (!stats || !Array.isArray(pnl) || !pnl.length) return stats;
   const newest = pnl
@@ -5932,6 +5949,49 @@ export function overlayLiveExecutions(
       stats.intervals[String(m)] = { ...b, symbols, orders: take.length, avgOrders: take.length };
     }
   }
+  if (stats.bySymbol) {
+    const map = new Map<string, LivePnlRow[]>();
+    for (const r of newest) {
+      const s = String(r.symbol || "");
+      if (!s) continue;
+      const arr = map.get(s) ?? [];
+      arr.push(r);
+      map.set(s, arr);
+    }
+    stats.bySymbol = [...map.entries()]
+      .map(([k, rows]) => pnlBucket(asRows(rows), k))
+      .sort((a, b) => b.net - a.net);
+  }
+  const tagOf = (r: LivePnlRow) => {
+    const symbol = String(r.symbol || "");
+    const hint = e?.liveLegHint?.[symbol];
+    const closed = e?.closed.find((c) => c.symbol === symbol && Math.abs(Number(c.at || 0) - Number(r.t)) < 180_000);
+    return {
+      side: String(r.side || closed?.side || hint?.side || ""),
+      indication: String(r.indication || closed?.indication || hint?.indication || ""),
+      tactic: String(r.tactic || closed?.tactic || hint?.tactic || ""),
+      playbook: String(r.playbook || closed?.playbook || hint?.playbook || ""),
+      kind: String(r.kind || closed?.kind || hint?.kind || ""),
+    };
+  };
+  const overlayNamed = <K extends string>(
+    dest: OverallBucket[] | undefined,
+    keys: readonly K[],
+    pick: (t: ReturnType<typeof tagOf>) => string,
+  ) => {
+    if (!dest) return dest;
+    if (!newest.some((r) => pick(tagOf(r)))) return dest;
+    return keys.map((k) => pnlBucket(asRows(newest.filter((r) => pick(tagOf(r)) === k)), k));
+  };
+  stats.bySide = overlayNamed(stats.bySide, ["long", "short"] as const, (t) => t.side);
+  stats.byIndication = overlayNamed(stats.byIndication, SHORT_PROGRESS_INDICATIONS, (t) => t.indication);
+  stats.byTactic = overlayNamed(stats.byTactic, ["trailing", "dca", "axis", "hybrid"] as const, (t) => t.tactic);
+  stats.byPlaybook = overlayNamed(stats.byPlaybook, ["normal", "axis", "block", "dca", "short"] as const, (t) => t.playbook);
+  stats.byKind = overlayNamed(
+    stats.byKind,
+    ["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block", "short"] as const,
+    (t) => t.kind,
+  );
   return stats;
 }
 
@@ -6100,24 +6160,24 @@ export function overallLiveStats(e: VstEngine) {
   const byReason = (["sl", "tp", "time"] as const).map((k) =>
     pnlBucket(closed.filter((c) => c.reason === k), k),
   );
-  const bySide = (["long", "short"] as const).map((k) => pnlBucket(closed.filter((c) => c.side === k), k));
+  const bySide = (["long", "short"] as const).map((k) => pnlBucket(closed.filter((c) => (c.side || "long") === k), k));
   const byIndication = SHORT_PROGRESS_INDICATIONS.map((k) =>
-    pnlBucket(closed.filter((c) => (c.indication ?? "trend") === k), k),
+    pnlBucket(closed.filter((c) => (c.indication || "trend") === k), k),
   );
   const byKind = (["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block", "short"] as const).map((k) =>
-    pnlBucket(closed.filter((c) => (c.kind ?? "normal") === k), k),
+    pnlBucket(closed.filter((c) => (c.kind || "normal") === k), k),
   );
   const byTactic = (["trailing", "dca", "axis", "hybrid"] as const).map((k) =>
-    pnlBucket(closed.filter((c) => (c.tactic ?? e.lastTactic) === k), k),
+    pnlBucket(closed.filter((c) => (c.tactic || e.lastTactic || "trailing") === k), k),
   );
   const byPlaybook = (["normal", "axis", "block", "dca", "short"] as const).map((k) =>
-    pnlBucket(closed.filter((c) => (c.playbook ?? "normal") === k), k),
+    pnlBucket(closed.filter((c) => (c.playbook || "normal") === k), k),
   );
   const byRange = (["linear", "geometric", "atr", "volume", "fibonacci"] as const).map((k) =>
-    pnlBucket(closed.filter((c) => (c.rangeType ?? e.lastRange) === k), k),
+    pnlBucket(closed.filter((c) => (c.rangeType || e.lastRange || "atr") === k), k),
   );
   const playbooks: PlaybookDetail[] = (["normal", "axis", "block", "dca", "short"] as const).map((k) => {
-    const rows = closed.filter((c) => (c.playbook ?? "normal") === k);
+    const rows = closed.filter((c) => (c.playbook || "normal") === k);
     const active = rows.filter((c) => c.indication === "active" || c.kind === "active");
     const maxStep = k === "block" || k === "dca" || k === "axis" ? 6 : 0;
     const steps = maxStep
@@ -6232,17 +6292,17 @@ export function overlayExchangeBook(
   }
   const openRows = pos.map((p) => {
     const enginePos = e.positions.find((x) => x.symbol === p.symbol && x.side === p.side);
-    const indication = enginePos?.indication ?? classifyIndication(e, p.symbol);
-    const tactic = enginePos?.tactic ?? tacticForIndication(indication);
+    const indication = enginePos?.indication || classifyIndication(e, p.symbol);
+    const tactic = enginePos?.tactic || tacticForIndication(indication);
     const playbook = enginePos?.playbook && enginePos.playbook !== "normal"
       ? enginePos.playbook
       : liveExecPlaybook(e, tactic, indication, enginePos?.playbook);
     return {
       indication,
-      kind: enginePos?.kind ?? kindFromIndication(indication, playbook, tactic),
+      kind: enginePos?.kind || kindFromIndication(indication, playbook, tactic),
       playbook,
       tactic,
-      rangeType: enginePos?.controllingRange ?? pickIndicationRange(e, indication, e.lastRange),
+      rangeType: enginePos?.controllingRange || pickIndicationRange(e, indication, e.lastRange),
       pnl: Number(p.pnl) || 0,
       symbol: p.symbol,
     };

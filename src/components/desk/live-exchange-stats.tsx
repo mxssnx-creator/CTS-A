@@ -5,7 +5,7 @@ import { venueLabelFor } from "@/lib/desk/live-ctx";
 import { fmtNum, fmtUsd } from "@/lib/utils";
 import { fmtMdd, fmtPf, fmtWr, Kpi, Panel, pfTone, Pill, StatLine } from "./widgets";
 
-const PLAY: Record<string, string> = { normal: "Normal", axis: "Axis", block: "Block", dca: "DCA" };
+const PLAY: Record<string, string> = { normal: "Normal", axis: "Axis", block: "Block", dca: "DCA", short: "Short" };
 const KIND = Object.fromEntries(STRATEGY_KINDS.map((k) => [k.id, k.label]));
 const IND = Object.fromEntries(INDICATION_KINDS.map((k) => [k.id, k.label]));
 const TAC = Object.fromEntries(TACTICS.map((t) => [t, TACTIC_META[t].label]));
@@ -103,6 +103,7 @@ export type LiveOverview = {
   byPlaybook?: OverallBucket[];
   byRange?: OverallBucket[];
   byReason?: OverallBucket[];
+  bySide?: OverallBucket[];
   playbooks?: PlaybookDetail[];
   lastN?: Record<string, OverallBucket>;
   hours?: Record<string, OverallBucket>;
@@ -129,6 +130,28 @@ export type LiveOverview = {
   mdd?: number;
   trades?: number;
 };
+
+function scoredOverview(o?: LiveOverview | null) {
+  if (!o) return -1;
+  const n = Number(o.overall?.n ?? o.trades ?? 0);
+  const tagged = (o.byIndication ?? []).reduce((s, b) => s + (b.n || 0), 0);
+  return n + tagged * 2;
+}
+
+/** Prefer the fresher live session tape over the 45s overall-stats file. */
+export function pickLiveOverview(
+  session: Record<string, unknown> | null | undefined,
+  file: { live?: unknown } | null | undefined,
+  fallback?: LiveOverview | null,
+): LiveOverview {
+  const sessOv = (session?.overall as LiveOverview | undefined) ?? undefined;
+  const fileLive = (file?.live as LiveOverview | undefined) ?? undefined;
+  const a = scoredOverview(sessOv);
+  const b = scoredOverview(fileLive);
+  if (a >= b && sessOv) return sessOv;
+  if (fileLive) return fileLive;
+  return sessOv ?? fallback ?? {};
+}
 
 function emptyHour(h: number): OverallBucket {
   return { key: `${h}h`, n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0, symbols: 0, orders: 0, avgOrders: 0 };
@@ -197,6 +220,9 @@ export function LiveExchangeStats({
       </Panel>
 
       <Panel title="Hour windows · 1 / 2 / 4 / 6">
+        <p className="mb-2 text-xs text-muted">
+          Wall-clock windows from BingX realized PnL. Empty means no closes in that span — last-N still counts the seed tape.
+        </p>
         <HourTable rows={hourShort} />
       </Panel>
       <Panel title="Hour windows · 8 / 12 / 50">
@@ -215,7 +241,7 @@ export function LiveExchangeStats({
         </Panel>
       </div>
 
-      <Panel title="Playbooks · Normal / Axis / Block / DCA">
+      <Panel title="Playbooks · Normal / Axis / Block / DCA / Short">
         <div className="grid gap-4 lg:grid-cols-2">
           {playbooks.map((p) => (
             <div key={p.key} className="border border-border bg-bg p-3">
@@ -261,6 +287,12 @@ export function LiveExchangeStats({
         </Panel>
         <Panel title="Range types">
           <BucketTable rows={live.byRange ?? []} labels={RNG} />
+        </Panel>
+        <Panel title="Sides">
+          <BucketTable rows={live.bySide ?? []} />
+        </Panel>
+        <Panel title="Exit reason">
+          <BucketTable rows={live.byReason ?? []} />
         </Panel>
       </div>
 

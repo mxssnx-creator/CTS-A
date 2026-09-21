@@ -39,6 +39,7 @@ const NAV = [
   { to: "/tactics", label: "Tactics", icon: SlidersHorizontal },
   { to: "/performance", label: "Performance", icon: Trophy },
   { to: "/results", label: "Results", icon: BarChart3 },
+  { to: "/statistics", label: "Statistics", icon: Activity },
   { to: "/heatmap", label: "Heatmap", icon: Grid3x3 },
   { to: "/system", label: "System", icon: Server },
   { to: "/settings", label: "Settings", icon: Settings },
@@ -53,7 +54,7 @@ function NavLinks({ onNavigate, inverse }: { onNavigate?: () => void; inverse?: 
         const active =
           item.to === "/"
             ? pathname === "/"
-            : pathname.startsWith(item.to) || (item.to === "/results" && pathname.startsWith("/statistics"));
+            : pathname.startsWith(item.to);
         const Icon = item.icon;
         return (
           <Link

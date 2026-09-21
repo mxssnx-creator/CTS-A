@@ -6,6 +6,7 @@ const PAGES = [
   "/",
   "/strategies",
   "/positions",
+  "/orders",
   "/engine",
   "/combinations",
   "/lanes",
@@ -13,6 +14,9 @@ const PAGES = [
   "/tactics",
   "/performance",
   "/results",
+  "/statistics",
+  "/heatmap",
+  "/system",
   "/settings",
   "/connections",
 ];
