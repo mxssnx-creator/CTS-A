@@ -9,6 +9,7 @@ StartLimitBurst=8
 Type=simple
 EnvironmentFile=-/etc/cts-a/cts-a.env
 EnvironmentFile=-/etc/cts-a/credentials.env
+EnvironmentFile=-/etc/cts-a/cts-a-x01.env
 WorkingDirectory=/opt/cts-a
 ExecStart=/usr/bin/node --max-old-space-size=384 --experimental-strip-types /opt/cts-a/scripts/cts-a-vst-session.mjs
 Restart=always
@@ -22,6 +23,8 @@ Environment=CTS_A_VST_HOURS=12
 Environment=CTS_A_STATUS=/var/lib/cts-a/vst-session.json
 Environment=CTS_A_SETTINGS=/var/lib/cts-a/desk-settings.json
 Environment=CTS_A_OVERALL=/var/lib/cts-a/overall-stats.json
+Environment=CTS_A_DISABLED=/var/lib/cts-a/live-disabled.json
+Environment=CTS_A_PROTECT=/var/lib/cts-a/protect-grid.json
 Environment=CTS_A_CONN=bingx-x01
 Environment=CTS_A_NETWORK=mainnet
 Environment=CTS_A_LIVE_MIN_PF=1.35
