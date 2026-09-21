@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, readdirSync, renameSync, writeFileSync, mkdirSync } from "node:fs";
+import { createReadStream, existsSync, readdirSync, renameSync, writeFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
@@ -31,11 +31,61 @@ function hasGlobbedMigrations(root: string): boolean {
  * PGLite instance it never queries.
  */
 function liveJsonPlugin(): Plugin {
+  const preferConn = (process.env.CTS_A_CONN || "bingx-vst-02").trim();
   const files: Record<string, string[]> = {
-    "/live-session.json": ["/var/lib/cts-a/vst-session.json", "/tmp/cts-a-vst-session.json"],
-    "/overall-stats.json": ["/var/lib/cts-a/overall-stats.json", "/tmp/cts-a-overall-stats.json"],
-    "/desk-settings.json": ["/var/lib/cts-a/desk-settings.json", "/tmp/cts-a-desk-settings.json"],
+    "/live-session.json": [
+      process.env.CTS_A_STATUS,
+      "/var/lib/cts-a/vst-session-x02.json",
+      "/var/lib/cts-a/vst-session.json",
+      "/tmp/cts-a-vst-session-x02.json",
+      "/tmp/cts-a-vst-session.json",
+    ].filter((p): p is string => Boolean(p)),
+    "/overall-stats.json": [
+      process.env.CTS_A_OVERALL,
+      "/var/lib/cts-a/overall-stats-x02.json",
+      "/var/lib/cts-a/overall-stats.json",
+      "/tmp/cts-a-overall-stats-x02.json",
+      "/tmp/cts-a-overall-stats.json",
+    ].filter((p): p is string => Boolean(p)),
+    "/desk-settings.json": [
+      process.env.CTS_A_SETTINGS,
+      "/var/lib/cts-a/desk-settings-x02.json",
+      "/var/lib/cts-a/desk-settings.json",
+      "/tmp/cts-a-desk-settings-x02.json",
+      "/tmp/cts-a-desk-settings.json",
+    ].filter((p): p is string => Boolean(p)),
   };
+  function pickFile(cands: string[]): string | null {
+    let best: string | null = null;
+    let bestScore = -1;
+    const seen = new Set<string>();
+    for (const f of cands) {
+      if (!f || seen.has(f) || !existsSync(f)) continue;
+      seen.add(f);
+      let score = 0;
+      try {
+        score += Math.max(0, statSync(f).mtimeMs);
+        const d = JSON.parse(readFileSync(f, "utf8")) as Record<string, unknown>;
+        const at = Number(d.at ?? 0);
+        if (Number.isFinite(at) && at > 1e12) score = Math.max(score, at);
+        if (Boolean(d.pingOk || d.liveOk)) score += 1e15;
+        if (Number(d.equity ?? 0) > 1) score += 1e13;
+        if (Number(d.livePos ?? d.slots ?? 0) > 0) score += 1e12;
+        const conn = String(d.conn || d.activeConnId || "");
+        if (conn && conn === preferConn) score += 1e14;
+      } catch {
+        /* skip unreadable */
+      }
+      if (score > bestScore) {
+        best = f;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+  const settingsDest =
+    process.env.CTS_A_SETTINGS ||
+    (existsSync("/var/lib/cts-a") ? "/var/lib/cts-a/desk-settings-x02.json" : "/tmp/cts-a-desk-settings-x02.json");
   return {
     name: "cts-a-live-json",
     apply: "serve",
@@ -63,11 +113,10 @@ function liveJsonPlugin(): Plugin {
               }
               const raw = Buffer.concat(chunks).toString("utf8");
               JSON.parse(raw);
-              const dest = existsSync("/var/lib/cts-a") ? "/var/lib/cts-a/desk-settings.json" : "/tmp/cts-a-desk-settings.json";
-              mkdirSync(dirname(dest), { recursive: true });
-              const tmp = `${dest}.tmp`;
+              mkdirSync(dirname(settingsDest), { recursive: true });
+              const tmp = `${settingsDest}.tmp`;
               writeFileSync(tmp, raw);
-              renameSync(tmp, dest);
+              renameSync(tmp, settingsDest);
               res.statusCode = 200;
               res.setHeader("content-type", "application/json; charset=utf-8");
               res.end(JSON.stringify({ ok: true }));
@@ -84,15 +133,15 @@ function liveJsonPlugin(): Plugin {
           next();
           return;
         }
-        for (const file of cands) {
-          if (!existsSync(file)) continue;
-          res.statusCode = 200;
-          res.setHeader("content-type", "application/json; charset=utf-8");
-          res.setHeader("cache-control", "no-store");
-          createReadStream(file).pipe(res);
+        const file = pickFile(cands);
+        if (!file) {
+          next();
           return;
         }
-        next();
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.setHeader("cache-control", "no-store");
+        createReadStream(file).pipe(res);
       });
     },
   };

@@ -21,6 +21,13 @@ Environment=NODE_ENV=development
 Environment=HOST=0.0.0.0
 Environment=PORT=3202
 Environment=PATH=/opt/cts-a/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=CTS_A_CONN=bingx-vst-02
+Environment=CTS_A_NETWORK=testnet
+Environment=CTS_A_STATUS=/var/lib/cts-a/vst-session-x02.json
+Environment=CTS_A_SETTINGS=/var/lib/cts-a/desk-settings-x02.json
+Environment=CTS_A_OVERALL=/var/lib/cts-a/overall-stats-x02.json
+Environment=CTS_A_DISABLED=/var/lib/cts-a/live-disabled-x02.json
+Environment=CTS_A_PROTECT=/var/lib/cts-a/protect-grid-x02.json
 LimitNOFILE=4096
 MemoryHigh=900M
 MemoryMax=1280M

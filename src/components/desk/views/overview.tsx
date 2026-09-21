@@ -372,7 +372,7 @@ export function OverviewView() {
           <StatLine k="Closed WR" v={fmtWr(closedWr)} />
           <StatLine k="Net" v={fmtUsd(closedNet)} tone={closedNet >= 0 ? "up" : "down"} />
           <StatLine k="Occupied" v={`${liveSnap.occupied || overall.occupied || 0} / ${overall.symbols ?? liveSnap.session?.symbols ?? 50}`} />
-          <StatLine k="Legs" v={`${liveSnap.livePos || overall.slots || 0} · ${liveSnap.liveLong}L/${liveSnap.liveShort}S`} />
+          <StatLine k="Legs" v={`${liveSnap.livePos || liveSnap.slots || overall.slots || 0} · ${liveSnap.liveLong}L/${liveSnap.liveShort}S`} />
         </div>
         {overall.byPlaybook?.length ? (
           <div className="mt-3 flex flex-wrap gap-2">

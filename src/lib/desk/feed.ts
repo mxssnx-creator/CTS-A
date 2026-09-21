@@ -340,10 +340,10 @@ export const placeBingxOrder = createServerFn({ method: "POST" })
 
 export const loadVstSession = createServerFn({ method: "GET" }).handler(async () => {
   try {
-    const { readFileSync, existsSync } = await import("node:fs");
-    const p = process.env.CTS_A_STATUS || "/var/lib/cts-a/vst-session.json";
-    if (!existsSync(p)) return null;
-    const d = JSON.parse(readFileSync(p, "utf8")) as {
+    const { readLiveJson, liveSessionCandidates } = await import("./live-files.ts");
+    const d = readLiveJson(liveSessionCandidates());
+    if (!d) return null;
+    return d as {
       pf?: number;
       wr?: number;
       net?: number;
@@ -363,7 +363,6 @@ export const loadVstSession = createServerFn({ method: "GET" }).handler(async ()
       lastMsg?: string;
       positive?: boolean;
     };
-    return d;
   } catch {
     return null;
   }
@@ -371,10 +370,10 @@ export const loadVstSession = createServerFn({ method: "GET" }).handler(async ()
 
 export const loadOverallStats = createServerFn({ method: "GET" }).handler(async () => {
   try {
-    const { readFileSync, existsSync } = await import("node:fs");
-    const p = process.env.CTS_A_OVERALL || "/var/lib/cts-a/overall-stats.json";
-    if (!existsSync(p)) return null;
-    return JSON.parse(readFileSync(p, "utf8")) as {
+    const { readLiveJson, liveOverallCandidates } = await import("./live-files.ts");
+    const d = readLiveJson(liveOverallCandidates());
+    if (!d) return null;
+    return d as {
       at?: number;
       tactic?: string;
       range?: string;

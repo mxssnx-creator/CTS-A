@@ -1,22 +1,6 @@
-import { readFileSync, existsSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import type { ExchangeBook } from "./types.ts";
-
-function readJson(path: string) {
-  try {
-    if (!existsSync(path)) return null;
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function firstJson(paths: string[]) {
-  for (const p of paths) {
-    const v = readJson(p);
-    if (v && typeof v === "object") return v as Record<string, unknown>;
-  }
-  return null;
-}
+import { liveOverallCandidates, liveSessionCandidates, readLiveJson } from "./live-files.ts";
 
 async function fetchJson(url: string, ms = 1800): Promise<Record<string, unknown> | null> {
   try {
@@ -44,7 +28,7 @@ function bookFromSession(session: Record<string, unknown> | null): ExchangeBook 
   const positions = asRows<ExchangeBook["positions"][number]>(session.bookPos);
   const orders = asRows<ExchangeBook["orders"][number]>(session.bookOrd);
   return {
-    connId: String(session.conn || session.activeConnId || "bingx-x01"),
+    connId: String(session.conn || session.activeConnId || "bingx-vst-02"),
     ok: pingOk || equity > 0,
     equity: Number.isFinite(equity) ? equity : 0,
     positions,
@@ -80,10 +64,9 @@ function fileAgeMs(path: string) {
 
 /** Host VST session + overall stats. Prefer a fresh local file; otherwise pull remote. */
 export async function readLiveDesk() {
-  const statusPath = process.env.CTS_A_STATUS || "/var/lib/cts-a/vst-session.json";
-  const overallPath = process.env.CTS_A_OVERALL || "/var/lib/cts-a/overall-stats.json";
-  const localSession = firstJson([statusPath, "/tmp/cts-a-vst-session.json"]);
-  const localOverall = firstJson([overallPath, "/tmp/cts-a-overall-stats.json"]);
+  const statusPath = process.env.CTS_A_STATUS || "/var/lib/cts-a/vst-session-x02.json";
+  const localSession = readLiveJson(liveSessionCandidates());
+  const localOverall = readLiveJson(liveOverallCandidates());
   const localFresh = Boolean(localSession?.pingOk) && fileAgeMs(statusPath) < 20_000;
   let remoteSession: Record<string, unknown> | null = null;
   let remoteOverall: Record<string, unknown> | null = null;

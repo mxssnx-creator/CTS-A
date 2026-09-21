@@ -51,14 +51,14 @@ import {
 } from "../src/lib/desk/vst.ts";
 
 const HOURS = Number(process.env.CTS_A_VST_HOURS ?? 12);
-const STATUS = process.env.CTS_A_STATUS ?? "/var/lib/cts-a/vst-session.json";
-const SETTINGS = process.env.CTS_A_SETTINGS ?? "/var/lib/cts-a/desk-settings.json";
-const OVERALL = process.env.CTS_A_OVERALL ?? "/var/lib/cts-a/overall-stats.json";
+const CONN = (process.env.CTS_A_CONN || (process.env.CTS_A_X01 === "1" ? "bingx-x01" : "bingx-vst-02")).trim();
+const IS_X01 = CONN === "bingx-x01";
+const STATUS = process.env.CTS_A_STATUS ?? (IS_X01 ? "/var/lib/cts-a/vst-session.json" : "/var/lib/cts-a/vst-session-x02.json");
+const SETTINGS = process.env.CTS_A_SETTINGS ?? (IS_X01 ? "/var/lib/cts-a/desk-settings.json" : "/var/lib/cts-a/desk-settings-x02.json");
+const OVERALL = process.env.CTS_A_OVERALL ?? (IS_X01 ? "/var/lib/cts-a/overall-stats.json" : "/var/lib/cts-a/overall-stats-x02.json");
 const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CYCLE_MS = Number(process.env.CTS_A_CYCLE_MS ?? 40_000);
 const SHORT_CYCLE_MS = Number(process.env.CTS_A_SHORT_CYCLE_MS ?? 12_000);
-const CONN = (process.env.CTS_A_CONN || (process.env.CTS_A_X01 === "1" ? "bingx-x01" : "bingx-vst-02")).trim();
-const IS_X01 = CONN === "bingx-x01";
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
 const LIVE_MIN_PF = IS_X01
@@ -257,9 +257,9 @@ function rebuildShortGrid() {
     currentPick = same || GRID[0];
   }
 }
-const DISABLED_FILE = process.env.CTS_A_DISABLED ?? "/var/lib/cts-a/live-disabled.json";
+const DISABLED_FILE = process.env.CTS_A_DISABLED ?? (IS_X01 ? "/var/lib/cts-a/live-disabled.json" : "/var/lib/cts-a/live-disabled-x02.json");
 
-const PROTECT_FILE = process.env.CTS_A_PROTECT ?? "/var/lib/cts-a/protect-grid.json";
+const PROTECT_FILE = process.env.CTS_A_PROTECT ?? (IS_X01 ? "/var/lib/cts-a/protect-grid.json" : "/var/lib/cts-a/protect-grid-x02.json");
 function loadProtectCells() {
   const allowedTrail = new Set(TRAIL_PCTS);
   const floor = allProtectCells().filter((c) =>
@@ -619,7 +619,7 @@ function writeSettingsPick(pick, extra = {}) {
     mkdirSync("/var/lib/cts-a", { recursive: true });
     writeFileSync(SETTINGS, JSON.stringify(body, null, 2));
   } catch {
-    writeFileSync("/tmp/cts-a-desk-settings.json", JSON.stringify(body, null, 2));
+    writeFileSync(SETTINGS.includes("x02") ? "/tmp/cts-a-desk-settings-x02.json" : "/tmp/cts-a-desk-settings.json", JSON.stringify(body, null, 2));
   }
 }
 
@@ -628,7 +628,7 @@ function readSettingsPick() {
     return JSON.parse(readFileSync(SETTINGS, "utf8"));
   } catch {
     try {
-      return JSON.parse(readFileSync("/tmp/cts-a-desk-settings.json", "utf8"));
+      return JSON.parse(readFileSync(SETTINGS.includes("x02") ? "/tmp/cts-a-desk-settings-x02.json" : "/tmp/cts-a-desk-settings.json", "utf8"));
     } catch {
       return null;
     }
@@ -669,7 +669,8 @@ function writeStatus(s) {
       writeFileSync(OVERALL, JSON.stringify(next));
     }
   } catch {
-    writeFileSync("/tmp/cts-a-vst-session.json", JSON.stringify(s));
+    const tmpStatus = STATUS.includes("x02") ? "/tmp/cts-a-vst-session-x02.json" : "/tmp/cts-a-vst-session.json";
+    writeFileSync(tmpStatus, JSON.stringify(s));
   }
 }
 

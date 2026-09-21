@@ -113,16 +113,17 @@ export function liveNumbers(
   const livePos =
     (fetched && fetched.positions.length > 0 ? fetched.positions.length : 0) ||
     num(session?.livePos) ||
-    bookOcc ||
-    sessOcc;
+    num(session?.legs) ||
+    (exchange?.positions?.length ?? 0) ||
+    sessBook.length;
   const liveOrd =
     fetched && fetched.orders.length > 0 ? fetched.orders.length : num(session?.liveOrd);
   const pingOk = Boolean(session?.pingOk || exchange?.ok);
-  const occupied = bookOcc || sessOcc || num(session?.occupied);
+  const occupied = num(session?.occupied) || bookOcc || sessOcc;
   const posRows = (exchange?.positions?.length ? exchange.positions : sessBook) as { side?: string }[];
   const liveLong = posRows.filter((p) => p.side === "long").length;
   const liveShort = posRows.filter((p) => p.side === "short").length;
-  const conn = str(session?.conn, "bingx-x01");
+  const conn = str(session?.conn, "bingx-vst-02");
   const network = str(session?.network, conn === "bingx-x01" ? "mainnet" : "testnet");
   const venueLabel = venueLabelFor(conn, network);
   return {
