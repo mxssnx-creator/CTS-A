@@ -30,6 +30,12 @@
   --color-warn: #f1c21b;
   --color-info: #0043ce;
 
+  --color-chart-1: var(--color-primary);
+  --color-chart-2: var(--color-info);
+  --color-chart-3: var(--color-up);
+  --color-chart-4: var(--color-down);
+  --color-chart-5: var(--color-muted);
+
   --radius-xs: 0px;
   --radius-sm: 0px;
   --radius-md: 2px;
@@ -62,6 +68,29 @@
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+
+  a[href] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  [role="button"],
+  a[href].press {
+    transition-property: transform, background-color, color, border-color, opacity, box-shadow, filter;
+    transition-duration: 140ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  button:not(:disabled):not(.no-press):not([data-static]):active,
+  [role="button"]:not(:disabled):not(.no-press):active,
+  a[href].press:active,
+  .is-pressed:not(.no-press):not([data-static]) {
+    transform: scale(0.96);
   }
 
   h1,
@@ -77,6 +106,161 @@
   :focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
+  }
+}
+
+.logistics-stage .lgx-flow {
+  stroke-dasharray: 5 9;
+  animation: lgx-dash 1.5s linear infinite;
+}
+.logistics-stage .lgx-pulse {
+  animation: lgx-pulse 2s ease-in-out infinite;
+}
+@keyframes lgx-dash {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+@keyframes lgx-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .logistics-stage .lgx-flow,
+  .logistics-stage .lgx-pulse {
+    animation: none;
+  }
+}
+
+.hud-frame {
+  --hud-bg: #06141e;
+  --hud-panel: #0b1c2a;
+  --hud-panel-2: #102433;
+  --hud-line: #1a3a50;
+  --hud-fg: #d8f3ff;
+  --hud-muted: #7ea8bd;
+  --hud-a: #3ee0ff;
+  --hud-b: #ff8a3c;
+  --hud-ok: #5dffb1;
+  --hud-bad: #ff6b7d;
+  --hud-grid: rgb(62 224 255 / 0.12);
+  color: var(--hud-fg);
+  background:
+    linear-gradient(180deg, rgb(62 224 255 / 0.04), transparent 28%),
+    var(--hud-bg);
+  border: 1px solid var(--hud-line);
+  font-variant-numeric: tabular-nums;
+}
+.hud-frame[data-theme="cyan-orange"] {
+  --hud-bg: #06141e;
+  --hud-panel: #0b1c2a;
+  --hud-panel-2: #102433;
+  --hud-line: #1a3a50;
+  --hud-fg: #d8f3ff;
+  --hud-muted: #7ea8bd;
+  --hud-a: #3ee0ff;
+  --hud-b: #ff8a3c;
+  --hud-ok: #5dffb1;
+  --hud-bad: #ff6b7d;
+}
+.hud-frame[data-theme="blue-grey"] {
+  --hud-bg: #0c1218;
+  --hud-panel: #141c24;
+  --hud-panel-2: #1b2530;
+  --hud-line: #2a3846;
+  --hud-fg: #e8eef3;
+  --hud-muted: #8b9aaa;
+  --hud-a: #6aa6ff;
+  --hud-b: #b8c4d0;
+  --hud-ok: #9ad0ff;
+  --hud-bad: #d0d6dc;
+}
+.hud-frame[data-theme="mono"] {
+  --hud-bg: #050505;
+  --hud-panel: #111;
+  --hud-panel-2: #1a1a1a;
+  --hud-line: #2e2e2e;
+  --hud-fg: #f4f4f4;
+  --hud-muted: #9a9a9a;
+  --hud-a: #ffffff;
+  --hud-b: #b0b0b0;
+  --hud-ok: #e8e8e8;
+  --hud-bad: #6a6a6a;
+}
+.hud-frame[data-theme="blue-green"] {
+  --hud-bg: #041614;
+  --hud-panel: #0a221e;
+  --hud-panel-2: #10302a;
+  --hud-line: #1b4a42;
+  --hud-fg: #d7fff4;
+  --hud-muted: #7ab8aa;
+  --hud-a: #3ecbff;
+  --hud-b: #3ee0a0;
+  --hud-ok: #7dffc2;
+  --hud-bad: #ff8a6b;
+}
+.hud-frame[data-theme="amber-navy"] {
+  --hud-bg: #0a1020;
+  --hud-panel: #121a30;
+  --hud-panel-2: #1a2440;
+  --hud-line: #2a3860;
+  --hud-fg: #f4ead4;
+  --hud-muted: #a89878;
+  --hud-a: #4d7dff;
+  --hud-b: #ffbf47;
+  --hud-ok: #ffe08a;
+  --hud-bad: #ff7a5c;
+}
+.hud-frame[data-theme="ice-rose"] {
+  --hud-bg: #101018;
+  --hud-panel: #181824;
+  --hud-panel-2: #222233;
+  --hud-line: #343450;
+  --hud-fg: #f0e8ff;
+  --hud-muted: #a090b8;
+  --hud-a: #7ad7ff;
+  --hud-b: #ff7ab6;
+  --hud-ok: #b8f0ff;
+  --hud-bad: #ff8aa8;
+}
+.hud-scan {
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    180deg,
+    transparent,
+    transparent 3px,
+    rgb(62 224 255 / 0.03) 4px
+  );
+}
+.hud-panel {
+  background: var(--hud-panel);
+  border: 1px solid var(--hud-line);
+}
+.hud-kicker {
+  color: var(--hud-muted);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+}
+.hud-glow {
+  text-shadow: 0 0 12px color-mix(in srgb, var(--hud-a) 55%, transparent);
+}
+@keyframes hud-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.hud-orbit {
+  transform-origin: 80px 80px;
+  animation: hud-spin 28s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-orbit {
+    animation: none;
+  }
+  .hud-scan {
+    background: none;
   }
 }
 
@@ -118,5 +302,43 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+.click-fx-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99999;
+}
+.click-ripple {
+  position: absolute;
+  border-radius: 9999px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-primary) 42%, white);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 28%, transparent);
+  transform: translate(-50%, -50%) scale(0.18);
+  opacity: 0.58;
+  animation: click-ripple 420ms cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+@keyframes click-ripple {
+  65% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .click-ripple {
+    animation: none;
+    opacity: 0;
+  }
+  button:active,
+  [role="button"]:active,
+  a[href].press:active,
+  .is-pressed {
+    transform: none !important;
   }
 }

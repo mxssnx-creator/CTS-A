@@ -652,8 +652,7 @@ export async function fetchVol1h(network: "mainnet" | "testnet"): Promise<Map<st
     while (cursor < ids.length) {
       const id = ids[cursor++];
       if (!id) break;
-      const vs = BINGX_SYMBOL[id];
-      if (!vs) continue;
+      const vs = BINGX_SYMBOL[id] ?? (id.includes("-") ? id : `${id.replace(/USDT$/i, "")}-USDT`);
       for (const path of [
         `${host}/openApi/swap/v3/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=1`,
         `${host}/openApi/swap/v2/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=1`,

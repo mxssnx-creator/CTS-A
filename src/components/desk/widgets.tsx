@@ -65,6 +65,63 @@ export function Kpi({
   );
 }
 
+/** Dashboard-style KPI with a progress ring (share of a target, not a second metric). */
+export function RingKpi({
+  label,
+  value,
+  hint,
+  progress,
+  tone = "accent",
+  delta,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  progress: number;
+  tone?: "neutral" | "up" | "down" | "accent";
+  delta?: string;
+}) {
+  const p = Math.max(0, Math.min(1, Number.isFinite(progress) ? progress : 0));
+  const r = 18;
+  const c = 2 * Math.PI * r;
+  const stroke =
+    tone === "up"
+      ? "var(--color-up)"
+      : tone === "down"
+        ? "var(--color-down)"
+        : tone === "accent"
+          ? "var(--color-primary)"
+          : "var(--color-muted)";
+  const valueCls =
+    tone === "up" ? "text-up" : tone === "down" ? "text-down" : tone === "accent" ? "text-primary" : "text-fg";
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 border border-border bg-surface px-4 py-3">
+      <div className="min-w-0">
+        <div className="text-xs font-medium uppercase tracking-wide text-subtle">{label}</div>
+        <div className={cn("mt-1 font-mono text-xl font-semibold tabular leading-tight", valueCls)}>{value}</div>
+        <div className="mt-1 flex items-center gap-2 text-xs text-muted">
+          {delta ? <span className={valueCls}>{delta}</span> : null}
+          {hint ? <span>{hint}</span> : null}
+        </div>
+      </div>
+      <svg width="52" height="52" viewBox="0 0 48 48" className="shrink-0" aria-hidden>
+        <circle cx="24" cy="24" r={r} fill="none" stroke="var(--color-surface-muted)" strokeWidth="4" />
+        <circle
+          cx="24"
+          cy="24"
+          r={r}
+          fill="none"
+          stroke={stroke}
+          strokeWidth="4"
+          strokeLinecap="butt"
+          strokeDasharray={`${c * p} ${c}`}
+          transform="rotate(-90 24 24)"
+        />
+      </svg>
+    </div>
+  );
+}
+
 export function Pill({
   children,
   tone = "neutral",
@@ -124,9 +181,10 @@ export function Segmented<T extends string>({
         <button
           key={o.id}
           type="button"
+          aria-pressed={value === o.id}
           onClick={() => onChange(o.id)}
           className={cn(
-            "h-8 px-3 text-xs font-medium transition-colors duration-150",
+            "h-8 px-3 text-xs font-medium transition-[transform,background-color,color] duration-150 ease-out active:scale-[0.96]",
             value === o.id ? "bg-primary text-primary-fg" : "text-muted hover:bg-surface-muted",
           )}
         >
@@ -210,7 +268,7 @@ export function LastNChips({
           aria-pressed={value === n}
           onClick={() => onChange(n)}
           className={cn(
-            "h-11 min-w-11 px-3 text-xs font-medium transition-colors duration-150 sm:h-8",
+            "h-11 min-w-11 px-3 text-xs font-medium transition-[transform,background-color,color] duration-150 ease-out active:scale-[0.96] sm:h-8",
             value === n ? "bg-primary text-primary-fg" : "bg-surface-muted text-muted hover:text-fg",
           )}
         >

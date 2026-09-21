@@ -15,7 +15,8 @@ export const DEFAULT_INTERVAL_HIST_WINDOWS = 4;
 export const DEFAULT_INTERVAL_STABLE_GREEN = 3;
 export const DEFAULT_INTERVAL_RED_CUT = 2;
 export const DEFAULT_INTERVAL_RELATION_HAIRCUT = 0.4;
-export const DEFAULT_INTERVAL_RELATION_BOOST = 1.08;
+/** Interval relation scale only — never 1+axisPartial (old 0.08). */
+export const DEFAULT_INTERVAL_RELATION_BOOST = 1;
 export const DEFAULT_INTERVAL_RELATION_KEEP_PF = 0.85;
 
 export const DEFAULT_INTERVAL_STRATEGY: IntervalStrategyConfig = {
@@ -35,6 +36,12 @@ export const DEFAULT_INTERVAL_STRATEGY: IntervalStrategyConfig = {
   relationBoost: DEFAULT_INTERVAL_RELATION_BOOST,
   relationKeepPf: DEFAULT_INTERVAL_RELATION_KEEP_PF,
 };
+
+function migrateRelationBoost(n: number): number {
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_INTERVAL_RELATION_BOOST;
+  if (Math.abs(n - 1.08) < 1e-9) return DEFAULT_INTERVAL_RELATION_BOOST;
+  return Math.min(1.3, Math.max(1, n));
+}
 
 function snapMinutes(n: unknown): number {
   const x = Math.round(Number(n) || DEFAULT_INTERVAL_MINUTES);
@@ -69,7 +76,7 @@ export function sanitizeIntervalStrategy(raw: Partial<IntervalStrategyConfig> | 
     stableGreen: Math.min(6, Math.max(2, Math.round(Number(raw.stableGreen) || d.stableGreen))),
     redCut: Math.min(6, Math.max(1, Math.round(Number(raw.redCut) || d.redCut))),
     relationHaircut: Math.min(1, Math.max(0.2, Number(raw.relationHaircut) || d.relationHaircut)),
-    relationBoost: Math.min(1.3, Math.max(1, Number(raw.relationBoost) || d.relationBoost)),
+    relationBoost: migrateRelationBoost(Number(raw.relationBoost) || d.relationBoost),
     relationKeepPf: Math.min(1.2, Math.max(0.5, Number(raw.relationKeepPf) || d.relationKeepPf)),
   };
 }

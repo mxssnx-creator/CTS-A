@@ -3,8 +3,11 @@ import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+export const pressMotion =
+  "transition-[transform,background-color,color,border-color,opacity,box-shadow] duration-150 ease-out active:not-disabled:scale-[0.96]";
+
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-40",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-40 select-none touch-manipulation",
   {
     variants: {
       variant: {
@@ -30,15 +33,18 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /** Disable the press scale when motion would be distracting. */
+  static?: boolean;
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, type, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, type, static: isStatic, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
     return (
       <Comp
         type={asChild ? type : type ?? "button"}
-        className={cn(buttonVariants({ variant, size }), className)}
+        data-static={isStatic ? "" : undefined}
+        className={cn(buttonVariants({ variant, size }), !isStatic && pressMotion, className)}
         ref={ref}
         {...props}
       />

@@ -1,0 +1,169 @@
+{
+  "project": "CTS-A",
+  "purpose": "Do-not-regress coordinations. Intern scores all; live executes performing; headline is the performing tape.",
+  "readFirst": ["public/CTS-A-COORDINATIONS.md", "public/CTS-A-COMPLETE-CONTEXT.md"],
+  "processOrder": [
+    "internAll pre (126 short combos independent)",
+    "lastN eval 15-80 primary 50",
+    "lastN valid-execute 8-24 primary 15",
+    "lastN disable 6-20 primary 12 (net<0 minSamples 4; do not disable if valid PF still passes)",
+    "performing short combos after pre",
+    "real counted",
+    "live execute (Normal off = adjusted/Block/short only)",
+    "block relation N=1-6 additive 0.2",
+    "overall block shared 1.5 additive stack book+symbol+direction",
+    "place CTSA tagged tickets"
+  ],
+  "isolation": {
+    "internAllPhase": "completeSim && paperMode && !preEvalDone",
+    "liveTapeFilter": "id starts with x:",
+    "headline": "selected performing subset (n>=4 net>0 pf>=floor); never mixed intern; never PF_NO_LOSS on tiny net",
+    "greenHour": "gatedN>0 && gatedNet>=0",
+    "engineSizeFactor": 1,
+    "axisIsNotEngineVolume": true,
+    "forbiddenVolume": 0.08
+  },
+  "pf": {
+    "overall": 1.35,
+    "base": 1.0,
+    "axis": 1.15,
+    "block": 1.2,
+    "short": 0.95,
+    "shortBase": 0.7,
+    "shortAxis": 0.9,
+    "shortBlock": 1.15,
+    "pfNoLoss": 4,
+    "rule": "Higher floor selects the positive subset on the same path. Never starve winners into 0.20 paper."
+  },
+  "lastN": {
+    "eval": { "grid": [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80], "primary": 50 },
+    "valid": { "grid": [8, 12, 16, 20, 24], "primary": 15 },
+    "disable": { "grid": [6, 8, 10, 12, 14, 16, 18, 20], "primary": 12, "minSamples": 4, "needNetLt0": true },
+    "mode": "parallel",
+    "parallelStack": true,
+    "parallelVolRatio": 1.25
+  },
+  "block": {
+    "counts": [1, 2, 3, 4, 5, 6],
+    "stackOld": [1, 2],
+    "additive": 0.2,
+    "shared": 1.5,
+    "overall": 1.5,
+    "maxMul": 2.5,
+    "axisPartial": 1.0,
+    "forbidden": 0.08,
+    "sides": "both",
+    "volumeMode": "parallel",
+    "overallMode": "parallel",
+    "relAdditive": true,
+    "activeLive": true,
+    "keepAdjusted": true,
+    "keepAdjustedMeans": "hold existing extra through a loss window; do not plan new Block adds on failed PF",
+    "math": {
+      "additiveStep": "0.2 * baseQty per independent N",
+      "additiveCap": "N * 0.2 * baseQty",
+      "relExtra": "once after N=1-6, not per N",
+      "shared": "extra/n when n>2 else min(vr, extraCap)",
+      "overall": "independent of lanes; shared 1.5 stacked additively across book+symbol+direction"
+    }
+  },
+  "positionCost": {
+    "sizePct": 0.0012,
+    "rtPct": 0.0012,
+    "actualLiveRt": 0.001,
+    "deductFrom": ["close", "partial", "unrealized", "lastN", "PF", "engineReplay"],
+    "forbiddenRt": 0.0005
+  },
+  "short": {
+    "internGrid": { "tpAtr": [0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.45, 0.48, 0.5, 0.52, 0.55, 0.58, 0.6], "slOfTp": [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5], "comboCount": 126 },
+    "liveFloors": { "minTpAtr": 0.38, "minSlOfTp": 0.75, "maxTpAtr": 0.6 },
+    "winnerSeedNotLock": { "tpAtr": 0.48, "slOfTp": 0.75 },
+    "exclusiveLockForbidden": true,
+    "useAllPerforming": true,
+    "holdTicks": 24,
+    "trailPctLive": 1.5,
+    "trailPctDisabled": [0.8, 1.0, 1.2, 1.4, 1.7, 2.0],
+    "provenAfterPre": {
+      "minN": 6,
+      "pfFloorLane": "short",
+      "netGt0": true,
+      "rejectNoLossTinyNet": true,
+      "thinArmableForExecute": true,
+      "gridAfterPreProvenOnly": true
+    }
+  },
+  "toggles": {
+    "normal": false,
+    "trailing": true,
+    "axis": true,
+    "block": true,
+    "dca": false,
+    "normalOffDoesNotStopIntern": true
+  },
+  "provenTapes": {
+    "screenshot": {
+      "mixedComboLeaks": 0,
+      "basePositive": 28,
+      "cells": [
+        { "tpAtr": 0.42, "slOfTp": 1.5, "pf": 1.45 },
+        { "tpAtr": 0.48, "slOfTp": 1.0, "pf": 1.4 },
+        { "tpAtr": 0.48, "slOfTp": 0.75, "pfOff": 1.21, "pfBlockShared": 1.29, "hold": 24 }
+      ],
+      "blockOverlaysPf": [2.2, 2.05]
+    },
+    "isolatedComplete6h6h": {
+      "selectedPf": 1.91,
+      "gatedN": 116,
+      "gatedPf": 1.32,
+      "net": 1.78,
+      "greenHours": "5/6",
+      "note": "gated ≡ paper after isolation; this is the pass shape"
+    }
+  },
+  "failTapesDoNotTreatAsTruth": [
+    {
+      "run": "24h×30 mixed intern dump",
+      "livePf": 0.284,
+      "greenHours": "2/24",
+      "why": "intern paper still in counted tape; 0.48/0.75 live PF 0.18 n=27"
+    },
+    {
+      "run": "12h×40 selected PF 4.00 paper 0.345 green 0/12",
+      "why": "headline lied with PF_NO_LOSS on selected n=14 while mixed paper was red"
+    }
+  ],
+  "antiPatterns": [
+    "intern paper in live tape / hours / last-N",
+    "exclusive lock 0.48/0.75",
+    "Block additive 0.08 (Axis leftover)",
+    "engine VF 1.08 as volume",
+    "nSel=0 showing 0.20 mixed paper",
+    "ensureProtect early return on 1SL+1TP",
+    "flatten all non-proven (kills PF)",
+    "DCA on / trail 0.8-1.4",
+    "Normal off stopping intern",
+    "20min red halt entries",
+    "PF_NO_LOSS=4 with net<=1e-6 treated proven",
+    "completeSim skip arming during pre"
+  ],
+  "simPassBar": {
+    "mixedComboLeaks": 0,
+    "selectedPfMin": 1.15,
+    "selectedMinN": 4,
+    "gatedPfMin": 1.0,
+    "greenHours": "majority of hours with gatedN>0",
+    "keepCellsIfPassing": ["0.42/1.50", "0.48/0.75", "0.48/1.00"]
+  },
+  "liveX02": {
+    "conn": "bingx-vst-02",
+    "tag": "CTSAV2_",
+    "port": 3202,
+    "symbols": 50,
+    "tickMs": 800,
+    "liveMinPf": 0.95,
+    "shortRange": true,
+    "range": "atr",
+    "tactic": "trailing",
+    "promoteX01OnlyIfSelectedPf": 1.35
+  }
+}

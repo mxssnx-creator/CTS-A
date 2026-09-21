@@ -1,12 +1,12 @@
 import { Link } from "@tanstack/react-router";
 import { INDICATION_KINDS, RANGE_META, RANGE_TYPES, STRATEGY_KINDS, TACTIC_META, TACTICS } from "@/lib/desk/engine";
 import { loadOverallStats, loadVstSession } from "@/lib/desk/feed";
-import { LIVE_HOUR_NS } from "@/lib/desk/vst";
+import { LIVE_HOUR_NS, OVERVIEW_POS_NS } from "@/lib/desk/vst";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
 import { fmtNum, fmtUsd } from "@/lib/utils";
-import { HBarChart, MetricBarChart, OccupancyChart } from "../charts";
+import { GroupedMetricChart, HBarChart, MetricBarChart, MixDonut, OccupancyChart, SliceArea, SpectraOverlay, WaterfallStack } from "../charts";
 import { LiveExchangeStats, pickLiveOverview } from "../live-exchange-stats";
-import { fmtMdd, fmtPf, fmtWr, Kpi, Panel, pfTone, StatLine } from "../widgets";
+import { fmtMdd, fmtPf, fmtWr, Panel, pfTone, RingKpi, StatLine } from "../widgets";
 
 type Bucket = {
   key: string;
@@ -142,14 +142,37 @@ export function StatisticsView() {
         </div>
       </Panel>
 
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+        <RingKpi
+          label="Live PF"
+          value={fmtPf(pf)}
+          progress={Math.min(1, pf / 3)}
+          tone={pfTone(pf) === "up" ? "up" : pfTone(pf) === "down" ? "down" : "accent"}
+          hint={`${tapeClosed} tape closes`}
+        />
+        <RingKpi label="Win rate" value={fmtWr(wr)} progress={wr} tone={wr >= 0.45 ? "up" : "accent"} />
+        <RingKpi
+          label="Occupied"
+          value={`${liveSnap.occupied}`}
+          progress={liveSnap.occupied / Math.max(1, Number(view.symbols ?? 50))}
+          hint={`${liveSnap.livePos} legs`}
+          tone="accent"
+        />
+        <RingKpi
+          label="Orders"
+          value={String(liveSnap.liveOrd)}
+          progress={Math.min(1, liveSnap.liveOrd / Math.max(8, liveSnap.livePos * 2 || 8))}
+          hint={`SL ${liveSnap.liveSl} · TP ${liveSnap.liveTp}`}
+          tone="accent"
+        />
+      </div>
+
       <Panel title={`Live exchange · ${liveSnap.venueLabel}`}>
-        <div className="mt-1 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-          <Kpi label="Live PF" value={fmtPf(pf)} tone={pfTone(pf)} hint={`${tapeClosed} tape closes`} />
-          <Kpi label="Win rate" value={fmtWr(wr)} />
-          <Kpi label="Net" value={fmtUsd(net)} tone={net >= 0 ? "up" : "down"} />
-          <Kpi label="DDT" value={fmtNum(ddt, 0)} hint={`MDD ${fmtMdd(mdd)}`} />
-          <Kpi label="Occupied" value={String(liveSnap.occupied)} hint={`${liveSnap.livePos} legs`} />
-          <Kpi label="Orders" value={String(liveSnap.liveOrd)} hint={`SL ${liveSnap.liveSl} · TP ${liveSnap.liveTp}`} />
+        <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
+          <StatLine k="Net" v={fmtUsd(net)} tone={net >= 0 ? "up" : "down"} />
+          <StatLine k="DDT" v={fmtNum(ddt, 0)} />
+          <StatLine k="MDD" v={fmtMdd(mdd)} />
+          <StatLine k="Avg pos / ord" v={`${fmtNum(avgPos, 1)} / ${fmtNum(avgOrd, 1)}`} />
         </div>
       </Panel>
 
@@ -162,6 +185,56 @@ export function StatisticsView() {
         avgLivePos={avgPos}
         avgLiveOrd={avgOrd}
       />
+
+      <Panel title="Diagrams · hours × PF / WR / pos / orders">
+        <p className="mb-3 text-sm text-muted">
+          Waterfall stacks each metric as a depth slice across {LIVE_HOUR_NS.join("/")}h. Hover a ribbon to read the cut.
+        </p>
+        <WaterfallStack
+          layers={[
+            { id: "pf", label: "PF", values: LIVE_HOUR_NS.map((h) => Number(view.hours?.[String(h)]?.pf ?? 0)) },
+            { id: "wr", label: "WR", values: LIVE_HOUR_NS.map((h) => Number(view.hours?.[String(h)]?.wr ?? 0)) },
+            { id: "net", label: "Net", values: LIVE_HOUR_NS.map((h) => Number(view.hours?.[String(h)]?.net ?? 0)) },
+            { id: "pos", label: "Avg pos", values: LIVE_HOUR_NS.map((h) => Number(view.hours?.[String(h)]?.avgPositions ?? avgPos)) },
+            { id: "ord", label: "Avg ord", values: LIVE_HOUR_NS.map((h) => Number(view.hours?.[String(h)]?.avgOrders ?? avgOrd)) },
+          ]}
+          xLabels={LIVE_HOUR_NS.map((h) => `${h}h`)}
+        />
+      </Panel>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel title="Spectra · PF vs WR by hour">
+          <SpectraOverlay
+            a={LIVE_HOUR_NS.map((h) => ({ x: `${h}h`, y: Number(view.hours?.[String(h)]?.pf ?? 0) }))}
+            b={LIVE_HOUR_NS.map((h) => ({ x: `${h}h`, y: Number(view.hours?.[String(h)]?.wr ?? 0) }))}
+            aLabel="PF"
+            bLabel="WR"
+          />
+        </Panel>
+        <Panel title="Slice · last-N PF">
+          <SliceArea
+            data={OVERVIEW_POS_NS.map((n) => ({ x: `N${n}`, y: Number(view.lastN?.[String(n)]?.pf ?? 0) }))}
+            yLabel="PF"
+          />
+        </Panel>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel title="Indication mix">
+          <MixDonut data={indicationRows.map((r) => ({ label: indLabels[r.key] ?? r.key, value: Number(r.n ?? 0) }))} />
+        </Panel>
+        <Panel title="Indications · PF vs WR">
+          <GroupedMetricChart
+            data={indicationRows.map((r) => ({
+              label: (indLabels[r.key] ?? r.key).slice(0, 8),
+              a: Number(r.pf ?? 0),
+              b: Number(r.wr ?? 0),
+            }))}
+            aLabel="PF"
+            bLabel="WR"
+          />
+        </Panel>
+      </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel title="Hour PF">

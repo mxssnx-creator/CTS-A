@@ -1,0 +1,320 @@
+{
+  "hours": 24,
+  "symbols": 20,
+  "ms": 6738,
+  "withBlock": {
+    "pf": 88.85410359119804,
+    "n": 13146,
+    "ok": 30
+  },
+  "withoutBlock": {
+    "pf": 77.04368362246277,
+    "n": 13094,
+    "ok": 30
+  },
+  "winner": {
+    "tactic": "trailing",
+    "block": true,
+    "tpAtr": 0.2,
+    "slOfTp": 0.5,
+    "slAtr": 0.1,
+    "R": 2,
+    "pf": 114.244,
+    "wr": 0.955,
+    "net": 15.6206,
+    "n": 440,
+    "ok": true
+  },
+  "ok": 60,
+  "n": 60,
+  "top": [
+    {
+      "tactic": "trailing",
+      "block": true,
+      "tpAtr": 0.2,
+      "slOfTp": 0.5,
+      "slAtr": 0.1,
+      "R": 2,
+      "pf": 114.244,
+      "wr": 0.955,
+      "net": 15.6206,
+      "n": 440,
+      "ok": true
+    },
+    {
+      "tactic": "hybrid",
+      "block": true,
+      "tpAtr": 0.2,
+      "slOfTp": 0.5,
+      "slAtr": 0.1,
+      "R": 2,
+      "pf": 114.244,
+      "wr": 0.955,
+      "net": 15.6206,
+      "n": 440,
+      "ok": true
+    },
+    {
+      "tactic": "trailing",
+      "block": false,
+      "tpAtr": 0.2,
+      "slOfTp": 0.5,
+      "slAtr": 0.1,
+      "R": 2,
+      "pf": 99.435,
+      "wr": 0.952,
+      "net": 15.6448,
+      "n": 439,
+      "ok": true
+    },
+    {
+      "tactic": "hybrid",
+      "block": false,
+      "tpAtr": 0.2,
+      "slOfTp": 0.5,
+      "slAtr": 0.1,
+      "R": 2,
+      "pf": 99.435,
+      "wr": 0.952,
+      "net": 15.6448,
+      "n": 439,
+      "ok": true
+    },
+    {
+      "tactic": "trailing",
+      "block": true,
+      "tpAtr": 0.3,
+      "slOfTp": 0.5,
+      "slAtr": 0.15,
+      "R": 2,
+      "pf": 98.831,
+      "wr": 0.936,
+      "net": 18.7075,
+      "n": 438,
+      "ok": true
+    },
+    {
+      "tactic": "hybrid",
+      "block": true,
+      "tpAtr": 0.3,
+      "slOfTp": 0.5,
+      "slAtr": 0.15,
+      "R": 2,
+      "pf": 98.831,
+      "wr": 0.936,
+      "net": 18.7075,
+      "n": 438,
+      "ok": true
+    },
+    {
+      "tactic": "trailing",
+      "block": true,
+      "tpAtr": 0.2,
+      "slOfTp": 1.5,
+      "slAtr": 0.3,
+      "R": 0.667,
+      "pf": 94.219,
+      "wr": 0.95,
+      "net": 17.0941,
+      "n": 439,
+      "ok": true
+    },
+    {
+      "tactic": "hybrid",
+      "block": true,
+      "tpAtr": 0.2,
+      "slOfTp": 1.5,
+      "slAtr": 0.3,
+      "R": 0.667,
+      "pf": 94.219,
+      "wr": 0.95,
+      "net": 17.0941,
+      "n": 439,
+      "ok": true
+    },
+    {
+      "tactic": "trailing",
+      "block": true,
+      "tpAtr": 0.25,
+      "slOfTp": 0.5,
+      "slAtr": 0.125,
+      "R": 2,
+      "pf": 92.614,
+      "wr": 0.945,
+      "net": 17.3739,
+      "n": 440,
+      "ok": true
+    },
+    {
+      "tactic": "hybrid",
+      "block": true,
+      "tpAtr": 0.25,
+      "slOfTp": 0.5,
+      "slAtr": 0.125,
+      "R": 2,
+      "pf": 92.614,
+      "wr": 0.945,
+      "net": 17.3739,
+      "n": 440,
+      "ok": true
+    },
+    {
+      "tactic": "trailing",
+      "block": true,
+      "tpAtr": 0.3,
+      "slOfTp": 1,
+      "slAtr": 0.3,
+      "R": 1,
+      "pf": 90.761,
+      "wr": 0.941,
+      "net": 18.7387,
+      "n": 439,
+      "ok": true
+    },
+    {
+      "tactic": "hybrid",
+      "block": true,
+      "tpAtr": 0.3,
+      "slOfTp": 1,
+      "slAtr": 0.3,
+      "R": 1,
+      "pf": 90.761,
+      "wr": 0.941,
+      "net": 18.7387,
+      "n": 439,
+      "ok": true
+    }
+  ],
+  "worst": [
+    {
+      "tactic": "trailing",
+      "block": false,
+      "tpAtr": 0.25,
+      "slOfTp": 1.5,
+      "slAtr": 0.375,
+      "R": 0.667,
+      "pf": 68.586,
+      "wr": 0.933,
+      "net": 18.2152,
+      "n": 436,
+      "ok": true
+    },
+    {
+      "tactic": "hybrid",
+      "block": false,
+      "tpAtr": 0.25,
+      "slOfTp": 1.5,
+      "slAtr": 0.375,
+      "R": 0.667,
+      "pf": 68.586,
+      "wr": 0.933,
+      "net": 18.2152,
+      "n": 436,
+      "ok": true
+    },
+    {
+      "tactic": "trailing",
+      "block": false,
+      "tpAtr": 0.3,
+      "slOfTp": 1.5,
+      "slAtr": 0.45,
+      "R": 0.667,
+      "pf": 68.488,
+      "wr": 0.922,
+      "net": 19.8769,
+      "n": 435,
+      "ok": true
+    },
+    {
+      "tactic": "hybrid",
+      "block": false,
+      "tpAtr": 0.3,
+      "slOfTp": 1.5,
+      "slAtr": 0.45,
+      "R": 0.667,
+      "pf": 68.488,
+      "wr": 0.922,
+      "net": 19.8769,
+      "n": 435,
+      "ok": true
+    },
+    {
+      "tactic": "trailing",
+      "block": false,
+      "tpAtr": 0.2,
+      "slOfTp": 1,
+      "slAtr": 0.2,
+      "R": 1,
+      "pf": 67.419,
+      "wr": 0.948,
+      "net": 15.064,
+      "n": 439,
+      "ok": true
+    },
+    {
+      "tactic": "hybrid",
+      "block": false,
+      "tpAtr": 0.2,
+      "slOfTp": 1,
+      "slAtr": 0.2,
+      "R": 1,
+      "pf": 67.419,
+      "wr": 0.948,
+      "net": 15.064,
+      "n": 439,
+      "ok": true
+    }
+  ],
+  "byTp": [
+    {
+      "tpAtr": 0.2,
+      "pf": 86.608,
+      "ok": 12,
+      "n": 12
+    },
+    {
+      "tpAtr": 0.25,
+      "pf": 82.95,
+      "ok": 12,
+      "n": 12
+    },
+    {
+      "tpAtr": 0.3,
+      "pf": 81.946,
+      "ok": 12,
+      "n": 12
+    },
+    {
+      "tpAtr": 0.35,
+      "pf": 82.388,
+      "ok": 12,
+      "n": 12
+    },
+    {
+      "tpAtr": 0.4,
+      "pf": 80.853,
+      "ok": 12,
+      "n": 12
+    }
+  ],
+  "bySl": [
+    {
+      "slOfTp": 0.5,
+      "pf": 89.714,
+      "ok": 20,
+      "n": 20
+    },
+    {
+      "slOfTp": 1,
+      "pf": 78.407,
+      "ok": 20,
+      "n": 20
+    },
+    {
+      "slOfTp": 1.5,
+      "pf": 80.725,
+      "ok": 20,
+      "n": 20
+    }
+  ]
+}

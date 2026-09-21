@@ -35,6 +35,7 @@ import {
   shortSlAtrOf,
   shortTpRatioOf,
   cfgUsesShortRange,
+  SHORT_WINNER,
   clampBlockVol,
   clampSharedVol,
   clampOverallVol,
@@ -233,8 +234,8 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;
       const short = asBool(cfg.shortRange, false) || cfgUsesShortRange(cfg);
       if (short) {
-        const slOfTp = snapShortSlOfTp(asNum(cfg.slOfTp, 1.75));
-        const tpAtr = snapShortTpAtr(asNum(cfg.tpAtr, 0.4));
+        const slOfTp = snapShortSlOfTp(asNum(cfg.slOfTp, SHORT_WINNER.slOfTp));
+        const tpAtr = snapShortTpAtr(asNum(cfg.tpAtr, SHORT_WINNER.tpAtr));
         return {
           trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.5)),
           dcaCount: 1,
@@ -248,7 +249,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
           slOfTp,
           shortRange: true,
           maxHoldBars: Math.min(8, Math.max(1, Math.round(asNum(cfg.maxHoldBars, 2)))),
-          maxHoldTicks: Math.min(20_000, Math.max(4, Math.round(asNum(cfg.maxHoldTicks, 12)))),
+          maxHoldTicks: Math.min(20_000, Math.max(4, Math.round(asNum(cfg.maxHoldTicks, 24)))),
         };
       }
       const slOfTp = snapSlOfTp(asNum(cfg.slOfTp, hasPair ? 1 : 1 / Math.max(0.5, asNum(cfg.tpRatio, d.tacticConfig.tpRatio))));
@@ -268,7 +269,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       slOfTp,
       shortRange: false,
       maxHoldBars: Math.min(8, Math.max(1, Math.round(asNum(cfg.maxHoldBars, d.tacticConfig.maxHoldBars ?? 3)))),
-      maxHoldTicks: Math.min(20_000, Math.max(4, Math.round(asNum(cfg.maxHoldTicks, d.tacticConfig.maxHoldTicks ?? 16)))),
+      maxHoldTicks: Math.min(20_000, Math.max(4, Math.round(asNum(cfg.maxHoldTicks, d.tacticConfig.maxHoldTicks ?? 24)))),
       };
     })(),
     blockConfig: (() => {

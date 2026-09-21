@@ -114,6 +114,20 @@ export const BINGX_SYMBOL: Record<string, string> = {
 export const LIVE_IDS = Object.keys(BINGX_SYMBOL);
 export const LIVE_SET = new Set(LIVE_IDS);
 
+export function venueSymbolOf(id: string): string {
+  const s = String(id || "");
+  return BINGX_SYMBOL[s] ?? (s.includes("-") ? s : `${s.replace(/USDT$/i, "")}-USDT`);
+}
+
+export function registerVenueSymbol(id: string, venue: string) {
+  const desk = String(id || "").trim().toUpperCase();
+  const vs = String(venue || "").trim();
+  if (!desk || !vs) return;
+  if (!BINGX_SYMBOL[desk]) BINGX_SYMBOL[desk] = vs;
+  if (!LIVE_IDS.includes(desk)) LIVE_IDS.push(desk);
+  LIVE_SET.add(desk);
+}
+
 /** BingX clientOrderID prefix that marks CTS-A tickets for a connection. */
 export const DESK_CLIENT_PREFIX = "CTSA";
 export type DeskClientKind = "E" | "S" | "T" | "C" | "L" | "X";
@@ -384,9 +398,14 @@ export function protectIsTighter(side: "long" | "short", entry: number, cur: num
 }
 
 export function deskIdFromVenue(venueSymbol: string): string | undefined {
-  for (const [id, vs] of Object.entries(BINGX_SYMBOL)) {
-    if (vs === venueSymbol) return id;
+  const vs = String(venueSymbol || "").trim();
+  if (!vs) return undefined;
+  for (const [id, mapped] of Object.entries(BINGX_SYMBOL)) {
+    if (mapped === vs) return id;
   }
+  const compact = vs.replace(/-/g, "").toUpperCase();
+  if (BINGX_SYMBOL[compact]) return compact;
+  if (/USDT$/i.test(compact)) return compact;
   return undefined;
 }
 

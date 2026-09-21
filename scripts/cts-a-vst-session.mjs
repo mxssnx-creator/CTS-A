@@ -5,8 +5,8 @@
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
-import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N } from "../src/lib/desk/engine.ts";
+import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -19,8 +19,13 @@ import {
   tickVst,
   bookCounts,
   VST_MAX_SYMBOLS,
+  VST_LIVE_SYMBOLS,
   VST_TICK_MS,
   clampSymbolCount,
+  clampLiveSymbolCap,
+  universeSymbols,
+  absorbEvalSymbols,
+  ensureQuotes,
   universeSymbols,
   rankUniverse,
   vol1hOf,
@@ -64,8 +69,9 @@ const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
 const LIVE_MIN_PF = IS_X01
   ? Math.max(DEFAULT_MIN_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_MIN_PF) || DEFAULT_MIN_PF)
   : Math.max(DEFAULT_SHORT_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_SHORT_PF) || DEFAULT_SHORT_PF);
-const LIVE_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? X01_DEFAULTS.symbolCount : VST_MAX_SYMBOLS)));
-const UNI = new Set(universeSymbols(LIVE_SYMBOLS).map((s) => s.id));
+const LIVE_SYMBOLS = clampLiveSymbolCap(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? X01_DEFAULTS.symbolCount : VST_LIVE_SYMBOLS)));
+const EVAL_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_EVAL_SYMBOLS ?? VST_MAX_SYMBOLS));
+const UNI = new Set(universeSymbols(EVAL_SYMBOLS).map((s) => s.id));
 const PREFERRED_RANGES = new Set(["fibonacci", "geometric", "atr"]);
 const mirrored = new Set();
 /** Legs tagged by this connection's clientOrderId. */
@@ -207,7 +213,7 @@ const BLOCK = {
 
 const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: false, block: true, dca: false };
 
-const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 1.75, dcaCount: 1, slAtr: 0.7, tpAtr: 0.45, slOfTp: 1.75, shortRange: true, maxHoldTicks: 24, maxHoldBars: 3, axisLevels: 5 };
+const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 0.75, dcaCount: 1, slAtr: 0.36, tpAtr: 0.48, slOfTp: 0.75, shortRange: true, maxHoldTicks: 24, maxHoldBars: 3, axisLevels: 5 };
 const LIVE_SHORT_TACTICS = ["trailing"];
 const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   ["atr", "fibonacci"].map((range) => ({
@@ -368,9 +374,9 @@ function applyTape(e, tickers) {
   }));
   if (rows.length >= 2) {
     const vc = volumeCoord(rows);
-    e.relVolumeFactor = vc.vf;
+    e.coordVolumeFactor = vc.vf;
     if (vc.confirm === "diverge" && e.tick % 40 === 0) {
-      e.lastMsg = `vol coord diverge vf ${vc.vf.toFixed(2)} · low-vol WR ${(vc.lowVolWr * 100).toFixed(0)}%`;
+      e.lastMsg = `vol confirm diverge ${vc.vf.toFixed(2)} · low-vol WR ${(vc.lowVolWr * 100).toFixed(0)}%`;
     }
   }
   return tickers.filter((t) => t.last > 0 && e.quotes[t.id]).map((t) => t.id);
@@ -487,7 +493,9 @@ function snapshot(e, extra) {
     placed: book.orders.placed,
     filled: book.orders.filled,
     liveOrders: lastBook.ord || book.orders.live,
-    symbols: e.symbolCount,
+    symbols: LIVE_SYMBOLS,
+    evalSymbols: e.symbolCount || EVAL_SYMBOLS,
+    liveCap: e.liveSymbolCap || LIVE_SYMBOLS,
     occupied: new Set((lastBook.positions ?? []).map((p) => p.symbol).filter(Boolean)).size || book.positions.symbols,
     heal: e.healCount ?? 0,
     lastMsg: e.lastMsg,
@@ -575,6 +583,9 @@ function snapshot(e, extra) {
     evals: {
       at: e.lastRelEvalTick || 0,
       factor: Number(e.relVolumeFactor || 0),
+      coordVf: Number(e.coordVolumeFactor || 1),
+      engineSize: Number(e.engineSizeFactor || 1),
+      axisPartial: 1,
       winners: Object.keys(e.blockRelBest || {}).slice(0, 8),
       disabled: e.liveHealth?.disabled?.length ?? Object.keys(e.liveDisabled ?? {}).length,
       kept: e.liveHealth?.kept?.length ?? 0,
@@ -583,6 +594,8 @@ function snapshot(e, extra) {
       hourTac: e.hourCoord?.bestTac || "",
       performing: (e.hourCoord?.performing || e.performingSymbols || []).length,
       skipped: (e.hourCoord?.skipped || []).length,
+      liveCap: LIVE_SYMBOLS,
+      evalN: e.symbolCount || EVAL_SYMBOLS,
       indRange: e.indRangeBest || {},
       indTactic: e.indTacticBest || {},
       grid: GRID.length,
@@ -612,6 +625,8 @@ function writeSettingsPick(pick, extra = {}) {
     tacticConfig: { ...pick.cfg },
     blockConfig: BLOCK,
     symbolCount: LIVE_SYMBOLS,
+    evalSymbolCount: EVAL_SYMBOLS,
+    liveSymbolCap: LIVE_SYMBOLS,
     orderType: "limit",
     lastN: VALID_EXEC_POS_N,
     lastNs: { picks: VALID_EXEC_POS_N, lanes: VALID_EXEC_POS_N, last: VALID_EXEC_POS_N, ongoing: VALID_EXEC_POS_N, next: VALID_EXEC_POS_N, combos: VALID_EXEC_POS_N },
@@ -797,7 +812,28 @@ function foldExec(rows) {
 
 function venueOf(id) {
   const s = String(id || "");
-  return BINGX_SYMBOL[s] ?? (s.includes("-") ? s : `${s.replace(/USDT$/i, "")}-USDT`);
+  return BINGX_SYMBOL[s] ?? venueSymbolOf(s);
+}
+
+async function expandEvalUniverse(network, engine) {
+  const map = await fetchContractMap(network);
+  if (!map.size) return { added: 0, evalN: universeSymbols(EVAL_SYMBOLS).length, contracts: 0 };
+  const extras = [];
+  for (const vs of map.keys()) {
+    if (!/-USDT$/i.test(String(vs)) && !/USDT$/i.test(String(vs))) continue;
+    let id = deskIdFromVenue(vs);
+    if (!id) id = String(vs).replace(/-/g, "").toUpperCase();
+    if (!id) continue;
+    registerVenueSymbol(id, vs);
+    extras.push({ id, base: id.replace(/USDT$/i, "") });
+  }
+  const added = absorbEvalSymbols(extras, EVAL_SYMBOLS);
+  engine.symbolCount = EVAL_SYMBOLS;
+  engine.liveSymbolCap = LIVE_SYMBOLS;
+  ensureQuotes(engine);
+  UNI.clear();
+  for (const s of universeSymbols(EVAL_SYMBOLS)) UNI.add(s.id);
+  return { added, evalN: universeSymbols(EVAL_SYMBOLS).length, contracts: map.size };
 }
 
 const vanishedLegs = [];
@@ -850,7 +886,7 @@ async function pruneUnlisted(network) {
     const map = await fetchContractMap(network);
     if (!map.size) return 0;
     let n = 0;
-    for (const s of universeSymbols(LIVE_SYMBOLS)) {
+    for (const s of universeSymbols(EVAL_SYMBOLS)) {
       if (!map.has(venueOf(s.id))) {
         deadSymbols.add(s.id);
         skipUntil.set(s.id, Date.now() + 86_400_000);
@@ -903,17 +939,16 @@ function sizeNotional(equity) {
   return eq * POSITION_COST_PCT * 0.3;
 }
 function liveVolMul(e) {
-  const vf = Number(e?.relVolumeFactor);
-  if (Number.isFinite(vf) && vf > 0) {
-    if (vf < 0.95) return Math.max(0.35, Math.min(0.7, vf));
-    return Math.max(0.45, Math.min(0.8, 0.85 / vf));
-  }
-  return 0.45;
+  const vf = Number(e?.coordVolumeFactor);
+  if (!Number.isFinite(vf) || vf <= 0) return 1;
+  if (vf < 0.95) return Math.max(0.7, Math.min(1, vf));
+  return 1;
 }
 function liveNotional(e, f, equity, rel) {
   const note = String(f?.note || rel?.note || rel?.playbook || "");
   const blockHit = /Block/i.test(note) || rel?.playbook === "block";
-  if (!blockHit) return 0;
+  const base = sizeNotional(equity) * liveVolMul(e);
+  if (!blockHit) return base;
   const n = Math.max(1, Number(rel?.blockLevel) || 1);
   const overall = /Overall Block/i.test(note);
   const shared = /shared/i.test(note);
@@ -921,7 +956,7 @@ function liveNotional(e, f, equity, rel) {
   if (shared) vr = Math.min(3, Math.max(0.4, Number(BLOCK.sharedVolumeRatio) || 1));
   else if (overall) vr = Math.min(3, Math.max(0.4, Number(BLOCK.overallVolumeRatio) || 1));
   else vr = Math.min(1, Math.max(0.1, Number(BLOCK.volumeRatio) || 0.1)) * n;
-  return sizeNotional(equity) * vr * liveVolMul(e);
+  return base * vr;
 }
 
 function mergeLivePositions(e, book) {
@@ -1798,6 +1833,8 @@ async function mirrorToExchange(e, network, cfg) {
         blockLevel: order?.level ?? pos?.blockLevel,
         indication,
         rangeType,
+        tpAtr: Number(order?.tpAtr ?? pos?.tpAtr ?? currentPick?.cfg?.tpAtr ?? LIVE_CFG.tpAtr),
+        slOfTp: Number(order?.slOfTp ?? pos?.slOfTp ?? currentPick?.cfg?.slOfTp ?? LIVE_CFG.slOfTp),
       };
       if (!liveShouldExecute(e, rel) || liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType })) {
         skippedFills.add(f.id);
@@ -1996,12 +2033,13 @@ async function main() {
   const ends = started + HOURS * 3600 * 1000;
   let pick = pickFromSweep();
   currentPick = pick;
-  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK, costStep: 3 });
+  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: EVAL_SYMBOLS, liveSymbolCap: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK, costStep: 3 });
   const seededOff = loadDisabled(engine);
   engine.running = true;
   engine.phase = "running";
   engine.activeConnId = CONN;
-  engine.symbolCount = LIVE_SYMBOLS;
+  engine.symbolCount = EVAL_SYMBOLS;
+  engine.liveSymbolCap = LIVE_SYMBOLS;
   engine.minPf = LIVE_MIN_PF;
   engine.basePf = DEFAULT_BASE_PF;
   engine.axisPf = DEFAULT_AXIS_PF;
@@ -2053,7 +2091,7 @@ async function main() {
   applyExecFromSettings(readSettingsPick());
   applyPfGates(engine, readSettingsPick());
   writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: false });
-  const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} sym · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf} short ${engine.shortPf}/${engine.shortBasePf} · grid ${GRID.length} TP ${pick.cfg.tpAtr}/${pick.cfg.slOfTp} · block ${engine.blockCfg.sharedVolumeRatio}/${engine.blockCfg.volumeRatio}/${engine.blockCfg.overallVolumeRatio}`];
+  const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} live / ${EVAL_SYMBOLS} eval · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf} short ${engine.shortPf}/${engine.shortBasePf} · grid ${GRID.length} TP ${pick.cfg.tpAtr}/${pick.cfg.slOfTp} · block ${engine.blockCfg.sharedVolumeRatio}/${engine.blockCfg.volumeRatio}/${engine.blockCfg.overallVolumeRatio}`];
   if (seededLosers) adjustments.push(`seed skip ${seededLosers} loser symbols`);
   if (seededOff) adjustments.push(`seed disable ${seededOff} relations`);
   if (lastExec.n) adjustments.push(`seed exec n=${lastExec.n} PF ${lastExec.pf.toFixed(2)}`);
@@ -2074,6 +2112,12 @@ async function main() {
       if (dead) adjustments.push(`unlisted ${dead} contracts skipped`);
     } catch (err) {
       adjustments.push(`contracts ${err instanceof Error ? err.message : "fail"}`);
+    }
+    try {
+      const exp = await expandEvalUniverse(ping.network, engine);
+      adjustments.push(`eval ${exp.evalN} / live ${LIVE_SYMBOLS} · +${exp.added} from ${exp.contracts} contracts`);
+    } catch (err) {
+      adjustments.push(`eval universe ${err instanceof Error ? err.message : "fail"}`);
     }
   }
 
@@ -2210,7 +2254,7 @@ async function main() {
         skipWalk: true,
         skipMatch: lastBook.pos >= liveMaxPos(),
         rangeType: pick.range,
-        symbolCount: LIVE_SYMBOLS,
+        symbolCount: EVAL_SYMBOLS,
         orderType: "limit",
         block: engine.blockCfg,
       });
@@ -2420,8 +2464,8 @@ async function main() {
       const shortOk = complete.cells.filter(
         (c) => c.shortRange && c.ok && Number(c.hours) >= Math.min(16, SHORT_EVAL_HOURS) && Number(c.tpAtr) > 0,
       );
-      const boot = new Set(SHORT_20H_POSITIVE.map((c) => `${Number(c.tpAtr).toFixed(2)}:${Number(c.slOfTp).toFixed(1)}`));
-      const confirmed = shortOk.filter((c) => boot.has(`${Number(c.tpAtr).toFixed(2)}:${Number(c.slOfTp).toFixed(1)}`)).length;
+      const boot = new Set(SHORT_20H_POSITIVE.map((c) => shortComboKey(c.tpAtr, c.slOfTp)));
+      const confirmed = shortOk.filter((c) => boot.has(shortComboKey(Number(c.tpAtr), Number(c.slOfTp)))).length;
       adjustments.push(
         `short ${SHORT_EVAL_HOURS}h eval ${shortOk.length} ok · ${confirmed}/${SHORT_20H_POSITIVE.length} match live lock · grid ${GRID.length} TP ${preferWinner(GRID)?.cfg.tpAtr}/${preferWinner(GRID)?.cfg.slOfTp}`,
       );

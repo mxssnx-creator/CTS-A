@@ -238,7 +238,7 @@ export function StrategiesView() {
               <StatLine k="Max DD" v={fmtMdd(active.last.mdd)} />
               <StatLine k="Net" v={fmtUsd(active.last.net)} tone={active.last.net >= 0 ? "up" : "down"} />
               <StatLine k="SQN" v={fmtNum(active.last.sqn, 2)} />
-              <StatLine k="Volume factor" v={fmtNum(active.last.volumeFactor, 2)} />
+              <StatLine k="Vol-weighted confirm" v={fmtNum(active.last.volumeFactor, 2)} />
             </div>
             <EquityChart data={eq} />
           </Panel>

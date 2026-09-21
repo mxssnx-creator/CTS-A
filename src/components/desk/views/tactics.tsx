@@ -56,7 +56,7 @@ export function TacticsView() {
             key={b.t}
             type="button"
             onClick={() => setTactic(b.t)}
-            className={`border px-4 py-3 text-left transition-colors duration-150 ${
+            className={`border px-4 py-3 text-left transition-[transform,background-color,border-color] duration-150 ease-out active:scale-[0.96] ${
               tactic === b.t ? "border-primary bg-primary-soft" : "border-border bg-surface hover:border-primary"
             }`}
           >

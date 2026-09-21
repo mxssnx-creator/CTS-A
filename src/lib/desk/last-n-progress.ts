@@ -162,22 +162,20 @@ export function decideLastNFromPrefix(
   const disableHits = hitsOf(pre, cfg.disableNs);
   const evalFull = evalHits.filter((h) => h.samples >= h.n);
   const validFull = validHits.filter((h) => h.samples >= h.n);
-  const disableFull = disableHits.filter((h) => h.samples >= h.n);
   const evalGood = (h: LastNWindowHit) => evalLastNGood(h, basePf);
   const validGood = (h: LastNWindowHit) => validLastNGood(h, minPf);
 
   const indValid = lastNIndependentOk(validFull, validGood);
-  const indDisableKill = disableFull.length > 0 && disableFull.every(disableLastNBad);
-  const independent = indValid && !indDisableKill;
+  const independent = indValid;
 
   const combEval = lastNCombinedOk(evalFull, evalGood);
   const combValid = lastNCombinedOk(validFull, validGood);
-  const combDisableKill = disableFull.length > 0 && disableFull.filter(disableLastNBad).length * 2 > disableFull.length;
-  const combined = combEval && combValid && !combDisableKill;
+  const combined = combEval && combValid;
 
   let pass = combined;
   if (cfg.mode === "independent") pass = independent;
   else if (cfg.mode === "parallel") pass = independent || combined;
+  // Disable windows are scored for live-disable / display. They must not override a valid-execute pass.
 
   const both = independent && combined;
   const stack = cfg.mode === "parallel" && cfg.parallelStack !== false && both ? cfg.parallelVolRatio : 1;
@@ -319,7 +317,22 @@ export function slimLastNProgress(cfg: LastNProgressConfig, pick: LastNCoordPick
 
 export type LastNGroupScore = { n: number; pf: number; net: number; ok: boolean; stack: number };
 
-/** Score one type / combo with coordinated (slim) last-N — not the full settings grid. */
+export function pickLastNScoreHit(
+  d: LastNDecision,
+  minPf: number,
+): LastNWindowHit | undefined {
+  const validFull = d.validHits.filter((h) => h.samples >= h.n);
+  const evalFull = d.evalHits.filter((h) => h.samples >= h.n);
+  const passValid = validFull.filter((h) => validLastNGood(h, minPf)).sort((a, b) => b.n - a.n);
+  if (passValid[0]) return passValid[0];
+  const passEval = evalFull.filter((h) => evalLastNGood(h, minPf)).sort((a, b) => b.n - a.n);
+  if (passEval[0]) return passEval[0];
+  const full = [...validFull, ...evalFull].sort((a, b) => b.n - a.n);
+  if (full[0]) return full[0];
+  return d.validHits.find((h) => h.samples > 0) ?? d.evalHits.find((h) => h.samples > 0);
+}
+
+/** Score one type / combo with its own last-N grid — not the book-level slim pick. */
 export function scoreLastNGroup(
   rows: { pnl: number }[],
   cfg: LastNProgressConfig,
@@ -332,13 +345,13 @@ export function scoreLastNGroup(
     return { n: rows.length, pf: 0, net, ok: true, stack: 1 };
   }
   const d = decideLastN(rows, cfg, minPf, basePf);
-  let hit = d.validHits.find((h) => h.samples > 0);
-  if (!hit) hit = d.evalHits.find((h) => h.samples > 0);
+  const hit = pickLastNScoreHit(d, minPf);
+  const full = Boolean(hit && hit.samples >= hit.n);
   return {
     n: hit?.samples ?? rows.length,
     pf: hit?.pf ?? 0,
     net: hit?.net ?? 0,
-    ok: d.pass,
+    ok: d.pass || (full && (hit!.pf + 1e-9 >= minPf) && (hit!.net + 1e-12 >= 0) && hit!.samples >= 4),
     stack: d.pass ? d.stack : 1,
   };
 }

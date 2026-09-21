@@ -85,9 +85,18 @@ export { EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N };
 export const BARS = 240;
 export const WARMUP = 55;
 export const BASE_EQUITY = 10_000;
-/** System-internal default position cost: 0.15% of equity. */
-export const POSITION_COST_PCT = 0.0015;
-export const UNIT_NOTIONAL = BASE_EQUITY * POSITION_COST_PCT;
+/** Position size as a fraction of equity. Default 0.12% (was 0.15%). */
+export const POSITION_COST_PCT = 0.0012;
+/** 10_000 × 0.0012; literal so IEEE 0.0012 does not yield 11.999… */
+export const UNIT_NOTIONAL = 12;
+/**
+ * Round-trip trading cost deducted from every position PnL / PF / last-N.
+ * Live BingX VST is ~0.10% RT (taker 5 bps each side). Default 0.12% is conservative
+ * so intern/eval cannot promote combos that lose once real fees hit.
+ * Never use 5 bps (0.00025 * (entry+exit)) — that understated live cost and inflated PF.
+ */
+export const POSITION_RT_COST_PCT = 0.0012;
+export const POSITION_RT_COST_ACTUAL = 0.001;
 /** Gross-profit / gross-loss. No-loss winners cap here (PF is undefined otherwise). */
 export const PF_NO_LOSS = 4;
 export function profitFactor(profit: number, loss: number): number {
@@ -109,6 +118,36 @@ export function pfFromPnls(rows: { pnl: number }[] | undefined | null): number {
   }
   return profitFactor(gp, gl);
 }
+
+/** RT cost on average notional: qty * (entry+exit)/2 * POSITION_RT_COST_PCT. */
+export function positionRtCost(entry: number, exit: number, qty: number, rtPct = POSITION_RT_COST_PCT): number {
+  const q = Number(qty);
+  const a = Number(entry);
+  const b = Number(exit);
+  const pct = Number(rtPct);
+  if (!(q > 0) || !(a > 0) || !(b > 0) || !(pct > 0) || !Number.isFinite(q + a + b + pct)) return 0;
+  return q * ((a + b) / 2) * pct;
+}
+
+/**
+ * Realized (or mark-to-market) PnL with position cost deducted.
+ * side: +1 long / -1 short. All intern, live-sim, last-N and PF paths must use this.
+ */
+export function closePnl(side: number, entry: number, exit: number, qty: number, rtPct = POSITION_RT_COST_PCT): number {
+  const signed = side < 0 ? -1 : 1;
+  const e0 = Number(entry);
+  const x = Number(exit);
+  const q = Number(qty);
+  if (!(e0 > 0) || !(x > 0) || !(q > 0) || !Number.isFinite(e0 + x + q)) return 0;
+  return (x - e0) * q * signed - positionRtCost(e0, x, q, rtPct);
+}
+
+/** Replay helper: unit-notional close with RT cost deducted. */
+export function unitClosePnl(side: number, entry: number, exit: number, notional = UNIT_NOTIONAL, rtPct = POSITION_RT_COST_PCT): number {
+  if (!(entry > 0) || !(notional > 0)) return 0;
+  return closePnl(side, entry, exit, notional / entry, rtPct);
+}
+
 /** Hard floor — volume factor cannot be gated below this. */
 export const MIN_VOLUME_FACTOR = 1.05;
 export const MIN_QUOTE_VOL = 0.006;
@@ -341,6 +380,9 @@ export function shortComboKey(tpAtr: number, slOfTp: number): string {
   return `${snapShortTpAtr(Number(tpAtr)).toFixed(2)}:${snapShortSlOfTp(Number(slOfTp)).toFixed(2)}`;
 }
 
+/** Independent-tape winner (6h+4h pre ×12, hold 24): 0.48/0.75 PF 1.21 off / 1.29 Block shared. */
+export const SHORT_WINNER = { tpAtr: 0.48, slOfTp: 0.75 as const };
+
 export function snapShortTacticConfig<T extends {
   tpAtr?: number;
   slOfTp?: number;
@@ -348,8 +390,8 @@ export function snapShortTacticConfig<T extends {
   tpRatio?: number;
   shortRange?: boolean;
 }>(cfg: T): T {
-  const tpAtr = snapShortTpAtr(cfg.tpAtr ?? 0.4);
-  const slOfTp = snapShortSlOfTp(cfg.slOfTp ?? 1.75);
+  const tpAtr = snapShortTpAtr(cfg.tpAtr ?? SHORT_WINNER.tpAtr);
+  const slOfTp = snapShortSlOfTp(cfg.slOfTp ?? SHORT_WINNER.slOfTp);
   return {
     ...cfg,
     shortRange: true,
@@ -360,42 +402,25 @@ export function snapShortTacticConfig<T extends {
   };
 }
 
-/** 20h × 12 winner among live floors (PF 7.32), SL snapped to 0.25 grid. */
-export const SHORT_WINNER = { tpAtr: 0.45, slOfTp: 1.75 as const };
-
 /**
- * Live-floor cells with PF≥1 (mapped onto SL 0.5–2.5 / 0.25). Independent complete eval can add Base-ok keys.
+ * Historical independent-tape seed (hold 24). NOT an exclusive lock or allowlist —
+ * live executes every independently Base-ok + last-N/PF-positive combo. Eval grid stays full.
  */
 export const SHORT_20H_POSITIVE: readonly { tpAtr: number; slOfTp: number }[] = [
-  { tpAtr: 0.4, slOfTp: 1.75 },
-  { tpAtr: 0.4, slOfTp: 2 },
-  { tpAtr: 0.45, slOfTp: 1.75 },
-  { tpAtr: 0.52, slOfTp: 1.75 },
-  { tpAtr: 0.48, slOfTp: 1.75 },
-  { tpAtr: 0.42, slOfTp: 2 },
-  { tpAtr: 0.42, slOfTp: 1.75 },
-  { tpAtr: 0.48, slOfTp: 2 },
-  { tpAtr: 0.5, slOfTp: 1.75 },
-  { tpAtr: 0.45, slOfTp: 2 },
-  { tpAtr: 0.55, slOfTp: 1.75 },
-  { tpAtr: 0.52, slOfTp: 2 },
+  { tpAtr: 0.48, slOfTp: 0.75 },
 ];
 
 export function filterLiveShortCombos(
   minTpAtr = DEFAULT_SHORT_MIN_TP_ATR,
   minSlOfTp = DEFAULT_SHORT_MIN_SL_OF_TP,
   maxTpAtr = 0.6,
-  positiveOnly = true,
-  allowed: readonly { tpAtr: number; slOfTp: number }[] = SHORT_20H_POSITIVE,
+  _positiveOnly = true,
+  _allowed?: readonly { tpAtr: number; slOfTp: number }[],
 ): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
-  const all = liveShortProtectCombos(minTpAtr, minSlOfTp, maxTpAtr);
-  if (!positiveOnly) return all;
-  const keys = new Set(allowed.map((c) => shortComboKey(c.tpAtr, c.slOfTp)));
-  const hit = all.filter((c) => keys.has(shortComboKey(c.tpAtr, c.slOfTp)));
-  return hit.length ? hit : all;
+  return liveShortProtectCombos(minTpAtr, minSlOfTp, maxTpAtr);
 }
 
-/** Intern scoring: every TP×SL. Execution GRID: Base-positive / live floors only — never mix losers into one tape. */
+/** Intern scoring: every TP×SL. Execution GRID: short floors, then last-N keeps performing cells. */
 export function shortProtectGridFor(opts?: {
   complete?: boolean;
   intern?: boolean;
@@ -727,7 +752,7 @@ export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
   slOfTp: 1,
   shortRange: false,
   maxHoldBars: 3,
-  maxHoldTicks: 16,
+  maxHoldTicks: 24,
 };
 
 export const BLOCK_POS_COUNTS = [1, 2, 3, 4, 5, 6] as const;
@@ -858,7 +883,7 @@ export function blockStepQty(
   return step;
 }
 export const DEFAULT_MAX_HOLD_BARS = 3;
-export const DEFAULT_MAX_HOLD_TICKS = 16;
+export const DEFAULT_MAX_HOLD_TICKS = 24;
 export const SHORT_SL_ATR = 1.15;
 
 export function positionNotional(equity = BASE_EQUITY, costStep = 10): number {
@@ -1772,7 +1797,7 @@ function runBacktest(
 
   const closeNow = (i: number, px: number) => {
     if (side === 0) return;
-    const pnl = ((side * (px - entry)) / entry) * UNIT_NOTIONAL;
+    const pnl = unitClosePnl(side, entry, px);
     trades.push({
       id: `${strategyId}:${symbol}:${tradeN++}`,
       strategyId,
@@ -1809,7 +1834,7 @@ function runBacktest(
       entryVol = c.v;
     }
     let eq = cash;
-    if (side !== 0) eq += ((side * (c.c - entry)) / entry) * UNIT_NOTIONAL;
+    if (side !== 0) eq += unitClosePnl(side, entry, c.c);
     equity.push(eq);
   }
   if (side !== 0) closeNow(candles.length - 1, candles[candles.length - 1]!.c);
@@ -3370,7 +3395,7 @@ function kindFlipBacktest(kind: IndicationId, candles: Candle[], pack: Indicator
     const sig = Math.abs(raw) >= 0.28 ? Math.sign(raw) : 0;
     const px = candles[i]!.c;
     if (side !== 0 && (sig === -side || i === endBar)) {
-      trades.push({ pnl: ((side * (px - entry)) / entry) * UNIT_NOTIONAL, volume: 1 } as Trade);
+      trades.push({ pnl: unitClosePnl(side, entry, px), volume: 1 } as Trade);
       side = 0;
     }
     if (side === 0 && (sig === 1 || sig === -1) && i < endBar) {
@@ -3943,7 +3968,10 @@ export function positionsFrom(
   const openTrades = trades.slice(-3);
   const open: Position[] = openTrades.map((t, i) => {
     const mark = last.c * (1 + ((hashStr(t.id) % 9) - 4) * 0.001);
-    const pnlPct = ((mark - t.entry) / t.entry) * (t.side === "long" ? 1 : -1);
+    const signed = t.side === "long" ? 1 : -1;
+    const qty = t.entry > 0 ? cost / t.entry : 0;
+    const pnl = closePnl(signed, t.entry, mark, qty);
+    const pnlPct = t.entry > 0 ? pnl / Math.max(Math.abs(cost), 1e-9) : 0;
     return {
       id: `open:${t.id}`,
       symbol,
@@ -3954,7 +3982,7 @@ export function positionsFrom(
       mark,
       qty: cost / t.entry,
       cost,
-      pnl: pnlPct * cost,
+      pnl,
       pnlPct,
       openedBar: t.entryBar,
       closedBar: null,

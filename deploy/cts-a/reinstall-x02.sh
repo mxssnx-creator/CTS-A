@@ -53,6 +53,8 @@ want = {
   "CTS_A_OVERALL": "/var/lib/cts-a/overall-stats-x02.json",
   "CTS_A_DISABLED": "/var/lib/cts-a/live-disabled-x02.json",
   "CTS_A_PROTECT": "/var/lib/cts-a/protect-grid-x02.json",
+  "CTS_A_SYMBOLS": "50",
+  "CTS_A_EVAL_SYMBOLS": "300",
 }
 lines = []
 seen = set()

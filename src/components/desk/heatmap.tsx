@@ -41,7 +41,7 @@ export function CostHeatmap({
                   type="button"
                   title={`${r} · cost ${cell.cost} · PF ${fmtNum(cell.pf, 2)}`}
                   onClick={() => onSelect(cell.cost, r)}
-                  className={cn("h-6 w-full min-w-3 transition-opacity duration-150", active && "ring-2 ring-fg")}
+                  className={cn("no-press h-6 w-full min-w-3 transition-opacity duration-150", active && "ring-2 ring-fg")}
                   style={{ background: heatColor(cell.pf) }}
                 />
               );

@@ -29,6 +29,7 @@ Environment=CTS_A_NETWORK=testnet
 Environment=CTS_A_LIVE_MIN_PF=0.95
 Environment=CTS_A_LIVE_MAX_POS=100
 Environment=CTS_A_SYMBOLS=50
+Environment=CTS_A_EVAL_SYMBOLS=300
 Environment=CTS_A_TICK_MS=800
 Environment=NODE_OPTIONS=--max-old-space-size=384
 LimitNOFILE=4096

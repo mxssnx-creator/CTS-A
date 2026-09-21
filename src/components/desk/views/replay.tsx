@@ -19,8 +19,8 @@ import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
 import { fmtNum, fmtPx, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { EquityChart, HBarChart, MetricBarChart, OccupancyChart, PriceChart } from "../charts";
-import { fmtMdd, fmtPf, fmtWr, Kpi, Panel, Pill, Segmented, StatLine, pfTone } from "../widgets";
+import { EquityChart, GroupedMetricChart, HBarChart, MetricBarChart, MixDonut, OccupancyChart, PriceChart, SliceArea, SpectraOverlay, WaterfallStack } from "../charts";
+import { fmtMdd, fmtPf, fmtWr, Panel, Pill, RingKpi, Segmented, StatLine, pfTone } from "../widgets";
 import { LiveBookStrip } from "../live-book-strip";
 
 function downsample<T>(rows: T[], max = 360): T[] {
@@ -264,19 +264,20 @@ export function ReplayView() {
         {ticketMsg ? <p className="mt-2 text-xs text-muted">{ticketMsg}</p> : null}
       </Panel>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-        <Kpi label="Sim PF" value={fmtPf(simPf)} tone={pfTone(simPf)} hint={`${simTrades} closed`} />
-        <Kpi label="Win rate" value={fmtWr(simWr)} hint={report ? `${report.wins} wins` : `${winsTape} tape`} />
-        <Kpi label="Net" value={fmtUsd(simNet)} tone={simNet >= 0 ? "up" : "down"} />
-        <Kpi label="Max DD" value={fmtMdd(simMdd)} />
-        <Kpi
-          label="SL / TP"
-          value={report ? `${report.slExits} / ${report.tpExits}` : "—"}
-          hint={report ? `${report.avgR.toFixed(2)}R avg` : "run sim"}
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+        <RingKpi
+          label="Sim PF"
+          value={fmtPf(simPf)}
+          progress={Math.min(1, simPf / 3)}
+          tone={pfTone(simPf) === "up" ? "up" : pfTone(simPf) === "down" ? "down" : "accent"}
+          hint={`${simTrades} closed`}
         />
-        <Kpi
+        <RingKpi label="Win rate" value={fmtWr(simWr)} progress={simWr} tone={simWr >= 0.45 ? "up" : "accent"} hint={report ? `${report.wins} wins` : `${winsTape} tape`} />
+        <RingKpi label="Max DD" value={fmtMdd(simMdd)} progress={Math.min(1, simMdd / 0.08)} tone={simMdd > 0.04 ? "down" : "up"} />
+        <RingKpi
           label="Peak legs"
           value={report ? String(report.maxPositionsSeen) : fmtNum(tape.occupancy.peak, 0)}
+          progress={Math.min(1, (report?.maxPositionsSeen ?? tape.occupancy.peak) / 80)}
           hint={report ? `${report.maxOrdersSeen} orders` : "tape peak"}
         />
       </div>
@@ -335,6 +336,69 @@ export function ReplayView() {
               </div>
             </>
           )}
+        </Panel>
+      </div>
+
+      {report?.hourly?.length ? (
+        <Panel title="Waterfall · hour slices (PF, WR, pos, orders, net)">
+          <p className="mb-3 text-sm text-muted">
+            Each ribbon is one metric through the sim hours. Click a legend to bring that cut forward.
+          </p>
+          <WaterfallStack
+            layers={[
+              { id: "pf", label: "Hour PF", values: report.hourly.map((h) => Number(h.pf ?? 0)) },
+              { id: "wr", label: "Hour WR", values: report.hourly.map((h) => Number(h.wr ?? 0)) },
+              { id: "pos", label: "Avg pos", values: report.hourly.map((h) => Number(h.pos ?? 0)) },
+              { id: "ord", label: "Orders", values: report.hourly.map((h) => Number(h.orders ?? h.slots ?? 0)) },
+              { id: "net", label: "Hour net", values: report.hourly.map((h) => Number(h.net ?? 0)) },
+            ]}
+            xLabels={report.hourly.map((h) => `${h.h}`)}
+          />
+        </Panel>
+      ) : null}
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel title="Spectra · PF vs occupancy">
+          {report?.hourly?.length ? (
+            <SpectraOverlay
+              a={report.hourly.map((h) => ({ x: h.h, y: Number(h.pf ?? 0) }))}
+              b={report.hourly.map((h) => ({ x: h.h, y: Number(h.pos ?? 0) }))}
+              aLabel="Hour PF"
+              bLabel="Avg pos"
+            />
+          ) : (
+            <SpectraOverlay
+              a={loadCurve.map((r) => ({ x: r.i, y: r.pos }))}
+              b={loadCurve.map((r) => ({ x: r.i, y: r.ord }))}
+              aLabel="Positions"
+              bLabel="Orders"
+            />
+          )}
+        </Panel>
+        <Panel title="Slice · equity path">
+          <SliceArea
+            data={eqCurve.map((p) => ({ x: String(p.i), y: p.eq }))}
+            yLabel="Equity"
+            format={(v) => fmtUsd(v)}
+          />
+        </Panel>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel title="Indication mix">
+          <MixDonut
+            data={(stats?.byIndication?.length ? stats.byIndication : tape.kinds).map((r) => ({
+              label: String((r as { key?: string }).key ?? ""),
+              value: Number((r as { n?: number }).n ?? (r as { hits?: number }).hits ?? 0),
+            }))}
+          />
+        </Panel>
+        <Panel title="Tactics · PF vs WR">
+          <GroupedMetricChart
+            data={(stats?.byTactic ?? []).map((b) => ({ label: b.key, a: b.pf, b: b.wr }))}
+            aLabel="PF"
+            bLabel="WR"
+          />
         </Panel>
       </div>
 

@@ -45,6 +45,8 @@ export function OverviewView() {
   const enabledKinds = useDesk((s) => s.enabledKinds);
   const vstTick = useDesk((s) => s.vst.tick);
   const vstCoord = useDesk((s) => s.vst.lastNCoord);
+  const engineSize = useDesk((s) => s.vst.engineSizeFactor ?? 1);
+  const blockExtra = useDesk((s) => s.vst.relVolumeFactor ?? 0);
   const activeConnId = useDesk((s) => s.activeConnId);
   const liveSnap = useLiveSnapshot();
   const exchange = liveSnap.exchange;
@@ -306,7 +308,8 @@ export function OverviewView() {
                 return (
                   <tr
                     key={`n${n}`}
-                    className={`cursor-pointer border-t border-border ${on ? "bg-primary-soft" : ""}`}
+                    data-press
+                    className={`no-press cursor-pointer border-t border-border transition-[background-color] duration-150 ${on ? "bg-primary-soft" : "hover:bg-surface-muted"}`}
                     onClick={() => setOverlayLastN(n)}
                   >
                     <td className="py-1 pr-2 font-medium">Last {n}</td>
@@ -502,7 +505,10 @@ export function OverviewView() {
           <StatLine k="Win rate" v={fmtWr(last.wr)} />
           <StatLine k="Expectancy" v={fmtUsd(last.expectancy)} />
           <StatLine k="SQN" v={fmtNum(last.sqn, 2)} />
-          <StatLine k="Volume factor" v={fmtNum(vol.vf, 2)} />
+          <StatLine k="Vol-weighted confirm" v={fmtNum(vol.vf, 2)} />
+          <StatLine k="Engine size ×" v={fmtNum(engineSize, 2)} />
+          <StatLine k="Axis extra rung" v={fmtNum(cfg.axisPartialRatio ?? 1, 2)} />
+          <StatLine k="Block extra" v={fmtNum(blockExtra, 2)} />
           <StatLine k="Recovery" v={fmtNum(last.recovery, 2)} />
           <div className="mt-3 border-t border-border pt-3">
             <div className="text-xs font-medium uppercase tracking-wide text-subtle">Coordination</div>
@@ -555,7 +561,20 @@ export function OverviewView() {
                 {lanes.map((l) => (
                   <tr
                     key={l.id}
-                    className="cursor-pointer border-t border-border hover:bg-surface-muted"
+                    data-press
+                    role="button"
+                    tabIndex={0}
+                    className="no-press cursor-pointer border-t border-border hover:bg-surface-muted"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setStrategy(l.strategyId);
+                        setTactic(l.tactic);
+                        setCostStep(l.costStep);
+                        setRangeType(l.rangeType);
+                        applyLive();
+                      }
+                    }}
                     onClick={() => {
                       setStrategy(l.strategyId);
                       setTactic(l.tactic);

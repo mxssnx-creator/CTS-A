@@ -45,7 +45,7 @@ function formatElapsed(tick: number) {
 }
 
 const chip =
-  "h-11 min-w-16 px-3 text-xs font-medium transition-colors duration-150 sm:h-8";
+  "h-11 min-w-16 px-3 text-xs font-medium transition-[transform,background-color,color] duration-150 ease-out active:scale-[0.96] sm:h-8";
 const chipOn = "bg-primary text-primary-fg";
 const chipOff = "bg-surface-muted text-muted hover:text-fg";
 
@@ -493,7 +493,7 @@ export function SessionProgress({
           />
         </label>
         <label className="flex min-w-0 flex-col gap-1">
-          <span className="text-xs font-medium text-muted">Volume factor {th.minVf.toFixed(2)}</span>
+          <span className="text-xs font-medium text-muted">Min vol confirm {th.minVf.toFixed(2)}</span>
           <input
             aria-label="Minimum volume factor"
             type="range"

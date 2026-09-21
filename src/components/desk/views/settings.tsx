@@ -81,7 +81,7 @@ import {
   liveDeskBook,
   positionsAsTrades,
 } from "@/lib/desk/vst";
-import { fmtUsd } from "@/lib/utils";
+import { fmtNum, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Field, fmtPf, fmtWr, LastNChips, Panel, Pill, Segmented, StatLine } from "../widgets";
 import { LiveBookStrip } from "../live-book-strip";
@@ -269,6 +269,8 @@ export function SettingsView() {
   const runStageEval = useDesk((s) => s.runStageEval);
   const stageEval = useDesk((s) => s.stageEval);
   const blockCfg = useDesk((s) => s.blockConfig);
+  const engineSize = useDesk((s) => s.vst.engineSizeFactor ?? 1);
+  const blockExtra = useDesk((s) => s.vst.relVolumeFactor ?? 0);
   const setBlockCfg = useDesk((s) => s.setBlockConfig);
   const strategyToggles = useDesk((s) => s.strategyToggles);
   const setStrategyToggles = useDesk((s) => s.setStrategyToggles);
@@ -394,7 +396,7 @@ export function SettingsView() {
           <a
             key={s.id}
             href={`#${s.id}`}
-            className="inline-flex h-11 items-center bg-surface-muted px-3 text-xs font-medium text-muted hover:text-fg sm:h-8"
+            className="press inline-flex h-11 items-center bg-surface-muted px-3 text-xs font-medium text-muted transition-[transform,color] duration-150 ease-out hover:text-fg active:scale-[0.96] sm:h-8"
             onClick={(e) => {
               e.preventDefault();
               document.getElementById(s.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -470,7 +472,7 @@ export function SettingsView() {
           <StatLine k="Strategy" v={active.name} />
           <StatLine k="Tactic" v={TACTIC_META[tactic].label} />
           <StatLine k="Range" v={RANGE_META[rangeType].label} />
-          <StatLine k="Cost step" v={`${cost} · unit 0.15% eq`} />
+          <StatLine k="Cost step" v={`${cost} · unit 0.12% eq`} />
           <StatLine k="Symbol" v={symbol} />
           <StatLine k="Symbol count" v={`${symbolCount} / ${VST_MAX_SYMBOLS}`} />
           <StatLine k="Order type" v={ORDER_TYPES.find((o) => o.id === orderType)?.label ?? orderType} />
@@ -1123,7 +1125,7 @@ export function SettingsView() {
             configs before Axis / Block overlays (default 1.1). Axis PF (1.5) and Block PF (1.6) are
             independent and can sit below Overall. Raise Overall to lift the default book; Axis and
             Block keep their own floors. A lane is live-positive only if its PF, MDD, WR, volume
-            factor (≥ 1.05) and drawdown time all clear. Position unit is 0.15% of equity.
+            factor (≥ 1.05) and drawdown time all clear. Position unit is 0.12% of equity; every close deducts 0.12% RT.
           </p>
         </Panel>
       </div>
@@ -2220,7 +2222,10 @@ export function SettingsView() {
         <Panel title="Volume coordination">
           <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-3 xl:grid-cols-4">
             <StatLine k="Window" v={`last ${lastNs.picks} picks`} />
-            <StatLine k="Volume factor" v={live.vol.vf.toFixed(2)} />
+            <StatLine k="Vol-weighted confirm" v={live.vol.vf.toFixed(2)} />
+            <StatLine k="Engine size ×" v={fmtNum(engineSize, 2)} />
+            <StatLine k="Axis extra rung" v={(cfg.axisPartialRatio ?? 1).toFixed(2)} />
+            <StatLine k="Block extra" v={fmtNum(blockExtra, 2)} />
             <StatLine k="Confirm" v={live.vol.confirm} />
             <StatLine k="High-vol WR" v={fmtWr(live.vol.highVolWr)} />
             <StatLine k="Low-vol WR" v={fmtWr(live.vol.lowVolWr)} />

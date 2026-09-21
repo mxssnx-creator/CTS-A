@@ -91,6 +91,15 @@ describe("multi last-N prefix + modes", () => {
     assert.equal(d.combined, false);
     assert.equal(d.pass, false);
   });
+
+  it("valid-execute pass is not killed by a red disable window", () => {
+    const rows = [...Array.from({ length: 6 }, () => ({ pnl: -0.25 })), ...wins(24, 1.2)];
+    const d = decideLastN(rows, cfgP, 1.05, 0.9);
+    const d6 = d.disableHits.find((h) => h.n === 6);
+    assert.ok(d6 && d6.avg < 0, "disable N=6 is red");
+    assert.equal(d.independent, true);
+    assert.equal(d.pass, true);
+  });
 });
 
 describe("coordinateLastN picks working windows without shrinking settings", () => {
@@ -143,15 +152,31 @@ describe("coordinateLastN picks working windows without shrinking settings", () 
     assert.ok(rows["50"] || rows["15"]);
   });
 
-  it("scoreLastNGroup explores undersampled and uses slim windows for types", () => {
-    const slim = slimLastNProgress(cfgP, coordinateLastN(wins(40), cfgP, 1.2, 1.1));
-    const fresh = scoreLastNGroup(wins(2), slim, 1.2, 1.1);
+  it("scoreLastNGroup explores undersampled and uses independent full last-N for types", () => {
+    const fresh = scoreLastNGroup(wins(2), cfgP, 1.2, 1.1);
     assert.equal(fresh.ok, true);
     assert.equal(fresh.n, 2);
-    const good = scoreLastNGroup(wins(20), slim, 1.2, 1.1);
+    const good = scoreLastNGroup(wins(20), cfgP, 1.2, 1.1);
     assert.equal(good.ok, true);
-    const bad = scoreLastNGroup(Array.from({ length: 16 }, () => ({ pnl: -0.9 })), slim, 1.2, 1.1);
+    const bad = scoreLastNGroup(Array.from({ length: 16 }, () => ({ pnl: -0.9 })), cfgP, 1.2, 1.1);
     assert.equal(bad.ok, false);
+  });
+
+  it("scoreLastNGroup uses a full passing valid window, not the shortest slice", () => {
+    const tape = [...Array.from({ length: 4 }, () => ({ pnl: -0.4 })), ...wins(20, 1.3)];
+    const sc = scoreLastNGroup(tape, cfgP, 1.1, 1.0);
+    assert.equal(sc.ok, true);
+    assert.ok(sc.n >= 12, `full valid window n=${sc.n}`);
+    assert.ok(sc.pf >= 1.1, `pf ${sc.pf}`);
+  });
+
+  it("each relation scores independent last-N on the full grid", () => {
+    const g = scoreLastNGroup(wins(50), cfgP, 1.2, 1.1);
+    const b = scoreLastNGroup(Array.from({ length: 20 }, () => ({ pnl: -0.9 })), cfgP, 1.2, 1.1);
+    assert.equal(g.ok, true);
+    assert.equal(b.ok, false);
+    assert.ok(g.n >= 15, `winning relation n=${g.n}`);
+    assert.ok(g.stack >= 1);
   });
 
   it("relComboKey is indication × tactic × range × playbook", () => {

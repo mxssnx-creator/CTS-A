@@ -1,0 +1,169 @@
+{
+  "hours": 72,
+  "symbols": 120,
+  "elapsedMs": 13094,
+  "best": {
+    "tactic": "trailing",
+    "range": "fibonacci",
+    "block": true,
+    "pf": 0.6756495964162925,
+    "wr": 0.5638297872340425,
+    "net": 6.757146664683532,
+    "trades": 940,
+    "mdd": 0.0028473447469514316
+  },
+  "bestShort": {
+    "tpAtr": 0.4,
+    "slOfTp": 1.5,
+    "slAtr": 0.6,
+    "tpRatio": 0.667,
+    "shortRange": true,
+    "pf": 1.7860111561366105,
+    "n": 314,
+    "net": 48.788473390815014
+  },
+  "cells": [
+    {
+      "tactic": "trailing",
+      "range": "atr",
+      "block": true,
+      "pf": 0.6542672229245736,
+      "wr": 0.5585284280936454,
+      "net": -1.6852711289290703,
+      "trades": 897,
+      "mdd": 0.002119264615944066
+    },
+    {
+      "tactic": "trailing",
+      "range": "atr",
+      "block": false,
+      "pf": 0.5823612532608419,
+      "wr": 0.5861297539149888,
+      "net": 8.656806210128991,
+      "trades": 894,
+      "mdd": 0.0009885956017990022
+    },
+    {
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "block": true,
+      "pf": 0.6756495964162925,
+      "wr": 0.5638297872340425,
+      "net": 6.757146664683532,
+      "trades": 940,
+      "mdd": 0.0028473447469514316
+    },
+    {
+      "tactic": "trailing",
+      "range": "fibonacci",
+      "block": false,
+      "pf": 0.5423547426139543,
+      "wr": 0.5616605616605617,
+      "net": 13.25320303665427,
+      "trades": 819,
+      "mdd": 0.00117543795392204
+    },
+    {
+      "tactic": "hybrid",
+      "range": "atr",
+      "block": true,
+      "pf": 0.595264380511643,
+      "wr": 0.4244256348246675,
+      "net": -8.526181928795062,
+      "trades": 827,
+      "mdd": 0.00280416177887138
+    },
+    {
+      "tactic": "hybrid",
+      "range": "atr",
+      "block": false,
+      "pf": 0.49402680898815626,
+      "wr": 0.4401595744680851,
+      "net": 10.732572507319432,
+      "trades": 752,
+      "mdd": 0.0011077138420519624
+    },
+    {
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "block": true,
+      "pf": 0.6105971286532422,
+      "wr": 0.4175531914893617,
+      "net": 0.931284431612184,
+      "trades": 752,
+      "mdd": 0.0024248314873032374
+    },
+    {
+      "tactic": "hybrid",
+      "range": "fibonacci",
+      "block": false,
+      "pf": 0.4712921928161772,
+      "wr": 0.45365168539325845,
+      "net": 11.994661503478614,
+      "trades": 712,
+      "mdd": 0.0008208756467755361
+    }
+  ],
+  "combosRun": [
+    {
+      "tpAtr": 0.3,
+      "slOfTp": 1,
+      "slAtr": 0.3,
+      "tpRatio": 1,
+      "shortRange": true,
+      "pf": 0.5987043779916061,
+      "n": 241,
+      "net": 67.41040285571475
+    },
+    {
+      "tpAtr": 0.3,
+      "slOfTp": 1.5,
+      "slAtr": 0.45,
+      "tpRatio": 0.667,
+      "shortRange": true,
+      "pf": 0.5643031283286808,
+      "n": 244,
+      "net": 73.40957460333503
+    },
+    {
+      "tpAtr": 0.35,
+      "slOfTp": 1,
+      "slAtr": 0.35,
+      "tpRatio": 1,
+      "shortRange": true,
+      "pf": 0.5250582860578702,
+      "n": 253,
+      "net": 20.205855028260586
+    },
+    {
+      "tpAtr": 0.35,
+      "slOfTp": 1.5,
+      "slAtr": 0.525,
+      "tpRatio": 0.667,
+      "shortRange": true,
+      "pf": 1.6086115319491248,
+      "n": 284,
+      "net": 57.02428073605972
+    },
+    {
+      "tpAtr": 0.4,
+      "slOfTp": 1,
+      "slAtr": 0.4,
+      "tpRatio": 1,
+      "shortRange": true,
+      "pf": 1.1382217269585657,
+      "n": 261,
+      "net": 31.881253003906885
+    },
+    {
+      "tpAtr": 0.4,
+      "slOfTp": 1.5,
+      "slAtr": 0.6,
+      "tpRatio": 0.667,
+      "shortRange": true,
+      "pf": 1.7860111561366105,
+      "n": 314,
+      "net": 48.788473390815014
+    }
+  ]
+}

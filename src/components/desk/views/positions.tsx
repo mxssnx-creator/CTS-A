@@ -219,7 +219,7 @@ export function PositionsView() {
           <Pill>T {fmtNum(coord.timing ?? 0, 2)}</Pill>
           <Pill>Rel {fmtNum(coord.activityAgree ?? 0, 2)}</Pill>
           <Pill tone={vol.confirm === "confirm" ? "up" : vol.confirm === "diverge" ? "down" : "neutral"}>
-            Vol {vol.confirm} · VF {fmtNum(vol.vf, 2)}
+            Vol {vol.confirm} · confirm {fmtNum(vol.vf, 2)}
           </Pill>
         </div>
         <p className="mt-3 text-sm">{coord.reason}</p>

@@ -1192,6 +1192,8 @@ export interface VstEngine {
   sim: SimReport | null;
   cooldown: Record<string, number>;
   symbolCount: number;
+  /** Live-execute this many top-ranked symbols. Eval universe is `symbolCount`. */
+  liveSymbolCap?: number;
   orderType: OrderTypeId;
   symbolStats: Record<string, SymbolTape>;
   activeConnId: string;
@@ -1210,7 +1212,12 @@ export interface VstEngine {
   blockRelWindows: Record<string, Record<number, BlockPosWindow>>;
   blockRelBest?: Record<string, { key: string; n: number; pf: number; net: number; vol: number; major: boolean }>;
   lastRelEvalTick?: number;
+  /** Sum of winning Block-relation extra ratios (0.2 × N). Not engine size, not Axis 0.08. */
   relVolumeFactor?: number;
+  /** Volume-weighted PnL confirm (~1). Not exchange size. */
+  coordVolumeFactor?: number;
+  /** Avg open notional / configured base notional. Actual engine/exchange size. */
+  engineSizeFactor?: number;
   /** 20m PF → Block volume scale (0.4–1.2). Never a halt. */
   intervalVolScale?: number;
   intervalPf?: number;
@@ -1251,7 +1258,13 @@ export interface VstEngine {
   prePassKeys?: Record<string, number>;
   /** Owned live exchange position count — used to allow a restart when the book is empty. */
   liveOpenN?: number;
-  liveLegHint?: Record<string, { side?: Side; indication?: IndicationId; tactic?: TacticKind; playbook?: string; kind?: string; rangeType?: RangeType }>;
+  liveLegHint?: Record<string, { side?: Side; indication?: IndicationId; tactic?: TacticKind; playbook?: string; kind?: string; rangeType?: RangeType; tpAtr?: number; slOfTp?: number }>;
+  /** Independent last-N PnL ring per short TP×SL (intern scoring). Never mixed with other combos. */
+  shortComboTape?: Record<string, { pnl: number }[]>;
+  /** Snapshot of intern independent tapes at preEvalDone. Live start uses this, not post-pre intern. */
+  shortComboPreTape?: Record<string, { pnl: number }[]>;
+  /** Live validExec independent last-N per combo. Disable/continue uses this only. */
+  shortComboLiveTape?: Record<string, { pnl: number }[]>;
 }
 
 export interface BlockLaneState {

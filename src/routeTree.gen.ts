@@ -17,6 +17,8 @@ import { Route as DeskConnectionsRouteImport } from './routes/_desk/connections'
 import { Route as DeskEngineRouteImport } from './routes/_desk/engine'
 import { Route as DeskHeatmapRouteImport } from './routes/_desk/heatmap'
 import { Route as DeskLanesRouteImport } from './routes/_desk/lanes'
+import { Route as DeskLogisticsRouteImport } from './routes/_desk/logistics'
+import { Route as DeskModernRouteImport } from './routes/_desk/modern'
 import { Route as DeskOrdersRouteImport } from './routes/_desk/orders'
 import { Route as DeskPerformanceRouteImport } from './routes/_desk/performance'
 import { Route as DeskPositionsRouteImport } from './routes/_desk/positions'
@@ -65,6 +67,16 @@ const DeskHeatmapRoute = DeskHeatmapRouteImport.update({
 const DeskLanesRoute = DeskLanesRouteImport.update({
   id: '/lanes',
   path: '/lanes',
+  getParentRoute: () => DeskRoute,
+} as any)
+const DeskLogisticsRoute = DeskLogisticsRouteImport.update({
+  id: '/logistics',
+  path: '/logistics',
+  getParentRoute: () => DeskRoute,
+} as any)
+const DeskModernRoute = DeskModernRouteImport.update({
+  id: '/modern',
+  path: '/modern',
   getParentRoute: () => DeskRoute,
 } as any)
 const DeskOrdersRoute = DeskOrdersRouteImport.update({
@@ -126,6 +138,8 @@ export interface FileRoutesByFullPath {
   '/engine': typeof DeskEngineRoute
   '/heatmap': typeof DeskHeatmapRoute
   '/lanes': typeof DeskLanesRoute
+  '/logistics': typeof DeskLogisticsRoute
+  '/modern': typeof DeskModernRoute
   '/orders': typeof DeskOrdersRoute
   '/performance': typeof DeskPerformanceRoute
   '/positions': typeof DeskPositionsRoute
@@ -144,6 +158,8 @@ export interface FileRoutesByTo {
   '/engine': typeof DeskEngineRoute
   '/heatmap': typeof DeskHeatmapRoute
   '/lanes': typeof DeskLanesRoute
+  '/logistics': typeof DeskLogisticsRoute
+  '/modern': typeof DeskModernRoute
   '/orders': typeof DeskOrdersRoute
   '/performance': typeof DeskPerformanceRoute
   '/positions': typeof DeskPositionsRoute
@@ -165,6 +181,8 @@ export interface FileRoutesById {
   '/_desk/engine': typeof DeskEngineRoute
   '/_desk/heatmap': typeof DeskHeatmapRoute
   '/_desk/lanes': typeof DeskLanesRoute
+  '/_desk/logistics': typeof DeskLogisticsRoute
+  '/_desk/modern': typeof DeskModernRoute
   '/_desk/orders': typeof DeskOrdersRoute
   '/_desk/performance': typeof DeskPerformanceRoute
   '/_desk/positions': typeof DeskPositionsRoute
@@ -187,6 +205,8 @@ export interface FileRouteTypes {
     | '/engine'
     | '/heatmap'
     | '/lanes'
+    | '/logistics'
+    | '/modern'
     | '/orders'
     | '/performance'
     | '/positions'
@@ -205,6 +225,8 @@ export interface FileRouteTypes {
     | '/engine'
     | '/heatmap'
     | '/lanes'
+    | '/logistics'
+    | '/modern'
     | '/orders'
     | '/performance'
     | '/positions'
@@ -225,6 +247,8 @@ export interface FileRouteTypes {
     | '/_desk/engine'
     | '/_desk/heatmap'
     | '/_desk/lanes'
+    | '/_desk/logistics'
+    | '/_desk/modern'
     | '/_desk/orders'
     | '/_desk/performance'
     | '/_desk/positions'
@@ -298,6 +322,20 @@ declare module '@tanstack/react-router' {
       path: '/lanes'
       fullPath: '/lanes'
       preLoaderRoute: typeof DeskLanesRouteImport
+      parentRoute: typeof DeskRoute
+    }
+    '/_desk/logistics': {
+      id: '/_desk/logistics'
+      path: '/logistics'
+      fullPath: '/logistics'
+      preLoaderRoute: typeof DeskLogisticsRouteImport
+      parentRoute: typeof DeskRoute
+    }
+    '/_desk/modern': {
+      id: '/_desk/modern'
+      path: '/modern'
+      fullPath: '/modern'
+      preLoaderRoute: typeof DeskModernRouteImport
       parentRoute: typeof DeskRoute
     }
     '/_desk/orders': {
@@ -380,6 +418,8 @@ interface DeskRouteChildren {
   DeskEngineRoute: typeof DeskEngineRoute
   DeskHeatmapRoute: typeof DeskHeatmapRoute
   DeskLanesRoute: typeof DeskLanesRoute
+  DeskLogisticsRoute: typeof DeskLogisticsRoute
+  DeskModernRoute: typeof DeskModernRoute
   DeskOrdersRoute: typeof DeskOrdersRoute
   DeskPerformanceRoute: typeof DeskPerformanceRoute
   DeskPositionsRoute: typeof DeskPositionsRoute
@@ -400,6 +440,8 @@ const DeskRouteChildren: DeskRouteChildren = {
   DeskEngineRoute: DeskEngineRoute,
   DeskHeatmapRoute: DeskHeatmapRoute,
   DeskLanesRoute: DeskLanesRoute,
+  DeskLogisticsRoute: DeskLogisticsRoute,
+  DeskModernRoute: DeskModernRoute,
   DeskOrdersRoute: DeskOrdersRoute,
   DeskPerformanceRoute: DeskPerformanceRoute,
   DeskPositionsRoute: DeskPositionsRoute,

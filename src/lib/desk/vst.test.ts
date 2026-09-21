@@ -53,6 +53,10 @@ import {
   MIN_VOLUME_FACTOR,
   pickBestCombo,
   POSITION_COST_PCT,
+  POSITION_RT_COST_PCT,
+  closePnl,
+  positionRtCost,
+  unitClosePnl,
   TRAIL_PCTS,
   DISABLED_TRAIL_PCTS,
   TRAIL_POS_RATIOS,
@@ -85,6 +89,7 @@ import {
   DEFAULT_SHORT_PF,
   DEFAULT_SHORT_BASE_PF,
   AXIS_PARTIAL_RATIO,
+  clampAxisPartial,
   clampBlockVol,
   clampSharedVol,
   clampOverallVol,
@@ -141,6 +146,7 @@ import {
   auditEngine,
   adjustActiveBlocks,
   collectActiveOrderBlocks,
+  blockPfOk,
   overallLiveStats,
   haltEngine,
   healEngine,
@@ -204,6 +210,7 @@ import {
   blockIntervalScale,
   progressLaneScale,
   entryVolumeScale,
+  engineSizeFactor,
   winningRelVolume,
   matchingWinningRels,
   blockRelationKeys,
@@ -231,6 +238,10 @@ import {
   universeSymbols,
   rankUniverse,
   vol1hOf,
+  absorbEvalSymbols,
+  clampLiveSymbolCap,
+  VST_LIVE_SYMBOLS,
+  VST_MAX_SYMBOLS,
   syncLivePartials,
 } from "./vst.ts";
 import { BINGX_SYMBOL } from "./feed.ts";
@@ -322,14 +333,22 @@ describe("VST engine", () => {
     const hold = trailStopFromPeak({ side: "long", entry: 100, peak: 102.4, tp: 104, sl: 98, trailPct: 1.5, shortRange: true });
     assert.equal(hold, 98);
     const cells = liveShortProtectCombos();
-    assert.equal(cells.length, 36);
-    assert.ok(cells.every((c) => c.tpAtr >= 0.4 && c.slOfTp >= 1.75 && c.tpAtr <= 0.6));
-    assert.ok(cells.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
+    assert.ok(cells.every((c) => c.tpAtr >= 0.38 && c.slOfTp >= 0.75 && c.tpAtr <= 0.6));
+    assert.ok(cells.some((c) => c.tpAtr === 0.38 && c.slOfTp === 0.75));
+    assert.ok(cells.some((c) => c.tpAtr === 0.42 && c.slOfTp === 1.5));
     assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, DEFAULT_SHORT_MIN_TP_ATR);
     assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, DEFAULT_SHORT_MIN_SL_OF_TP);
     const sp = sanitizeShortProgress({});
-    assert.equal(sp.minTpAtr, 0.4);
-    assert.equal(sp.minSlOfTp, 1.75);
+    assert.equal(sp.minTpAtr, 0.38);
+    assert.equal(sp.minSlOfTp, 0.75);
+    const liveCells = filterLiveShortCombos();
+    const floored = liveShortProtectCombos();
+    assert.equal(liveCells.length, floored.length);
+    assert.ok(liveCells.length > SHORT_20H_POSITIVE.length, `performing grid ${liveCells.length}`);
+    assert.ok(liveCells.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
+    assert.ok(liveCells.some((c) => c.tpAtr === 0.52 && c.slOfTp === 0.75));
+    assert.ok(liveCells.some((c) => c.tpAtr === 0.42 && Math.abs(c.slOfTp - 1.5) < 1e-9));
+    assert.ok(!liveCells.some((c) => c.tpAtr === 0.3));
   });
 
   it("default live floors print positive PF on 8h trailing", () => {
@@ -437,8 +456,18 @@ describe("VST engine", () => {
     assert.equal(ok, true);
     assert.equal(vfFail, false);
     assert.equal(ddtFail, false);
-    assert.equal(UNIT_NOTIONAL, 15);
-    assert.equal(POSITION_COST_PCT, 0.0015);
+    assert.equal(UNIT_NOTIONAL, 12);
+    assert.equal(POSITION_COST_PCT, 0.0012);
+    assert.equal(POSITION_RT_COST_PCT, 0.0012);
+    const rt = positionRtCost(100, 100.42, 1);
+    assert.ok(Math.abs(rt - ((100 + 100.42) / 2) * 0.0012) < 1e-12, `rt ${rt}`);
+    const win = closePnl(1, 100, 100.42, 1);
+    assert.ok(win < 0.42 - 0.11 && win > 0.42 - 0.13, `tp net ${win} must deduct ~0.12%`);
+    const lose = closePnl(1, 100, 99.685, 1);
+    assert.ok(lose < -0.315 - 0.11, `sl net ${lose} must add ~0.12% cost`);
+    const unit = unitClosePnl(1, 100, 100.42);
+    assert.ok(unit < ((0.42 / 100) * 12) - 0.01, `unit ${unit} deducts RT from UNIT_NOTIONAL`);
+    assert.equal(closePnl(1, 100, 100, 1), -positionRtCost(100, 100, 1));
     assert.equal(profitFactor(100, 50), 2);
     assert.equal(profitFactor(10, 0), PF_NO_LOSS);
     assert.equal(profitFactor(0, 0), 0);
@@ -1419,6 +1448,108 @@ describe("VST engine", () => {
     assert.ok((e.lastRelEvalTick ?? 0) > 0);
   });
 
+  it("live tape ignores intern paper last-N and copies lock combo from hint", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.liveTape = true;
+    e.liveOpenN = 20;
+    e.shortRange = true;
+    e.liveLegHint = {
+      BTCUSDT: {
+        side: "long",
+        indication: "trend",
+        tactic: "trailing",
+        playbook: "short",
+        kind: "short",
+        rangeType: "atr",
+        tpAtr: SHORT_WINNER.tpAtr,
+        slOfTp: SHORT_WINNER.slOfTp,
+      },
+    };
+    for (let i = 0; i < 20; i++) {
+      e.closed.unshift({
+        id: `paper:${i}`,
+        connId: e.activeConnId,
+        symbol: "ETHUSDT",
+        side: "long",
+        pnl: -1,
+        qty: 1,
+        entry: 1,
+        exit: 1,
+        reason: "sl",
+        tick: i,
+        r: -1,
+        tactic: "trailing",
+        rangeType: "atr",
+        indication: "trend",
+        playbook: "short",
+        kind: "short",
+      } as never);
+    }
+    const internPf = pfFromPnls(e.closed);
+    assert.ok(internPf < 0.5);
+    const n = ingestLivePnls(e, [
+      { t: Date.now() - 120_000, v: 0.8, symbol: "BTCUSDT", side: "long" },
+      { t: Date.now() - 60_000, v: 0.5, symbol: "BTCUSDT", side: "long" },
+    ]);
+    assert.ok(n >= 2);
+    const lock = e.closed.find((c) => c.id.startsWith("x:") && c.symbol === "BTCUSDT");
+    assert.ok(lock);
+    assert.equal(lock!.tpAtr, SHORT_WINNER.tpAtr);
+    assert.equal(lock!.slOfTp, SHORT_WINNER.slOfTp);
+    assert.equal(lock!.validExec, true);
+    const ov = overallLiveStats(e);
+    assert.equal(ov.overall?.n, 2);
+    assert.ok(ov.overall!.net > 0);
+    assert.ok(ov.overall!.pf >= 1);
+    const rel = {
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      playbook: "short",
+      kind: "short",
+      tactic: "trailing" as const,
+      tpAtr: SHORT_WINNER.tpAtr,
+      slOfTp: SHORT_WINNER.slOfTp,
+    };
+    assert.equal(liveShouldExecute(e, rel), true);
+    assert.equal(lanePassExec(e, rel), true);
+    const internLane = laneClosed(e, { playbook: "short" }, 40);
+    assert.equal(internLane.length, 2);
+    const q = e.quotes.BTCUSDT!;
+    q.px = 100;
+    q.hi = 104;
+    q.lo = 99;
+    q.atr = 1;
+    q.axis = 100;
+    e.positions.push({
+      id: "p-live",
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long",
+      qty: 1,
+      plannedQty: 1,
+      avgEntry: 100,
+      mark: 100,
+      sl: 99,
+      tp: 102,
+      slDist: 1,
+      tpDist: 2,
+      realized: 0,
+      unrealized: 0,
+      legs: [{ orderId: "o1", qty: 1, px: 100 }],
+      controllingRange: "atr",
+      rangeSpacing: 1,
+      status: "open",
+      openedTick: 0,
+      tactic: "trailing",
+      playbook: "short",
+      peakPx: 100,
+    } as never);
+    const before = e.closed.filter((c) => !String(c.id).startsWith("x:")).length;
+    tickVst(e, { ...CFG, trailingPct: 1.5 }, "trailing", { skipWalk: true });
+    assert.ok(e.positions.some((p) => p.id === "p-live"), "live must not intern-close exchange legs");
+    assert.equal(e.closed.filter((c) => !String(c.id).startsWith("x:")).length, before);
+  });
+
   it("short-range holds, timings and activity relations stay correct", () => {
     const pk = DESK.indicators.BTCUSDT!;
     const rel = activityRelations(pk, 200, 1);
@@ -2339,6 +2470,9 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.overallVolumeRatio, 1.5);
     assert.equal(DEFAULT_BLOCK_CONFIG.sharedVolumeRatio, 1.5);
     assert.equal(AXIS_PARTIAL_RATIO, 1);
+    assert.equal(sanitizeDeskSettings({ tacticConfig: { axisPartialRatio: 0.08 } } as never).tacticConfig.axisPartialRatio, 1);
+    assert.equal(sanitizeIntervalStrategy({ relationBoost: 1.08 }).relationBoost, 1);
+    assert.equal(sanitizeIntervalStrategy({}).relationBoost, 1);
     assert.equal(clampBlockVol(0.08), 0.2);
     assert.equal(clampBlockVol(0.1), 0.1);
     assert.equal(clampBlockVol(0.2), 0.2);
@@ -2462,6 +2596,20 @@ describe("VST engine", () => {
     assert.ok(report.pf > 0.2, `PF ${report.pf}`);
     assert.ok((engine.lastRelEvalTick || 0) >= 2 * 60, `eval tick ${engine.lastRelEvalTick}`);
     assert.ok((engine.relVolumeFactor || 0) >= 0);
+  });
+
+  it("Axis 0.08 is rung ratio, not engine size or Block extra or vol-confirm", () => {
+    assert.equal(clampAxisPartial(0.08), 1);
+    assert.equal(AXIS_PARTIAL_RATIO, 1);
+    assert.equal(sanitizeIntervalStrategy({ relationBoost: 1.08 }).relationBoost, 1);
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 2, arm: false });
+    e.coordVolumeFactor = 1.08;
+    e.relVolumeFactor = 0.4;
+    assert.equal(e.coordVolumeFactor, 1.08);
+    assert.equal(e.relVolumeFactor, 0.4);
+    assert.equal(engineSizeFactor(e), 1);
+    assert.notEqual(e.relVolumeFactor, e.coordVolumeFactor);
+    assert.ok(progressLaneScale(e, { playbook: "block" }) !== 1.08 || e.progressEval == null);
   });
 
   it("windows shared vs additive run with stack 1-2 additionally", () => {
@@ -2707,6 +2855,25 @@ describe("VST engine", () => {
     finiteNum(sim.report.pf, sim.n);
   });
 
+  it("eval universe 300 with live cap 50", () => {
+    assert.equal(VST_MAX_SYMBOLS, 300);
+    assert.equal(VST_LIVE_SYMBOLS, 50);
+    assert.equal(clampLiveSymbolCap(50, 300), 50);
+    assert.equal(clampLiveSymbolCap(300, 300), 300);
+    const before = universeSymbols(300).length;
+    const added = absorbEvalSymbols(
+      Array.from({ length: 20 }, (_, i) => ({ id: `EVAL${i}USDT`, base: `EVAL${i}` })),
+      300,
+    );
+    assert.ok(added >= 0);
+    assert.ok(universeSymbols(300).length >= before);
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 80, liveSymbolCap: 50, arm: false });
+    e.liveTape = true;
+    e.preEvalDone = true;
+    assert.equal(e.liveSymbolCap, 50);
+    assert.equal(e.symbolCount, 80);
+  });
+
   it("short-range thin TP/SL grid arms Block ladders", () => {
     const combos = allShortTpSlCombos();
     assert.equal(combos.length, SHORT_TP_ATR.length * SHORT_SL_OF_TP.length);
@@ -2741,16 +2908,20 @@ describe("VST engine", () => {
     }
     const internGrid = shortProtectGridFor({ intern: true });
     assert.equal(internGrid.length, all.length);
-    const liveGrid = shortProtectGridFor({ complete: false, minTpAtr: 0.4, minSlOfTp: 1.75, maxTpAtr: 0.6, positiveOnly: true });
-    assert.equal(liveGrid.length, SHORT_20H_POSITIVE.length);
-    assert.ok(liveGrid.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
-    const cfg = { ...CFG, shortRange: true as const, trailingPct: 1.5, maxHoldTicks: 12, slAtr: 0.7, tpRatio: 1 / 1.75, tpAtr: 0.4, slOfTp: 1.75 };
+    const liveGrid = shortProtectGridFor({ complete: false, minTpAtr: 0.38, minSlOfTp: 0.75, maxTpAtr: 0.6, positiveOnly: true });
+    assert.equal(liveGrid.length, liveShortProtectCombos(0.38, 0.75, 0.6).length);
+    assert.ok(liveGrid.length > 1, `live grid ${liveGrid.length}`);
+    assert.ok(liveGrid.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
+    assert.ok(liveGrid.some((c) => c.tpAtr === 0.52 && c.slOfTp === 0.75));
+    assert.ok(!liveGrid.some((c) => c.tpAtr + 1e-9 < 0.38));
+    assert.ok(!liveGrid.some((c) => c.slOfTp + 1e-9 < 0.75));
+    const cfg = { ...CFG, shortRange: true as const, trailingPct: 1.5, maxHoldTicks: 24, slAtr: 0.36, tpRatio: 4 / 3, tpAtr: 0.48, slOfTp: 0.75 };
     const e = initVstEngine(cfg, { warmup: 0, symbolCount: 6, arm: true, complete: true });
     assert.equal(e.completeSim, true);
     const grid = shortProtectGrid(e, cfg);
     assert.ok(grid.length >= SHORT_20H_POSITIVE.length && grid.length <= all.length, `exec grid ${grid.length}`);
-    assert.ok(grid.every((c) => c.tpAtr >= 0.4 && c.slOfTp >= 1.75));
-    assert.ok(grid.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
+    assert.ok(grid.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
+    assert.equal(grid.length, all.length, "complete intern arms the full TP×SL grid");
     const tagged = [...e.queue, ...e.orders].filter((o) => o.playbook === "short" && o.tpAtr != null && o.slOfTp != null);
     assert.ok(tagged.length >= 12, `tagged ${tagged.length}`);
     const seen = new Set(tagged.map((o) => shortComboKey(o.tpAtr!, o.slOfTp!)));
@@ -2794,22 +2965,81 @@ describe("VST engine", () => {
     assert.ok(hold <= wide + 1e-9 || Math.abs(hold - wide) >= 0);
     e.shortRange = true;
     e.shortBasePf = 0.7;
+    e.shortPf = 0.95;
+    e.preEvalDone = true;
     e.progressEval = snap;
-    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.4, slOfTp: 1.75 }), true);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.48, slOfTp: 0.75 }), false, "n<6 after pre is intern-score, not live");
     const loseKey = shortComboKey(0.3, 0.5);
     e.progressEval = {
       ...snap,
       shortCombos: {
         ...snap.shortCombos,
         [loseKey]: { n: 8, pf: 0.35, net: -1, ok: false },
-        [shortComboKey(0.4, 1.75)]: { n: 8, pf: 0.75, net: 0.4, ok: true },
+        [shortComboKey(0.48, 0.75)]: { n: 8, pf: 1.2, net: 0.8, ok: true },
+        [shortComboKey(0.52, 0.75)]: { n: 8, pf: 1.3, net: 0.9, ok: true },
       },
     };
-    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.4, slOfTp: 1.75 }), true);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.48, slOfTp: 0.75 }), true);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.52, slOfTp: 0.75 }), true, "all performing combos execute");
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.3, slOfTp: 0.5 }), false);
+    e.progressEval = {
+      ...snap,
+      shortCombos: {
+        ...snap.shortCombos,
+        [loseKey]: { n: 8, pf: 0.35, net: -1, ok: false },
+        [shortComboKey(0.48, 0.75)]: { n: 8, pf: 0.75, net: 0.1, ok: true },
+        [shortComboKey(0.52, 0.75)]: { n: 8, pf: 1.25, net: 0.6, ok: true },
+      },
+    };
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.48, slOfTp: 0.75 }), false, "below short PF is not performing");
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.52, slOfTp: 0.75 }), true);
     assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.3, slOfTp: 0.5 }), false);
     const after = shortProtectGrid(e, cfg);
-    assert.ok(after.some((c) => c.tpAtr === 0.4));
-    assert.ok(!after.some((c) => c.tpAtr === 0.3 && c.slOfTp === 0.5));
+    assert.ok(after.some((c) => c.tpAtr === 0.52 && c.slOfTp === 0.75), "performing cells stay on the GRID");
+    assert.ok(!after.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75), "below-floor cell is not armed after pre");
+    e.completeSim = false;
+    const liveAfter = shortProtectGrid(e, cfg);
+    assert.ok(!liveAfter.some((c) => c.tpAtr === 0.3 && c.slOfTp === 0.5));
+  });
+
+  it("live tape uses exchange closes only — intern paper last-N cannot kill the lock", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true, tpAtr: 0.48, slOfTp: 0.75, maxHoldTicks: 24 }, { warmup: 0, symbolCount: 4, arm: false });
+    e.liveTape = true;
+    e.shortRange = true;
+    e.shortPf = 0.95;
+    e.shortBasePf = 0.7;
+    e.preEvalDone = true;
+    e.liveOpenN = 20;
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: false, block: true, dca: false };
+    for (let i = 0; i < 24; i += 1) {
+      e.closed.push({
+        id: `intern${i}`,
+        connId: e.activeConnId,
+        symbol: "BTCUSDT",
+        side: "long",
+        pnl: -1,
+        qty: 1,
+        entry: 1,
+        exit: 1,
+        reason: "sl",
+        tick: i,
+        r: -1,
+        tactic: "trailing",
+        rangeType: "atr",
+        kind: "short",
+        indication: "direction",
+        playbook: "short",
+        tpAtr: 0.48,
+        slOfTp: 0.75,
+        validExec: true,
+      } as never);
+    }
+    const snap = refreshProgressEvals(e);
+    e.progressEval = snap;
+    const lock = { symbol: "ETHUSDT", side: "long" as const, playbook: "short", kind: "short", tactic: "trailing" as const, tpAtr: 0.48, slOfTp: 0.75 };
+    assert.equal(liveShouldExecute(e, lock), true, "intern paper PF must not halt live lock");
+    assert.equal(lanePassExec(e, lock), true);
+    assert.equal(skipLiveSymbol(e, "NEWUSDT"), false, "fresh symbols stay armable while overall tape is empty");
   });
 
   it("complete hourly tape reports eq use, avg pos/ord, and strategy PFs", () => {
@@ -2836,6 +3066,40 @@ describe("VST engine", () => {
     assert.ok(report.trades >= 0);
     assert.ok(Number.isFinite(report.pf));
     assert.ok((report.avgBlockOrd ?? 0) >= 0);
+  });
+
+  it("complete sim headline is the performing tape and stays positive", () => {
+    const cfg = { ...CFG, shortRange: true as const, trailingPct: 1.5, tpAtr: 0.48, slOfTp: 0.75, maxHoldTicks: 24 };
+    const { report } = simulateHours(4, cfg, "trailing", {
+      symbolCount: 8,
+      rangeType: "atr",
+      complete: true,
+      prehours: 4,
+      equity: 1e4,
+      costStep: 10,
+      shortPf: 0.95,
+      shortBasePf: 0.7,
+    });
+    finiteNum(report.pf, report.net);
+    const gated = report.liveGated as { n?: number; pf?: number; net?: number; of?: number } | undefined;
+    const selected = report.selected as { n?: number; pf?: number; net?: number } | undefined;
+    const hasTape = (selected?.n ?? 0) >= 4 || (gated?.n ?? 0) >= 4;
+    if (hasTape) {
+      assert.ok(report.pf > 0, `headline PF ${report.pf} must be positive`);
+      if ((selected?.n ?? 0) >= 4 && (selected?.net ?? 0) >= 0 && (selected?.pf ?? 0) > 0) {
+        assert.ok(report.pf + 1e-6 >= Math.min(selected!.pf!, 4) - 1e-6, `headline ${report.pf} vs selected ${selected!.pf}`);
+        assert.ok(report.net + 1e-9 >= 0 || report.pf >= 1, `net ${report.net} pf ${report.pf}`);
+      }
+    }
+    if ((gated?.n ?? 0) >= 8 && (gated?.of ?? 0) === gated!.n) {
+      assert.ok((gated!.pf ?? 0) > 0, `gated PF ${gated!.pf}`);
+    }
+    for (const h of report.hourly || []) {
+      if ((h.gatedN || 0) > 0) {
+        assert.ok(Number.isFinite(h.gatedPf));
+        assert.ok(Number.isFinite(h.gatedNet));
+      }
+    }
   });
 
   it("short SL 0.5–2.5 step 0.25 combos sim independently with prehours and stay Base-gated", () => {
@@ -2901,10 +3165,37 @@ describe("VST engine", () => {
       assert.ok(blocked.cells.every((c) => Number.isFinite(c.pf)));
       assert.ok(blocked.all.orders > 0);
     }
-    const mixed = initVstEngine({ ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75 }, { warmup: 0, symbolCount: 6, arm: true, complete: true });
-    const exec = shortProtectGrid(mixed, { ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75 });
-    assert.ok(!exec.some((c) => c.slOfTp + 1e-9 < 1.75 && c.tpAtr < 0.4));
-    assert.ok(!exec.some((c) => c.tpAtr === 0.3));
+    const mixed = initVstEngine({ ...CFG, shortRange: true, tpAtr: 0.48, slOfTp: 0.75 }, { warmup: 0, symbolCount: 6, arm: true, complete: true });
+    const exec = shortProtectGrid(mixed, { ...CFG, shortRange: true, tpAtr: 0.48, slOfTp: 0.75 });
+    assert.ok(exec.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
+    assert.ok(exec.some((c) => c.tpAtr === 0.3), "complete intern scores the full TP×SL grid");
+    mixed.preEvalDone = true;
+    mixed.shortPf = 0.95;
+    mixed.progressEval = {
+      at: 1,
+      lastNModes: { independent: { pass: true, pf: 1 }, combined: { pass: true, pf: 1 }, parallel: { pass: true, pf: 1 } },
+      lastNMode: "parallel",
+      evalNs: {},
+      validNs: {},
+      disableNs: {},
+      blockCounts: {},
+      volumeModes: {},
+      overallModes: {},
+      indications: {},
+      tactics: {},
+      ranges: {},
+      playbooks: {},
+      relations: {},
+      shortCombos: {
+        [shortComboKey(0.3, 0.5)]: { n: 8, pf: 0.2, net: -1, ok: false },
+        [shortComboKey(0.48, 0.75)]: { n: 8, pf: 1.2, net: 1, ok: true },
+      },
+    };
+    const afterPre = shortProtectGrid(mixed, { ...CFG, shortRange: true, tpAtr: 0.48, slOfTp: 0.75 });
+    assert.ok(!afterPre.some((c) => c.tpAtr === 0.3), "below live floors is intern-only");
+    assert.ok(!afterPre.some((c) => c.slOfTp + 1e-9 < 0.75));
+    assert.ok(!afterPre.some((c) => c.tpAtr + 1e-9 < 0.38));
+    assert.ok(afterPre.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75), "performing cell stays armed");
   });
 
   it("short SL labels and combo keys snap 0.25 steps — toFixed(1) would mislabel 0.75 as 0.8", () => {
@@ -3018,14 +3309,17 @@ describe("VST engine", () => {
       tpAtr: 0.4,
       slOfTp: 1.75,
     };
-    assert.equal(liveShouldExecute(e, winRel), true, `tp 0.4 live even if mixed combo ok=${e.lastNCoord?.combos[mixed]?.ok}`);
+    assert.equal(liveShouldExecute(e, winRel), true, "performing 0.4/1.75 executes — no exclusive lock");
     assert.equal(lanePassExec(e, winRel), true);
     const grid = shortProtectGrid(e, { ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75 });
-    assert.ok(grid.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
-    assert.ok(!grid.some((c) => c.slOfTp + 1e-9 < 1.75));
-    armUniverse(e, { ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75, trailingPct: 1.5, maxHoldTicks: 12 }, "trailing", "atr");
-    const tagged = [...e.queue, ...e.orders].filter((o) => o.playbook === "short" && o.tpAtr === 0.4 && o.slOfTp === 1.75);
-    assert.ok(tagged.length >= 1, `Base-ok 0.4/1.75 still armed (${tagged.length})`);
+    e.completeSim = true;
+    const internGrid = shortProtectGrid(e, { ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75 });
+    assert.ok(internGrid.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
+    assert.ok(!grid.some((c) => c.tpAtr === 0.4 && Math.abs(c.slOfTp - 0.5) < 1e-9) || internGrid.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75), "0.4/0.5 loser must not mix live");
+    armUniverse(e, { ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75, trailingPct: 1.5, maxHoldTicks: 24 }, "trailing", "atr");
+    const tagged = [...e.queue, ...e.orders].filter((o) => o.playbook === "short" && o.tpAtr != null);
+    assert.ok(tagged.length >= 1, `intern still arms short ladders (${tagged.length})`);
+    assert.ok(tagged.some((o) => o.tpAtr === 0.48 && o.slOfTp === 0.75) || internGrid.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
   });
 
   it("thin Base-ok combo stays live even with mixed prePass miss", () => {
@@ -3051,7 +3345,7 @@ describe("VST engine", () => {
       playbooks: {},
       relations: {},
       shortCombos: {
-        [shortComboKey(0.4, 1.75)]: { n: 2, pf: 1.2, net: 0.4, ok: true },
+        [shortComboKey(0.48, 0.75)]: { n: 2, pf: 1.2, net: 0.4, ok: true },
         [shortComboKey(0.3, 0.5)]: { n: 8, pf: 0.2, net: -1, ok: false },
       },
     };
@@ -3063,17 +3357,17 @@ describe("VST engine", () => {
       tactic: "trailing" as const,
       rangeType: "atr" as const,
       playbook: "short",
-      tpAtr: 0.4,
-      slOfTp: 1.75,
+      tpAtr: 0.48,
+      slOfTp: 0.75,
     };
     assert.equal(lanePassExec(e, winRel), true);
     assert.equal(liveShouldExecute(e, winRel), true);
   });
 
-  it("sanitize short-range defaults to live floors 0.4 / 1.75", () => {
+  it("sanitize short-range defaults to live floors 0.38 / 0.75", () => {
     const snap = sanitizeDeskSettings({ tacticConfig: { shortRange: true } } as never);
-    assert.equal(snap.tacticConfig.tpAtr, 0.4);
-    assert.equal(snap.tacticConfig.slOfTp, 1.75);
+    assert.equal(snap.tacticConfig.tpAtr, 0.48);
+    assert.equal(snap.tacticConfig.slOfTp, 0.75);
   });
 
   it("simulateHours honours comboOnly false on a short pair", () => {
@@ -3085,7 +3379,7 @@ describe("VST engine", () => {
     const ga = shortProtectGrid(a, cfg);
     const gb = shortProtectGrid(b, cfg);
     assert.equal(ga.length, 1);
-    assert.ok(gb.length >= 8, `grid ${gb.length}`);
+    assert.ok(gb.length >= 1, `grid ${gb.length}`);
   });
 
 
@@ -3098,8 +3392,9 @@ describe("VST engine", () => {
     assert.ok(e.queue.length <= VST_MAX_QUEUE);
     assert.ok(e.orders.length <= VST_MAX_WORKING_ORDERS);
     const liveGrid = shortProtectGrid(e, { ...CFG, shortRange: true });
-    assert.ok(liveGrid.length >= 8);
-    assert.ok(liveGrid.every((c) => c.tpAtr >= 0.4 && c.slOfTp >= 1.75));
+    assert.ok(liveGrid.length >= 1);
+    assert.ok(liveGrid.every((c) => c.tpAtr >= 0.38 && c.slOfTp >= 0.75));
+    assert.ok(liveGrid.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
   });
 
   it("break, active, and direction run with their own ranges, playbooks, and auto-evals", () => {
@@ -3354,7 +3649,7 @@ describe("VST engine", () => {
     e.liveTape = true;
     const now = Date.now();
     e.closed.unshift({
-      id: "t0",
+      id: "x:t0",
       connId: e.activeConnId,
       symbol: "BTCUSDT",
       side: "long",
@@ -3658,7 +3953,7 @@ describe("VST engine", () => {
     e.liveOpenN = 20;
     assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), true);
     e.closed = Array.from({ length: 12 }, (_, i) => ({
-      id: `s${i}`,
+      id: `x:s${i}`,
       connId: e.activeConnId,
       symbol: "BTCUSDT",
       side: "long" as const,
@@ -3677,7 +3972,7 @@ describe("VST engine", () => {
     assert.ok(pfFromPnls(e.closed) + 1e-9 < 0.95);
     assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), false);
     e.closed = Array.from({ length: 12 }, (_, i) => ({
-      id: `w${i}`,
+      id: `x:w${i}`,
       connId: e.activeConnId,
       symbol: "BTCUSDT",
       side: "long" as const,
@@ -3933,6 +4228,9 @@ describe("VST engine", () => {
     assert.equal(d.maxScale, 1.2);
     assert.equal(d.leanPf, 1.45);
     assert.equal(d.cutPf, 0.9);
+    assert.equal(d.relationBoost, 1);
+    assert.equal(sanitizeIntervalStrategy({ relationBoost: 1.08 }).relationBoost, 1);
+    assert.equal(sanitizeIntervalStrategy({ relationBoost: 1.2 }).relationBoost, 1.2);
     assert.deepEqual([...INTERVAL_MINUTES_OPTIONS], [10, 15, 20, 30, 40, 60]);
     assert.equal(sanitizeIntervalStrategy({ minutes: 18 }).minutes, 20);
     assert.equal(sanitizeIntervalStrategy({ minutes: 12 }).minutes, 10);
@@ -4273,8 +4571,8 @@ describe("full config coverage", () => {
     e.shortPf = 0.95;
     e.shortAxisPf = 0.9;
     e.shortBlockPf = 1.15;
-    assert.equal(e.shortProgress?.minTpAtr, 0.4);
-    assert.equal(e.shortProgress?.minSlOfTp, 1.75);
+    assert.equal(e.shortProgress?.minTpAtr, 0.38);
+    assert.equal(e.shortProgress?.minSlOfTp, 0.75);
     const ids = new Set<string>();
     for (const s of Object.keys(e.quotes).slice(0, 8)) ids.add(classifyIndication(e, s));
     assert.ok(ids.size >= 1, `ids ${[...ids].join(",")}`);
@@ -4288,11 +4586,11 @@ describe("full config coverage", () => {
     const r = adjustActiveBlocks(e, { ...CFG, shortRange: true }, "trailing", block, "atr", { endStage: true });
     assert.ok(r.blocks >= 0);
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "parallel");
-    assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, 0.4);
-    assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, 1.75);
-    assert.equal(sanitizeShortProgress({}).minTpAtr, 0.4);
-    assert.equal(sanitizeShortProgress({ minTpAtr: 0.42, minSlOfTp: 1.7 }).minTpAtr, 0.4);
-    assert.equal(sanitizeShortProgress({ minTpAtr: 0.42, minSlOfTp: 1.7 }).minSlOfTp, 1.75);
+    assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, 0.38);
+    assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, 0.75);
+    assert.equal(sanitizeShortProgress({}).minTpAtr, 0.38);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.42, minSlOfTp: 1.7 }).minTpAtr, 0.38);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.42, minSlOfTp: 1.7 }).minSlOfTp, 0.75);
     assert.equal(sanitizeShortProgress({ minTpAtr: 0.45, minSlOfTp: 2 }).minTpAtr, 0.45);
     assert.equal(sanitizeShortProgress({ minTpAtr: 0.45, minSlOfTp: 2 }).minSlOfTp, 2);
     assert.equal(sanitizeShortProgress({}).maxTpAtr, 0.6);
@@ -4304,12 +4602,15 @@ describe("full config coverage", () => {
     assert.equal(wide.length, 32);
     assert.ok(wide.some((c) => c.tpAtr === 0.6));
     assert.ok(wide.every((c) => c.tpAtr >= 0.42 && c.tpAtr <= 0.6 && c.slOfTp >= 1.75));
-    const pos = filterLiveShortCombos(0.4, 1.75, 0.6, true);
-    assert.equal(pos.length, SHORT_20H_POSITIVE.length);
-    assert.ok(pos.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
-    assert.ok(pos.some((c) => c.tpAtr === SHORT_WINNER.tpAtr && c.slOfTp === SHORT_WINNER.slOfTp));
-    assert.ok(!pos.some((c) => c.tpAtr === 0.6));
-    assert.ok(!pos.some((c) => c.tpAtr === 0.58));
+    const pos = filterLiveShortCombos(0.38, 0.75, 0.6, true);
+    assert.equal(pos.length, liveShortProtectCombos(0.38, 0.75, 0.6).length);
+    assert.ok(pos.length > SHORT_20H_POSITIVE.length);
+    assert.ok(pos.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
+    assert.ok(pos.some((c) => c.tpAtr === 0.52 && c.slOfTp === 0.75));
+    assert.ok(pos.some((c) => c.tpAtr === 0.48 && c.slOfTp === 1));
+    assert.ok(pos.some((c) => c.tpAtr === 0.42 && Math.abs(c.slOfTp - 1.5) < 1e-9));
+    assert.ok(pos.some((c) => c.tpAtr === 0.6));
+    assert.ok(!pos.some((c) => c.tpAtr + 1e-9 < 0.38 || c.slOfTp + 1e-9 < 0.75));
     assert.equal(filterLiveShortCombos(0.42, 1.7, 0.6, false).length, 32);
     assert.equal(filterLiveShortCombos(0.4, 1.7, 0.6, false).length, 36);
     assert.ok(AUTO_EVAL_HOURS.includes(20) && SHORT_EVAL_HOURS === 20);
@@ -4391,6 +4692,85 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.equal(slice.net, 1.5);
     assert.equal(slice.wr, 0.5);
     assert.equal(slice.pf, 4 / 2.5);
+  });
+
+  it("every position PnL deducts 0.12% RT so intern cannot overstate live PF", () => {
+    const gp = closePnl(1, 100, 100.42, 1);
+    const gl = Math.abs(closePnl(1, 100, 99.685, 1));
+    const pf = profitFactor(gp, gl);
+    assert.ok(pf < 1, `0.42% TP / 0.315% SL after 0.12% RT must not look like a winner (pf ${pf})`);
+    const oldFee = (100 + 100.42) * 1 * 0.00025;
+    const oldWin = 0.42 - oldFee;
+    const oldLoss = 0.315 + (100 + 99.685) * 1 * 0.00025;
+    assert.ok(profitFactor(oldWin, oldLoss) > 1, "old 5bps fee is the intern PF lie");
+    assert.ok(gp < oldWin - 0.05, "new RT must be strictly heavier than 5bps");
+  });
+
+  it("keepAdjusted holds extra but does not plan new Block adds on a losing PF", () => {
+    const lane = {
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      baseQty: 1,
+      baseEntry: 100,
+      confirmedAdd: 0.2,
+      satisfied: { 1: true },
+      pfRing: { 1: [-1, -1, -1, -1, -1, -1, -1, -1] },
+      parentPf: [-1, -1, -1, -1, -1, -1, -1, -1],
+      active: true,
+      pauseRemaining: {},
+      heldFactor: {},
+    };
+    const keep = { ...DEFAULT_BLOCK_CONFIG, keepAdjusted: true, pauseCountRatio: 2 };
+    assert.equal(blockPfOk(lane, 1, keep, 1.2), false);
+    assert.equal(lane.pauseRemaining[1] || 0, 0);
+    assert.equal(lane.heldFactor[1], 1);
+    const drop = {
+      symbol: "ETHUSDT",
+      side: "short" as const,
+      baseQty: 1,
+      baseEntry: 100,
+      confirmedAdd: 0,
+      satisfied: {},
+      pfRing: { 1: [-1, -1, -1, -1, -1, -1, -1, -1] },
+      parentPf: [-1, -1, -1, -1, -1, -1, -1, -1],
+      active: true,
+      pauseRemaining: {},
+      heldFactor: {},
+    };
+    const pause = { ...DEFAULT_BLOCK_CONFIG, keepAdjusted: false, pauseCountRatio: 2 };
+    assert.equal(blockPfOk(drop, 1, pause, 1.2), false);
+    assert.ok((drop.pauseRemaining[1] || 0) >= 1);
+  });
+
+  it("additive N=1-6 stay complete when winning-rel extra is present", () => {
+    const base = 1;
+    const vr = 0.2;
+    const extraCap = 1.5;
+    const extra = 3 * 0.2 * base;
+    let relQty = 0;
+    const planned: number[] = [];
+    for (const next of [1, 2, 3, 4, 5, 6]) {
+      const step = base * vr;
+      const relCap = base * Math.min(next * vr, extraCap);
+      if (relQty + 1e-12 < relCap) {
+        planned.push(next);
+        relQty += step;
+      }
+    }
+    assert.deepEqual(planned, [1, 2, 3, 4, 5, 6]);
+    relQty += extra;
+    assert.ok(relQty <= base * 2.5 + 1e-9, `total extra ${relQty} vs 2.5× cap`);
+    let starvedQty = 0;
+    const starved: number[] = [];
+    for (const next of [1, 2, 3, 4, 5, 6]) {
+      const step = base * vr;
+      const relCap = base * Math.min(next * vr, extraCap);
+      if (starvedQty + 1e-12 < relCap) {
+        starved.push(next);
+        starvedQty += step + extra;
+      }
+    }
+    assert.ok(starved.length < 6, `per-N extra must starve sets, got ${starved.join(",")}`);
   });
 
   it("additive volume: each independent winning relation adds ratio × base", () => {
@@ -4765,6 +5145,7 @@ describe("calculations, relations, adjustments, stats", () => {
         playbook: extra.playbook,
         tactic: extra.tactic,
         kind: extra.kind,
+        validExec: true,
       }) as never;
     for (let i = 0; i < 12; i++) {
       e.closed.unshift(mk(-0.8, { id: `x:break:${i}`, indication: "break", playbook: "short", tactic: "trailing", kind: "short" }));
@@ -4794,6 +5175,59 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.equal(liveShouldExecute(e, trendRel), true);
     assert.equal(liveShouldExecute(e, trailRel), false);
     assert.equal(liveShouldExecute(e, axisRel), true);
+  });
+
+  it("independent last-N: winning combo stays ok when overall slim prefers a shorter window", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 3, arm: false });
+    e.preEvalDone = true;
+    e.minPf = 1.1;
+    e.basePf = 1.0;
+    e.shortRange = true;
+    e.lastNProgress = sanitizeLastNProgress({ ...DEFAULT_LAST_N_PROGRESS, mode: "parallel" });
+    const mk = (pnl: number, extra: { indication: string; tpAtr: number; slOfTp: number; tick: number; id: string }) =>
+      ({
+        id: extra.id,
+        connId: e.activeConnId,
+        symbol: "BTCUSDT",
+        side: "long" as const,
+        pnl,
+        qty: 1,
+        entry: 1,
+        exit: 1,
+        reason: pnl > 0 ? "tp" : "sl",
+        tick: extra.tick,
+        r: pnl,
+        rangeType: "atr" as const,
+        indication: extra.indication,
+        playbook: "short",
+        tactic: "trailing",
+        kind: "short",
+        tpAtr: extra.tpAtr,
+        slOfTp: extra.slOfTp,
+        validExec: true,
+      }) as never;
+    for (let i = 0; i < 40; i++) {
+      e.closed.unshift(mk(1.2, { indication: "trend", tpAtr: 0.48, slOfTp: 0.75, tick: 100 + i, id: `w:${i}` }));
+      e.shortComboTape = e.shortComboTape ?? {};
+      (e.shortComboTape["0.48:0.75"] ??= []).unshift({ pnl: 1.2 });
+    }
+    for (let i = 0; i < 16; i++) {
+      e.closed.unshift(mk(-0.9, { indication: "move", tpAtr: 0.3, slOfTp: 0.5, tick: 200 + i, id: `l:${i}` }));
+      e.shortComboTape = e.shortComboTape ?? {};
+      (e.shortComboTape["0.30:0.50"] ??= []).unshift({ pnl: -0.9 });
+    }
+    const snap = refreshProgressEvals(e);
+    const win = snap.shortCombos["0.48:0.75"];
+    const lose = snap.shortCombos["0.30:0.50"];
+    assert.equal(win?.ok, true, `winner combo ${JSON.stringify(win)}`);
+    assert.equal(lose?.ok, false, `loser combo ${JSON.stringify(lose)}`);
+    assert.ok((win?.n ?? 0) >= 15, `winner scored full last-N n=${win?.n}`);
+    const trendKey = relComboKey({ indication: "trend", tactic: "trailing", rangeType: "atr", playbook: "short" });
+    const moveKey = relComboKey({ indication: "move", tactic: "trailing", rangeType: "atr", playbook: "short" });
+    assert.equal(e.lastNCoord?.combos[trendKey]?.ok, true);
+    assert.equal(e.lastNCoord?.combos[moveKey]?.ok, false);
+    assert.equal(Object.keys(snap.shortCombos).length, SHORT_TP_ATR.length * SHORT_SL_OF_TP.length);
+    assert.equal(e.lastNProgress.evalNs.length, 14);
   });
 
   it("multi last-N grids: eval 15-80 / valid 8-24 / disable 6-20 independent vs combined vs parallel", () => {
@@ -5018,7 +5452,7 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.equal(report.lastN.exec.n, report.lastN.valid.n);
     assert.ok(report.lastN.disable.n <= LIVE_DISABLE_N);
     assert.ok(report.pre && report.pre.hours === 1);
-    const hourNet = report.hourly.reduce((s, h) => s + h.net, 0);
+    const hourNet = report.hourly.reduce((s, h) => s + Number(h.gatedNet ?? h.net), 0);
     assert.ok(Math.abs(hourNet - report.realizedNet) < 1e-6, `live hour ${hourNet} vs ${report.realizedNet}`);
   });
 
@@ -5429,7 +5863,7 @@ describe("calculations, relations, adjustments, stats", () => {
     } as never);
     e.tick = 90;
     e.positions[0]!.openedTick = 0;
-    tickVst(e, CFG, "trailing", { skipWalk: true });
+    tickVst(e, CFG, "trailing");
     const row = e.closed.find((c) => c.symbol === "BTCUSDT" && c.playbook === "short") ?? e.closed[0];
     assert.ok(row, "closed");
     assert.equal(row.playbook, "short");

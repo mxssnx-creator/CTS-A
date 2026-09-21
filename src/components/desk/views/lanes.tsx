@@ -80,7 +80,7 @@ function LaneCard({ lane, onPick }: { lane: Lane; onPick: () => void }) {
       <button
         type="button"
         onClick={onPick}
-        className="w-full border border-border bg-bg px-3 py-3 text-left transition-colors duration-150 hover:border-primary"
+        className="w-full border border-border bg-bg px-3 py-3 text-left transition-[transform,border-color] duration-150 ease-out hover:border-primary active:scale-[0.96]"
       >
         <div className="flex items-start justify-between gap-2">
           <div>
