@@ -363,7 +363,7 @@ export function OverviewView() {
           <StatLine k="Closed PF" v={fmtPf(closedPf)} />
           <StatLine k="Closed WR" v={fmtWr(closedWr)} />
           <StatLine k="Net" v={fmtUsd(closedNet)} tone={closedNet >= 0 ? "up" : "down"} />
-          <StatLine k="Occupied" v={`${liveSnap.occupied || overall.occupied || 0} · ${overall.slots ?? liveSnap.livePos ?? 0} slots`} />
+          <StatLine k="Occupied" v={`${liveSnap.occupied || overall.occupied || liveSnap.livePos || 0} · ${overall.slots ?? liveSnap.livePos ?? 0} slots`} />
         </div>
         {overall.byPlaybook?.length ? (
           <div className="mt-3 flex flex-wrap gap-2">

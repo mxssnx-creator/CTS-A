@@ -2971,6 +2971,63 @@ describe("VST engine", () => {
     assert.ok(ra > rb + 0.4, `R 0.5 ${ra} vs 2.5 ${rb}`);
   });
 
+  it("intern scores all 126 short combos and mixed last-N does not skip Base-ok TP 0.4", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75 }, { warmup: 0, symbolCount: 4, arm: false });
+    e.preEvalDone = true;
+    e.shortRange = true;
+    e.shortBasePf = 0.7;
+    e.shortPf = 0.95;
+    const mk = (pnl: number, extra: { tpAtr: number; slOfTp: number; id: string; tick: number }) =>
+      ({
+        id: extra.id,
+        connId: e.activeConnId,
+        symbol: "BTCUSDT",
+        side: "long" as const,
+        pnl,
+        qty: 1,
+        entry: 100,
+        exit: pnl > 0 ? 101 : 99,
+        reason: pnl > 0 ? "tp" : "sl",
+        tick: extra.tick,
+        r: pnl,
+        rangeType: "atr" as const,
+        indication: "ema",
+        playbook: "short",
+        tactic: "trailing" as const,
+        kind: "short",
+        tpAtr: extra.tpAtr,
+        slOfTp: extra.slOfTp,
+        trailPct: 1.5,
+        validExec: true,
+      }) as never;
+    for (let i = 0; i < 20; i++) e.closed.unshift(mk(-0.55, { tpAtr: 0.4, slOfTp: 0.5, id: `lose:${i}`, tick: 10 + i }));
+    for (let i = 0; i < 8; i++) e.closed.unshift(mk(0.95, { tpAtr: 0.4, slOfTp: 1.75, id: `win:${i}`, tick: 80 + i }));
+    const snap = refreshProgressEvals(e);
+    assert.equal(Object.keys(snap.shortCombos).length, SHORT_TP_ATR.length * SHORT_SL_OF_TP.length);
+    const winKey = shortComboKey(0.4, 1.75);
+    assert.equal(snap.shortCombos[winKey]?.ok, true, "Base-ok 0.4/1.75");
+    const mixed = relComboKey({ indication: "ema", tactic: "trailing", rangeType: "atr", playbook: "short" });
+    const winRel = {
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      indication: "ema" as const,
+      kind: "short",
+      tactic: "trailing" as const,
+      rangeType: "atr" as const,
+      playbook: "short",
+      tpAtr: 0.4,
+      slOfTp: 1.75,
+    };
+    assert.equal(liveShouldExecute(e, winRel), true, `tp 0.4 live even if mixed combo ok=${e.lastNCoord?.combos[mixed]?.ok}`);
+    assert.equal(lanePassExec(e, winRel), true);
+    const grid = shortProtectGrid(e, { ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75 });
+    assert.ok(grid.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
+    assert.ok(!grid.some((c) => c.slOfTp + 1e-9 < 1.75));
+    armUniverse(e, { ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75, trailingPct: 1.5, maxHoldTicks: 12 }, "trailing", "atr");
+    const tagged = [...e.queue, ...e.orders].filter((o) => o.playbook === "short" && o.tpAtr === 0.4 && o.slOfTp === 1.75);
+    assert.ok(tagged.length >= 1, `Base-ok 0.4/1.75 still armed (${tagged.length})`);
+  });
+
   it("live caps allow high order counts and never drop below paper/live ceilings", () => {
     assert.ok(VST_MAX_POSITIONS >= 400);
     assert.ok(VST_MAX_QUEUE >= 2400);

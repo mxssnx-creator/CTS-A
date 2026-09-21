@@ -191,7 +191,8 @@ export function ResultsView() {
   } | null)?.complete;
   const completePf = Number(completePack?.winner?.pf ?? 0);
   const hoursMerged: Record<string, NonNullable<LiveOverview["hours"]>[string]> = { ...(tape.hours ?? {}) };
-  if (completePack?.byHours) {
+  const liveConnected = Boolean(liveSnap.hasLive);
+  if (!liveConnected && completePack?.byHours) {
     for (const [h, row] of Object.entries(completePack.byHours)) {
       const w = row?.winner;
       if (!w) continue;
@@ -208,13 +209,6 @@ export function ResultsView() {
         mdd: w.mdd ?? 0,
       };
     }
-    if (!(Number(hoursMerged["50"]?.pf) > 0)) {
-      const src = hoursMerged["24"] ?? hoursMerged["16"];
-      if (src && src.pf > 0) hoursMerged["50"] = { ...src, key: "50h" };
-    }
-    if (!(Number(hoursMerged["12"]?.pf) > 0) && Number(hoursMerged["16"]?.pf) > 0) {
-      hoursMerged["12"] = { ...hoursMerged["16"]!, key: "12h" };
-    }
   }
   const view: LiveOverview = {
     ...tape,
@@ -224,10 +218,19 @@ export function ResultsView() {
   };
   const liveWin = view.hours?.["4"] ?? view.lastN?.["40"] ?? view.lastN?.["12"];
   const tapeClosed = Number(liveSnap.trades);
-  const pf = tapeClosed > 0 ? Number(liveSnap.pf || tape?.pf || 0) : completePf || Number(liveWin?.pf ?? liveSnap.pf);
-  const wr = tapeClosed > 0 ? Number(liveSnap.wr) : Number(liveWin?.wr ?? tape?.overall?.wr ?? tape?.wr ?? liveSnap.wr);
-  const net = Number(liveSnap.net ?? liveWin?.net ?? tape?.net);
-  const trades = tapeClosed > 0 ? tapeClosed : Number(liveWin?.n ?? liveSnap.livePos);
+  const liveConnectedStats = Boolean(liveSnap.hasLive);
+  const pf = tapeClosed > 0
+    ? Number(liveSnap.pf || tape?.pf || 0)
+    : liveConnectedStats
+      ? Number(tape?.pf || liveSnap.pf || 0)
+      : completePf || Number(liveWin?.pf ?? liveSnap.pf);
+  const wr = tapeClosed > 0
+    ? Number(liveSnap.wr)
+    : liveConnectedStats
+      ? Number(tape?.wr || liveSnap.wr || 0)
+      : Number(liveWin?.wr ?? tape?.overall?.wr ?? tape?.wr ?? liveSnap.wr);
+  const net = Number(liveSnap.net ?? (liveConnectedStats ? tape?.net : liveWin?.net ?? tape?.net));
+  const trades = tapeClosed > 0 ? tapeClosed : Number((liveConnectedStats ? tapeClosed : liveWin?.n) ?? liveSnap.livePos);
   const realized = file?.executions?.realized;
   const allComplete = completePack?.cells ?? [];
   const hourPrefs = [24, 16, 8, 12, 6, 4];
@@ -261,9 +264,11 @@ export function ResultsView() {
   );
   const playbooksLive = (tape?.playbooks as { key: string; n: number; pf: number; wr: number; net: number; ddt?: number; mdd?: number; steps?: Bucket[] }[] | undefined) ?? [];
   const playbooks =
-    playbooksLive.length && playbooksLive.some((p) => p.n > 0 || (p as Bucket).openN)
-      ? playbooksLive
-      : file?.playbooks?.books ?? live.byPlaybook ?? liveNow?.byPlaybook ?? [];
+    liveSnap.hasLive
+      ? (playbooksLive.length ? playbooksLive : live.byPlaybook ?? [])
+      : playbooksLive.length && playbooksLive.some((p) => p.n > 0 || (p as Bucket).openN)
+        ? playbooksLive
+        : file?.playbooks?.books ?? live.byPlaybook ?? liveNow?.byPlaybook ?? [];
   const indicationRows: Bucket[] = (tape.byIndication ?? live.byIndication ?? liveNow?.byIndication ?? []) as Bucket[];
   const kindRows: Bucket[] = (tape.byKind ?? live.byKind ?? liveNow?.byKind ?? []) as Bucket[];
   const kindLabels = Object.fromEntries(STRATEGY_KINDS.map((k) => [k.id, k.label]));
@@ -277,7 +282,7 @@ export function ResultsView() {
     const row = view.hours?.[String(h)];
     return { label: `${h}h`, value: Number(row?.pf ?? 0) };
   });
-  const liveTape = liveSnap.hasLive && tapeClosed > 0;
+  const liveTape = liveSnap.hasLive;
   const indBars = (indicationRows.length ? indicationRows : liveTape ? [] : replay.kinds.map((k) => ({ key: k.key, pf: k.pf }))).map((r) => ({
     label: indLabels[r.key] ?? r.key,
     value: Number(r.pf ?? 0),

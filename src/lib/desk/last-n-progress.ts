@@ -42,9 +42,11 @@ function snapTo(grid: readonly number[], n: number): number {
 }
 
 function sanitizeNs(raw: unknown, grid: readonly number[], fallback: number[]): number[] {
-  const src = Array.isArray(raw) ? raw.map((x) => Math.round(Number(x))).filter((n) => Number.isFinite(n) && n > 0) : [];
+  if (!Array.isArray(raw)) return [...fallback];
+  const src = raw.map((x) => Math.round(Number(x))).filter((n) => Number.isFinite(n) && n > 0);
   const mapped = [...new Set(src.map((n) => (grid.includes(n) ? n : snapTo(grid, n))))].filter((n) => grid.includes(n)).sort((a, b) => a - b);
-  return mapped.length ? mapped : [...fallback];
+  if (mapped.length) return mapped;
+  return [fallback[0] ?? grid[0] ?? 8];
 }
 
 export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null | undefined): LastNProgressConfig {

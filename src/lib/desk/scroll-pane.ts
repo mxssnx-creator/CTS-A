@@ -6,7 +6,8 @@ if (typeof window !== "undefined" && "scrollRestoration" in history) {
 }
 
 export function bindDeskScroll(el: HTMLElement | null) {
-  deskScroll = el;
+  if (el) deskScroll = el;
+  else if (deskScroll && typeof deskScroll.isConnected === "boolean" && !deskScroll.isConnected) deskScroll = null;
 }
 
 export function deskScrollY() {

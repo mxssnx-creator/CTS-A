@@ -1044,6 +1044,23 @@ function markTerminal(e: VstEngine, o: LiveOrder, status: 'filled' | 'cancelled'
   o.status = status;
   if (status === "filled") o.remaining = 0;
   else o.remaining = Math.max(0, o.qty - o.filled);
+  if (status !== "filled" && o.remaining > 1e-12) {
+    const pos = e.positions.find((p) => p.connId === o.connId && p.symbol === o.symbol && p.side === o.side && sameProtectLane(p, o, Boolean(e.completeSim)));
+    if (pos && pos.legs.some((l) => l.orderId === o.id)) {
+      pos.plannedQty = Math.max(pos.qty, (pos.plannedQty || 0) - o.remaining);
+      const working = e.orders.some(
+        (x) =>
+          x !== o &&
+          x.connId === o.connId &&
+          x.symbol === o.symbol &&
+          x.side === o.side &&
+          (x.status === "open" || x.status === "partial") &&
+          x.remaining > 1e-12 &&
+          sameProtectLane(pos, x, Boolean(e.completeSim)),
+      );
+      if (!working && pos.qty + 1e-12 >= pos.plannedQty * 0.98) pos.status = "open";
+    }
+  }
   if (status === "filled") e.ledger.ordersFilled += 1;
   else if (status === "cancelled") e.ledger.ordersCancelled += 1;
   else e.ledger.ordersRejected += 1;
@@ -1401,7 +1418,11 @@ export function shortProtectGrid(e: VstEngine, cfg: TacticConfig) {
   const extra = intern
     ? allShortTpSlCombos().filter((c) => {
         const row = intern[shortComboKey(c.tpAtr, c.slOfTp)];
-        return Boolean(row && row.n >= 4 && row.ok);
+        if (!(row && row.n >= 4 && row.ok)) return false;
+        if (c.tpAtr + 1e-9 < snapShortTpAtr(sp.minTpAtr)) return false;
+        if (c.slOfTp + 1e-9 < snapShortSlOfTp(sp.minSlOfTp)) return false;
+        if (c.tpAtr - 1e-9 > snapShortTpAtr(sp.maxTpAtr ?? 0.6)) return false;
+        return true;
       })
     : [];
   const seen = new Set(exec.map((c) => shortComboKey(c.tpAtr, c.slOfTp)));
@@ -1530,6 +1551,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       const book = cfgUsesShortRange(cfg) ? "short" : openPlaybook(tac, ind);
       const kind = cfgUsesShortRange(cfg) ? "short" : kindFromIndication(ind, book, tac);
       const range = pickIndicationRange(e, ind, rangeType ?? e.lastRange ?? "atr");
+      const shortLane = cfgUsesShortRange(cfg);
       const indEv = e.progressEval?.indications?.[ind];
       const keepInd =
         book === "block" ||
@@ -1538,7 +1560,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         ind === "active";
       if (!complete && indEv && indEv.n >= 6 && !indEv.ok && !keepInd) continue;
       const coord = e.lastNCoord;
-      if (!complete && coord && !keepInd) {
+      // Short TP×SL combos are independent tapes. Mixed indication:tactic:playbook last-N
+      // must not skip Base-ok cells (tp 0.4 / SL 1.75) after extra SL ratios join the GRID.
+      if (!complete && coord && !keepInd && !shortLane) {
         if (indEv && indEv.n >= 4 && coord.activeInds.length && !coord.activeInds.includes(ind)) continue;
         const playEv = e.progressEval?.playbooks?.[book];
         if (playEv && playEv.n >= 4 && coord.activePlays.length && !coord.activePlays.includes(book)) continue;
@@ -1598,8 +1622,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         };
         const gatedExec = Boolean(e.preEvalDone || e.liveTape);
         const validExec = !gatedExec || liveShouldExecute(e, execRel);
-        if (!complete && !validExec && !keepInd) continue;
-        const short = cfgUsesShortRange(cfg);
+        if (!complete && !validExec && !keepInd && !shortLane) continue;
+        const short = shortLane;
         const grid = short ? sliceShortGrid(e, shortProtectGrid(e, cfg), rank, s.id) : [null];
         const trailPct = snapTrailPct(cfg.trailingPct);
         for (const prot of grid) {
@@ -1609,11 +1633,11 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             gatedExec &&
             prot &&
             !complete &&
-            !keepInd
+            !(e.shortComboOnly && paperMode(e))
           ) {
             const row = e.progressEval?.shortCombos?.[comboKey];
             if (row && row.n >= 6 && !row.ok) continue;
-            if (!liveShouldExecute(e, { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp })) continue;
+            if (!keepInd && !liveShouldExecute(e, { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp })) continue;
           }
           const legKey = complete
             ? `${s.id}:${side}:${ind}:${comboKey}`
@@ -1951,6 +1975,17 @@ export function playbookOf(e: VstEngine, o: LiveOrder): string {
   if (e.lastTactic === "axis" || /^axis\b/i.test(o.note || "")) return "axis";
   return "normal";
 }
+function sameProtectLane(p: { indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string }, o: { indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; note?: string }, complete: boolean) {
+  if (complete && (p.indication || "") !== (o.indication || p.indication || "")) return false;
+  const oBlock = o.playbook === "block" || /Block/i.test(o.note || "");
+  if (p.tpAtr != null && p.slOfTp != null && o.tpAtr != null && o.slOfTp != null) {
+    return shortComboKey(p.tpAtr, p.slOfTp) === shortComboKey(o.tpAtr, o.slOfTp);
+  }
+  if (oBlock && (o.tpAtr == null || o.slOfTp == null)) return true;
+  if ((p.tpAtr != null) !== (o.tpAtr != null)) return false;
+  return true;
+}
+
 function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fill['kind']) {
   if (!ownedByDesk(o)) return;
   if (qty <= 0 || !Number.isFinite(qty) || !Number.isFinite(px) || px <= 0) return;
@@ -1967,7 +2002,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       p.connId === o.connId &&
       p.symbol === o.symbol &&
       p.side === o.side &&
-      (!e.completeSim || (p.indication || "") === (o.indication || p.indication || "")),
+      sameProtectLane(p, o, Boolean(e.completeSim)),
   );
   const created = !pos;
   if (!pos) {
@@ -2042,18 +2077,21 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     pos.playbook = pos.playbook === "block" ? "block" : "dca";
   }
   if (!created) {
-    const slUse = Math.max(Number(o.slDist) || 0, Number(pos.slDist) || 0, 1e-12);
-    const tpUse = Math.max(Number(o.tpDist) || 0, Number(pos.tpDist) || 0, 1e-12);
-    const entry = pos.avgEntry;
-    if (pos.side === "long") {
-      pos.sl = Math.min(pos.sl, entry - slUse);
-      pos.tp = Math.max(pos.tp, entry + tpUse);
-    } else {
-      pos.sl = Math.max(pos.sl, entry + slUse);
-      pos.tp = Math.min(pos.tp, entry - tpUse);
+    const sameCombo = o.tpAtr == null || pos.tpAtr == null || shortComboKey(pos.tpAtr, pos.slOfTp ?? 0) === shortComboKey(o.tpAtr, o.slOfTp ?? 0);
+    if (sameCombo) {
+      const slUse = Math.max(Number(o.slDist) || 0, Number(pos.slDist) || 0, 1e-12);
+      const tpUse = Math.max(Number(o.tpDist) || 0, Number(pos.tpDist) || 0, 1e-12);
+      const entry = pos.avgEntry;
+      if (pos.side === "long") {
+        pos.sl = Math.min(pos.sl, entry - slUse);
+        pos.tp = Math.max(pos.tp, entry + tpUse);
+      } else {
+        pos.sl = Math.max(pos.sl, entry + slUse);
+        pos.tp = Math.min(pos.tp, entry - tpUse);
+      }
+      pos.slDist = Math.abs(pos.sl - entry);
+      pos.tpDist = Math.abs(pos.tp - entry);
     }
-    pos.slDist = Math.abs(pos.sl - entry);
-    pos.tpDist = Math.abs(pos.tp - entry);
   }
   const otherWorking = e.orders.some(
     (x) =>
@@ -2062,7 +2100,8 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       x.side === o.side &&
       x.connId === o.connId &&
       (x.status === "open" || x.status === "partial") &&
-      x.remaining > 1e-12,
+      x.remaining > 1e-12 &&
+      sameProtectLane(pos, x, Boolean(e.completeSim)),
   );
   const unfilled = pos.qty + 1e-12 < pos.plannedQty * 0.98;
   pos.status = !done || otherWorking || unfilled ? "partial" : "open";
@@ -2224,6 +2263,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     playbook: p.playbook,
     tpRatio: e.tpRatio,
     slAtr: p.slDist / Math.max(e.quotes[p.symbol]?.atr || 1e-9, 1e-9),
+    tpAtr: p.tpAtr,
+    slOfTp: p.slOfTp,
   });
   if (e.closed.length > 600) e.closed.length = 600;
   e.fills.unshift({
@@ -3555,7 +3596,7 @@ const MAJOR_REL = new Set(["ind", "kind", "tac", "rng", "side", "book"]);
 const MINOR_REL = new Set(["cfg", "sub", "combo"]);
 
 function closedMatchesRelKey(
-  c: { indication?: string; kind?: string; tactic?: string; rangeType?: string; side?: string; playbook?: string; symbol?: string },
+  c: { indication?: string; kind?: string; tactic?: string; rangeType?: string; side?: string; playbook?: string; symbol?: string; tpAtr?: number; slOfTp?: number },
   key: string,
 ): boolean {
   const i = key.indexOf(":");
@@ -3569,18 +3610,34 @@ function closedMatchesRelKey(
   if (prefix === "side") return (c.side ?? "") === val;
   if (prefix === "book") return (c.playbook ?? "") === val;
   if (prefix === "sym") return (c.symbol ?? "") === val;
+  if (prefix === "prot") {
+    if (c.tpAtr == null || c.slOfTp == null) return false;
+    const want = val.includes("x") ? val.replace("x", ":") : val;
+    return shortComboKey(c.tpAtr, c.slOfTp) === want;
+  }
   if (prefix === "sub") {
     const [ind, kind] = val.split(":");
     return (c.indication ?? "") === ind && (c.kind ?? "") === kind;
   }
   if (prefix === "combo") {
     const p = val.split(":");
+    const side = p[p.length - 1] ?? "";
+    if ((c.side ?? "") !== side) return false;
+    if (p.length >= 6) {
+      return (
+        (c.indication ?? "") === (p[0] ?? "") &&
+        (c.tactic ?? "") === (p[1] ?? "") &&
+        (c.rangeType ?? "") === (p[2] ?? "") &&
+        c.tpAtr != null &&
+        c.slOfTp != null &&
+        shortComboKey(c.tpAtr, c.slOfTp) === `${p[3]}:${p[4]}`
+      );
+    }
     return (
       (c.indication ?? "") === (p[0] ?? "") &&
       (c.kind ?? "") === (p[1] ?? "") &&
       (c.tactic ?? "") === (p[2] ?? "") &&
-      (c.rangeType ?? "") === (p[3] ?? "") &&
-      (c.side ?? "") === (p[4] ?? "")
+      (c.rangeType ?? "") === (p[3] ?? "")
     );
   }
   return false;
@@ -3891,6 +3948,10 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
   const combos = scoreTypeMap(grouped.combo, slim, minPf, basePf);
   const shortBaseFloor = minPfFor(e, e.shortRange ? "shortBase" : "base");
   const shortCombos = scoreTypeMap(grouped.short, slim, shortBaseFloor, shortBaseFloor);
+  for (const c of allShortTpSlCombos()) {
+    const k = shortComboKey(c.tpAtr, c.slOfTp);
+    if (!shortCombos[k]) shortCombos[k] = { n: 0, pf: 0, net: 0, ok: true };
+  }
   const relMinPf = e.completeSim && paperMode(e) ? 0 : (block.minRelPf ?? minPfFor(e, "block"));
   const relations = internScoreBlockRelations(e, block, relMinPf).rows;
 
@@ -4665,6 +4726,9 @@ export function adjustActiveBlocks(
             kind: "block",
             playbook: "block",
             validExec: true,
+            tpAtr: p.tpAtr,
+            slOfTp: p.slOfTp,
+            trailPct: p.trailPct,
             note: `${tag} ${item.mode} #${item.next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
           });
           countPlaced(e);
@@ -4692,7 +4756,12 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   ensureEngine(e);
   if (opts?.skipWalk) e.liveTape = true;
   const t0 = Date.now();
-  const over = () => (e.completeSim && paperMode(e) ? false : Date.now() - t0 > (e.symbolCount >= 80 ? 400 : 90));
+  const over = () => {
+    if (e.completeSim && paperMode(e)) return false;
+    const n = e.symbolCount || 0;
+    const budget = e.liveTape ? (n >= 40 ? 420 : 280) : n >= 80 ? 400 : 140;
+    return Date.now() - t0 > budget;
+  };
   if (opts?.symbolCount != null) e.symbolCount = clampSymbolCount(opts.symbolCount);
   if (opts?.orderType) e.orderType = opts.orderType;
   e.tpRatio = snapTpRatio(cfg.tpRatio);
@@ -5051,7 +5120,7 @@ export function horizonFromEngine(e: VstEngine, hours: number, _peak?: number): 
   };
 }
 
-export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; prehours?: number; minPf?: number; basePf?: number; blockPf?: number; shortPf?: number; shortBasePf?: number; shortBlockPf?: number }) {
+export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; comboOnly?: boolean; prehours?: number; minPf?: number; basePf?: number; blockPf?: number; shortPf?: number; shortBasePf?: number; shortBlockPf?: number }) {
   const hadPair = cfg.tpAtr != null && cfg.slOfTp != null;
   const use = cfgUsesShortRange(cfg) ? snapShortTacticConfig(cfg) : cfg;
   const ticks = Math.max(1, Math.round(hours * TICKS_PER_HOUR));
@@ -5059,6 +5128,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const startEq = Number(opts?.equity) > 0 ? Number(opts?.equity) : 1e4;
   const costStep = Number.isFinite(Number(opts?.costStep)) ? Math.min(30, Math.max(3, Number(opts?.costStep))) : 10;
   const complete = Boolean(opts?.complete);
+  const comboOnly = opts?.comboOnly != null
+    ? Boolean(opts.comboOnly)
+    : (!complete && cfgUsesShortRange(use) && hadPair);
   const prehours = opts?.prehours != null
     ? Math.max(0, Math.round(opts.prehours))
     : complete && hours >= 12 ? SHORT_EVAL_HOURS : 0;
@@ -5072,14 +5144,12 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     equity: startEq,
     costStep,
     complete,
-    comboOnly: !complete && cfgUsesShortRange(use) && hadPair,
+    comboOnly,
   });
   engine.completeSim = complete;
   engine.preEvalDone = preTicks <= 0;
   engine.shortRange = Boolean(use.shortRange);
-  engine.shortComboOnly = Boolean(
-    !complete && cfgUsesShortRange(use) && hadPair,
-  );
+  engine.shortComboOnly = Boolean(comboOnly);
   const applySimFloors = () => {
     if (opts?.minPf != null) engine.minPf = opts.minPf;
     if (opts?.basePf != null) engine.basePf = opts.basePf;
@@ -7265,16 +7335,27 @@ export function lanePassExec(
     tactic?: TacticKind;
     rangeType?: RangeType;
     playbook?: string;
+    tpAtr?: number;
+    slOfTp?: number;
   },
 ): boolean {
   if (liveRelationDisabled(e, rel as Parameters<typeof liveRelationDisabled>[1])) return false;
   if (e.completeSim && paperMode(e)) return true;
+  // Independent combo tape: intern always processes this TP×SL; last-N is scored, not a self-kill.
+  if (e.shortComboOnly && paperMode(e)) return true;
+  if (rel.tpAtr != null && rel.slOfTp != null) {
+    const row = e.progressEval?.shortCombos?.[shortComboKey(rel.tpAtr, rel.slOfTp)];
+    if (row && row.n >= 4) return row.ok;
+  }
   const coord = e.lastNCoord;
   if (coord) {
-    const ck = relComboKey(rel, { tactic: e.lastTactic, range: e.lastRange });
-    const combo = coord.combos[ck];
-    if (combo && combo.n >= 4) return combo.ok;
-    if (!keepCoordRel(rel)) {
+    const shortLane = rel.kind === "short" || rel.playbook === "short" || e.shortRange;
+    if (!shortLane) {
+      const ck = relComboKey(rel, { tactic: e.lastTactic, range: e.lastRange });
+      const combo = coord.combos[ck];
+      if (combo && combo.n >= 4) return combo.ok;
+    }
+    if (!keepCoordRel(rel) && !shortLane) {
       const ind = String(rel.indication || "");
       const scoredInd = e.progressEval?.indications?.[ind];
       if (ind && scoredInd && scoredInd.n >= 4 && coord.activeInds.length && !coord.activeInds.includes(ind)) return false;
@@ -7343,7 +7424,7 @@ export function liveShouldExecute(
   if (blockFill) return t.block !== false;
   if ((e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
   if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel)) return false;
-  if (rel.tpAtr != null && rel.slOfTp != null) {
+  if (rel.tpAtr != null && rel.slOfTp != null && !(e.shortComboOnly && paperMode(e))) {
     const row = e.progressEval?.shortCombos?.[shortComboKey(rel.tpAtr, rel.slOfTp)];
     if (row && row.n >= 6 && row.pf + 1e-9 < minPfFor(e, "shortBase")) return false;
   }

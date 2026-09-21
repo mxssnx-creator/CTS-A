@@ -1354,11 +1354,15 @@ export const useDesk = create<DeskStore>((set, get) => ({
       }
       const elapsed = Number(sess.elapsedMin ?? 0);
       const mark = Math.round(Number(sess.livePnl ?? sess.net ?? 0) * 1000) + Number(sess.livePos ?? 0) * 17;
-      if (Date.now() - lastLiveMarkAt < 4000) return;
-      if (Math.round(elapsed * 2) !== Math.round(Number(get().liveElapsed) * 2) || mark !== get().liveMark) {
+      const prevOv = get().liveOverall;
+      const ovAt = ov && typeof ov === "object" ? Number((ov as { at?: number }).at) : 0;
+      const prevAt = prevOv && typeof prevOv === "object" ? Number((prevOv as { at?: number }).at) : 0;
+      const ovChanged = Boolean(ov) && ovAt !== prevAt;
+      if (Date.now() - lastLiveMarkAt < 4000 && !ovChanged) return;
+      if (ovChanged || Math.round(elapsed * 2) !== Math.round(Number(get().liveElapsed) * 2) || mark !== get().liveMark) {
         lastLiveMarkAt = Date.now();
         pinDeskScroll();
-        set({ liveElapsed: elapsed, liveMark: mark });
+        set(ovChanged ? { liveElapsed: elapsed, liveMark: mark, liveOverall: ov } : { liveElapsed: elapsed, liveMark: mark });
       }
       return;
     }
@@ -1497,6 +1501,18 @@ export const useDesk = create<DeskStore>((set, get) => ({
       e.activeConnId = snap.activeConnId;
       e.strategyToggles = snap.strategyToggles;
       e.blockCfg = { ...snap.blockConfig, enabled: snap.strategyToggles.block && snap.blockConfig.enabled };
+      e.minPf = snap.thresholds.minPf;
+      e.basePf = snap.thresholds.basePf;
+      e.axisPf = snap.thresholds.axisPf;
+      e.blockPf = snap.thresholds.blockPf;
+      e.shortPf = snap.thresholds.shortPf;
+      e.shortBasePf = snap.thresholds.shortBasePf;
+      e.shortAxisPf = snap.thresholds.shortAxisPf;
+      e.shortBlockPf = snap.thresholds.shortBlockPf;
+      e.shortProgress = snap.shortProgress ?? sanitizeShortProgress(undefined);
+      e.intervalStrategy = snap.intervalStrategy ?? sanitizeIntervalStrategy(undefined);
+      e.lastNProgress = snap.lastNProgress ?? sanitizeLastNProgress(undefined);
+      e.shortRange = Boolean(snap.tacticConfig.shortRange);
       applyUniverse(e, snap.symbolCount, snap.orderType);
       if (!e.running && !get().liveSession) requeueFree(e, snap.tacticConfig, snap.tactic, snap.rangeType, snap.activeConnId);
       else e.lastMsg = `Settings synced · ${snap.tactic} · ${snap.rangeType} · ${snap.symbolCount}`;

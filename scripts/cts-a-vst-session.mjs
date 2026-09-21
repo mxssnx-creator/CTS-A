@@ -61,7 +61,9 @@ const CONN = (process.env.CTS_A_CONN || (process.env.CTS_A_X01 === "1" ? "bingx-
 const IS_X01 = CONN === "bingx-x01";
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
-const LIVE_MIN_PF = Math.max(DEFAULT_MIN_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_MIN_PF) || DEFAULT_MIN_PF);
+const LIVE_MIN_PF = IS_X01
+  ? Math.max(DEFAULT_MIN_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_MIN_PF) || DEFAULT_MIN_PF)
+  : Math.max(DEFAULT_SHORT_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_SHORT_PF) || DEFAULT_SHORT_PF);
 const LIVE_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? X01_DEFAULTS.symbolCount : VST_MAX_SYMBOLS)));
 const UNI = new Set(universeSymbols(LIVE_SYMBOLS).map((s) => s.id));
 const PREFERRED_RANGES = new Set(["fibonacci", "geometric", "atr"]);
@@ -1820,7 +1822,9 @@ function x02VolFromRemote(bc) {
 
 function applyPfGates(engine, remote) {
   const th = remote?.thresholds || {};
-  const overall = Math.max(DEFAULT_MIN_PF, Number(th.minPf) || LIVE_MIN_PF);
+  const overall = IS_X01
+    ? Math.max(DEFAULT_MIN_PF, Number(th.minPf) || LIVE_MIN_PF)
+    : Math.max(DEFAULT_SHORT_PF, Number(th.shortPf ?? th.minPf) || LIVE_MIN_PF);
   const base = Math.max(1, Number(th.basePf) || DEFAULT_BASE_PF);
   const axis = Math.max(1, Number(th.axisPf) || DEFAULT_AXIS_PF);
   const blockPf = Math.max(1, Number(th.blockPf) || DEFAULT_BLOCK_PF);
