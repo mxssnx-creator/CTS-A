@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -210,9 +210,9 @@ const BLOCK = {
   lastNProgress: sanitizeLastNProgress(undefined),
 };
 
-const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: false, block: true, dca: false };
+const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false };
 
-const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 0.75, dcaCount: 1, slAtr: 0.36, tpAtr: 0.48, slOfTp: 0.75, shortRange: true, maxHoldTicks: 24, maxHoldBars: 3, axisLevels: 5 };
+const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 0.75, dcaCount: 1, slAtr: 0.36, tpAtr: 0.48, slOfTp: 0.75, shortRange: true, maxHoldTicks: 24, maxHoldBars: 3, axisLevels: 5, axisPartialRatio: 3 };
 const LIVE_SHORT_TACTICS = ["trailing"];
 const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   ["atr", "fibonacci"].map((range) => ({
@@ -584,7 +584,7 @@ function snapshot(e, extra) {
       factor: Number(e.relVolumeFactor || 0),
       coordVf: Number(e.coordVolumeFactor || 1),
       engineSize: Number(e.engineSizeFactor || 1),
-      axisPartial: 1,
+      axisPartial: AXIS_PARTIAL_RATIO,
       winners: Object.keys(e.blockRelBest || {}).slice(0, 8),
       disabled: e.liveHealth?.disabled?.length ?? Object.keys(e.liveDisabled ?? {}).length,
       kept: e.liveHealth?.kept?.length ?? 0,
@@ -2048,6 +2048,7 @@ async function main() {
   engine.shortRange = true;
   engine.liveTape = true;
   engine.strategyToggles = { ...STRAT };
+  pick.cfg = { ...pick.cfg, axisPartialRatio: AXIS_PARTIAL_RATIO, dcaCount: 1, shortRange: true };
   engine.blockCfg = { ...BLOCK, liveDisableMinPf: DEFAULT_BLOCK_PF, minRelPf: DEFAULT_BLOCK_PF, enabled: STRAT.block };
   let seededLosers = 0;
   try {
@@ -2246,7 +2247,7 @@ async function main() {
         minRelPf: engine.blockPf || DEFAULT_BLOCK_PF,
         liveDisableMinPf: engine.blockPf || DEFAULT_BLOCK_PF,
       };
-      pick.cfg = { ...pick.cfg, shortRange: true, dcaCount: 1 };
+      pick.cfg = { ...pick.cfg, shortRange: true, dcaCount: 1, axisPartialRatio: AXIS_PARTIAL_RATIO };
       mergeLivePositions(engine, lastBook);
       tickVst(engine, pick.cfg, pick.tactic, {
         freezeIds: freeze,

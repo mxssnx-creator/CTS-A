@@ -699,13 +699,15 @@ export function clampMaxVolumeMul(n: unknown, fallback = DEFAULT_MAX_VOLUME_MULT
   if (!Number.isFinite(x) || x <= 0) return fallback;
   return Math.min(BLOCK_MAX_VOLUME_MUL_MAX, Math.max(BLOCK_MAX_VOLUME_MUL_MIN, x));
 }
-/** Extra Axis rungs: full size of the validated base qty (not 0.08). */
-export const AXIS_PARTIAL_RATIO = 1;
+/** Extra Axis rungs: ~3× a normal position (never 0.08 leftover). */
+export const AXIS_PARTIAL_RATIO = 3;
+export const AXIS_PARTIAL_MIN = 0.5;
+export const AXIS_PARTIAL_MAX = 4;
 
 export function clampAxisPartial(n: unknown, fallback = AXIS_PARTIAL_RATIO): number {
   const x = Number(n);
   if (!Number.isFinite(x) || x <= 0 || Math.abs(x - 0.08) < 1e-6) return fallback;
-  return Math.min(1, Math.max(0.02, x));
+  return Math.min(AXIS_PARTIAL_MAX, Math.max(AXIS_PARTIAL_MIN, x));
 }
 
 export const X01_DEFAULTS = {

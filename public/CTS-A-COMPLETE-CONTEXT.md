@@ -224,7 +224,7 @@ Stage hours auto-eval: **4 / 8 / 16** (pre / mid / end) plus 20h short pre-histo
 |---|---|---|
 | Normal (general) | **OFF** | Intern still computes; live does not place unadjusted |
 | Trailing | ON | If off, trailing overlay not used for further strategies |
-| Axis | ON | Extra rungs = **full** base qty (`AXIS_PARTIAL_RATIO=1`). Never 0.08 |
+| Axis | ON | Axis lot = **3×** a normal position (`AXIS_PARTIAL_RATIO=3`). Live depth 2. Never 0.08 |
 | Block | ON | Shared + additive + Overall |
 | DCA | **OFF** systemwide | |
 

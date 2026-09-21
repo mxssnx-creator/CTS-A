@@ -494,7 +494,7 @@ export interface TacticConfig {
   dcaDrawdown: number;
   axisSpacing: number;
   axisLevels: number;
-  /** Extra axis ladder legs as a fraction of the validated base qty. */
+  /** Axis lot as a multiple of a normal position (~3). */
   axisPartialRatio?: number;
   slAtr: number;
   tpRatio: number;

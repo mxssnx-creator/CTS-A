@@ -50,7 +50,7 @@
     "shared": 1.5,
     "overall": 1.5,
     "maxMul": 2.5,
-    "axisPartial": 1.0,
+    "axisPartial": 3.0,
     "forbidden": 0.08,
     "sides": "both",
     "volumeMode": "parallel",

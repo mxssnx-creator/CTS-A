@@ -2469,8 +2469,8 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.relVolumeRatio, 0.2);
     assert.equal(DEFAULT_BLOCK_CONFIG.overallVolumeRatio, 1.5);
     assert.equal(DEFAULT_BLOCK_CONFIG.sharedVolumeRatio, 1.5);
-    assert.equal(AXIS_PARTIAL_RATIO, 1);
-    assert.equal(sanitizeDeskSettings({ tacticConfig: { axisPartialRatio: 0.08 } } as never).tacticConfig.axisPartialRatio, 1);
+    assert.equal(AXIS_PARTIAL_RATIO, 3);
+    assert.equal(sanitizeDeskSettings({ tacticConfig: { axisPartialRatio: 0.08 } } as never).tacticConfig.axisPartialRatio, 3);
     assert.equal(sanitizeIntervalStrategy({ relationBoost: 1.08 }).relationBoost, 1);
     assert.equal(sanitizeIntervalStrategy({}).relationBoost, 1);
     assert.equal(clampBlockVol(0.08), 0.2);
@@ -2599,8 +2599,8 @@ describe("VST engine", () => {
   });
 
   it("Axis 0.08 is rung ratio, not engine size or Block extra or vol-confirm", () => {
-    assert.equal(clampAxisPartial(0.08), 1);
-    assert.equal(AXIS_PARTIAL_RATIO, 1);
+    assert.equal(clampAxisPartial(0.08), 3);
+    assert.equal(AXIS_PARTIAL_RATIO, 3);
     assert.equal(sanitizeIntervalStrategy({ relationBoost: 1.08 }).relationBoost, 1);
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 2, arm: false });
     e.coordVolumeFactor = 1.08;
@@ -3803,7 +3803,7 @@ describe("VST engine", () => {
     const snap = sanitizeDeskSettings(dirty as never);
     assert.equal(snap.rangeType, "atr");
     assert.equal(snap.tactic, "hybrid");
-    assert.equal(snap.symbolCount, 120);
+    assert.equal(snap.symbolCount, 300);
     assert.equal(snap.tacticConfig.tpRatio, tpRatioOf(1));
     assert.equal(snap.thresholds.minPf, 1.4);
     assert.equal(snap.thresholds.basePf, DEFAULT_BASE_PF);
@@ -3811,7 +3811,7 @@ describe("VST engine", () => {
     assert.equal(snap.thresholds.blockPf, DEFAULT_BLOCK_PF);
     assert.equal(snap.thresholds.shortPf, DEFAULT_SHORT_PF);
     assert.equal(snap.thresholds.shortBasePf, DEFAULT_SHORT_BASE_PF);
-    assert.equal(sanitizeDeskSettings({ tacticConfig: { axisPartialRatio: 0.08 } } as never).tacticConfig.axisPartialRatio, 1);
+    assert.equal(sanitizeDeskSettings({ tacticConfig: { axisPartialRatio: 0.08 } } as never).tacticConfig.axisPartialRatio, 3);
     assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 0.08, relVolumeRatio: 1.5 } } as never).blockConfig.volumeRatio, 0.2);
     assert.equal(sanitizeDeskSettings({ blockConfig: { volumeRatio: 1.5, relVolumeRatio: 1.5 } } as never).blockConfig.relVolumeRatio, 1);
     assert.equal(sanitizeDeskSettings({ blockConfig: { overallVolumeRatio: 0.08 } } as never).blockConfig.overallVolumeRatio, 1.5);
@@ -3853,8 +3853,8 @@ describe("VST engine", () => {
     assert.equal(stable?.patch.tactic, "trailing");
     assert.equal(stable?.patch.rangeType, "atr");
     assert.equal(stable?.patch.tacticConfig?.shortRange, true);
-    assert.equal(stable?.patch.tacticConfig?.tpAtr, 0.42);
-    assert.equal(stable?.patch.tacticConfig?.slOfTp, 1.75);
+    assert.equal(stable?.patch.tacticConfig?.tpAtr, 0.48);
+    assert.equal(stable?.patch.tacticConfig?.slOfTp, 0.75);
     assert.deepEqual(stable?.patch.blockConfig?.counts, [1, 2, 3, 4, 5, 6]);
     assert.equal(stable?.patch.blockConfig?.activeLive, true);
     assert.equal(stable?.patch.blockConfig?.volumeMode, "parallel");
@@ -3866,7 +3866,7 @@ describe("VST engine", () => {
     assert.equal(stable2?.label, "Stable 02");
     assert.equal(stable2?.patch.thresholds?.minPf, 1.35);
     assert.equal(stable2?.patch.thresholds?.shortPf, 0.95);
-    assert.equal(stable2?.patch.tacticConfig?.axisPartialRatio, 1);
+    assert.equal(stable2?.patch.tacticConfig?.axisPartialRatio, 3);
     assert.equal(stable2?.patch.blockConfig?.volumeRatio, 0.2);
     assert.equal(stable2?.patch.blockConfig?.overallVolumeRatio, 1.5);
     assert.equal(stable2?.patch.blockConfig?.liveDisableMinPf, 1.2);
@@ -3995,11 +3995,14 @@ describe("VST engine", () => {
     assert.ok(report.trades >= 0);
   });
 
-  it("axis extra rungs are full size of the validated base qty", () => {
-    const cfg = { ...CFG, axisLevels: 4, axisPartialRatio: 1, trailingPct: 1.5 };
+  it("axis rungs are ~3× a normal position", () => {
+    const cfg = { ...CFG, axisLevels: 4, axisPartialRatio: 3, trailingPct: 1.5 };
     const e = initVstEngine(cfg, { warmup: 0, symbolCount: 6, arm: false });
     e.lastTactic = "axis";
     armUniverse(e, cfg, "axis");
+    const n = initVstEngine({ ...CFG, axisPartialRatio: 3, trailingPct: 1.5 }, { warmup: 0, symbolCount: 6, arm: false });
+    n.lastTactic = "trailing";
+    armUniverse(n, { ...CFG, trailingPct: 1.5 }, "trailing");
     const bySym = new Map<string, typeof e.queue>();
     for (const o of e.queue) {
       if (o.level < 1) continue;
@@ -4008,16 +4011,19 @@ describe("VST engine", () => {
       bySym.set(o.symbol, arr);
     }
     let checked = 0;
-    for (const rows of bySym.values()) {
+    for (const [sym, rows] of bySym) {
       const l1 = rows.find((o) => o.level === 1);
       const extra = rows.filter((o) => o.level > 1);
-      if (!l1 || !extra.length) continue;
+      const normal = n.queue.find((o) => o.symbol === sym && o.level === 1);
+      if (!l1 || !normal || !(normal.qty > 0)) continue;
+      assert.ok(Math.abs(l1.qty / normal.qty - 3) < 0.35, `axis L1 ${l1.qty} vs normal ${normal.qty}`);
       for (const o of extra) {
-        assert.ok(Math.abs(o.qty / l1.qty - 1) < 0.08, `full ${o.qty} vs base ${l1.qty}`);
+        assert.ok(Math.abs(o.qty / l1.qty - 1) < 0.08, `extra ${o.qty} vs L1 ${l1.qty}`);
         checked += 1;
       }
+      if (!extra.length) checked += 1;
     }
-    assert.ok(checked >= 1, "need axis extra rungs");
+    assert.ok(checked >= 1, "need axis rungs");
   });
 
   it("live Block stacks rungs 1-6 on open positions with playbook block", () => {

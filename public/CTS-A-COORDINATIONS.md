@@ -75,7 +75,7 @@ Disable never overrides a valid-execute pass. After pre, disable uses **live `va
 | Cap | **2.5×** parent base | Extra vs **base + existing Block qty only** (GRID legs must not starve Block) |
 
 Counts **1–6 independent**. Stack old 1–2 **and** new 1–6 both run. `relAdditive=true`. `activeLive=true`, minActiveLevel=1. `keepAdjusted=true` **holds** existing extra through a loss window — it must **not** plan new Block adds on a failed Block PF. `sides=both`. `volumeMode=parallel`, `overallMode=parallel`.  
-**Axis partial = 1.0** (full base). `clampBlockVol` / `clampAxisPartial` reject 0.08.
+**Axis volume = 3.0×** a normal position (L1 and extra rungs). Live axis depth caps at 2 rungs when ratio ≥ 2 so a filled stack is ~3–6 normals, not 15. `clampAxisPartial` rejects 0.08. Never 1.08 engine VF.
 
 ### 2.5 Short GRID
 

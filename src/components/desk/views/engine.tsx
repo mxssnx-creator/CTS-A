@@ -35,7 +35,7 @@ export function EngineView() {
   const liveSnap = useLiveSnapshot();
   const exchange = liveSnap.exchange;
   const tpRatio = useDesk((s) => s.tacticConfig.tpRatio);
-  const axisPartial = useDesk((s) => s.tacticConfig.axisPartialRatio ?? 1);
+  const axisPartial = useDesk((s) => s.tacticConfig.axisPartialRatio ?? 3);
   const engineSize = useDesk((s) => s.vst.engineSizeFactor ?? 1);
   const blockExtra = useDesk((s) => s.vst.relVolumeFactor ?? 0);
   const coordVf = useDesk((s) => s.vst.coordVolumeFactor ?? 1);
@@ -120,7 +120,7 @@ export function EngineView() {
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <Kpi label="Engine size ×" value={fmtNum(engineSize, 2)} hint="avg notional / base" />
-        <Kpi label="Axis extra" value={fmtNum(axisPartial, 2)} hint="rung vs base qty" />
+        <Kpi label="Axis vs normal" value={`${fmtNum(axisPartial, 1)}×`} hint="axis lot = 3 normal pos" />
         <Kpi label="Block extra" value={fmtNum(blockExtra, 2)} hint="winning relations" />
         <Kpi label="Vol confirm" value={fmtNum(coordVf, 2)} hint="PnL-weighted, not size" />
       </div>

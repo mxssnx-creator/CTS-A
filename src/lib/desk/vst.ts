@@ -2020,7 +2020,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const depth = complete
             ? Math.min(2, hi.levels.length)
             : axisInd
-              ? Math.min(Math.max(2, cfg.axisLevels), hi.levels.length)
+              ? Math.min(Math.max(2, cfg.axisLevels), hi.levels.length, axisPartial >= 2 ? 2 : 5)
               : rank < 10
                 ? hi.levels.length
                 : rank < 24
@@ -2031,7 +2031,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             const px = side === "long" ? q.axis - offset : q.axis + offset;
             if (px <= 0) return;
             const baseQty = notional / px;
-            const qty = axisInd && li > 0 ? baseQty * axisPartial : baseQty;
+            const qty = axisInd ? baseQty * axisPartial : baseQty;
             const lv = axisInd && !short ? axisProtect(px, side, q, hi.spacing, cfg) : protectLevels(px, side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
             e.queue.push({
               id: nextId(e, "q"),

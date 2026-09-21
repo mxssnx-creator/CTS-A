@@ -209,7 +209,7 @@ export function SystemPanel({
         <StatLine k="Types on" v={enabledKinds.join(" · ")} />
         <StatLine k="Min PF / vol confirm" v={`${th.minPf.toFixed(2)} / ${th.minVf.toFixed(2)}`} />
         <StatLine k="Engine size ×" v={(vst.engineSizeFactor ?? 1).toFixed(2)} />
-        <StatLine k="Axis extra rung" v={(cfg.axisPartialRatio ?? 1).toFixed(2)} />
+        <StatLine k="Axis vs normal" v={`${(cfg.axisPartialRatio ?? 3).toFixed(1)}×`} />
         <StatLine k="Block extra" v={(vst.relVolumeFactor ?? 0).toFixed(2)} />
         <StatLine k="Vol-weighted confirm" v={(vst.coordVolumeFactor ?? 1).toFixed(2)} />
         <StatLine k="Max DD / DDT" v={`${(th.maxMdd * 100).toFixed(0)}% / ${th.maxDdt} bars`} />

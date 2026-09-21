@@ -507,7 +507,7 @@ export function OverviewView() {
           <StatLine k="SQN" v={fmtNum(last.sqn, 2)} />
           <StatLine k="Vol-weighted confirm" v={fmtNum(vol.vf, 2)} />
           <StatLine k="Engine size ×" v={fmtNum(engineSize, 2)} />
-          <StatLine k="Axis extra rung" v={fmtNum(cfg.axisPartialRatio ?? 1, 2)} />
+          <StatLine k="Axis vs normal" v={`${fmtNum(cfg.axisPartialRatio ?? 3, 1)}×`} />
           <StatLine k="Block extra" v={fmtNum(blockExtra, 2)} />
           <StatLine k="Recovery" v={fmtNum(last.recovery, 2)} />
           <div className="mt-3 border-t border-border pt-3">

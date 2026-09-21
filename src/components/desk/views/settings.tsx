@@ -980,15 +980,15 @@ export function SettingsView() {
               ariaLabel="Axis levels"
             />
             <RangeKnob
-              label="Axis extra rung ratio"
-              value={cfg.axisPartialRatio ?? 1}
-              min={0.04}
-              max={1}
-              step={0.02}
-              format={(n) => n.toFixed(2)}
+              label="Axis volume vs normal"
+              value={cfg.axisPartialRatio ?? 3}
+              min={0.5}
+              max={4}
+              step={0.1}
+              format={(n) => `${n.toFixed(1)}×`}
               onChange={(n) => setCfg({ axisPartialRatio: n })}
               onCommit={applyLive}
-              ariaLabel="Axis extra rung size vs base qty"
+              ariaLabel="Axis volume vs a normal position"
             />
           </div>
         </Panel>
@@ -2224,7 +2224,7 @@ export function SettingsView() {
             <StatLine k="Window" v={`last ${lastNs.picks} picks`} />
             <StatLine k="Vol-weighted confirm" v={live.vol.vf.toFixed(2)} />
             <StatLine k="Engine size ×" v={fmtNum(engineSize, 2)} />
-            <StatLine k="Axis extra rung" v={(cfg.axisPartialRatio ?? 1).toFixed(2)} />
+            <StatLine k="Axis vs normal" v={`${(cfg.axisPartialRatio ?? 3).toFixed(1)}×`} />
             <StatLine k="Block extra" v={fmtNum(blockExtra, 2)} />
             <StatLine k="Confirm" v={live.vol.confirm} />
             <StatLine k="High-vol WR" v={fmtWr(live.vol.highVolWr)} />

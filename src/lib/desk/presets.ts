@@ -296,7 +296,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
         dcaDrawdown: 0.8,
         axisSpacing: 0.7,
         axisLevels: 5,
-        axisPartialRatio: 1,
+        axisPartialRatio: 3,
         slAtr: 0.36,
         tpRatio: 4 / 3,
         tpAtr: 0.48,

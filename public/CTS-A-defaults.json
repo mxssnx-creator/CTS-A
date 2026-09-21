@@ -111,7 +111,7 @@
     "dcaDrawdown": 0.8,
     "axisSpacing": 0.7,
     "axisLevels": 5,
-    "axisPartialRatio": 1,
+    "axisPartialRatio": 3,
     "slAtr": 1,
     "tpRatio": 1,
     "tpAtr": 1,
