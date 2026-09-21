@@ -152,6 +152,7 @@ let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, pos
 let lastTrail = { n: 0, ms: 0, at: 0 };
 let lastExec = { n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 };
 let lastPnl = [];
+let lastIncomeOrders = [];
 const lastPostedSl = new Map();
 const lastPostedTp = new Map();
 const lastPeakPx = new Map();
@@ -799,9 +800,17 @@ function rememberLeg(symbol, side, extra = {}) {
 function hintFor(symbol, t) {
   return vanishedLegs.find((v) => v.symbol === symbol && Math.abs((Number(t) || Date.now()) - v.t) < 180_000);
 }
+function sideFromOrders(symbol, t) {
+  const hits = lastIncomeOrders.filter((o) => o.symbol === symbol && Math.abs(Number(o.time || 0) - Number(t || 0)) < 300_000);
+  if (!hits.length) return undefined;
+  const close = hits.find((o) => /TAKE_PROFIT|STOP|CLOSE|LIQUID/i.test(String(o.type || "")) || Number(o.pnl));
+  const side = String((close || hits[0])?.side || "").toLowerCase();
+  return side === "short" || side === "long" ? side : undefined;
+}
 
 function ingestExec(ex) {
   if (!ex?.ok) return;
+  if (Array.isArray(ex.orders) && ex.orders.length) lastIncomeOrders = ex.orders;
   const income = Array.isArray(ex.income) ? ex.income : [];
   const rows = income
     .filter((x) => String(x.type || "") === "REALIZED_PNL" && isDeskSymbol(x.symbol))
@@ -813,7 +822,7 @@ function ingestExec(ex) {
         t,
         v: Number(x.income) || 0,
         symbol,
-        side: h?.side,
+        side: h?.side || sideFromOrders(symbol, t),
         indication: h?.indication,
         playbook: h?.playbook,
         kind: h?.kind,
