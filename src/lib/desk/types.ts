@@ -695,6 +695,7 @@ export interface LiveOrder {
   kind?: StrategyKind;
   playbook?: string;
   tactic?: TacticKind;
+  validExec?: boolean;
 }
 
 export interface LivePosition {
@@ -724,6 +725,7 @@ export interface LivePosition {
   blockLevel?: number;
   blockQty?: number;
   peakPx?: number;
+  validExec?: boolean;
 }
 
 export interface Fill {
@@ -771,6 +773,7 @@ export interface ClosedTrade {
   playbook?: string;
   level?: number;
   blockQty?: number;
+  validExec?: boolean;
 }
 
 export interface VstStats {
@@ -948,6 +951,10 @@ export interface SimReport {
     >;
   };
   liveGated?: { n: number; of?: number; pf?: number; avg?: number; net?: number };
+  selected?: { n: number; pf: number; net: number; avg: number; of?: number; keys?: string[]; greenHours?: number; hours?: number };
+  paperPf?: number;
+  greenHours?: number;
+  floors?: { overall: number; base: number; short: number; block: number; axis: number };
   disabled?: string[];
 }
 
@@ -1201,6 +1208,8 @@ export interface VstEngine {
   liveTape?: boolean;
   shortRange?: boolean;
   strategyToggles?: StrategyToggles;
+  /** Indication/playbook/tactic keys that passed PF on the pre-eval tape. */
+  prePassKeys?: Record<string, number>;
   /** Owned live exchange position count — used to allow a restart when the book is empty. */
   liveOpenN?: number;
   liveLegHint?: Record<string, { side?: Side; indication?: IndicationId; tactic?: TacticKind; playbook?: string; kind?: string; rangeType?: RangeType }>;

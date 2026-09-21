@@ -2611,8 +2611,15 @@ const TICK_RING: Record<string, TickSnap[]> = {};
 const TICK_RING_MAX = 72;
 
 export function resetIndicationHistory(symbol?: string) {
-  if (symbol) delete TICK_RING[symbol];
-  else for (const k of Object.keys(TICK_RING)) delete TICK_RING[k];
+  if (symbol) {
+    delete TICK_RING[symbol];
+    delete LIVE_IND[symbol];
+    delete IND_CACHE[symbol];
+    return;
+  }
+  for (const k of Object.keys(TICK_RING)) delete TICK_RING[k];
+  for (const k of Object.keys(LIVE_IND)) delete LIVE_IND[k];
+  for (const k of Object.keys(IND_CACHE)) delete IND_CACHE[k];
 }
 
 export function indicationRingDepth(symbol?: string): number {

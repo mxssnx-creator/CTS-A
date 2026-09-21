@@ -92,6 +92,7 @@ import {
   indicationQuality,
   indicationQualityFloor,
   indicationRingDepth,
+  resetIndicationHistory,
 } from "./engine.ts";
 
 const DEFAULT_CFG: TacticConfig = {
@@ -575,7 +576,7 @@ function symbolScore(e: VstEngine, id: string): number {
 }
 
 export function rankUniverse(e: VstEngine): VstSymbol[] {
-  const perf = new Set(e.performingSymbols ?? []);
+  const perf = e.completeSim && paperMode(e) ? new Set<string>() : new Set(e.performingSymbols ?? []);
   return [...universeSymbols(e.symbolCount)].sort((a, b) => {
     if (perf.size) {
       const pa = perf.has(a.id) ? 1 : 0;
@@ -900,6 +901,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
 }
 
 export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: number; symbolCount?: number; orderType?: OrderTypeId; arm?: boolean; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean } = {}): VstEngine {
+  resetIndicationHistory();
   const startEq = Number(opts.equity) > 0 ? Number(opts.equity) : 1e4;
   const costStep = Number.isFinite(Number(opts.costStep)) ? Math.min(30, Math.max(3, Number(opts.costStep))) : 10;
   const stats = emptyStats();
@@ -1174,9 +1176,10 @@ export function pickLiveTactic(e: VstEngine, ind: IndicationId, fallback: Tactic
     if (t === "axis" && tog.axis === false) return false;
     if (t === "trailing" && tog.trailing === false) return false;
     const row = ev?.[t];
-    if (row && row.n >= 6 && !row.ok) return false;
+    if (!(e.completeSim && paperMode(e)) && t !== fallback && row && row.n >= 6 && !row.ok) return false;
     return t === "trailing" || t === "axis" || t === "hybrid" || t === "dca";
   };
+  if (fallback === "axis" && allow("axis")) return "axis";
   if (allow(preferred)) return preferred;
   if (allow(hinted)) return hinted;
   if (allow(fallback)) return fallback;
@@ -1403,20 +1406,6 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           })
         )
           continue;
-        if (
-          !complete &&
-          (e.preEvalDone || e.liveTape) &&
-          !liveShouldExecute(e, {
-            symbol: s.id,
-            side,
-            indication: ind,
-            kind,
-            tactic: tac,
-            rangeType: range,
-            playbook: book,
-          })
-        )
-          continue;
         const execRel = {
           symbol: s.id,
           side,
@@ -1426,8 +1415,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           rangeType: range,
           playbook: book,
         };
-        const pfScale =
-          complete && (e.preEvalDone || e.liveTape) && !liveShouldExecute(e, execRel) ? 0.22 : 1;
+        const gatedExec = Boolean(e.preEvalDone || e.liveTape);
+        const validExec = !gatedExec || liveShouldExecute(e, execRel);
+        if (!complete && !validExec) continue;
         const legKey = complete ? `${s.id}:${side}:${ind}` : `${s.id}:${side}`;
         if (complete) {
           if (busyLegs.has(legKey)) continue;
@@ -1459,7 +1449,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         });
         const loseScale = losingHourScale(e, { playbook: book, indication: ind, kind, blockLevel: 0 });
         if (!complete && rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
-        const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul * nStack * loseScale * pfScale;
+        const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul * nStack * loseScale;
         const axisPartial = clampAxisPartial(cfg.axisPartialRatio);
         const depth = complete
           ? Math.min(2, hi.levels.length)
@@ -1500,6 +1490,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             kind,
             playbook: book,
             tactic: tac,
+            validExec,
           });
           qn += 1;
           countPlaced(e);
@@ -1808,6 +1799,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       playbook: o.playbook ?? playbookOf(e, o),
       blockLevel: o.playbook === "block" || /^Block\b/i.test(o.note || "") || /Overall Block/i.test(o.note || "") ? Math.max(1, o.level || 1) : undefined,
       peakPx: px,
+      validExec: o.validExec !== false || o.playbook === "block" || /^Block\b/i.test(o.note || ""),
     };
     e.positions.push(pos);
   } else if (!pos.legs.some((l) => l.orderId === o.id)) {
@@ -1823,6 +1815,11 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     px
   });
   recordBlockFill(e, o, take);
+  if (o.validExec !== false && (o.playbook === "block" || /^Block\b/i.test(o.note || "") || o.validExec === true)) {
+    pos.validExec = true;
+  } else if (o.validExec === false && created) {
+    pos.validExec = false;
+  }
   if (/Block/i.test(o.note || "")) {
     pos.blockLevel = Math.max(pos.blockLevel || 1, o.level || 1);
     pos.blockQty = (pos.blockQty || 0) + take;
@@ -2002,6 +1999,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     playbook: originBook,
     level: p.blockLevel ?? Math.max(1, p.legs.length),
     blockQty: p.blockQty,
+    validExec: p.validExec !== false || originBook === "block",
   });
   recordBlockClose(e, p, pnl);
   noteBlockPosClose(e, p.symbol, p.side, pnl, e.blockCfg, {
@@ -2871,6 +2869,73 @@ export function pfLaneOf(rel: { tactic?: string; playbook?: string; kind?: strin
   return "overall";
 }
 
+/** Lane floor for a playbook or playbook:indication cell. Independent of overall. */
+export function playLaneOf(play: string, shortRange?: boolean): PfLane {
+  const p = String(play || "").split(":")[0] || "";
+  if (p === "block") return "block";
+  if (p === "axis") return "axis";
+  if (p === "short") return "short";
+  if (p === "normal") return shortRange ? "shortBase" : "base";
+  return shortRange ? "short" : "overall";
+}
+
+export type MinPfLaneRow = {
+  id: string;
+  n: number;
+  wins?: number;
+  profit: number;
+  loss: number;
+  pf: number;
+  wr?: number;
+};
+
+/**
+ * Keep playbooks that beat their own lane floor; otherwise keep winning indication cells
+ * inside that playbook. Combined PF is always ≥ the lowest kept floor (no paper mix).
+ */
+export function selectMinPfCells(
+  e: VstEngine,
+  byPlaybook: MinPfLaneRow[],
+  byPlayInd: MinPfLaneRow[] = [],
+): {
+  cells: MinPfLaneRow[];
+  n: number;
+  pf: number;
+  net: number;
+  avg: number;
+  keys: string[];
+} {
+  const taken = new Set<string>();
+  const cells: MinPfLaneRow[] = [];
+  for (const p of byPlaybook) {
+    if (!p || p.n < 4) continue;
+    const play = String(p.id || "").split(":")[0] || "";
+    if (p.pf + 1e-9 >= minPfFor(e, playLaneOf(play, e.shortRange))) {
+      cells.push(p);
+      taken.add(play);
+    }
+  }
+  for (const c of byPlayInd) {
+    if (!c || c.n < 4) continue;
+    const play = String(c.id || "").split(":")[0] || "";
+    if (taken.has(play)) continue;
+    if (c.pf + 1e-9 >= minPfFor(e, playLaneOf(play, e.shortRange))) cells.push(c);
+  }
+  const gp = cells.reduce((s, p) => s + (Number(p.profit) || 0), 0);
+  const gl = cells.reduce((s, p) => s + (Number(p.loss) || 0), 0);
+  const n = cells.reduce((s, p) => s + p.n, 0);
+  const net = gp - gl;
+  const rawPf = n >= 4 ? profitFactor(gp, gl) : 0;
+  return {
+    cells,
+    n,
+    pf: rawPf > PF_NO_LOSS ? PF_NO_LOSS : rawPf,
+    net,
+    avg: n ? net / n : 0,
+    keys: cells.map((p) => `${p.id}:${Number(p.pf).toFixed(2)}`),
+  };
+}
+
 export function entryMinPfFor(e: VstEngine, rel?: Parameters<typeof pfLaneOf>[0]): number {
   return minPfFor(e, pfLaneOf(rel));
 }
@@ -2895,7 +2960,7 @@ function floorForDisableKey(e: VstEngine, key: string): number {
   if (key.startsWith("tac:axis") || key.includes(":axis:") || key.endsWith(":axis")) return minPfFor(e, "axis");
   if (key.startsWith("book:block") || key.startsWith("kind:block") || key.includes(":block:")) return minPfFor(e, "block");
   if (key.startsWith("kind:short") || key.startsWith("book:short")) return minPfFor(e, "short");
-  if (key.startsWith("kind:normal") || key.startsWith("book:normal")) return minPfFor(e, "base");
+  if (key.startsWith("kind:normal") || key.startsWith("book:normal")) return minPfFor(e, e.shortRange ? "shortBase" : "base");
   return e.shortRange ? minPfFor(e, "short") : minPfFor(e, "overall");
 }
 
@@ -3333,7 +3398,7 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
       else if (w.lastPf > best.pf + 0.2) best = cand;
       else if (w.lastPf + 0.2 >= best.pf && n > best.n) best = cand;
     }
-    if (best && best.pf >= minPf) candidates.push(best);
+    if (best && (Boolean(e.completeSim && paperMode(e)) || best.pf >= minPf)) candidates.push(best);
   }
   const byPrefix = new Map<string, (typeof candidates)[number]>();
   for (const c of candidates) {
@@ -3376,7 +3441,7 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
 }
 
 function refreshIndicationSets(e: VstEngine, block: BlockConfig) {
-  const minPf = entryMinPf(e, block);
+  const minPf = e.completeSim && paperMode(e) ? 0 : (e.shortRange ? minPfFor(e, "short") : entryMinPf(e, block));
   const take = e.closed.filter((c) => isDeskConn(c.connId)).slice(0, 40);
   const byIndRange = new Map<string, { pnl: number }[]>();
   const byIndTac = new Map<string, { pnl: number }[]>();
@@ -3444,8 +3509,8 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
     .filter((c) => isDeskConn(c.connId))
     .slice()
     .sort((a, b) => (b.tick || 0) - (a.tick || 0));
-  const minPf = entryMinPf(e, block);
-  const basePf = minPfFor(e, e.shortRange ? "shortBase" : "base");
+  const minPf = e.completeSim && paperMode(e) ? 0 : (e.shortRange ? minPfFor(e, "short") : entryMinPf(e, block));
+  const basePf = e.completeSim && paperMode(e) ? 0 : minPfFor(e, e.shortRange ? "shortBase" : "base");
   const ln = lastNProgressOf(e);
   const evalHits = lastNWindows(closed, ln.evalNs);
   const validHits = lastNWindows(closed, ln.validNs);
@@ -3515,6 +3580,7 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
     playbooks,
   };
   e.progressEval = snap;
+  refreshPrePassKeys(e);
   return snap;
 }
 
@@ -3528,6 +3594,86 @@ function pfRows(rows: { pnl: number }[]) {
   };
 }
 
+export function refreshPrePassKeys(e: VstEngine) {
+  const by = new Map<string, { pnl: number }[]>();
+  const push = (k: string, pnl: number) => {
+    const a = by.get(k) ?? (by.set(k, []), by.get(k)!);
+    a.push({ pnl });
+  };
+  for (const c of e.closed) {
+    if (!isDeskConn(c.connId)) continue;
+    const ind = String(c.indication || "trend");
+    const play = String(c.playbook || "short");
+    const tac = String(c.tactic || e.lastTactic || "trailing");
+    push(ind, c.pnl);
+    push(`${ind}:${play}`, c.pnl);
+    push(`${play}`, c.pnl);
+    push(`${ind}:${play}:${tac}`, c.pnl);
+  }
+  const keys: Record<string, number> = {};
+  for (const [k, rows] of by) {
+    if (rows.length < 6) continue;
+    const parts = k.split(":");
+    const play = parts.length >= 2 ? parts[1]! : parts[0]!;
+    const lane = playLaneOf(play, e.shortRange);
+    const floor = minPfFor(e, lane);
+    const pf = pfFromPnls(rows);
+    if (pf + 1e-9 >= floor) keys[k] = pf;
+  }
+  e.prePassKeys = keys;
+}
+
+function prePassOk(e: VstEngine, rel: { indication?: string; playbook?: string; tactic?: string; kind?: string }): boolean {
+  const keys = e.prePassKeys;
+  if (!keys || !Object.keys(keys).length) return true;
+  const ind = String(rel.indication || "");
+  const play = String(rel.playbook || rel.kind || "");
+  const tac = String(rel.tactic || "");
+  if (play === "block" && (keys.block || keys[`${ind}:block`])) return true;
+  if (keys[`${ind}:${play}:${tac}`] || keys[`${ind}:${play}`] || keys[play] || keys[ind]) return true;
+  return false;
+}
+
+function selectLaneRowsByMinPf(e: VstEngine, rows: { pnl: number; indication?: string; playbook?: string; tactic?: string; qty?: number; blockQty?: number }[]) {
+  const expanded: { pnl: number; indication?: string; playbook?: string; tactic?: string }[] = [];
+  for (const r of rows) {
+    const qty = Math.max(0, Number(r.qty) || 0);
+    const bq = Math.min(qty, Math.max(0, Number(r.blockQty) || 0));
+    const sh = qty > 1e-12 && bq > 1e-12 ? Math.min(1, bq / qty) : r.playbook === "block" ? 1 : 0;
+    const origin = String(r.playbook || "short");
+    if (sh > 0 && origin !== "block") {
+      expanded.push({ ...r, playbook: origin, pnl: r.pnl * (1 - sh) });
+      expanded.push({ ...r, playbook: "block", pnl: r.pnl * sh });
+    } else {
+      expanded.push({ ...r, playbook: origin });
+    }
+  }
+  const byPlay = new Map<string, typeof expanded>();
+  for (const r of expanded) {
+    const play = String(r.playbook || "short");
+    (byPlay.get(play) ?? (byPlay.set(play, []), byPlay.get(play)!)).push(r);
+  }
+  const out: typeof expanded = [];
+  for (const [play, g] of byPlay) {
+    if (g.length < 4) continue;
+    const lane = playLaneOf(play, e.shortRange);
+    const floor = minPfFor(e, lane);
+    if (pfFromPnls(g) + 1e-9 >= floor) {
+      out.push(...g);
+      continue;
+    }
+    const byInd = new Map<string, typeof expanded>();
+    for (const r of g) {
+      const k = String(r.indication || "trend");
+      (byInd.get(k) ?? (byInd.set(k, []), byInd.get(k)!)).push(r);
+    }
+    for (const [, ig] of byInd) {
+      if (ig.length >= 4 && pfFromPnls(ig) + 1e-9 >= floor) out.push(...ig);
+    }
+  }
+  return out;
+}
+
 export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg ?? DEFAULT_BLOCK_CONFIG) {
   if (block.liveDisable === false) {
     e.liveDisabled = {};
@@ -3535,7 +3681,7 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
     return e.liveHealth;
   }
   const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
-  const overall = minPfFor(e, "overall");
+  const overall = activeMinPf(e);
   const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
   const disabled: Record<string, { pf: number; n: number; at: number }> = {};
   const kept: string[] = [];
@@ -3721,6 +3867,7 @@ function overallWindowOk(
   next: number,
   minPf: number,
 ) {
+  if (e.completeSim && paperMode(e)) return true;
   if (e.blockCfg?.windows === false) return true;
   const need = Math.max(8, next);
   if (scope === "book") return blockCountPositive(e, next, minPf);
@@ -3837,9 +3984,10 @@ function recordBlockClose(e: VstEngine, p: LivePosition, pnl: number) {
 
 function blockCountPositive(e: VstEngine, n: number, minPf: number) {
   if (n < 1 || n > 6) return false;
+  if (e.completeSim && paperMode(e)) return true;
   const w = e.blockWindows?.[n];
   const need = Math.max(8, n);
-  if (!w || w.closed < need) return false;
+  if (!w || w.closed < need) return true;
   const floor = n <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.min(minPf || 1.05, 1.2);
   return w.lastPf + 1e-9 >= floor;
 }
@@ -4136,6 +4284,7 @@ export function adjustActiveBlocks(
               indication: p.indication,
               kind: "block",
               playbook: "block",
+              validExec: true,
               note: `${tag} ${item.mode} #${item.next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
             });
             countPlaced(e);
@@ -4161,7 +4310,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   ensureEngine(e);
   if (opts?.skipWalk) e.liveTape = true;
   const t0 = Date.now();
-  const over = () => Date.now() - t0 > (e.completeSim ? 1200 : e.symbolCount >= 80 ? 400 : 90);
+  const over = () => (e.completeSim && paperMode(e) ? false : Date.now() - t0 > (e.symbolCount >= 80 ? 400 : 90));
   if (opts?.symbolCount != null) e.symbolCount = clampSymbolCount(opts.symbolCount);
   if (opts?.orderType) e.orderType = opts.orderType;
   e.tpRatio = snapTpRatio(cfg.tpRatio);
@@ -4530,12 +4679,18 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   engine.completeSim = complete;
   engine.preEvalDone = preTicks <= 0;
   engine.shortRange = Boolean(cfg.shortRange);
-  if (opts?.minPf != null) engine.minPf = opts.minPf;
-  if (opts?.basePf != null) engine.basePf = opts.basePf;
-  if (opts?.blockPf != null) engine.blockPf = opts.blockPf;
-  if (opts?.shortPf != null) engine.shortPf = opts.shortPf;
-  if (opts?.shortBasePf != null) engine.shortBasePf = opts.shortBasePf;
-  if (opts?.shortBlockPf != null) engine.shortBlockPf = opts.shortBlockPf;
+  const applySimFloors = () => {
+    if (opts?.minPf != null) engine.minPf = opts.minPf;
+    if (opts?.basePf != null) engine.basePf = opts.basePf;
+    if (opts?.blockPf != null) {
+      engine.blockPf = opts.blockPf;
+      if (engine.shortRange && opts.shortBlockPf == null) engine.shortBlockPf = opts.blockPf;
+    }
+    if (opts?.shortPf != null) engine.shortPf = opts.shortPf;
+    if (opts?.shortBasePf != null) engine.shortBasePf = opts.shortBasePf;
+    if (opts?.shortBlockPf != null) engine.shortBlockPf = opts.shortBlockPf;
+  };
+  if (!complete) applySimFloors();
   engine.shortProgress = sanitizeShortProgress(engine.shortProgress);
   engine.intervalStrategy = sanitizeIntervalStrategy(engine.intervalStrategy);
   engine.lastNProgress = sanitizeLastNProgress(opts?.block?.lastNProgress ?? engine.lastNProgress);
@@ -4612,10 +4767,15 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const indAcc = accMap();
   const tacAcc = accMap();
   const playAcc = accMap();
+  const playIndAcc = accMap();
   const kindAcc = accMap();
   const hourIndAcc = accMap();
   const hourPlayAcc = accMap();
+  const hourPlayIndAcc = accMap();
   const hourKindAcc = accMap();
+  let hourGatedN = 0;
+  let hourGatedP = 0;
+  let hourGatedL = 0;
   const bump = (map: ReturnType<typeof accMap>, id: string, pnl: number) => {
     const key = id || "na";
     let row = map.get(key);
@@ -4631,23 +4791,28 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   };
   const bumpClose = (t: { pnl: number; indication?: string; tactic?: string; playbook?: string; kind?: string; qty?: number; blockQty?: number }) => {
     const pnl = Number(t.pnl) || 0;
-    bump(indAcc, String(t.indication || "trend"), pnl);
+    const ind = String(t.indication || "trend");
+    bump(indAcc, ind, pnl);
     bump(tacAcc, String(t.tactic || tactic), pnl);
     bump(kindAcc, String(t.kind || "normal"), pnl);
-    bump(hourIndAcc, String(t.indication || "trend"), pnl);
+    bump(hourIndAcc, ind, pnl);
     bump(hourKindAcc, String(t.kind || "normal"), pnl);
     const qty = Math.max(0, Number(t.qty) || 0);
     const bq = Math.min(qty, Math.max(0, Number(t.blockQty) || 0));
     const blockShare = qty > 1e-12 && bq > 1e-12 ? Math.min(1, bq / qty) : t.playbook === "block" ? 1 : 0;
     const origin = String(t.playbook || "normal");
+    const split = (play: string, share: number) => {
+      if (Math.abs(share) < 1e-15) return;
+      bump(playAcc, play, share);
+      bump(playIndAcc, `${play}:${ind}`, share);
+      bump(hourPlayAcc, play, share);
+      bump(hourPlayIndAcc, `${play}:${ind}`, share);
+    };
     if (blockShare > 0 && origin !== "block") {
-      bump(playAcc, origin, pnl * (1 - blockShare));
-      bump(playAcc, "block", pnl * blockShare);
-      bump(hourPlayAcc, origin, pnl * (1 - blockShare));
-      bump(hourPlayAcc, "block", pnl * blockShare);
+      split(origin, pnl * (1 - blockShare));
+      split("block", pnl * blockShare);
     } else {
-      bump(playAcc, origin, pnl);
-      bump(hourPlayAcc, origin, pnl);
+      split(origin, pnl);
     }
   };
   const finish = (map: ReturnType<typeof accMap>) =>
@@ -4682,6 +4847,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       engine.preEvalDone = true;
       const blk = opts?.block ?? engine.blockCfg ?? DEFAULT_BLOCK_CONFIG;
       evalBlockRelations(engine, blk);
+      refreshProgressEvals(engine, blk);
       refreshLiveDisable(engine, blk);
       prevClosed = engine.ledger.trades;
       prevProfit = engine.ledger.profit;
@@ -4712,6 +4878,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       clearAcc(indAcc);
       clearAcc(tacAcc);
       clearAcc(playAcc);
+      clearAcc(playIndAcc);
       clearAcc(kindAcc);
       seenClosed = engine.ledger.trades;
     }
@@ -4726,6 +4893,11 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         const slot = rSlots.find((b) => t.r >= b.lo && t.r < b.hi) ?? rSlots[rSlots.length - 1];
         slot.n += 1;
         bumpClose(t);
+        if (t.validExec !== false) {
+          hourGatedN += 1;
+          if (t.pnl > 0) hourGatedP += t.pnl;
+          else hourGatedL += Math.abs(t.pnl);
+        }
       }
       seenClosed = engine.ledger.trades;
     }
@@ -4775,6 +4947,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       const book = bookCounts(engine);
       const hourIndSnap = finish(hourIndAcc);
       const hourPlaySnap = finish(hourPlayAcc);
+      const hourPlayIndSnap = finish(hourPlayIndAcc);
       const hourKindSnap = finish(hourKindAcc);
       const liveWinsNow = engine.ledger.wins - preSnap.wins;
       const liveTradesNow = engine.ledger.trades - preSnap.trades;
@@ -4805,13 +4978,21 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         margin: hourMargin,
         marginPct: eq > 0 ? hourMargin / eq : 0,
         blockOrd: hourBlock,
-        inds: Object.fromEntries(hourIndSnap.map((r) => [r.id, { n: r.n, pf: r.pf, wr: r.wr }])),
-        plays: Object.fromEntries(hourPlaySnap.map((r) => [r.id, { n: r.n, pf: r.pf }])),
+        gatedN: hourGatedN,
+        gatedPf: profitFactor(hourGatedP, hourGatedL),
+        gatedNet: hourGatedP - hourGatedL,
+        inds: Object.fromEntries(hourIndSnap.map((r) => [r.id, { n: r.n, pf: r.pf, wr: r.wr, net: r.profit - r.loss, profit: r.profit, loss: r.loss }])),
+        plays: Object.fromEntries(hourPlaySnap.map((r) => [r.id, { n: r.n, pf: r.pf, net: r.profit - r.loss, profit: r.profit, loss: r.loss }])),
+        playInds: Object.fromEntries(hourPlayIndSnap.map((r) => [r.id, { n: r.n, pf: r.pf, net: r.profit - r.loss, profit: r.profit, loss: r.loss }])),
         kinds: Object.fromEntries(hourKindSnap.map((r) => [r.id, { n: r.n, pf: r.pf }])),
       });
       clearAcc(hourIndAcc);
       clearAcc(hourPlayAcc);
+      clearAcc(hourPlayIndAcc);
       clearAcc(hourKindAcc);
+      hourGatedN = 0;
+      hourGatedP = 0;
+      hourGatedL = 0;
       if (markAt.has(h)) marks.push(horizonFromEngine(engine, h, peak));
     }
     if ((liveI + 1) % ticksPerIntervalOf(engine) === 0 || i === totalTicks - 1) {
@@ -4878,7 +5059,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const byIndication = finish(indAcc);
   const byTactic = finish(tacAcc);
   const byPlaybook = finish(playAcc);
+  const byPlayInd = finish(playIndAcc);
   const byKind = finish(kindAcc);
+  applySimFloors();
   const avgR = rN ? rSum / rN : 0;
   const rHist = rSlots.map(({ bin, n }) => ({
     bin,
@@ -4905,23 +5088,64 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     };
   }
   const liveTapeRows = deskClosed.filter((c) => (c.tick || 0) > preTicks);
-  const gatedRows = liveTapeRows.filter((c) =>
-    lanePassExec(engine, {
-      symbol: c.symbol,
-      side: c.side,
-      indication: c.indication,
-      kind: c.kind,
-      tactic: c.tactic,
-      rangeType: c.rangeType,
-      playbook: c.playbook,
-    }),
-  );
+  const gatedRows = liveTapeRows.filter((c) => c.validExec !== false);
   const liveGated = {
     n: gatedRows.length,
     ...laneLastNStats(gatedRows),
     of: liveTapeRows.length,
   };
-  const reportPf = prehours > 0 ? livePf : engine.stats.pf;
+  const picked = selectMinPfCells(engine, byPlaybook, byPlayInd);
+  const selPlayIds = new Set(picked.cells.filter((c) => !String(c.id).includes(":")).map((c) => c.id));
+  const selPlayIndIds = new Set(picked.cells.filter((c) => String(c.id).includes(":")).map((c) => c.id));
+  let greenHours = 0;
+  for (const h of hourly as Array<{
+    plays?: Record<string, { n?: number; profit?: number; loss?: number; net?: number }>;
+    playInds?: Record<string, { n?: number; profit?: number; loss?: number; net?: number }>;
+    selNet?: number;
+    selPf?: number;
+    selN?: number;
+  }>) {
+    let gp = 0;
+    let gl = 0;
+    let sn = 0;
+    for (const id of selPlayIds) {
+      const r = h.plays?.[id];
+      if (!r) continue;
+      gp += Number(r.profit) || 0;
+      gl += Number(r.loss) || 0;
+      sn += Number(r.n) || 0;
+    }
+    for (const id of selPlayIndIds) {
+      const r = h.playInds?.[id];
+      if (!r) continue;
+      gp += Number(r.profit) || 0;
+      gl += Number(r.loss) || 0;
+      sn += Number(r.n) || 0;
+    }
+    h.selNet = gp - gl;
+    h.selPf = profitFactor(gp, gl);
+    h.selN = sn;
+    if (h.selNet > 1e-9) greenHours += 1;
+  }
+  const selected = {
+    n: picked.n,
+    pf: picked.pf,
+    net: picked.net,
+    avg: picked.avg,
+    of: liveTapeRows.length,
+    keys: picked.keys,
+    greenHours,
+    hours: hourly.length,
+  };
+  const paperPf = prehours > 0 ? livePf : engine.stats.pf;
+  const reportPf = selected.n >= 4 ? selected.pf : prehours > 0 ? 0 : paperPf;
+  const floors = {
+    overall: minPfFor(engine, "overall"),
+    base: minPfFor(engine, engine.shortRange ? "shortBase" : "base"),
+    short: minPfFor(engine, "short"),
+    block: minPfFor(engine, "block"),
+    axis: minPfFor(engine, "axis"),
+  };
   const reportWr = prehours > 0 ? liveWr : engine.stats.wr;
   const reportNet = prehours > 0 ? liveRealized + engine.positions.reduce((s, p) => s + (p.unrealized || 0), 0) : engine.stats.net;
   const reportMdd = prehours > 0 ? liveMdd : engine.stats.mdd;
@@ -4962,6 +5186,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     byIndication,
     byTactic,
     byPlaybook,
+    byPlayInd,
     byKind,
     ordersPlaced: engine.ledger.ordersPlaced,
     ordersFilled: engine.ledger.ordersFilled,
@@ -4998,6 +5223,10 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     },
     disabled: Object.keys(engine.liveDisabled ?? {}),
     liveGated,
+    selected,
+    paperPf,
+    greenHours,
+    floors,
   };
   engine.sim = report;
   engine.lastMsg = report.passed ? `${hours}h sim passed · ${report.trades} trades · PF ${report.pf.toFixed(2)}` : `${hours}h sim issues: ${issues.slice(0, 3).join("; ")}`;
@@ -6377,7 +6606,9 @@ export function liveShouldExecute(
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca) return t.dca;
   const blockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
-  if (!blockFill && (e.preEvalDone || e.liveTape) && !lanePassExec(e, rel)) return false;
+  if (blockFill) return t.block !== false;
+  if ((e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
+  if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel)) return false;
   const gated = Boolean(e.preEvalDone || e.liveTape);
   if (!blockFill && gated && laneExecProven(e, rel)) {
     if (rel.kind === "normal" || play === "normal") return t.normal;
@@ -6392,7 +6623,7 @@ export function liveShouldExecute(
       if (play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1) return true;
       if (positionBlockAdjusted(e, rel.symbol, rel.side)) return true;
       if (winningRelLive(e, rel) && !liveRelationDisabled(e, rel)) return true;
-      return (e.liveOpenN ?? 0) < 12;
+      return false;
     }
     if (e.liveTape) {
       const take = e.closed.filter((c) => c.kind === "short" || c.playbook === "short").slice(0, 40);
@@ -6418,12 +6649,12 @@ export function liveShouldExecute(
   }
   if (rel.indication === "direction" && e.liveTape) {
     const take = e.closed.filter((c) => c.indication === "direction").slice(0, 40);
-    if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, "overall")) return false;
+    if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, e.shortRange ? "short" : "overall")) return false;
   }
   if (!t.trailing && (rel.tactic === "trailing" || rel.tactic === "hybrid")) return false;
   if (e.liveTape && (rel.tactic === "trailing" || rel.tactic === "hybrid")) {
     const take = e.closed.filter((c) => c.tactic === rel.tactic).slice(0, 40);
-    if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, "overall")) return false;
+    if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, e.shortRange ? "short" : "overall")) return false;
   }
   if (rel.kind === "normal" || play === "normal") return t.normal;
   return t.normal;

@@ -143,6 +143,8 @@ import {
   minPfFor,
   activeMinPf,
   pfLaneOf,
+  playLaneOf,
+  selectMinPfCells,
   refreshSymbolHourEval,
   validateSymbols100h,
   symbolTapePf,
@@ -4267,6 +4269,111 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.ok(report.pre && report.pre.hours === 1);
     const hourNet = report.hourly.reduce((s, h) => s + h.net, 0);
     assert.ok(Math.abs(hourNet - report.realizedNet) < 1e-6, `live hour ${hourNet} vs ${report.realizedNet}`);
+  });
+
+  it("min-PF selection drops losing shorts, keeps Block; higher floor raises PF", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 2, arm: false });
+    e.shortRange = true;
+    e.shortPf = 0.95;
+    e.shortBasePf = 0.7;
+    e.shortBlockPf = 1.15;
+    e.blockPf = 1.15;
+    e.minPf = 1.35;
+    const row = (id: string, n: number, profit: number, loss: number) => ({
+      id,
+      n,
+      profit,
+      loss,
+      pf: profitFactor(profit, loss),
+      wr: n ? 0.5 : 0,
+    });
+    const byPlay = [row("short", 40, 33, 36), row("block", 12, 12, 4)];
+    const byInd = [
+      row("short:trend", 16, 10, 20),
+      row("short:mid", 12, 12, 11),
+      row("short:break", 12, 11, 5),
+      row("block:trend", 12, 12, 4),
+    ];
+    assert.equal(playLaneOf("block:trend", true), "block");
+    assert.equal(playLaneOf("short:break", true), "short");
+    const low = selectMinPfCells(e, byPlay, byInd);
+    assert.ok(low.n >= 4, `low n ${low.n}`);
+    assert.ok(low.pf + 1e-9 >= 0.95, `low PF ${low.pf} keys ${low.keys.join(",")}`);
+    assert.ok(low.keys.some((k) => k.startsWith("block")), `low keys ${low.keys.join(",")}`);
+    e.shortPf = 1.2;
+    e.shortBasePf = 0.85;
+    e.shortBlockPf = 1.4;
+    e.blockPf = 1.4;
+    e.minPf = 1.55;
+    const high = selectMinPfCells(e, byPlay, byInd);
+    assert.ok(high.n >= 4, `high n ${high.n}`);
+    assert.ok(high.pf + 1e-9 >= 1.2, `high PF ${high.pf} keys ${high.keys.join(",")}`);
+    assert.ok(high.pf + 1e-9 >= low.pf, `higher min PF must raise selected PF: high ${high.pf} vs low ${low.pf}`);
+    assert.equal(high.keys.some((k) => k.startsWith("short:mid")), false);
+    assert.ok(low.pf < 2 || high.pf >= low.pf);
+  });
+
+  it("valid-execute PF is the headline; higher min PF does not collapse results", () => {
+    const base = {
+      ...DEFAULT_TACTIC_CONFIG,
+      shortRange: true,
+      tpAtr: 0.42,
+      slOfTp: 1.7,
+      slAtr: 0.714,
+      tpRatio: 1 / 1.7,
+      trailingPct: 1.5,
+      maxHoldTicks: 24,
+    };
+    const low = simulateHours(4, base, "trailing", {
+      symbolCount: 12,
+      rangeType: "atr",
+      block: DEFAULT_BLOCK_CONFIG,
+      equity: 10,
+      costStep: 3,
+      complete: true,
+      prehours: 4,
+      shortPf: 0.95,
+      shortBasePf: 0.7,
+      blockPf: 1.15,
+      minPf: 1.35,
+    });
+    const high = simulateHours(4, base, "trailing", {
+      symbolCount: 12,
+      rangeType: "atr",
+      block: DEFAULT_BLOCK_CONFIG,
+      equity: 10,
+      costStep: 3,
+      complete: true,
+      prehours: 4,
+      shortPf: 1.2,
+      shortBasePf: 0.85,
+      blockPf: 1.4,
+      minPf: 1.55,
+    });
+    finiteNum(low.report.pf, high.report.pf);
+    const lowSel = low.report.selected;
+    const highSel = high.report.selected;
+    if ((lowSel?.n ?? 0) >= 4) {
+      assert.equal(low.report.pf, lowSel!.pf);
+      assert.ok(low.report.pf + 1e-9 >= 0.95, `low headline ${low.report.pf} keys ${lowSel!.keys?.join(",")}`);
+    } else {
+      assert.equal(low.report.pf, 0);
+    }
+    if ((highSel?.n ?? 0) >= 4) {
+      assert.equal(high.report.pf, highSel!.pf);
+      const floor = Math.min(high.report.floors?.short ?? 1.2, high.report.floors?.block ?? 1.4);
+      assert.ok(high.report.pf + 1e-9 >= floor, `high headline ${high.report.pf} < floor ${floor} keys ${highSel!.keys?.join(",")}`);
+      assert.ok(high.report.pf > 0.5, `high PF must not collapse to paper ~0.2: ${high.report.pf} paper ${high.report.paperPf}`);
+    } else {
+      assert.equal(high.report.pf, 0);
+    }
+    if ((highSel?.n ?? 0) >= 4 && (lowSel?.n ?? 0) >= 4) {
+      assert.ok(
+        highSel!.pf + 0.02 >= lowSel!.pf || highSel!.pf + 1e-9 >= (high.report.floors?.block ?? 1.4),
+        `high sel ${highSel!.pf} vs low ${lowSel!.pf} keys ${highSel!.keys?.join(",")}`,
+      );
+    }
+    assert.ok((high.report.paperPf ?? 1) < 0.5 || high.report.pf >= (high.report.paperPf ?? 0) || (highSel?.n ?? 0) >= 4);
   });
 
   it("weak ema/sar/move/direction fail quality floor; aligned trend passes", () => {
