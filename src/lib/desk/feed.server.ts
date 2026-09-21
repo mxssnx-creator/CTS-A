@@ -1129,11 +1129,15 @@ export async function fetchExchangeBook(input: {
   const { apiKey, secret } = resolveKeys(input.connId, input.apiKey, input.secret);
   if (!apiKey || !secret) return { ...empty, error: "API key and secret required" };
 
-  const [ping, posRes, ordRes] = await Promise.all([
+  const [ping, posRes, ordFirst] = await Promise.all([
     pingAccount({ apiKey, secret, network: input.network, connId: input.connId }),
     signedJson(input.network, input.connId, "/openApi/swap/v2/user/positions"),
     signedJson(input.network, input.connId, "/openApi/swap/v2/trade/openOrders"),
   ]);
+  let ordRes = ordFirst;
+  if (!ordRes.ok) {
+    ordRes = await signedJson(input.network, input.connId, "/openApi/swap/v2/trade/openOrders");
+  }
   const ms = Math.max(ping.latencyMs || 0, posRes.ms || 0, ordRes.ms || 0);
 
   let positions: ExchangePosition[] = [];

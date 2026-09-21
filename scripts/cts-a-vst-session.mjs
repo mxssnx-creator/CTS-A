@@ -1468,8 +1468,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   }
   lastTrail = { n: trailed, ms: Date.now() - trailT0, at: Date.now() };
   const prot = countProtect(lastBook.positions ?? book.positions ?? [], lastBook.orders ?? book.orders ?? []);
-  lastBook.sl = prot.sl;
-  lastBook.tp = prot.tp;
+  const taggedSl = [...mirrored].filter((t) => String(t).startsWith("sl:")).length;
+  const taggedTp = [...mirrored].filter((t) => String(t).startsWith("tp:")).length;
+  lastBook.sl = Math.max(prot.sl, taggedSl);
+  lastBook.tp = Math.max(prot.tp, taggedTp);
   if (notes.length) return notes.filter(Boolean).slice(0, 4).join(" · ");
   return null;
 }
@@ -1491,6 +1493,10 @@ async function mirrorToExchange(e, network, cfg) {
   if (!book?.ok) {
     noteApiFail(book);
     return `live book ${book?.error ?? "fail"}`;
+  }
+  const orderBookMissing = !(book.orders?.length) && Boolean(book.error);
+  if (orderBookMissing && lastBook.orders?.length) {
+    book = { ...book, orders: lastBook.orders };
   }
   noteApiOk();
   if ((book.positions?.length ?? 0) === 0 && lastBook.pos > 0) {
@@ -2146,7 +2152,7 @@ async function main() {
       let wroteExchange = false;
       if (!apiQuiet() && ping.pingOk) {
         try {
-          const liveNote = await withTimeout(mirrorToExchange(engine, ping.network, pick.cfg), 15000, "live");
+          const liveNote = await withTimeout(mirrorToExchange(engine, ping.network, pick.cfg), 40000, "live");
           if (liveNote) {
             adjustments.push(liveNote);
             noteOp(liveNote);
