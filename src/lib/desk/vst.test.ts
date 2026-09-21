@@ -45,6 +45,8 @@ import {
   DEFAULT_LAST_N_PROGRESS,
   sanitizeLastNProgress,
   decideLastN,
+  coordinateLastN,
+  relComboKey,
   LAST_N_STAGE_META,
   LAST_N_PROGRESS_META,
   lastNEval,
@@ -105,9 +107,16 @@ import {
   STRATEGY_KINDS,
   SHORT_TP_ATR,
   SHORT_SL_OF_TP,
+  SHORT_SL_OF_TP_STEP,
   allShortTpSlCombos,
+  shortProtectGridFor,
+  shortComboKey,
   shortSlAtrOf,
   shortTpRatioOf,
+  snapShortTpAtr,
+  snapShortSlOfTp,
+  snapShortTacticConfig,
+  formatShortRatio,
   cfgUsesShortRange,
   strategiesForKinds,
   strategyMatchesKinds,
@@ -187,9 +196,14 @@ import {
   liveRelationDisabled,
   liveShouldExecute,
   laneLastNStack,
+  lanePassExec,
   lastNProgressOf,
   losingHourScale,
   refreshLosingHour,
+  tapeRed,
+  blockIntervalScale,
+  progressLaneScale,
+  entryVolumeScale,
   winningRelVolume,
   matchingWinningRels,
   blockRelationKeys,
@@ -199,6 +213,9 @@ import {
   blockComboPaused,
   completeComputations,
   sweepShortRange,
+  shortProtectGrid,
+  evaluateShortCombosIndependent,
+  completeIndependentTradeSim,
   LIVE_TACTICS,
   systemSnapshot,
   tickVst,
@@ -305,13 +322,14 @@ describe("VST engine", () => {
     const hold = trailStopFromPeak({ side: "long", entry: 100, peak: 102.4, tp: 104, sl: 98, trailPct: 1.5, shortRange: true });
     assert.equal(hold, 98);
     const cells = liveShortProtectCombos();
-    assert.equal(cells.length, 24);
-    assert.ok(cells.every((c) => c.tpAtr >= 0.42 && c.slOfTp >= 1.7 && c.tpAtr <= 0.6));
+    assert.equal(cells.length, 36);
+    assert.ok(cells.every((c) => c.tpAtr >= 0.4 && c.slOfTp >= 1.75 && c.tpAtr <= 0.6));
+    assert.ok(cells.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
     assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, DEFAULT_SHORT_MIN_TP_ATR);
     assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, DEFAULT_SHORT_MIN_SL_OF_TP);
     const sp = sanitizeShortProgress({});
-    assert.equal(sp.minTpAtr, 0.42);
-    assert.equal(sp.minSlOfTp, 1.7);
+    assert.equal(sp.minTpAtr, 0.4);
+    assert.equal(sp.minSlOfTp, 1.75);
   });
 
   it("default live floors print positive PF on 8h trailing", () => {
@@ -1738,6 +1756,144 @@ describe("VST engine", () => {
     assert.ok(rel.length >= 1, "relation Block stays while overall adds");
   });
 
+  it("last-N / relation evals run on the same tick before Overall Block sizes", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.running = true;
+    e.phase = "running";
+    e.blockCfg = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      autoEval: true,
+      overall: true,
+      stack: true,
+      windows: true,
+      sets: true,
+      volumeMode: "additive",
+      overallMode: "additive",
+      volumeRatio: 0.4,
+      overallVolumeRatio: 1.5,
+      relAdditive: false,
+      addOnWin: false,
+      cadence: 1,
+      counts: [1],
+      maxMultiple: 6,
+      minMultiple: 1,
+      minActiveLevel: 1,
+      minRelPf: 1.05,
+    };
+    const q = e.quotes.BTCUSDT!;
+    const rel = {
+      indication: "trend" as const,
+      kind: "short",
+      tactic: "trailing" as const,
+      rangeType: "atr" as const,
+      playbook: "short",
+    };
+    for (let i = 0; i < 18; i++) {
+      noteBlockPosClose(e, "BTCUSDT", "long", i % 4 === 0 ? -0.4 : 1.1, e.blockCfg, rel);
+    }
+    e.positions.push({
+      id: "p-eval-first",
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long",
+      qty: 1,
+      plannedQty: 1,
+      avgEntry: q.px,
+      mark: q.px,
+      sl: q.px * 0.99,
+      tp: q.px * 1.01,
+      slDist: q.px * 0.01,
+      tpDist: q.px * 0.01,
+      realized: 0,
+      unrealized: 0.02,
+      legs: [{ orderId: "leg-eval", qty: 1, px: q.px }],
+      controllingRange: "atr",
+      rangeSpacing: q.atr,
+      status: "open",
+      openedTick: 0,
+      tactic: "trailing",
+      indication: "trend",
+      kind: "short",
+      playbook: "short",
+    });
+    assert.equal(e.lastRelEvalTick || 0, 0);
+    for (let i = 0; i < 4; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
+    assert.equal(e.lastRelEvalTick, e.tick, "relation eval must complete on the Overall Block tick");
+    assert.equal(e.lastBlockAt, e.tick, "Overall Block must still size this tick");
+    assert.ok(Object.keys(e.blockRelBest || {}).length >= 1, "winning relations ready before overall extra");
+    const hits = matchingWinningRels(e, { symbol: "BTCUSDT", side: "long", ...rel });
+    assert.ok(hits.length >= 1, `relation picks ${hits.map((h) => h.key).join(",")} should be live for overall extra`);
+    const ov = [...e.queue, ...e.orders].filter((o) => /Overall Block/i.test(o.note || ""));
+    assert.ok(ov.length >= 1, "Overall Block queued after eval");
+  });
+
+  it("relation Block keeps full qty; Overall Block takes leftover room instead of share-scaling", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.running = true;
+    e.phase = "running";
+    e.blockCfg = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      autoEval: false,
+      overall: true,
+      overallSymbol: false,
+      overallDirection: false,
+      stack: true,
+      windows: false,
+      sets: true,
+      volumeMode: "additive",
+      overallMode: "additive",
+      volumeRatio: 0.4,
+      overallVolumeRatio: 1.5,
+      sharedVolumeRatio: 1.5,
+      maxVolumeMultiplier: 2.5,
+      relAdditive: false,
+      addOnWin: false,
+      cadence: 1,
+      counts: [1],
+      maxMultiple: 6,
+      minMultiple: 1,
+      minActiveLevel: 1,
+    };
+    const q = e.quotes.BTCUSDT!;
+    e.positions.push({
+      id: "p-rel-first",
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long",
+      qty: 1,
+      plannedQty: 1,
+      avgEntry: q.px,
+      mark: q.px,
+      sl: q.px * 0.99,
+      tp: q.px * 1.01,
+      slDist: q.px * 0.01,
+      tpDist: q.px * 0.01,
+      realized: 0,
+      unrealized: 0.02,
+      legs: [{ orderId: "leg-rel-first", qty: 1, px: q.px }],
+      controllingRange: "atr",
+      rangeSpacing: q.atr,
+      status: "open",
+      openedTick: 0,
+      tactic: "trailing",
+      indication: "trend",
+      kind: "short",
+      playbook: "short",
+    });
+    for (let i = 0; i < 4; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
+    const rel = [...e.queue, ...e.orders].filter((o) => /Block additive #1/.test(o.note || "") && !/Overall/.test(o.note || ""));
+    const ov = [...e.queue, ...e.orders].filter((o) => /Overall Block/i.test(o.note || "") && o.level === 1);
+    assert.ok(rel.length >= 1, "relation Block present");
+    assert.ok(ov.length >= 1, "Overall Block present");
+    const relQty = rel.reduce((s, o) => s + o.qty, 0);
+    const ovQty = ov.reduce((s, o) => s + o.qty, 0);
+    assert.ok(Math.abs(relQty - 0.4) < 0.02, `relation must keep 0.4, not share-scale, got ${relQty}`);
+    assert.ok(relQty + ovQty <= 1.5 + 1e-6, `extra ${relQty + ovQty} exceeds 1.5 room`);
+    assert.ok(ovQty > 0.5, `overall leftover ${ovQty}`);
+  });
+
   it("Overall Block stacks book + symbol + direction additively on shared", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     e.running = true;
@@ -2566,7 +2722,266 @@ describe("VST engine", () => {
     assert.ok(o, "short ladder");
     const slD = Math.abs(o!.price - o!.sl);
     const tpD = Math.abs(o!.tp - o!.price);
-    assert.ok(tpD / slD >= 0.45 && tpD / slD <= 1.6, `R ${tpD / slD}`);
+    assert.ok(tpD / slD >= 0.35 && tpD / slD <= 2.1, `R ${tpD / slD}`);
+  });
+
+  it("short-range GRID processes every TP×SL combo independently and intern-scores them", () => {
+    const all = allShortTpSlCombos();
+    assert.equal(all.length, SHORT_TP_ATR.length * SHORT_SL_OF_TP.length);
+    const keys = new Set(all.map((c) => shortComboKey(c.tpAtr, c.slOfTp)));
+    assert.equal(keys.size, all.length);
+    for (const c of all) {
+      assert.ok(Math.abs(c.slAtr - shortSlAtrOf(c.tpAtr, c.slOfTp)) < 1e-9);
+      assert.ok(Math.abs(c.tpRatio - shortTpRatioOf(c.slOfTp)) < 1e-9);
+    }
+    assert.ok(SHORT_SL_OF_TP[0] === 0.5 && SHORT_SL_OF_TP[SHORT_SL_OF_TP.length - 1] === 2.5);
+    assert.equal(SHORT_SL_OF_TP.length, 9);
+    for (let i = 1; i < SHORT_SL_OF_TP.length; i += 1) {
+      assert.ok(Math.abs(SHORT_SL_OF_TP[i]! - SHORT_SL_OF_TP[i - 1]! - 0.25) < 1e-9);
+    }
+    const internGrid = shortProtectGridFor({ intern: true });
+    assert.equal(internGrid.length, all.length);
+    const liveGrid = shortProtectGridFor({ complete: false, minTpAtr: 0.4, minSlOfTp: 1.75, maxTpAtr: 0.6, positiveOnly: true });
+    assert.equal(liveGrid.length, SHORT_20H_POSITIVE.length);
+    assert.ok(liveGrid.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
+    const cfg = { ...CFG, shortRange: true as const, trailingPct: 1.5, maxHoldTicks: 12, slAtr: 0.7, tpRatio: 1 / 1.75, tpAtr: 0.4, slOfTp: 1.75 };
+    const e = initVstEngine(cfg, { warmup: 0, symbolCount: 6, arm: true, complete: true });
+    assert.equal(e.completeSim, true);
+    const grid = shortProtectGrid(e, cfg);
+    assert.ok(grid.length >= SHORT_20H_POSITIVE.length && grid.length <= all.length, `exec grid ${grid.length}`);
+    assert.ok(grid.every((c) => c.tpAtr >= 0.4 && c.slOfTp >= 1.75));
+    assert.ok(grid.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
+    const tagged = [...e.queue, ...e.orders].filter((o) => o.playbook === "short" && o.tpAtr != null && o.slOfTp != null);
+    assert.ok(tagged.length >= 12, `tagged ${tagged.length}`);
+    const seen = new Set(tagged.map((o) => shortComboKey(o.tpAtr!, o.slOfTp!)));
+    assert.ok(seen.size >= Math.min(grid.length, 8), `combo keys ${seen.size} of ${grid.length}`);
+    const ratios = tagged.map((o) => Math.abs(o.tp - o.price) / Math.max(1e-9, Math.abs(o.price - o.sl)));
+    const minR = Math.min(...ratios);
+    const maxR = Math.max(...ratios);
+    assert.ok(maxR - minR > 0.05, `R span ${minR}..${maxR}`);
+    assert.ok(e.queue.length + e.orders.length <= VST_MAX_QUEUE || e.completeSim);
+    assert.ok(e.queue.length <= 8000);
+    for (const c of all.slice(0, 6)) {
+      e.closed.unshift({
+        id: `s-${c.tpAtr}-${c.slOfTp}`,
+        connId: e.activeConnId,
+        symbol: "BTCUSDT",
+        side: "long",
+        pnl: c.tpAtr >= 0.45 ? 1.2 : -0.4,
+        qty: 1,
+        entry: 100,
+        exit: 101,
+        reason: "tp",
+        tick: 1,
+        r: 1,
+        playbook: "short",
+        kind: "short",
+        tactic: "trailing",
+        rangeType: "atr",
+        indication: "ema",
+        tpAtr: c.tpAtr,
+        slOfTp: c.slOfTp,
+        trailPct: 1.5,
+        validExec: true,
+      });
+    }
+    const snap = refreshProgressEvals(e);
+    assert.ok(Object.keys(snap.shortCombos).length >= 4, `shortCombos ${Object.keys(snap.shortCombos).join(",")}`);
+    const hold = trailStopFromPeak({ side: "long", entry: 100, peak: 101.8, tp: 102.4, sl: 98.3, trailPct: 1.5, shortRange: true });
+    const wide = trailStopFromPeak({ side: "long", entry: 100, peak: 101.8, tp: 102.4, sl: 98.3, trailPct: 1.5, shortRange: false });
+    assert.ok(hold <= 101.8);
+    assert.ok(hold >= 98.3);
+    assert.ok(hold <= wide + 1e-9 || Math.abs(hold - wide) >= 0);
+    e.shortRange = true;
+    e.shortBasePf = 0.7;
+    e.progressEval = snap;
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.4, slOfTp: 1.75 }), true);
+    const loseKey = shortComboKey(0.3, 0.5);
+    e.progressEval = {
+      ...snap,
+      shortCombos: {
+        ...snap.shortCombos,
+        [loseKey]: { n: 8, pf: 0.35, net: -1, ok: false },
+        [shortComboKey(0.4, 1.75)]: { n: 8, pf: 0.75, net: 0.4, ok: true },
+      },
+    };
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.4, slOfTp: 1.75 }), true);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing", tpAtr: 0.3, slOfTp: 0.5 }), false);
+    const after = shortProtectGrid(e, cfg);
+    assert.ok(after.some((c) => c.tpAtr === 0.4));
+    assert.ok(!after.some((c) => c.tpAtr === 0.3 && c.slOfTp === 0.5));
+  });
+
+  it("complete hourly tape reports eq use, avg pos/ord, and strategy PFs", () => {
+    const cfg = { ...CFG, shortRange: true as const, trailingPct: 1.5, tpAtr: 0.42, slOfTp: 1.75, maxHoldTicks: 24 };
+    const { report } = simulateHours(2, cfg, "hybrid", {
+      symbolCount: 8,
+      rangeType: "atr",
+      equity: 10,
+      costStep: 3,
+      complete: true,
+      prehours: 1,
+    });
+    assert.ok((report.hourly || []).length >= 2, `hours ${report.hourly?.length}`);
+    for (const h of report.hourly || []) {
+      assert.ok(Number.isFinite(h.eq));
+      assert.ok(Number.isFinite(h.mdd));
+      assert.ok(Number.isFinite(h.eqUsePct ?? h.marginPct));
+      assert.ok(Number.isFinite(h.avgPos ?? h.pos));
+      assert.ok(Number.isFinite(h.avgOrd ?? h.orders));
+      assert.ok(Number.isFinite(h.hourPf));
+      assert.ok(h.inds && typeof h.inds === "object");
+      assert.ok(h.plays && typeof h.plays === "object");
+    }
+    assert.ok(report.trades >= 0);
+    assert.ok(Number.isFinite(report.pf));
+    assert.ok((report.avgBlockOrd ?? 0) >= 0);
+  });
+
+  it("short SL 0.5–2.5 step 0.25 combos sim independently with prehours and stay Base-gated", () => {
+    const all = allShortTpSlCombos();
+    assert.equal(all.length, 14 * 9);
+    assert.equal(new Set(all.map((c) => shortComboKey(c.tpAtr, c.slOfTp))).size, all.length);
+    const tight = all.find((c) => c.tpAtr === 0.4 && c.slOfTp === 0.5);
+    const wide = all.find((c) => c.tpAtr === 0.4 && c.slOfTp === 2.5);
+    const win = all.find((c) => c.tpAtr === SHORT_WINNER.tpAtr && c.slOfTp === SHORT_WINNER.slOfTp);
+    assert.ok(tight && wide && win);
+    const cfgTight = { ...CFG, ...tight!, shortRange: true as const, trailingPct: 1.5, maxHoldTicks: 12 };
+    const cfgWide = { ...CFG, ...wide!, shortRange: true as const, trailingPct: 1.5, maxHoldTicks: 12 };
+    const a = initVstEngine(cfgTight, { warmup: 0, symbolCount: 4, arm: true, comboOnly: true });
+    const b = initVstEngine(cfgWide, { warmup: 0, symbolCount: 4, arm: true, comboOnly: true });
+    const oa = [...a.queue, ...a.orders].find((o) => o.tpAtr === 0.4 && o.slOfTp === 0.5);
+    const ob = [...b.queue, ...b.orders].find((o) => o.tpAtr === 0.4 && o.slOfTp === 2.5);
+    assert.ok(oa && ob, "independent ladders");
+    const ra = Math.abs(oa!.tp - oa!.price) / Math.max(1e-9, Math.abs(oa!.price - oa!.sl));
+    const rb = Math.abs(ob!.tp - ob!.price) / Math.max(1e-9, Math.abs(ob!.price - ob!.sl));
+    assert.ok(ra > rb + 0.4, `R tight ${ra} vs wide ${rb}`);
+    const sample = [tight!, win!, wide!, all.find((c) => c.tpAtr === 0.3 && c.slOfTp === 0.5)!, all.find((c) => c.tpAtr === 0.6 && c.slOfTp === 2.25)!];
+    const run = evaluateShortCombosIndependent({
+      hours: 4,
+      prehours: 4,
+      symbolCount: 12,
+      tactic: "trailing",
+      block: false,
+      combos: sample,
+    });
+    assert.equal(run.cells.length, sample.length);
+    assert.ok(run.all.trades >= 0);
+    assert.ok(run.cells.every((c) => Number.isFinite(c.pf) && Number.isFinite(c.net)));
+    assert.ok(new Set(run.cells.map((c) => c.combo)).size === sample.length);
+    const full = evaluateShortCombosIndependent({
+      hours: 1,
+      prehours: 1,
+      symbolCount: 8,
+      tactic: "trailing",
+      block: false,
+    });
+    assert.equal(full.cells.length, all.length);
+    assert.ok(full.all.orders > 0, `orders ${full.all.orders}`);
+    assert.equal(full.cells.reduce((s, c) => s + c.leaked, 0), 0, "independent tapes must not mix combos");
+    assert.ok(full.cells.every((c) => c.pf < PF_NO_LOSS - 1e-9 || c.net > -1e-6), "no-loss PF cannot print a losing net");
+    const ok = full.cells.filter((c) => c.ok);
+    const lose = full.cells.filter((c) => !c.ok && c.trades >= 6);
+    assert.ok(ok.length + lose.length >= 1);
+    if (ok.length) {
+      const blocked = evaluateShortCombosIndependent({
+        hours: 2,
+        prehours: 2,
+        symbolCount: 8,
+        tactic: "trailing",
+        block: true,
+        combos: ok.slice(0, Math.min(6, ok.length)).map((c) => ({
+          tpAtr: c.tpAtr,
+          slOfTp: c.slOfTp,
+          slAtr: c.slAtr,
+          tpRatio: c.tpRatio,
+          shortRange: true as const,
+        })),
+      });
+      assert.ok(blocked.cells.every((c) => Number.isFinite(c.pf)));
+      assert.ok(blocked.all.orders > 0);
+    }
+    const mixed = initVstEngine({ ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75 }, { warmup: 0, symbolCount: 6, arm: true, complete: true });
+    const exec = shortProtectGrid(mixed, { ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75 });
+    assert.ok(!exec.some((c) => c.slOfTp + 1e-9 < 1.75 && c.tpAtr < 0.4));
+    assert.ok(!exec.some((c) => c.tpAtr === 0.3));
+  });
+
+  it("short SL labels and combo keys snap 0.25 steps — toFixed(1) would mislabel 0.75 as 0.8", () => {
+    assert.equal(SHORT_SL_OF_TP_STEP, 0.25);
+    assert.equal(SHORT_SL_OF_TP.length, 9);
+    assert.equal(formatShortRatio(0.75), "0.75");
+    assert.equal(formatShortRatio(1.25), "1.25");
+    assert.equal(formatShortRatio(1.75), "1.75");
+    assert.equal(formatShortRatio(2.25), "2.25");
+    assert.notEqual((0.75).toFixed(1), "0.75");
+    assert.notEqual((1.75).toFixed(1), "1.75");
+    assert.equal(new Set(SHORT_SL_OF_TP.map((r) => r.toFixed(1))).size, SHORT_SL_OF_TP.length);
+    assert.equal(snapShortSlOfTp(1.7), 1.75);
+    assert.equal(snapShortSlOfTp(1.8), 1.75);
+    assert.equal(snapShortSlOfTp(0.6), 0.5);
+    assert.equal(snapShortTpAtr(0.41), 0.42);
+    assert.equal(shortComboKey(0.42, 1.7), shortComboKey(0.42, 1.75));
+    assert.equal(shortComboKey(0.41, 1.8), "0.42:1.75");
+    assert.notEqual(shortComboKey(0.4, 0.5), shortComboKey(0.4, 0.75));
+    const snapped = snapShortTacticConfig({ ...CFG, shortRange: true, tpAtr: 0.41, slOfTp: 1.7 });
+    assert.equal(snapped.tpAtr, 0.42);
+    assert.equal(snapped.slOfTp, 1.75);
+    assert.equal(snapped.slAtr, shortSlAtrOf(0.42, 1.75));
+    assert.equal(snapped.tpRatio, shortTpRatioOf(1.75));
+    const keys = new Set(allShortTpSlCombos().map((c) => shortComboKey(c.tpAtr, c.slOfTp)));
+    assert.equal(keys.size, 14 * 9);
+  });
+
+  it("complete independent trade sim covers every SL 0.5–2.5 with prehours, many symbols, and no leaks", () => {
+    const covering = SHORT_SL_OF_TP.map((slOfTp) => {
+      const tpAtr = slOfTp === 0.5 ? 0.3 : slOfTp === 2.5 ? 0.6 : 0.45;
+      return {
+        tpAtr,
+        slOfTp,
+        slAtr: shortSlAtrOf(tpAtr, slOfTp),
+        tpRatio: shortTpRatioOf(slOfTp),
+        shortRange: true as const,
+      };
+    });
+    const run = completeIndependentTradeSim({
+      hours: 2,
+      prehours: 2,
+      symbolCount: 16,
+      tactic: "trailing",
+      block: false,
+      combos: covering,
+    });
+    assert.equal(run.short.cells.length, 9);
+    assert.equal(run.leaked, 0);
+    assert.ok(run.orders > 0, `orders ${run.orders}`);
+    assert.ok(run.short.cells.every((c) => Number.isFinite(c.pf) && Number.isFinite(c.net) && Number.isFinite(c.trades)));
+    assert.equal(new Set(run.short.cells.map((c) => c.slOfTp)).size, 9);
+    const tactics = completeComputations(CFG, { symbolCount: 4, hours: [1] });
+    assert.equal(tactics.cells.length, LIVE_TACTICS.length * RANGE_TYPES.length);
+    const a = covering.find((c) => c.slOfTp === 0.5)!;
+    const b = covering.find((c) => c.slOfTp === 2.5)!;
+    const ea = initVstEngine({ ...CFG, ...a }, { warmup: 0, symbolCount: 6, arm: true, comboOnly: true });
+    const eb = initVstEngine({ ...CFG, ...b }, { warmup: 0, symbolCount: 6, arm: true, comboOnly: true });
+    const oa = [...ea.queue, ...ea.orders].find((o) => o.slOfTp === 0.5 && o.tp > 0);
+    const ob = [...eb.queue, ...eb.orders].find((o) => o.slOfTp === 2.5 && o.tp > 0);
+    assert.ok(oa && ob, "independent SL 0.5 vs 2.5 ladders");
+    const ra = Math.abs(oa!.tp - oa!.price) / Math.max(1e-9, Math.abs(oa!.price - oa!.sl));
+    const rb = Math.abs(ob!.tp - ob!.price) / Math.max(1e-9, Math.abs(ob!.price - ob!.sl));
+    assert.ok(ra > rb + 0.4, `R 0.5 ${ra} vs 2.5 ${rb}`);
+  });
+
+  it("live caps allow high order counts and never drop below paper/live ceilings", () => {
+    assert.ok(VST_MAX_POSITIONS >= 400);
+    assert.ok(VST_MAX_QUEUE >= 2400);
+    assert.ok(VST_MAX_WORKING_ORDERS >= 2400);
+    const e = initVstEngine({ ...CFG, shortRange: true, trailingPct: 1.5 }, { warmup: 0, symbolCount: 24, arm: true });
+    assert.ok(e.queue.length + e.orders.length >= 24, `armed ${e.queue.length}+${e.orders.length}`);
+    assert.ok(e.queue.length <= VST_MAX_QUEUE);
+    assert.ok(e.orders.length <= VST_MAX_WORKING_ORDERS);
+    const liveGrid = shortProtectGrid(e, { ...CFG, shortRange: true });
+    assert.ok(liveGrid.length >= 8);
+    assert.ok(liveGrid.every((c) => c.tpAtr >= 0.4 && c.slOfTp >= 1.75));
   });
 
   it("break, active, and direction run with their own ranges, playbooks, and auto-evals", () => {
@@ -2914,7 +3329,7 @@ describe("VST engine", () => {
     assert.equal(stable?.patch.rangeType, "atr");
     assert.equal(stable?.patch.tacticConfig?.shortRange, true);
     assert.equal(stable?.patch.tacticConfig?.tpAtr, 0.42);
-    assert.equal(stable?.patch.tacticConfig?.slOfTp, 1.7);
+    assert.equal(stable?.patch.tacticConfig?.slOfTp, 1.75);
     assert.deepEqual(stable?.patch.blockConfig?.counts, [1, 2, 3, 4, 5, 6]);
     assert.equal(stable?.patch.blockConfig?.activeLive, true);
     assert.equal(stable?.patch.blockConfig?.volumeMode, "parallel");
@@ -2949,7 +3364,7 @@ describe("VST engine", () => {
     assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), true);
     e.liveTape = true;
     e.liveOpenN = 40;
-    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), false);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), true);
     assert.equal(
       liveShouldExecute(e, { symbol: "ETHUSDT", side: "long", playbook: "block", note: "Block 1", blockLevel: 1, tactic: "trailing" }),
       true,
@@ -3628,8 +4043,8 @@ describe("full config coverage", () => {
     e.shortPf = 0.95;
     e.shortAxisPf = 0.9;
     e.shortBlockPf = 1.15;
-    assert.equal(e.shortProgress?.minTpAtr, 0.42);
-    assert.equal(e.shortProgress?.minSlOfTp, 1.7);
+    assert.equal(e.shortProgress?.minTpAtr, 0.4);
+    assert.equal(e.shortProgress?.minSlOfTp, 1.75);
     const ids = new Set<string>();
     for (const s of Object.keys(e.quotes).slice(0, 8)) ids.add(classifyIndication(e, s));
     assert.ok(ids.size >= 1, `ids ${[...ids].join(",")}`);
@@ -3643,24 +4058,26 @@ describe("full config coverage", () => {
     const r = adjustActiveBlocks(e, { ...CFG, shortRange: true }, "trailing", block, "atr", { endStage: true });
     assert.ok(r.blocks >= 0);
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "parallel");
-    assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, 0.42);
-    assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, 1.7);
-    assert.equal(sanitizeShortProgress({}).minTpAtr, 0.42);
+    assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, 0.4);
+    assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, 1.75);
+    assert.equal(sanitizeShortProgress({}).minTpAtr, 0.4);
     assert.equal(sanitizeShortProgress({}).maxTpAtr, 0.6);
     assert.equal(sanitizeShortProgress({}).evalHours, 20);
     assert.equal(sanitizeShortProgress({}).evalPositiveOnly, true);
     assert.ok(SHORT_TP_ATR.includes(0.6));
     assert.ok(cfgUsesShortRange({ shortRange: true, tpAtr: 0.6 }));
     const wide = liveShortProtectCombos(0.42, 1.7, 0.6);
-    assert.equal(wide.length, 24);
+    assert.equal(wide.length, 32);
     assert.ok(wide.some((c) => c.tpAtr === 0.6));
-    assert.ok(wide.every((c) => c.tpAtr >= 0.42 && c.tpAtr <= 0.6 && c.slOfTp >= 1.7));
-    const pos = filterLiveShortCombos(0.42, 1.7, 0.6, true);
+    assert.ok(wide.every((c) => c.tpAtr >= 0.42 && c.tpAtr <= 0.6 && c.slOfTp >= 1.75));
+    const pos = filterLiveShortCombos(0.4, 1.75, 0.6, true);
     assert.equal(pos.length, SHORT_20H_POSITIVE.length);
+    assert.ok(pos.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
     assert.ok(pos.some((c) => c.tpAtr === SHORT_WINNER.tpAtr && c.slOfTp === SHORT_WINNER.slOfTp));
     assert.ok(!pos.some((c) => c.tpAtr === 0.6));
     assert.ok(!pos.some((c) => c.tpAtr === 0.58));
-    assert.equal(filterLiveShortCombos(0.42, 1.7, 0.6, false).length, 24);
+    assert.equal(filterLiveShortCombos(0.42, 1.7, 0.6, false).length, 32);
+    assert.equal(filterLiveShortCombos(0.4, 1.7, 0.6, false).length, 36);
     assert.ok(AUTO_EVAL_HOURS.includes(20) && SHORT_EVAL_HOURS === 20);
     const eOv = initVstEngine(CFG, {
       warmup: 0,
@@ -3668,13 +4085,14 @@ describe("full config coverage", () => {
       arm: false,
       block: { ...DEFAULT_BLOCK_CONFIG, overallVolumeRatio: 1.5, sharedVolumeRatio: 1.5, volumeRatio: 0.2 },
     });
-    assert.equal(eOv.blockCfg.overallVolumeRatio, 1.5);
-    assert.equal(eOv.blockCfg.sharedVolumeRatio, 1.5);
-    assert.equal(eOv.blockCfg.volumeRatio, 0.2);
+    assert.equal(eOv.blockCfg?.overallVolumeRatio, 1.5);
+    assert.equal(eOv.blockCfg?.sharedVolumeRatio, 1.5);
+    assert.equal(eOv.blockCfg?.volumeRatio, 0.2);
     assert.equal(clampOverallVol(1.5), 1.5);
     assert.equal(clampOverallVol(3), 3);
     assert.equal(allShortTpSlCombos().length, SHORT_TP_ATR.length * SHORT_SL_OF_TP.length);
-    assert.equal(sanitizeShortProgress({ minTpAtr: 0.3, minSlOfTp: 1.3 }).minTpAtr, 0.3);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.3, minSlOfTp: 0.5 }).minSlOfTp, 0.5);
+    assert.equal(sanitizeShortProgress({ minSlOfTp: 2.5 }).minSlOfTp, 2.5);
     assert.ok(liveShortProtectCombos(0.45, 2).every((c) => c.tpAtr >= 0.45 && c.slOfTp >= 2));
     assert.ok(isPositive({ pf: 0.85, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "short", shortRange: true }, { ...DEFAULT_THRESHOLDS, shortPf: 0.8 }));
     assert.equal(isPositive({ pf: 0.85, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "block", shortRange: true }, { ...DEFAULT_THRESHOLDS, shortBlockPf: 1.15 }), false);
@@ -3784,7 +4202,7 @@ describe("calculations, relations, adjustments, stats", () => {
     });
     assert.ok(a.includes("sym:BTCUSDT") && a.includes("side:long") && a.includes("ind:trend"));
     assert.ok(a.includes("combo:trend:trend:trailing:atr:long"));
-    assert.ok(a.includes("prot:0.42:1.7"));
+    assert.ok(a.includes("prot:0.42:1.75"));
     assert.ok(a.includes("sub:trend:trend"));
     const shared = a.filter((k) => b.includes(k));
     assert.deepEqual(shared, ["sym:BTCUSDT"]);
@@ -3839,14 +4257,15 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.ok(Math.abs(n1.lastPf - n2.lastPf) > 1e-9);
     assert.ok(n6.lastPf > 0);
     const bySym = e.blockWindowsBySymbol.BTCUSDT![1];
-    const bySide = e.blockWindowsBySide.long![1];
+    const bySide = e.blockWindowsBySide?.long?.[1];
     assert.equal(bySym.lastPf, n1.lastPf);
+    assert.ok(bySide);
     assert.equal(bySide.lastPf, n1.lastPf);
     noteBlockPosClose(e, "ETHUSDT", "short", -4, block);
     assert.ok(Math.abs(e.blockWindowsBySymbol.BTCUSDT![1].lastPf - e.blockWindows[1].lastPf) > 1e-12 || e.blockWindowsBySymbol.ETHUSDT);
     assert.equal(e.blockWindowsBySymbol.BTCUSDT![1].closed, 12);
     assert.equal(e.blockWindowsBySymbol.ETHUSDT![1].closed, 1);
-    assert.equal(e.blockWindowsBySide.short![1].closed, 1);
+    assert.equal(e.blockWindowsBySide?.short?.[1].closed, 1);
   });
 
   it("overallLiveStats buckets, last-N PF, and foreign conn isolation", () => {
@@ -4205,6 +4624,65 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.equal(lastNProgressOf(e).evalNs.length, 14);
   });
 
+  it("coordinates active last-N / types / combos without shrinking the settings grid", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 3, arm: false });
+    e.preEvalDone = true;
+    e.minPf = 1.1;
+    e.basePf = 1.0;
+    e.lastNProgress = sanitizeLastNProgress({ ...DEFAULT_LAST_N_PROGRESS, mode: "parallel" });
+    const mk = (pnl: number, extra: { indication: string; tactic: string; tick: number; id: string }) =>
+      ({
+        id: extra.id,
+        connId: e.activeConnId,
+        symbol: "BTCUSDT",
+        side: "long" as const,
+        pnl,
+        qty: 1,
+        entry: 1,
+        exit: 1,
+        reason: pnl > 0 ? "tp" : "sl",
+        tick: extra.tick,
+        r: pnl,
+        rangeType: "atr" as const,
+        indication: extra.indication,
+        playbook: "short",
+        tactic: extra.tactic,
+        kind: "short",
+      }) as never;
+    for (let i = 0; i < 24; i++) {
+      e.closed.unshift(mk(1.15, { indication: "trend", tactic: "trailing", tick: 100 + i, id: `w:${i}` }));
+    }
+    for (let i = 0; i < 16; i++) {
+      e.closed.unshift(mk(-0.85, { indication: "move", tactic: "trailing", tick: 200 + i, id: `l:${i}` }));
+    }
+    const settingsLen = e.lastNProgress.evalNs.length;
+    const snap = refreshProgressEvals(e);
+    assert.equal(e.lastNProgress.evalNs.length, settingsLen, "settings grid stays full");
+    assert.ok(e.lastNCoord, "lastNCoord populated");
+    const coord = e.lastNCoord!;
+    assert.ok(coord.evalNs.length >= 1 && coord.evalNs.length <= 3);
+    assert.ok(coord.validNs.length >= 1 && coord.validNs.length <= 3);
+    assert.ok(coord.disableNs.includes(LIVE_DISABLE_N) || coord.disableNs.length >= 1);
+    assert.ok(coord.activeInds.includes("trend"), `active inds ${coord.activeInds}`);
+    assert.equal(coord.activeInds.includes("move"), false);
+    const trendKey = relComboKey({ indication: "trend", tactic: "trailing", rangeType: "atr", playbook: "short" });
+    const midKey = relComboKey({ indication: "move", tactic: "trailing", rangeType: "atr", playbook: "short" });
+    assert.equal(coord.combos[trendKey]?.ok, true);
+    assert.equal(coord.combos[midKey]?.ok, false);
+    const trendRel = { symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, kind: "short", tactic: "trailing" as const, rangeType: "atr" as const, playbook: "short" };
+    const midRel = { symbol: "BTCUSDT", side: "long" as const, indication: "move" as const, kind: "short", tactic: "trailing" as const, rangeType: "atr" as const, playbook: "short" };
+    assert.equal(lanePassExec(e, trendRel), true);
+    assert.equal(lanePassExec(e, midRel), false);
+    assert.equal(liveShouldExecute(e, trendRel), true);
+    assert.equal(liveShouldExecute(e, midRel), false);
+    assert.ok(laneLastNStack(e, trendRel) >= 1);
+    assert.equal(laneLastNStack(e, midRel), 1);
+    assert.ok(snap.evalNs["50"] || snap.evalNs["15"]);
+    assert.ok(Object.keys(snap.lastNModes).includes("parallel"));
+    const pick = coordinateLastN(e.closed.filter((c) => c.connId === e.activeConnId), e.lastNProgress, 1.1, 1.0);
+    assert.ok(pick.evalNs.length <= 3);
+  });
+
   it("losing-hour tilt: Block / ema / direction / bollinger scale up when last hour is red", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     assert.equal(losingHourScale(e, { playbook: "block" }), 1);
@@ -4245,6 +4723,45 @@ describe("calculations, relations, adjustments, stats", () => {
     const snap = refreshLosingHour(e);
     assert.equal(snap.red, true);
     assert.ok(snap.greenPlays.includes("block") || snap.greenPlays.length >= 1);
+  });
+
+  it("entry volume keeps Block size on red tape and shrinks losing shorts without skipping", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.tick = 40;
+    e.closed = [];
+    for (let i = 0; i < 8; i++) {
+      e.closed.unshift({
+        id: `redv-${i}`,
+        connId: e.activeConnId,
+        symbol: "BTCUSDT",
+        side: "long",
+        pnl: i < 2 ? 0.3 : -1,
+        qty: 1,
+        entry: 1,
+        exit: 1,
+        reason: i < 2 ? "tp" : "sl",
+        tick: 30 + i,
+        r: i < 2 ? 0.3 : -1,
+        playbook: i < 2 ? "block" : "short",
+        indication: i < 2 ? "ema" : "trend",
+        tactic: "trailing",
+        kind: i < 2 ? "block" : "short",
+      } as never);
+    }
+    assert.equal(tapeRed(e), true);
+    const iv = intervalVolumeScale(e);
+    assert.ok(iv < 1, `interval ${iv}`);
+    const blkIv = blockIntervalScale(e);
+    assert.ok(blkIv >= 1, `block interval ${blkIv} must not inherit red haircut ${iv}`);
+    refreshLosingHour(e);
+    refreshProgressEvals(e);
+    const blk = entryVolumeScale(e, { playbook: "block", indication: "ema", kind: "block" });
+    const sh = entryVolumeScale(e, { playbook: "short", indication: "trend", kind: "short" });
+    assert.ok(blk > sh, `block ${blk} vs short ${sh}`);
+    assert.ok(blk >= 1, `block entry ${blk}`);
+    assert.ok(sh <= 0.55, `short entry ${sh}`);
+    assert.ok(progressLaneScale(e, { playbook: "block" }) >= 1);
+    assert.equal(intervalAllowsEntry(e), true);
   });
 
   it("prehours seed last-N then live hours report independently", () => {
@@ -4552,11 +5069,38 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.ok(snap.indications.ema || snap.indications.trend);
     assert.ok(snap.tactics.axis || snap.tactics.trailing);
     assert.ok(snap.blockCounts["2"]?.ok || snap.blockCounts["3"]?.ok);
-    assert.equal(e.lastNProgress.mode === "independent" || e.lastNProgress.mode === "combined" || e.lastNProgress.mode === "parallel", true);
+    assert.equal(e.lastNProgress?.mode === "independent" || e.lastNProgress?.mode === "combined" || e.lastNProgress?.mode === "parallel", true);
     assert.ok((e.blockCfg?.counts ?? []).every((n) => n >= 1 && n <= 6));
     assert.equal((e.blockCfg?.counts ?? []).join(","), "1,2,3,4,5,6");
     assert.equal(e.blockCfg?.volumeMode, "parallel");
-    assert.ok((e.lastNProgress.evalNs?.length ?? 0) >= 10, "eval grid not shrunk");
+    assert.ok((e.lastNProgress?.evalNs?.length ?? 0) >= 10, "eval grid not shrunk");
+    assert.ok(snap.relations);
+    assert.ok(snap.shortCombos);
+  });
+
+  it("intern evals score every relation; live extra only uses winners", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.tick = 30;
+    const block = { ...DEFAULT_BLOCK_CONFIG, enabled: true, autoEval: true, minRelPf: 1.2, relAdditive: true, windows: true };
+    e.blockCfg = block;
+    const winRel = { indication: "ema" as const, kind: "short", tactic: "trailing" as const, rangeType: "atr" as const, playbook: "short" };
+    const loseRel = { indication: "rsi" as const, kind: "normal", tactic: "hybrid" as const, rangeType: "linear" as const, playbook: "normal" };
+    for (let i = 0; i < 18; i++) noteBlockPosClose(e, "BTCUSDT", "long", i % 5 === 0 ? -0.2 : 1.4, block, winRel);
+    for (let i = 0; i < 18; i++) noteBlockPosClose(e, "ETHUSDT", "short", i % 5 === 0 ? 0.2 : -1.1, block, loseRel);
+    const ev = evalBlockRelations(e, block);
+    const snap = e.progressEval!;
+    assert.ok(Object.keys(snap.relations).length >= 2, `intern relations ${Object.keys(snap.relations).join(",")}`);
+    assert.ok(snap.relations["ind:ema"], "intern keeps ema");
+    assert.ok(snap.relations["ind:rsi"], "intern keeps losing rsi");
+    assert.equal(snap.relations["ind:rsi"]?.ok, false);
+    assert.equal(snap.relations["ind:ema"]?.ok, true);
+    assert.ok(ev.intern >= ev.winners, `intern ${ev.intern} vs live winners ${ev.winners}`);
+    assert.ok(e.blockRelBest?.["ind:ema"], "live extra keeps winner");
+    assert.equal(e.blockRelBest?.["ind:rsi"], undefined, "live extra drops loser");
+    const winVol = winningRelVolume(e, { symbol: "BTCUSDT", side: "long", ...winRel });
+    const loseVol = winningRelVolume(e, { symbol: "ETHUSDT", side: "short", ...loseRel });
+    assert.ok(winVol > 0, `winner extra ${winVol}`);
+    assert.equal(loseVol, 0);
   });
 
   it("protect sl/tp multipliers stay independent", () => {

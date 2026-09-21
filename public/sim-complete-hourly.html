@@ -1,0 +1,381 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Complete 12h × 40 hourly</title>
+<style>
+body{font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0b1220;color:#d6e4ff;margin:24px}
+h1{font:600 22px/1.2 ui-sans-serif,system-ui;color:#fff}
+h2{font:600 16px/1.3 ui-sans-serif,system-ui;color:#fff;margin-top:36px}
+table{border-collapse:collapse;margin:12px 0 28px;width:100%}
+th,td{border-bottom:1px solid #1e2a44;padding:4px 8px;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+.ok{color:#3dd68c}.bad{color:#ff7b7b}
+.card{display:flex;gap:24px;flex-wrap:wrap;margin:16px 0;align-items:flex-end}
+.spark{color:#6ea8fe;display:flex;flex-direction:column;gap:4px}
+.spark.ok{color:#3dd68c}
+small{color:#8aa0c8}
+a{color:#78a9ff}
+.sub td{color:#8aa0c8;font-size:11px;text-align:left;border-bottom:1px solid #152038}
+.kpi{display:flex;gap:18px;flex-wrap:wrap;margin:12px 0 8px}
+.kpi b{display:block;font:600 18px/1.2 ui-sans-serif,system-ui;color:#fff}
+</style></head><body>
+<h1>Complete computing · 12h × 40 + 20h pre</h1>
+<p>short 0.42 / 1.75 trailing ATR · Block shared 1.5 additive 0.2 N1–6 · cost step 3 · $10 · last-N 50/15/12 · 16432 ms</p>
+<p><a href="/sim-complete-hourly.json">JSON</a> · <a href="/sim-complete-hourly.txt">TXT</a></p>
+<div class="kpi">
+  <div><small>LIVE PF</small><b class="ok">4.000</b></div>
+  <div><small>paper PF</small><b class="bad">0.345</b></div>
+  <div><small>equity</small><b>9.9156</b></div>
+  <div><small>MDD</small><b>0.41%</b></div>
+  <div><small>DDT</small><b>1680</b></div>
+  <div><small>trades</small><b>3602</b></div>
+  <div><small>WR</small><b>45.1%</b></div>
+  <div><small>green hours</small><b class="">0/12</b></div>
+  <div><small>avg pos</small><b>46.96</b></div>
+  <div><small>avg ord</small><b>3486.0</b></div>
+  <div><small>max eq use</small><b>0.09%</b></div>
+</div>
+<div class="card">
+  <div class="spark "><svg viewBox="0 0 220 64" width="220" height="64"><path d="M4,4 L23.272727272727273,9.284452268594643 L42.54545454545455,15.411285701099512 L61.81818181818182,16.84457458231788 L81.0909090909091,22.137392159949243 L100.36363636363637,25.887859425140405 L119.63636363636364,30.766035043110925 L138.9090909090909,32.501549564740415 L158.1818181818182,41.138943165149506 L177.45454545454547,46.09118493243568 L196.72727272727275,50.94051261863246 L216,60" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><small>equity</small></div>
+  <div class="spark"><svg viewBox="0 0 220 64" width="220" height="64"><path d="M4,44.26895558285939 L23.272727272727273,22.906027557103652 L42.54545454545455,48.864841290404016 L61.81818181818182,49.6068195607287 L81.0909090909091,40.469002468613674 L100.36363636363637,44.81979956118291 L119.63636363636364,4 L138.9090909090909,19.636636142947793 L158.1818181818182,56.59135693565182 L177.45454545454547,33.89294337302218 L196.72727272727275,33.31456906091292 L216,60" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><small>hour PF</small></div>
+  <div class="spark"><svg viewBox="0 0 220 64" width="220" height="64"><path d="M4,60 L23.272727272727273,54.71554773140536 L42.54545454545455,48.58871429890049 L61.81818181818182,47.155425417682125 L81.0909090909091,41.862607840050764 L100.36363636363637,38.112140574859595 L119.63636363636364,33.233964956889075 L138.9090909090909,31.498450435259596 L158.1818181818182,22.86105683485049 L177.45454545454547,17.908815067564333 L196.72727272727275,13.05948738136754 L216,4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><small>MDD</small></div>
+  <div class="spark"><svg viewBox="0 0 220 64" width="220" height="64"><path d="M4,10.866622075134796 L23.272727272727273,34.65985061399739 L42.54545454545455,31.87064823495384 L61.81818181818182,60 L81.0909090909091,43.468138324578945 L100.36363636363637,39.62653548617988 L119.63636363636364,19.870905003433663 L138.9090909090909,12.43470208590239 L158.1818181818182,26.78402328896219 L177.45454545454547,28.632744499896837 L196.72727272727275,4 L216,10.050458645825177" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><small>eq use %</small></div>
+  <div class="spark"><svg viewBox="0 0 220 64" width="220" height="64"><path d="M4,18.478732276897407 L23.272727272727273,60 L42.54545454545455,40.336947456213515 L61.81818181818182,46.96914095079231 L81.0909090909091,30.38865721434528 L100.36363636363637,22.12176814011677 L119.63636363636364,20.11342785654712 L138.9090909090909,25.90492076730608 L158.1818181818182,25.204336947456202 L177.45454545454547,27.446205170975816 L196.72727272727275,4 L216,27.63302752293577" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><small>avg positions</small></div>
+  <div class="spark"><svg viewBox="0 0 220 64" width="220" height="64"><path d="M4,25.274980226733458 L23.272727272727273,27.537951035028218 L42.54545454545455,22.62712619435075 L61.81818181818182,4 L81.0909090909091,12.221024209751175 L100.36363636363637,25.208796603543725 L119.63636363636364,60 L138.9090909090909,52.345609425711615 L158.1818181818182,41.03431911779412 L177.45454545454547,30.525377964853586 L196.72727272727275,24.382519523259724 L216,18.044673945653052" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><small>avg orders</small></div>
+</div>
+<h2>Hour by hour</h2>
+<table>
+<thead><tr>
+<th>h</th><th>balance</th><th>net</th><th>mtm</th><th>unreal</th><th>hPF</th><th>cumPF</th><th>selPF</th><th>hWR</th><th>WR</th><th>MDD</th><th>DDT</th><th>eqUse</th><th>avgPos</th><th>pos</th><th>avgOrd</th><th>ord</th><th>q</th><th>blk</th><th>n</th><th>SL</th><th>TP</th><th>margin</th><th>notional</th><th>vol×</th>
+</tr></thead>
+<tbody><tr>
+      <td class="">1</td>
+      <td class="">9.9464</td>
+      <td class="bad">-0.0047</td>
+      <td class="bad">-0.0104</td>
+      <td class="">0.0130</td>
+      <td class="bad">0.32</td>
+      <td class="bad">0.32</td>
+      <td class="bad">0.00</td>
+      <td class="">48%</td>
+      <td class="">48%</td>
+      <td class="">0.10%</td>
+      <td class="">1020</td>
+      <td class="">0.06%</td>
+      <td class="">50.7</td>
+      <td class="">30</td>
+      <td class="">3594.8</td>
+      <td class="">2954</td>
+      <td class="">264</td>
+      <td class="">63</td>
+      <td class="">330</td>
+      <td class="">239</td>
+      <td class="">91</td>
+      <td class="">0.0041</td>
+      <td class="">0.51</td>
+      <td class="">0.56</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.32 n=330 · block 1.38 n=37 · tacs axis 0.30 · trailing 0.32 · hybrid 0.42 · inds direction 0.29 · trend 0.50 · break 0.58 · ema 0.25 · bollinger 0.33 · active 0.07</td></tr><tr>
+      <td class="">2</td>
+      <td class="">9.9435</td>
+      <td class="bad">-0.0026</td>
+      <td class="bad">-0.0029</td>
+      <td class="">0.0127</td>
+      <td class="bad">0.43</td>
+      <td class="bad">0.36</td>
+      <td class="ok">4.00</td>
+      <td class="">46%</td>
+      <td class="">47%</td>
+      <td class="">0.13%</td>
+      <td class="">1080</td>
+      <td class="">0.05%</td>
+      <td class="">35.9</td>
+      <td class="">26</td>
+      <td class="">3520.8</td>
+      <td class="">3075</td>
+      <td class="">613</td>
+      <td class="">99</td>
+      <td class="">266</td>
+      <td class="">207</td>
+      <td class="">59</td>
+      <td class="">0.0036</td>
+      <td class="">0.44</td>
+      <td class="">0.62</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.42 n=266 · block 1.53 n=36 · tacs trailing 0.45 · axis 0.41 · hybrid 0.47 · inds direction 0.40 · trend 0.30 · break 0.58 · ema 0.61 · active 0.17 · bollinger 0.45</td></tr><tr>
+      <td class="">3</td>
+      <td class="">9.9401</td>
+      <td class="bad">-0.0041</td>
+      <td class="bad">-0.0034</td>
+      <td class="">0.0134</td>
+      <td class="bad">0.30</td>
+      <td class="bad">0.34</td>
+      <td class="bad">0.00</td>
+      <td class="">39%</td>
+      <td class="">44%</td>
+      <td class="">0.17%</td>
+      <td class="">1140</td>
+      <td class="">0.05%</td>
+      <td class="">42.9</td>
+      <td class="">31</td>
+      <td class="">3681.5</td>
+      <td class="">3804</td>
+      <td class="">638</td>
+      <td class="">98</td>
+      <td class="">299</td>
+      <td class="">237</td>
+      <td class="">62</td>
+      <td class="">0.0035</td>
+      <td class="">0.44</td>
+      <td class="">0.61</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.29 n=299 · block 1.06 n=29 · tacs trailing 0.47 · axis 0.21 · hybrid 0.29 · inds direction 0.21 · trend 0.64 · break 0.33 · ema 0.43 · bollinger 0.24 · macd 0.26</td></tr><tr>
+      <td class="">4</td>
+      <td class="">9.9393</td>
+      <td class="bad">-0.0039</td>
+      <td class="bad">-0.0008</td>
+      <td class="">0.0165</td>
+      <td class="bad">0.29</td>
+      <td class="bad">0.33</td>
+      <td class="ok">4.00</td>
+      <td class="">42%</td>
+      <td class="">44%</td>
+      <td class="">0.18%</td>
+      <td class="">1200</td>
+      <td class="">0.04%</td>
+      <td class="">40.6</td>
+      <td class="">34</td>
+      <td class="">4291.3</td>
+      <td class="">3630</td>
+      <td class="">318</td>
+      <td class="">99</td>
+      <td class="">309</td>
+      <td class="">240</td>
+      <td class="">68</td>
+      <td class="">0.0037</td>
+      <td class="">0.47</td>
+      <td class="">0.68</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.29 n=309 · block 0.74 n=33 · tacs trailing 0.23 · axis 0.33 · hybrid 0.38 · inds direction 0.33 · break 0.34 · trend 0.18 · ema 0.21 · bollinger 0.31 · macd 0.52</td></tr><tr>
+      <td class="">5</td>
+      <td class="">9.9364</td>
+      <td class="bad">-0.0030</td>
+      <td class="bad">-0.0029</td>
+      <td class="">0.0166</td>
+      <td class="bad">0.34</td>
+      <td class="bad">0.33</td>
+      <td class="bad">0.00</td>
+      <td class="">43%</td>
+      <td class="">44%</td>
+      <td class="">0.20%</td>
+      <td class="">1260</td>
+      <td class="">0.05%</td>
+      <td class="">46.5</td>
+      <td class="">35</td>
+      <td class="">4022.2</td>
+      <td class="">3437</td>
+      <td class="">421</td>
+      <td class="">121</td>
+      <td class="">320</td>
+      <td class="">241</td>
+      <td class="">79</td>
+      <td class="">0.0039</td>
+      <td class="">0.49</td>
+      <td class="">0.67</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.34 n=320 · block 0.35 n=30 · tacs axis 0.30 · trailing 0.43 · hybrid 0.34 · inds direction 0.27 · break 0.38 · trend 0.40 · bollinger 0.39 · ema 0.45 · active 0.16</td></tr><tr>
+      <td class="">6</td>
+      <td class="">9.9344</td>
+      <td class="bad">-0.0039</td>
+      <td class="bad">-0.0021</td>
+      <td class="">0.0184</td>
+      <td class="bad">0.32</td>
+      <td class="bad">0.33</td>
+      <td class="ok">4.00</td>
+      <td class="">44%</td>
+      <td class="">44%</td>
+      <td class="">0.23%</td>
+      <td class="">1320</td>
+      <td class="">0.05%</td>
+      <td class="">49.4</td>
+      <td class="">44</td>
+      <td class="">3597.0</td>
+      <td class="">3192</td>
+      <td class="">171</td>
+      <td class="">118</td>
+      <td class="">328</td>
+      <td class="">257</td>
+      <td class="">71</td>
+      <td class="">0.0057</td>
+      <td class="">0.71</td>
+      <td class="">0.57</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.32 n=328 · block 0.69 n=39 · tacs axis 0.23 · trailing 0.52 · hybrid 0.35 · inds direction 0.22 · break 0.36 · trend 0.51 · bollinger 0.25 · ema 0.53 · active 0.30</td></tr><tr>
+      <td class="">7</td>
+      <td class="">9.9317</td>
+      <td class="bad">-0.0021</td>
+      <td class="bad">-0.0027</td>
+      <td class="">0.0178</td>
+      <td class="bad">0.53</td>
+      <td class="bad">0.35</td>
+      <td class="ok">4.00</td>
+      <td class="">50%</td>
+      <td class="">45%</td>
+      <td class="">0.25%</td>
+      <td class="">1380</td>
+      <td class="">0.05%</td>
+      <td class="">50.1</td>
+      <td class="">46</td>
+      <td class="">2458.1</td>
+      <td class="">1947</td>
+      <td class="">947</td>
+      <td class="">107</td>
+      <td class="">282</td>
+      <td class="">213</td>
+      <td class="">69</td>
+      <td class="">0.0049</td>
+      <td class="">0.61</td>
+      <td class="">0.61</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.52 n=282 · block 0.86 n=34 · tacs axis 0.54 · trailing 0.53 · hybrid 0.45 · inds direction 0.48 · break 0.48 · trend 0.44 · bollinger 0.67 · ema 0.57 · active 0.38</td></tr><tr>
+      <td class="">8</td>
+      <td class="">9.9307</td>
+      <td class="bad">-0.0026</td>
+      <td class="bad">-0.0010</td>
+      <td class="">0.0195</td>
+      <td class="bad">0.45</td>
+      <td class="bad">0.36</td>
+      <td class="bad">0.00</td>
+      <td class="">52%</td>
+      <td class="">46%</td>
+      <td class="">0.26%</td>
+      <td class="">1440</td>
+      <td class="">0.06%</td>
+      <td class="">48.1</td>
+      <td class="">45</td>
+      <td class="">2708.6</td>
+      <td class="">2559</td>
+      <td class="">372</td>
+      <td class="">75</td>
+      <td class="">318</td>
+      <td class="">232</td>
+      <td class="">86</td>
+      <td class="">0.0053</td>
+      <td class="">0.66</td>
+      <td class="">0.68</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.45 n=318 · block 0.70 n=30 · tacs axis 0.51 · trailing 0.36 · hybrid 0.38 · inds direction 0.46 · trend 0.38 · break 0.43 · ema 0.37 · bollinger 0.62 · active 0.22</td></tr><tr>
+      <td class="">9</td>
+      <td class="">9.9260</td>
+      <td class="bad">-0.0038</td>
+      <td class="bad">-0.0048</td>
+      <td class="">0.0185</td>
+      <td class="bad">0.26</td>
+      <td class="bad">0.35</td>
+      <td class="ok">4.00</td>
+      <td class="">43%</td>
+      <td class="">45%</td>
+      <td class="">0.31%</td>
+      <td class="">1500</td>
+      <td class="">0.05%</td>
+      <td class="">48.3</td>
+      <td class="">42</td>
+      <td class="">3078.9</td>
+      <td class="">3385</td>
+      <td class="">686</td>
+      <td class="">124</td>
+      <td class="">280</td>
+      <td class="">211</td>
+      <td class="">69</td>
+      <td class="">0.0045</td>
+      <td class="">0.56</td>
+      <td class="">0.62</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.25 n=280 · block 0.93 n=34 · tacs axis 0.17 · trailing 0.47 · hybrid 0.28 · inds direction 0.18 · trend 0.32 · break 0.39 · ema 0.63 · bollinger 0.16 · active 0.06</td></tr><tr>
+      <td class="">10</td>
+      <td class="">9.9232</td>
+      <td class="bad">-0.0031</td>
+      <td class="bad">-0.0027</td>
+      <td class="">0.0189</td>
+      <td class="bad">0.37</td>
+      <td class="bad">0.35</td>
+      <td class="ok">4.00</td>
+      <td class="">46%</td>
+      <td class="">45%</td>
+      <td class="">0.34%</td>
+      <td class="">1560</td>
+      <td class="">0.05%</td>
+      <td class="">47.5</td>
+      <td class="">40</td>
+      <td class="">3423.0</td>
+      <td class="">3104</td>
+      <td class="">515</td>
+      <td class="">112</td>
+      <td class="">300</td>
+      <td class="">227</td>
+      <td class="">73</td>
+      <td class="">0.0045</td>
+      <td class="">0.56</td>
+      <td class="">0.60</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.37 n=300 · block 2.38 n=22 · tacs axis 0.27 · trailing 0.74 · hybrid 0.27 · inds direction 0.29 · break 0.30 · trend 0.31 · ema 1.04 · bollinger 0.23 · active 0.13</td></tr><tr>
+      <td class="">11</td>
+      <td class="">9.9206</td>
+      <td class="bad">-0.0028</td>
+      <td class="bad">-0.0027</td>
+      <td class="">0.0190</td>
+      <td class="bad">0.38</td>
+      <td class="bad">0.36</td>
+      <td class="bad">0.00</td>
+      <td class="">46%</td>
+      <td class="">45%</td>
+      <td class="">0.36%</td>
+      <td class="">1620</td>
+      <td class="">0.06%</td>
+      <td class="">55.9</td>
+      <td class="">41</td>
+      <td class="">3624.1</td>
+      <td class="">3286</td>
+      <td class="">349</td>
+      <td class="">127</td>
+      <td class="">294</td>
+      <td class="">227</td>
+      <td class="">67</td>
+      <td class="">0.0049</td>
+      <td class="">0.62</td>
+      <td class="">0.65</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.38 n=294 · block 0.20 n=39 · tacs trailing 0.40 · axis 0.38 · hybrid 0.32 · inds direction 0.42 · break 0.38 · trend 0.33 · ema 0.46 · bollinger 0.24 · macd 0.23</td></tr><tr>
+      <td class="">12</td>
+      <td class="">9.9156</td>
+      <td class="bad">-0.0043</td>
+      <td class="bad">-0.0050</td>
+      <td class="">0.0183</td>
+      <td class="bad">0.24</td>
+      <td class="bad">0.35</td>
+      <td class="ok">4.00</td>
+      <td class="">41%</td>
+      <td class="">45%</td>
+      <td class="">0.41%</td>
+      <td class="">1680</td>
+      <td class="">0.06%</td>
+      <td class="">47.5</td>
+      <td class="">41</td>
+      <td class="">3831.6</td>
+      <td class="">2952</td>
+      <td class="">330</td>
+      <td class="">74</td>
+      <td class="">276</td>
+      <td class="">218</td>
+      <td class="">58</td>
+      <td class="">0.0050</td>
+      <td class="">0.63</td>
+      <td class="">0.63</td>
+    </tr>
+    <tr class="sub"><td></td><td colspan="24">plays short 0.24 n=276 · block 0.80 n=31 · tacs axis 0.19 · trailing 0.31 · hybrid 0.33 · inds direction 0.16 · break 0.44 · trend 0.39 · ema 0.30 · bollinger 0.31 · active 0.07</td></tr></tbody>
+</table>
+<h2>Playbooks / strategy types</h2><table><thead><tr><th>id</th><th>n</th><th>PF</th><th>WR</th><th>net</th></tr></thead><tbody><tr><td>short</td><td class="">3602</td><td class="bad">0.34</td><td class="">45%</td><td class="bad">-0.0408</td></tr><tr><td>block</td><td class="">394</td><td class="bad">0.87</td><td class="">56%</td><td class="">-0.0000</td></tr></tbody></table>
+<h2>Tactics</h2><table><thead><tr><th>id</th><th>n</th><th>PF</th><th>WR</th><th>net</th></tr></thead><tbody><tr><td>axis</td><td class="">1334</td><td class="bad">0.31</td><td class="">41%</td><td class="bad">-0.0254</td></tr><tr><td>trailing</td><td class="">1331</td><td class="bad">0.41</td><td class="">53%</td><td class="bad">-0.0103</td></tr><tr><td>hybrid</td><td class="">937</td><td class="bad">0.36</td><td class="">39%</td><td class="bad">-0.0050</td></tr></tbody></table>
+<h2>Kinds</h2><table><thead><tr><th>id</th><th>n</th><th>PF</th><th>WR</th><th>net</th></tr></thead><tbody><tr><td>short</td><td class="">3602</td><td class="bad">0.35</td><td class="">45%</td><td class="bad">-0.0408</td></tr></tbody></table>
+<h2>Indications</h2><table><thead><tr><th>id</th><th>n</th><th>PF</th><th>WR</th><th>net</th></tr></thead><tbody><tr><td>direction</td><td class="">987</td><td class="bad">0.30</td><td class="">41%</td><td class="bad">-0.0195</td></tr><tr><td>break</td><td class="">739</td><td class="bad">0.41</td><td class="">41%</td><td class="bad">-0.0035</td></tr><tr><td>trend</td><td class="">713</td><td class="bad">0.39</td><td class="">52%</td><td class="bad">-0.0032</td></tr><tr><td>ema</td><td class="">457</td><td class="bad">0.43</td><td class="">55%</td><td class="bad">-0.0063</td></tr><tr><td>bollinger</td><td class="">346</td><td class="bad">0.35</td><td class="">42%</td><td class="bad">-0.0060</td></tr><tr><td>active</td><td class="">198</td><td class="bad">0.17</td><td class="">33%</td><td class="bad">-0.0015</td></tr><tr><td>macd</td><td class="">145</td><td class="bad">0.35</td><td class="">57%</td><td class="bad">-0.0007</td></tr><tr><td>sar</td><td class="">16</td><td class="bad">0.14</td><td class="">38%</td><td class="bad">-0.0001</td></tr><tr><td>rsi</td><td class="">1</td><td class="ok">4.00</td><td class="">100%</td><td class="">0.0000</td></tr></tbody></table>
+<h2>Block N windows</h2>
+<p>N1 PF 0.68 · N2 PF 0.30 · N3 PF 0.22 · N4 PF 0.24 · N5 PF 0.20 · N6 PF 0.18</p>
+<p>PRE 20h PF 0.722 n=5723 · selected 14 PF 4.00 · live gated n=113/600</p>
+</body></html>

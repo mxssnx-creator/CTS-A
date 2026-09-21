@@ -539,7 +539,7 @@ export interface ShortProgressConfig {
   bestOnly: boolean;
   /** Live short floor — default 0.42 ATR (working cell). */
   minTpAtr: number;
-  /** Live short floor — default 1.7 × TP (working cell). */
+  /** Live short floor — default 1.75 × TP (working cell). */
   minSlOfTp: number;
   /** Short TP ceiling for GRID / eval (default 0.6). */
   maxTpAtr?: number;
@@ -696,6 +696,9 @@ export interface LiveOrder {
   playbook?: string;
   tactic?: TacticKind;
   validExec?: boolean;
+  tpAtr?: number;
+  slOfTp?: number;
+  trailPct?: number;
 }
 
 export interface LivePosition {
@@ -726,6 +729,9 @@ export interface LivePosition {
   blockQty?: number;
   peakPx?: number;
   validExec?: boolean;
+  tpAtr?: number;
+  slOfTp?: number;
+  trailPct?: number;
 }
 
 export interface Fill {
@@ -774,6 +780,9 @@ export interface ClosedTrade {
   level?: number;
   blockQty?: number;
   validExec?: boolean;
+  tpAtr?: number;
+  slOfTp?: number;
+  trailPct?: number;
 }
 
 export interface VstStats {
@@ -1124,6 +1133,31 @@ export interface ProgressEval {
   tactics: Record<string, ProgressEvalRow>;
   ranges: Record<string, ProgressEvalRow>;
   playbooks: Record<string, ProgressEvalRow>;
+  /** System-intern scores for every Block relation key (losers included, ok=false). */
+  relations: Record<string, ProgressEvalRow>;
+  /** Short-range TP×SL combos (intern, losers included). */
+  shortCombos: Record<string, ProgressEvalRow>;
+}
+
+/** Coordinated active last-N (shrunk windows + winning types). Settings grid stays full. */
+export interface LastNCoordState {
+  at: number;
+  mode: LastNPassMode;
+  independent: boolean;
+  combined: boolean;
+  stack: number;
+  evalNs: number[];
+  validNs: number[];
+  disableNs: number[];
+  bestEval: number;
+  bestValid: number;
+  bestDisable: number;
+  activeInds: string[];
+  activeTacs: string[];
+  activeRanges: string[];
+  activePlays: string[];
+  activeBlockNs: number[];
+  combos: Record<string, ProgressEvalRow>;
 }
 
 export interface LosingHourState {
@@ -1201,8 +1235,12 @@ export interface VstEngine {
   intervalStrategy?: IntervalStrategyConfig;
   lastNProgress?: LastNProgressConfig;
   progressEval?: ProgressEval;
+  /** Coordinated active last-N / types / combos. Not the settings grid. */
+  lastNCoord?: LastNCoordState;
   /** Paper-only: arm every indication × config independently (thousands of orders). */
   completeSim?: boolean;
+  /** Lock arming to cfg.tpAtr×slOfTp so independent combo sims do not mix the GRID. */
+  shortComboOnly?: boolean;
   /** Pre-historic eval finished — valid-execute (last 15) and disable (last 12) gates apply. Real counted + Live run from valid. */
   preEvalDone?: boolean;
   liveTape?: boolean;

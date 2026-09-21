@@ -23,6 +23,7 @@ import type {
   RangeType,
   Side,
   ShortProgressConfig,
+  SliceStats,
   Stats,
   StrategyAdj,
   StrategyDef,
@@ -62,7 +63,16 @@ export {
   VALID_EXEC_NS,
   LIVE_DISABLE_NS,
   decideLastN,
+  decideLastNFromPrefix,
   lastNWindows,
+  lastNPrefix,
+  coordinateLastN,
+  coordinateLastNFromPrefix,
+  slimLastNProgress,
+  scoreLastNGroup,
+  hitsToProgressRows,
+  relComboKey,
+  lastNMaxOf,
 } from "./last-n-progress.ts";
 import {
   EVAL_POS_N,
@@ -255,10 +265,19 @@ export function allTpSlCombos(): { tpAtr: number; slOfTp: number; slAtr: number;
   return out;
 }
 
-/** Short-range: TP 0.30–0.60, SL 1.3–2.0×TP. Live keeps only +PF cells. */
+/** Short-range: TP 0.30–0.60, SL 0.5–2.5×TP step 0.25. Intern scores every combo independently. */
 export const SHORT_TP_ATR = [0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.45, 0.48, 0.5, 0.52, 0.55, 0.58, 0.6] as const;
-export const SHORT_SL_OF_TP = [1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 2] as const;
+export const SHORT_SL_OF_TP_MIN = 0.5;
+export const SHORT_SL_OF_TP_MAX = 2.5;
+export const SHORT_SL_OF_TP_STEP = 0.25;
+export const SHORT_SL_OF_TP = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5] as const;
 export type ShortSlOfTp = (typeof SHORT_SL_OF_TP)[number];
+
+export function formatShortRatio(n: number): string {
+  const x = Math.round(Number(n) * 100) / 100;
+  if (!Number.isFinite(x)) return "0";
+  return String(x);
+}
 
 export function snapShortTpAtr(n: number): number {
   if (!Number.isFinite(n)) return 0.4;
@@ -266,7 +285,7 @@ export function snapShortTpAtr(n: number): number {
   let dist = Infinity;
   for (const t of SHORT_TP_ATR) {
     const d = Math.abs(t - n);
-    if (d < dist) {
+    if (d < dist || (d <= dist + 1e-15 && t > best)) {
       dist = d;
       best = t;
     }
@@ -274,12 +293,12 @@ export function snapShortTpAtr(n: number): number {
   return best;
 }
 export function snapShortSlOfTp(n: number): ShortSlOfTp {
-  if (!Number.isFinite(n)) return 1.5;
-  let best: ShortSlOfTp = 1.5;
+  if (!Number.isFinite(n)) return 1.75;
+  let best: ShortSlOfTp = 1.75;
   let dist = Infinity;
   for (const r of SHORT_SL_OF_TP) {
     const d = Math.abs(r - n);
-    if (d < dist) {
+    if (d < dist || (d <= dist + 1e-15 && r > best)) {
       dist = d;
       best = r;
     }
@@ -319,31 +338,47 @@ export function liveShortProtectCombos(
 }
 
 export function shortComboKey(tpAtr: number, slOfTp: number): string {
-  return `${Number(tpAtr).toFixed(2)}:${Number(slOfTp).toFixed(1)}`;
+  return `${snapShortTpAtr(Number(tpAtr)).toFixed(2)}:${snapShortSlOfTp(Number(slOfTp)).toFixed(2)}`;
 }
 
-/** 20h × 12 winner among live floors (PF 7.32). */
-export const SHORT_WINNER = { tpAtr: 0.45, slOfTp: 1.7 as const };
+export function snapShortTacticConfig<T extends {
+  tpAtr?: number;
+  slOfTp?: number;
+  slAtr?: number;
+  tpRatio?: number;
+  shortRange?: boolean;
+}>(cfg: T): T {
+  const tpAtr = snapShortTpAtr(cfg.tpAtr ?? 0.4);
+  const slOfTp = snapShortSlOfTp(cfg.slOfTp ?? 1.75);
+  return {
+    ...cfg,
+    shortRange: true,
+    tpAtr,
+    slOfTp,
+    slAtr: shortSlAtrOf(tpAtr, slOfTp),
+    tpRatio: shortTpRatioOf(slOfTp),
+  };
+}
+
+/** 20h × 12 winner among live floors (PF 7.32), SL snapped to 0.25 grid. */
+export const SHORT_WINNER = { tpAtr: 0.45, slOfTp: 1.75 as const };
 
 /**
- * 20h × 12 live-floor cells with PF≥1 and net>0 (public/sim-short-20h-positive.json).
- * Live GRID starts here when evalPositiveOnly is on; 20h auto-eval can replace the set.
+ * Live-floor cells with PF≥1 (mapped onto SL 0.5–2.5 / 0.25). Independent complete eval can add Base-ok keys.
  */
 export const SHORT_20H_POSITIVE: readonly { tpAtr: number; slOfTp: number }[] = [
-  { tpAtr: 0.45, slOfTp: 1.7 },
-  { tpAtr: 0.52, slOfTp: 1.7 },
-  { tpAtr: 0.48, slOfTp: 1.7 },
-  { tpAtr: 0.45, slOfTp: 1.8 },
+  { tpAtr: 0.4, slOfTp: 1.75 },
+  { tpAtr: 0.4, slOfTp: 2 },
+  { tpAtr: 0.45, slOfTp: 1.75 },
+  { tpAtr: 0.52, slOfTp: 1.75 },
+  { tpAtr: 0.48, slOfTp: 1.75 },
   { tpAtr: 0.42, slOfTp: 2 },
-  { tpAtr: 0.42, slOfTp: 1.7 },
+  { tpAtr: 0.42, slOfTp: 1.75 },
   { tpAtr: 0.48, slOfTp: 2 },
-  { tpAtr: 0.42, slOfTp: 1.8 },
-  { tpAtr: 0.5, slOfTp: 1.7 },
-  { tpAtr: 0.48, slOfTp: 1.8 },
+  { tpAtr: 0.5, slOfTp: 1.75 },
   { tpAtr: 0.45, slOfTp: 2 },
-  { tpAtr: 0.5, slOfTp: 1.8 },
-  { tpAtr: 0.55, slOfTp: 1.7 },
-  { tpAtr: 0.52, slOfTp: 1.8 },
+  { tpAtr: 0.55, slOfTp: 1.75 },
+  { tpAtr: 0.52, slOfTp: 2 },
 ];
 
 export function filterLiveShortCombos(
@@ -358,6 +393,24 @@ export function filterLiveShortCombos(
   const keys = new Set(allowed.map((c) => shortComboKey(c.tpAtr, c.slOfTp)));
   const hit = all.filter((c) => keys.has(shortComboKey(c.tpAtr, c.slOfTp)));
   return hit.length ? hit : all;
+}
+
+/** Intern scoring: every TP×SL. Execution GRID: Base-positive / live floors only — never mix losers into one tape. */
+export function shortProtectGridFor(opts?: {
+  complete?: boolean;
+  intern?: boolean;
+  minTpAtr?: number;
+  minSlOfTp?: number;
+  maxTpAtr?: number;
+  positiveOnly?: boolean;
+}): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
+  if (opts?.intern) return allShortTpSlCombos();
+  return filterLiveShortCombos(
+    opts?.minTpAtr,
+    opts?.minSlOfTp,
+    opts?.maxTpAtr,
+    opts?.positiveOnly !== false,
+  );
 }
 
 export function cfgUsesShortRange(cfg: { shortRange?: boolean; tpAtr?: number } | undefined | null): boolean {

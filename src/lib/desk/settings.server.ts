@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { sanitizeDeskSettings, type DeskSettingsSnap } from "./settings-sync.ts";
 
@@ -6,26 +6,44 @@ function settingsPath() {
   return process.env.CTS_A_SETTINGS || "/var/lib/cts-a/desk-settings.json";
 }
 
-export function readSettingsFile(path = settingsPath()): DeskSettingsSnap | null {
+function parseSnap(raw: string): DeskSettingsSnap | null {
   try {
-    return sanitizeDeskSettings(JSON.parse(readFileSync(path, "utf8")) as Partial<DeskSettingsSnap>);
+    return sanitizeDeskSettings(JSON.parse(raw) as Partial<DeskSettingsSnap>);
   } catch {
-    try {
-      return sanitizeDeskSettings(
-        JSON.parse(readFileSync("/tmp/cts-a-desk-settings.json", "utf8")) as Partial<DeskSettingsSnap>,
-      );
-    } catch {
-      return null;
-    }
+    return null;
   }
+}
+
+function readOne(path: string): DeskSettingsSnap | null {
+  try {
+    const snap = parseSnap(readFileSync(path, "utf8"));
+    if (snap) return snap;
+  } catch {
+    /* missing or unreadable */
+  }
+  try {
+    return parseSnap(readFileSync(`${path}.tmp`, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export function readSettingsFile(path = settingsPath()): DeskSettingsSnap | null {
+  return readOne(path) ?? readOne("/tmp/cts-a-desk-settings.json");
+}
+
+function atomicWrite(dest: string, body: string) {
+  mkdirSync(dirname(dest), { recursive: true });
+  const tmp = `${dest}.tmp`;
+  writeFileSync(tmp, body);
+  renameSync(tmp, dest);
 }
 
 export function writeSettingsFile(snap: DeskSettingsSnap, path = settingsPath()) {
   const body = JSON.stringify(snap, null, 2);
   try {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, body);
+    atomicWrite(path, body);
   } catch {
-    writeFileSync("/tmp/cts-a-desk-settings.json", body);
+    atomicWrite("/tmp/cts-a-desk-settings.json", body);
   }
 }

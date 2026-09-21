@@ -1030,7 +1030,8 @@ export function parseOpenOrderRow(r: Record<string, unknown>, connId: string): E
   const symbol = deskIdFromVenue(venueSymbol) ?? venueSymbol.replace("-", "");
   const orig = num(r.origQty ?? r.quantity ?? r.qty);
   const filled = num(r.executedQty ?? r.filledQty ?? r.cumQty ?? r.filled);
-  const remaining = orig > 0 ? Math.max(0, orig - filled) : Math.max(0, orig);
+  const reportedRem = num(r.remainingQty ?? r.unfilledQty ?? r.leaveQty ?? r.remaining);
+  const remaining = orig > 0 ? Math.max(0, orig - filled) : Math.max(0, reportedRem);
   const rawStatus = String(r.status ?? "open");
   const status = filled > 1e-12 && remaining > 1e-12 ? "partial" : rawStatus;
   const clientOrderId = String(r.clientOrderID ?? r.clientOrderId ?? r.clientOid ?? "").trim();

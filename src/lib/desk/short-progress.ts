@@ -15,9 +15,9 @@ export const SHORT_PROGRESS_INDICATIONS: IndicationId[] = [
 
 export const DEFAULT_SHORT_AXIS_PF = 0.9;
 export const DEFAULT_SHORT_BLOCK_PF = 1.15;
-/** Live working short floors (72h winners / LIVE_CFG). */
-export const DEFAULT_SHORT_MIN_TP_ATR = 0.42;
-export const DEFAULT_SHORT_MIN_SL_OF_TP = 1.7;
+/** Live working short floors. Full intern grid is SL 0.5–2.5; live exec starts at 1.75. */
+export const DEFAULT_SHORT_MIN_TP_ATR = 0.4;
+export const DEFAULT_SHORT_MIN_SL_OF_TP = 1.75;
 
 export const DEFAULT_SHORT_PROGRESS: ShortProgressConfig = {
   enabled: true,
@@ -63,7 +63,7 @@ export function sanitizeShortProgress(raw: Partial<ShortProgressConfig> | null |
     prevRelN: Math.min(24, Math.max(3, Math.round(Number(raw.prevRelN) || d.prevRelN))),
     bestOnly: raw.bestOnly !== false,
     minTpAtr: Math.min(0.6, Math.max(0.3, Number(raw.minTpAtr) || d.minTpAtr)),
-    minSlOfTp: Math.min(2, Math.max(1.3, Number(raw.minSlOfTp) || d.minSlOfTp)),
+    minSlOfTp: Math.min(2.5, Math.max(0.5, Number(raw.minSlOfTp) || d.minSlOfTp)),
     maxTpAtr: Math.min(0.6, Math.max(0.42, Number(raw.maxTpAtr) || d.maxTpAtr || 0.6)),
     evalHours: Math.min(48, Math.max(4, Math.round(Number(raw.evalHours) || d.evalHours || 20))),
     evalPositiveOnly: raw.evalPositiveOnly !== false,

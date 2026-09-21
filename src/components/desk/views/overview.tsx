@@ -44,6 +44,7 @@ export function OverviewView() {
   const params = useDesk((s) => s.strategyParams);
   const enabledKinds = useDesk((s) => s.enabledKinds);
   const vstTick = useDesk((s) => s.vst.tick);
+  const vstCoord = useDesk((s) => s.vst.lastNCoord);
   const activeConnId = useDesk((s) => s.activeConnId);
   const liveSnap = useLiveSnapshot();
   const exchange = liveSnap.exchange;
@@ -150,22 +151,42 @@ export function OverviewView() {
 
       <Panel title="Progress last-N">
         <p className="text-sm text-muted">
-          Eval → Valid execute → Disable. Real counted and Live exchange run from Valid — not from the tape Last-N table.
+          Settings grid stays full. Live execute uses coordinated windows, types and combinations that actually pass — not a full parallel sweep.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
           {LAST_N_PROGRESS_META.map((st) => {
             const b = overall.lastN?.[String(st.n)];
+            const coord = vstCoord;
+            const active =
+              st.id === "eval" ? coord?.evalNs : st.id === "valid" ? coord?.validNs : coord?.disableNs;
             return (
               <Kpi
                 key={st.id}
                 label={`${st.label} N${st.n}`}
                 value={fmtPf(b?.pf ?? 0)}
                 tone={pfTone(b?.pf ?? 0)}
-                hint={`${b?.n ?? 0} closes`}
+                hint={active?.length ? `active ${active.join("/")} · ${b?.n ?? 0} closes` : `${b?.n ?? 0} closes`}
               />
             );
           })}
         </div>
+        {vstCoord ? (
+          <div className="mt-3 flex flex-wrap gap-1">
+            <Pill tone={vstCoord.independent || vstCoord.combined ? "up" : "neutral"}>{vstCoord.mode}</Pill>
+            {vstCoord.stack > 1 ? <Pill tone="accent">stack ×{vstCoord.stack.toFixed(2)}</Pill> : null}
+            {vstCoord.activeInds.slice(0, 6).map((id) => (
+              <Pill key={`i${id}`} tone="up">
+                {id}
+              </Pill>
+            ))}
+            {vstCoord.activeTacs.slice(0, 4).map((id) => (
+              <Pill key={`t${id}`}>{id}</Pill>
+            ))}
+            {vstCoord.activePlays.slice(0, 4).map((id) => (
+              <Pill key={`p${id}`}>{id}</Pill>
+            ))}
+          </div>
+        ) : null}
       </Panel>
 
       <Panel title="Overall last positions">

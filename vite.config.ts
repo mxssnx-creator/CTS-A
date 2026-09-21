@@ -1,5 +1,5 @@
-import { createReadStream, existsSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { createReadStream, existsSync, readdirSync, renameSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
@@ -48,7 +48,7 @@ function liveJsonPlugin(): Plugin {
           let size = 0;
           req.on("data", (c) => {
             size += c.length;
-            if (size > 65_536) {
+            if (size > 262_144) {
               req.destroy();
               return;
             }
@@ -56,7 +56,7 @@ function liveJsonPlugin(): Plugin {
           });
           req.on("end", () => {
             try {
-              if (size > 65_536) {
+              if (size > 262_144) {
                 res.statusCode = 413;
                 res.end(JSON.stringify({ ok: false, error: "too large" }));
                 return;
@@ -64,7 +64,10 @@ function liveJsonPlugin(): Plugin {
               const raw = Buffer.concat(chunks).toString("utf8");
               JSON.parse(raw);
               const dest = existsSync("/var/lib/cts-a") ? "/var/lib/cts-a/desk-settings.json" : "/tmp/cts-a-desk-settings.json";
-              writeFileSync(dest, raw);
+              mkdirSync(dirname(dest), { recursive: true });
+              const tmp = `${dest}.tmp`;
+              writeFileSync(tmp, raw);
+              renameSync(tmp, dest);
               res.statusCode = 200;
               res.setHeader("content-type", "application/json; charset=utf-8");
               res.end(JSON.stringify({ ok: true }));

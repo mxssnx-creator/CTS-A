@@ -135,6 +135,22 @@ export function ResultsView() {
       placed?: number;
     }[];
   } | null>(null);
+  const [completeHourly, setCompleteHourly] = useState<{
+    hours?: number;
+    prehours?: number;
+    symbols?: number;
+    pf?: number;
+    paperPf?: number;
+    wr?: number;
+    trades?: number;
+    equity?: number;
+    mdd?: number;
+    ddt?: number;
+    avgPositions?: number;
+    avgOrders?: number;
+    greenHours?: number;
+    hourly?: { h: number; eq: number; hourPf: number; net: number; mdd: number; eqUsePct?: number; avgPos?: number; avgOrd?: number; trades?: number }[];
+  } | null>(null);
   useEffect(() => {
     let live = true;
     fetch("/sim-72h-1usd.json")
@@ -147,6 +163,12 @@ export function ResultsView() {
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (live) setBlockSweep(j);
+      })
+      .catch(() => {});
+    fetch("/sim-complete-hourly.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (live) setCompleteHourly(j);
       })
       .catch(() => {});
     return () => {
@@ -363,6 +385,18 @@ export function ResultsView() {
           Live {liveSnap.venueLabel} executions, independent indication and strategy stats, PF / DDT, and config matrix.
         </p>
       </div>
+      {completeHourly?.hourly?.length ? (
+        <Panel title={`Complete computing · ${completeHourly.hours ?? 12}h × ${completeHourly.symbols ?? 40} + ${completeHourly.prehours ?? 20}h pre`}>
+          <p className="text-sm text-muted">
+            PF {fmtPf(Number(completeHourly.pf ?? 0))} · paper {fmtPf(Number(completeHourly.paperPf ?? 0))} · n={completeHourly.trades ?? 0} ·
+            green {completeHourly.greenHours ?? 0}/{completeHourly.hourly.length} · avg pos {fmtNum(completeHourly.avgPositions ?? 0, 1)} ·
+            avg ord {fmtNum(completeHourly.avgOrders ?? 0, 1)} · MDD {fmtMdd(Number(completeHourly.mdd ?? 0))}.{" "}
+            <a className="text-primary underline-offset-2 hover:underline" href="/sim-complete-hourly.html" target="_blank" rel="noreferrer">
+              Hour-by-hour HTML
+            </a>
+          </p>
+        </Panel>
+      ) : null}
       {blockSweep?.cells?.length ? (
         <Panel title={`Block reccoordinate · 24h × ${blockSweep.symbols ?? 80} · $${blockSweep.startEquity ?? 10}`}>
           <p className="text-sm text-muted">

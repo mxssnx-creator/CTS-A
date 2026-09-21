@@ -120,6 +120,21 @@ describe("live feed", () => {
     assert.equal(full?.filled, 0);
     assert.equal(full?.remaining, 2);
     assert.equal(full?.owned, false);
+    const remOnly = parseOpenOrderRow(
+      {
+        symbol: "SOL-USDT",
+        orderId: "3",
+        positionSide: "LONG",
+        type: "LIMIT",
+        remainingQty: "0.15",
+        executedQty: "0.05",
+        status: "PARTIALLY_FILLED",
+      },
+      "bingx-x01",
+    );
+    assert.equal(remOnly?.remaining, 0.15);
+    assert.ok(Math.abs((remOnly?.qty ?? 0) - 0.2) < 1e-9);
+    assert.equal(remOnly?.status, "partial");
   });
 
   it("tags desk clientOrderId per connection and ignores foreign exchange orders", () => {

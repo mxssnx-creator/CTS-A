@@ -39,6 +39,7 @@ import {
   SHORT_SL_OF_TP,
   snapShortTpAtr,
   snapShortSlOfTp,
+  formatShortRatio,
   SHORT_PROGRESS_INDICATIONS,
   DEFAULT_SHORT_PROGRESS,
   DEFAULT_INTERVAL_STRATEGY,
@@ -634,6 +635,7 @@ export function SettingsView() {
             <p className="mt-1 text-xs text-muted">
               Base eval 15–80 step 5 · Valid 8–24 step 4 · Disable 6–20 step 2. Independent (valid windows on their own, more flow) · Combined (base then valid, majority) · Parallel (both, extra stack when they agree).
               Primaries Eval {LAST_N_PROGRESS_META[0]!.n} · Valid {LAST_N_PROGRESS_META[1]!.n} · Disable {LAST_N_PROGRESS_META[2]!.n}.
+              Settings grid stays full. Live uses coordinated windows, types and combinations that actually pass — not a complete parallel sweep.
             </p>
             <div className="mt-2 flex flex-wrap gap-1">
               {(["independent", "combined", "parallel"] as const).map((m) => (
@@ -1236,13 +1238,13 @@ export function SettingsView() {
                       }}
                       className={`${chip} min-w-11 ${on ? chipOn : chipOff}`}
                     >
-                      SL {r.toFixed(1)}×
+                      SL {formatShortRatio(r)}×
                     </button>
                   );
                 })}
               </div>
               <span className="text-[11px] text-subtle">
-                5 TP × 3 SL = 15 short combos · overall PF {th.shortPf?.toFixed(2) ?? "0.95"} · base PF {th.shortBasePf?.toFixed(2) ?? "0.70"}
+                {SHORT_TP_ATR.length} TP × {SHORT_SL_OF_TP.length} SL = {SHORT_TP_ATR.length * SHORT_SL_OF_TP.length} independent short combos · SL 0.5–2.5 step 0.25 · overall PF {th.shortPf?.toFixed(2) ?? "0.95"} · base PF {th.shortBasePf?.toFixed(2) ?? "0.70"}
               </span>
             </div>
             <RangeKnob
@@ -1468,9 +1470,9 @@ export function SettingsView() {
             <RangeKnob
               label="Min SL of TP"
               value={shortProgress.minSlOfTp}
-              min={1.3}
-              max={2}
-              step={0.1}
+              min={0.5}
+              max={2.5}
+              step={0.25}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setShortProgress({ minSlOfTp: n })}
               ariaLabel="Short progress min SL of TP"
@@ -1508,7 +1510,7 @@ export function SettingsView() {
           </div>
           <p className="mt-3 text-xs text-muted">
             Last parts {shortProgress.lastParts.join("/")} · activity {shortProgress.activityWindows.join("/")}h ·
-            TP {shortProgress.minTpAtr.toFixed(2)}–{(shortProgress.maxTpAtr ?? 0.6).toFixed(2)} / min SL {shortProgress.minSlOfTp.toFixed(2)} ·
+            TP {shortProgress.minTpAtr.toFixed(2)}–{(shortProgress.maxTpAtr ?? 0.6).toFixed(2)} / min SL {shortProgress.minSlOfTp.toFixed(2)} (grid 0.5–2.5 / 0.25) ·
             auto-eval {shortProgress.evalHours ?? 20}h · {shortProgress.evalPositiveOnly !== false ? "positive PF only" : "allow PF under 1"} ·
             base under 1 is allowed for overlay; Block default {shortProgress.blockPf.toFixed(2)}.
           </p>

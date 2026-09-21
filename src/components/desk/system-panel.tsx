@@ -192,7 +192,11 @@ export function SystemPanel({
         <StatLine k="Last N" v={lastNLinked ? `linked N${lastN}` : LAST_N_STAGE_META.map((s) => `${s.id} N${lastNs[s.id]}`).join(" · ")} />
         <StatLine
           k="Progress last-N"
-          v={LAST_N_PROGRESS_META.map((s) => `${s.label} ${s.n}`).join(" · ")}
+          v={
+            vst.lastNCoord
+              ? `${vst.lastNCoord.mode} · eval ${vst.lastNCoord.evalNs.join("/") || LAST_N_PROGRESS_META[0]!.n} · valid ${vst.lastNCoord.validNs.join("/") || LAST_N_PROGRESS_META[1]!.n} · disable ${vst.lastNCoord.disableNs.join("/") || LAST_N_PROGRESS_META[2]!.n}`
+              : LAST_N_PROGRESS_META.map((s) => `${s.label} ${s.n}`).join(" · ")
+          }
         />
         <StatLine
           k="Interval"
