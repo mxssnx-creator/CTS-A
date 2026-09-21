@@ -241,7 +241,7 @@ export function SystemPanel({
       <div className="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {snap.loads.map((row) => {
           if (liveSnap.hasLive && row.id === "symbols") {
-            const n = liveSnap.occupied || liveSnap.livePos;
+            const n = liveSnap.occupied;
             const max = Number(liveSnap.session?.symbols) || symbolCount || 50;
             return <Meter key={row.id} label="Occupied symbols" value={n} max={max} hint={`${n}/${max}`} />;
           }

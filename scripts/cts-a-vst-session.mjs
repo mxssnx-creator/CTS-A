@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -200,11 +200,12 @@ const BLOCK = {
   liveDisable: true,
   liveDisableMinPf: DEFAULT_BLOCK_PF,
   liveDisableMinSamples: 4,
+  lastNProgress: sanitizeLastNProgress(undefined),
 };
 
 const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: false, block: true, dca: false };
 
-const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 1.7, dcaCount: 1, slAtr: 0.765, tpAtr: 0.45, slOfTp: 1.7, shortRange: true, maxHoldTicks: 24, maxHoldBars: 3, axisLevels: 5 };
+const LIVE_CFG = { trailingPct: 1.5, tpRatio: 1 / 1.75, dcaCount: 1, slAtr: 0.7, tpAtr: 0.45, slOfTp: 1.75, shortRange: true, maxHoldTicks: 24, maxHoldBars: 3, axisLevels: 5 };
 const LIVE_SHORT_TACTICS = ["trailing"];
 const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   ["atr", "fibonacci"].map((range) => ({
@@ -577,9 +578,10 @@ function writeSettingsPick(pick, extra = {}) {
     blockConfig: BLOCK,
     symbolCount: LIVE_SYMBOLS,
     orderType: "limit",
-    lastN: 10,
-    lastNs: { picks: 10, lanes: 10, last: 10, ongoing: 10, next: 10, combos: 10 },
+    lastN: VALID_EXEC_POS_N,
+    lastNs: { picks: VALID_EXEC_POS_N, lanes: VALID_EXEC_POS_N, last: VALID_EXEC_POS_N, ongoing: VALID_EXEC_POS_N, next: VALID_EXEC_POS_N, combos: VALID_EXEC_POS_N },
     lastNLinked: true,
+    lastNProgress: sanitizeLastNProgress(undefined),
     costStep: 10,
     liveTape: true,
     comboOnlyPositive: true,
@@ -591,7 +593,7 @@ function writeSettingsPick(pick, extra = {}) {
     thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, shortPf: DEFAULT_SHORT_PF, shortBasePf: DEFAULT_SHORT_BASE_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
     activeConnId: CONN,
     evalHours: [...AUTO_EVAL_HOURS],
-    evalLastNs: [12, 15, 30],
+    evalLastNs: [EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N],
     sessionPhase: extra.sessionPhase ?? "running",
     hedgeMode: true,
     marginMode: "cross",
@@ -1824,7 +1826,7 @@ function applyPfGates(engine, remote) {
   const th = remote?.thresholds || {};
   const overall = IS_X01
     ? Math.max(DEFAULT_MIN_PF, Number(th.minPf) || LIVE_MIN_PF)
-    : Math.max(DEFAULT_SHORT_PF, Number(th.shortPf ?? th.minPf) || LIVE_MIN_PF);
+    : Math.max(DEFAULT_SHORT_PF, Number(th.shortPf) || LIVE_MIN_PF);
   const base = Math.max(1, Number(th.basePf) || DEFAULT_BASE_PF);
   const axis = Math.max(1, Number(th.axisPf) || DEFAULT_AXIS_PF);
   const blockPf = Math.max(1, Number(th.blockPf) || DEFAULT_BLOCK_PF);
@@ -1849,6 +1851,8 @@ function applyPfGates(engine, remote) {
   shortMaxTp = sp.maxTpAtr ?? 0.6;
   shortEvalPositive = sp.evalPositiveOnly !== false;
   rebuildShortGrid();
+  const ln = sanitizeLastNProgress(remote?.lastNProgress ?? remote?.blockConfig?.lastNProgress ?? DEFAULT_LAST_N_PROGRESS);
+  engine.lastNProgress = ln;
   const vol = IS_X01
     ? { volumeRatio: 0.1, relVolumeRatio: 0.1, sharedVolumeRatio: 1, overallVolumeRatio: 1 }
     : x02VolFromRemote(bc);
@@ -1865,6 +1869,7 @@ function applyPfGates(engine, remote) {
     volumeMode: "parallel",
     minRelPf: blockPf,
     liveDisableMinPf: blockPf,
+    lastNProgress: ln,
   };
 }
 

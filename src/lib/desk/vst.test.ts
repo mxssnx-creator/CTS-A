@@ -3028,6 +3028,67 @@ describe("VST engine", () => {
     assert.ok(tagged.length >= 1, `Base-ok 0.4/1.75 still armed (${tagged.length})`);
   });
 
+  it("thin Base-ok combo stays live even with mixed prePass miss", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true, trailingPct: 1.5 }, { warmup: 0, symbolCount: 4, arm: false });
+    e.shortRange = true;
+    e.shortBasePf = 0.7;
+    e.liveTape = true;
+    e.preEvalDone = true;
+    e.prePassKeys = { trend: 1, block: 1 };
+    e.progressEval = {
+      at: 1,
+      lastNModes: { independent: { pass: true, pf: 1 }, combined: { pass: true, pf: 1 }, parallel: { pass: true, pf: 1 } },
+      lastNMode: "parallel",
+      evalNs: {},
+      validNs: {},
+      disableNs: {},
+      blockCounts: {},
+      volumeModes: {},
+      overallModes: {},
+      indications: {},
+      tactics: {},
+      ranges: {},
+      playbooks: {},
+      relations: {},
+      shortCombos: {
+        [shortComboKey(0.4, 1.75)]: { n: 2, pf: 1.2, net: 0.4, ok: true },
+        [shortComboKey(0.3, 0.5)]: { n: 8, pf: 0.2, net: -1, ok: false },
+      },
+    };
+    const winRel = {
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      indication: "ema" as const,
+      kind: "short",
+      tactic: "trailing" as const,
+      rangeType: "atr" as const,
+      playbook: "short",
+      tpAtr: 0.4,
+      slOfTp: 1.75,
+    };
+    assert.equal(lanePassExec(e, winRel), true);
+    assert.equal(liveShouldExecute(e, winRel), true);
+  });
+
+  it("sanitize short-range defaults to live floors 0.4 / 1.75", () => {
+    const snap = sanitizeDeskSettings({ tacticConfig: { shortRange: true } } as never);
+    assert.equal(snap.tacticConfig.tpAtr, 0.4);
+    assert.equal(snap.tacticConfig.slOfTp, 1.75);
+  });
+
+  it("simulateHours honours comboOnly false on a short pair", () => {
+    const cfg = { ...CFG, shortRange: true as const, tpAtr: 0.4, slOfTp: 1.75, trailingPct: 1.5, maxHoldTicks: 12 };
+    const { engine: a } = simulateHours(1, cfg, "trailing", { symbolCount: 6, comboOnly: true, complete: false });
+    const { engine: b } = simulateHours(1, cfg, "trailing", { symbolCount: 6, comboOnly: false, complete: false });
+    assert.equal(a.shortComboOnly, true);
+    assert.equal(b.shortComboOnly, false);
+    const ga = shortProtectGrid(a, cfg);
+    const gb = shortProtectGrid(b, cfg);
+    assert.equal(ga.length, 1);
+    assert.ok(gb.length >= 8, `grid ${gb.length}`);
+  });
+
+
   it("live caps allow high order counts and never drop below paper/live ceilings", () => {
     assert.ok(VST_MAX_POSITIONS >= 400);
     assert.ok(VST_MAX_QUEUE >= 2400);
@@ -4118,6 +4179,10 @@ describe("full config coverage", () => {
     assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, 0.4);
     assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, 1.75);
     assert.equal(sanitizeShortProgress({}).minTpAtr, 0.4);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.42, minSlOfTp: 1.7 }).minTpAtr, 0.4);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.42, minSlOfTp: 1.7 }).minSlOfTp, 1.75);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.45, minSlOfTp: 2 }).minTpAtr, 0.45);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.45, minSlOfTp: 2 }).minSlOfTp, 2);
     assert.equal(sanitizeShortProgress({}).maxTpAtr, 0.6);
     assert.equal(sanitizeShortProgress({}).evalHours, 20);
     assert.equal(sanitizeShortProgress({}).evalPositiveOnly, true);

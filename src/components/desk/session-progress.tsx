@@ -101,7 +101,7 @@ export function SessionProgress({
     connections,
   });
   const occupiedN = liveSnap.hasLive
-    ? liveSnap.occupied || liveSnap.livePos
+    ? liveSnap.occupied
     : tape.positions.symbols;
   const rateUsed = connections.reduce((a, c) => a + c.rateLimitUsed, 0);
   const rateMax = connections.reduce((a, c) => a + c.rateLimitMax, 0) || VST_RATE_WINDOW;
@@ -570,7 +570,7 @@ export function SessionProgress({
           <Pill>{connections.length} BingX sessions</Pill>
           <Pill>
             {liveSnap.hasLive
-              ? `${liveSnap.occupied}/${symbolCount} pos slots · ${liveSnap.liveLong}L/${liveSnap.liveShort}S`
+              ? `${liveSnap.occupied}/${symbolCount} occupied · ${liveSnap.liveLong}L/${liveSnap.liveShort}S`
               : `${tape.positions.slots}/${tape.positions.maxSlots} pos slots · ${tape.positions.long}L/${tape.positions.short}S`}
           </Pill>
           <Pill>

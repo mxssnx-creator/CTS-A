@@ -233,8 +233,8 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;
       const short = asBool(cfg.shortRange, false) || cfgUsesShortRange(cfg);
       if (short) {
-        const slOfTp = snapShortSlOfTp(asNum(cfg.slOfTp, 1));
-        const tpAtr = snapShortTpAtr(asNum(cfg.tpAtr, 0.3));
+        const slOfTp = snapShortSlOfTp(asNum(cfg.slOfTp, 1.75));
+        const tpAtr = snapShortTpAtr(asNum(cfg.tpAtr, 0.4));
         return {
           trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.5)),
           dcaCount: 1,

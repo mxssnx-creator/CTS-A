@@ -2162,8 +2162,14 @@ function matchOrders(e: VstEngine) {
   }
 }
 function cancelLane(e: VstEngine, p: LivePosition) {
-  for (const o of e.orders) if (o.symbol === p.symbol && o.side === p.side && o.connId === p.connId && (o.status === "open" || o.status === "partial" || o.status === "queued")) markTerminal(e, o, "cancelled");
-  cancelQueued(e, (o) => o.symbol === p.symbol && o.side === p.side && o.connId === p.connId);
+  const complete = Boolean(e.completeSim);
+  for (const o of e.orders) {
+    if (o.symbol !== p.symbol || o.side !== p.side || o.connId !== p.connId) continue;
+    if (!(o.status === "open" || o.status === "partial" || o.status === "queued")) continue;
+    if (!sameProtectLane(p, o, complete)) continue;
+    markTerminal(e, o, "cancelled");
+  }
+  cancelQueued(e, (o) => o.symbol === p.symbol && o.side === p.side && o.connId === p.connId && sameProtectLane(p, o, complete));
 }
 function bookRealized(e: VstEngine, pnl: number, reason: "sl" | "tp" | "time" | "partial") {
   const x = Number.isFinite(pnl) ? pnl : 0;
@@ -4686,8 +4692,8 @@ export function adjustActiveBlocks(
         const raw = planned.reduce((s, x) => s + x.qty, 0);
         const scale = raw > room ? room / raw : 1;
         const hi = pickRange(q, cfg, rangeType);
-        const sl0 = slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg));
-        const tp0 = tpDistFromSl(sl0, cfg.tpRatio, cfgUsesShortRange(cfg));
+        const sl0 = p.slDist > 1e-12 ? p.slDist : slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg));
+        const tp0 = p.tpDist > 1e-12 ? p.tpDist : tpDistFromSl(sl0, cfg.tpRatio, cfgUsesShortRange(cfg));
         const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
         if (!(px > 0)) return;
         const lv = protectLevels(px, p.side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
@@ -4759,7 +4765,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   const over = () => {
     if (e.completeSim && paperMode(e)) return false;
     const n = e.symbolCount || 0;
-    const budget = e.liveTape ? (n >= 40 ? 420 : 280) : n >= 80 ? 400 : 140;
+    const budget = e.liveTape ? Math.min(800, 280 + n * 4) : n >= 80 ? 400 : 140;
     return Date.now() - t0 > budget;
   };
   if (opts?.symbolCount != null) e.symbolCount = clampSymbolCount(opts.symbolCount);
@@ -7346,6 +7352,7 @@ export function lanePassExec(
   if (rel.tpAtr != null && rel.slOfTp != null) {
     const row = e.progressEval?.shortCombos?.[shortComboKey(rel.tpAtr, rel.slOfTp)];
     if (row && row.n >= 4) return row.ok;
+    if (rel.kind === "short" || rel.playbook === "short" || e.shortRange) return true;
   }
   const coord = e.lastNCoord;
   if (coord) {
@@ -7422,12 +7429,14 @@ export function liveShouldExecute(
   if (isDca) return t.dca;
   const blockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   if (blockFill) return t.block !== false;
-  if ((e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
-  if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel)) return false;
-  if (rel.tpAtr != null && rel.slOfTp != null && !(e.shortComboOnly && paperMode(e))) {
-    const row = e.progressEval?.shortCombos?.[shortComboKey(rel.tpAtr, rel.slOfTp)];
+  const shortCombo = rel.tpAtr != null && rel.slOfTp != null;
+  const shortLane = rel.kind === "short" || play === "short" || /short/i.test(note) || Boolean(e.shortRange && shortCombo);
+  if (shortCombo && !(e.shortComboOnly && paperMode(e))) {
+    const row = e.progressEval?.shortCombos?.[shortComboKey(rel.tpAtr!, rel.slOfTp!)];
     if (row && row.n >= 6 && row.pf + 1e-9 < minPfFor(e, "shortBase")) return false;
   }
+  if (!(shortLane && shortCombo) && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
+  if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel)) return false;
   const gated = Boolean(e.preEvalDone || e.liveTape);
   if (!blockFill && gated && laneExecProven(e, rel)) {
     if (rel.kind === "normal" || play === "normal") return t.normal;

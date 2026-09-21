@@ -1014,6 +1014,7 @@ export function SettingsView() {
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setTh({ minPf: n })}
+              onCommit={applyLive}
               ariaLabel="Overall profit factor"
             />
             <RangeKnob
@@ -1024,6 +1025,7 @@ export function SettingsView() {
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setTh({ basePf: n })}
+              onCommit={applyLive}
               ariaLabel="Base profit factor for general configs"
             />
             <RangeKnob
@@ -1034,6 +1036,7 @@ export function SettingsView() {
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setTh({ axisPf: n })}
+              onCommit={applyLive}
               ariaLabel="Axis profit factor"
             />
             <RangeKnob
@@ -1047,6 +1050,7 @@ export function SettingsView() {
                 setTh({ blockPf: n });
                 setBlockCfg({ liveDisableMinPf: n, minRelPf: n });
               }}
+              onCommit={applyLive}
               ariaLabel="Block profit factor"
             />
             <RangeKnob
@@ -1057,6 +1061,7 @@ export function SettingsView() {
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setTh({ shortPf: n })}
+              onCommit={applyLive}
               ariaLabel="Short-range overall profit factor"
             />
             <RangeKnob
@@ -1067,6 +1072,7 @@ export function SettingsView() {
               step={0.05}
               format={(n) => n.toFixed(2)}
               onChange={(n) => setTh({ shortBasePf: n })}
+              onCommit={applyLive}
               ariaLabel="Short-range base profit factor"
             />
           </div>

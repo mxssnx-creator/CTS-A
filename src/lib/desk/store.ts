@@ -582,7 +582,23 @@ export const useDesk = create<DeskStore>((set, get) => ({
     }
   },
   setThresholds: (p) => {
-    set({ thresholds: { ...get().thresholds, ...p } });
+    const thresholds = { ...get().thresholds, ...p };
+    const shortProgress = { ...get().shortProgress };
+    if (p.shortPf != null) shortProgress.overallPf = p.shortPf;
+    if (p.shortBasePf != null) shortProgress.basePf = p.shortBasePf;
+    if (p.shortAxisPf != null) shortProgress.axisPf = p.shortAxisPf;
+    if (p.shortBlockPf != null) shortProgress.blockPf = p.shortBlockPf;
+    set({ thresholds, shortProgress });
+    const e = get().vst;
+    e.minPf = thresholds.minPf;
+    e.basePf = thresholds.basePf;
+    e.axisPf = thresholds.axisPf;
+    e.blockPf = thresholds.blockPf;
+    e.shortPf = thresholds.shortPf;
+    e.shortBasePf = thresholds.shortBasePf;
+    e.shortAxisPf = thresholds.shortAxisPf;
+    e.shortBlockPf = thresholds.shortBlockPf;
+    e.shortProgress = shortProgress;
     get().syncSettings();
   },
   setTacticConfig: (p) => {
@@ -1326,8 +1342,9 @@ export const useDesk = create<DeskStore>((set, get) => ({
       if (Number.isFinite(mdd)) e.stats.mdd = mdd;
       const wins = Number(sess.wins);
       if (Number.isFinite(wins)) e.ledger.wins = wins;
-      e.running = true;
-      e.phase = "running";
+      const ph = String(sess.phase ?? sess.sessionPhase ?? "running");
+      e.running = ph === "running";
+      e.phase = ph === "paused" ? "paused" : ph === "stopped" ? "stopped" : "running";
       e.lastMsg = String(sess.lastMsg ?? e.lastMsg);
     }
     const prevSess = get().liveSession;
@@ -1358,7 +1375,6 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const ovAt = ov && typeof ov === "object" ? Number((ov as { at?: number }).at) : 0;
       const prevAt = prevOv && typeof prevOv === "object" ? Number((prevOv as { at?: number }).at) : 0;
       const ovChanged = Boolean(ov) && ovAt !== prevAt;
-      if (Date.now() - lastLiveMarkAt < 4000 && !ovChanged) return;
       if (ovChanged || Math.round(elapsed * 2) !== Math.round(Number(get().liveElapsed) * 2) || mark !== get().liveMark) {
         lastLiveMarkAt = Date.now();
         pinDeskScroll();

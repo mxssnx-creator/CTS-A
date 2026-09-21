@@ -213,8 +213,8 @@ export function ResultsView() {
   const view: LiveOverview = {
     ...tape,
     hours: hoursMerged,
-    pf: tape.pf || completePf || tape.avgConfigPf,
-    avgConfigPf: tape.avgConfigPf || completePf,
+    pf: liveConnected ? Number(tape.pf || liveSnap.pf || 0) : tape.pf || completePf || tape.avgConfigPf,
+    avgConfigPf: liveConnected ? Number(tape.avgConfigPf || tape.pf || 0) : tape.avgConfigPf || completePf,
   };
   const liveWin = view.hours?.["4"] ?? view.lastN?.["40"] ?? view.lastN?.["12"];
   const tapeClosed = Number(liveSnap.trades);
@@ -390,10 +390,10 @@ export function ResultsView() {
           Live {liveSnap.venueLabel} executions, independent indication and strategy stats, PF / DDT, and config matrix.
         </p>
       </div>
-      {completeHourly?.hourly?.length ? (
-        <Panel title={`Complete computing · ${completeHourly.hours ?? 12}h × ${completeHourly.symbols ?? 40} + ${completeHourly.prehours ?? 20}h pre`}>
+      {!liveSnap.hasLive && completeHourly?.hourly?.length ? (
+        <Panel title={`Complete computing (sim) · ${completeHourly.hours ?? 12}h × ${completeHourly.symbols ?? 40} + ${completeHourly.prehours ?? 20}h pre`}>
           <p className="text-sm text-muted">
-            PF {fmtPf(Number(completeHourly.pf ?? 0))} · paper {fmtPf(Number(completeHourly.paperPf ?? 0))} · n={completeHourly.trades ?? 0} ·
+            Local hour-by-hour tape, not live exchange. PF {fmtPf(Number(completeHourly.pf ?? 0))} · paper {fmtPf(Number(completeHourly.paperPf ?? 0))} · n={completeHourly.trades ?? 0} ·
             green {completeHourly.greenHours ?? 0}/{completeHourly.hourly.length} · avg pos {fmtNum(completeHourly.avgPositions ?? 0, 1)} ·
             avg ord {fmtNum(completeHourly.avgOrders ?? 0, 1)} · MDD {fmtMdd(Number(completeHourly.mdd ?? 0))}.{" "}
             <a className="text-primary underline-offset-2 hover:underline" href="/sim-complete-hourly.html" target="_blank" rel="noreferrer">
@@ -402,7 +402,7 @@ export function ResultsView() {
           </p>
         </Panel>
       ) : null}
-      {blockSweep?.cells?.length ? (
+      {!liveSnap.hasLive && blockSweep?.cells?.length ? (
         <Panel title={`Block reccoordinate · 24h × ${blockSweep.symbols ?? 80} · $${blockSweep.startEquity ?? 10}`}>
           <p className="text-sm text-muted">
             Complete computing · all indications · hourly line-by-line. Winner {blockSweep.winner ?? "—"}.{" "}
@@ -442,7 +442,7 @@ export function ResultsView() {
           </div>
         </Panel>
       ) : null}
-      {paper?.cells?.length ? (
+      {!liveSnap.hasLive && paper?.cells?.length ? (
         <Panel title={`Paper 72h × ${paper.symbols ?? 120} · $${paper.equity ?? 1} · min volume`}>
           <p className="text-sm text-muted">
             Local sim, not live tape. Unit {fmtUsd(paper.unitNotional ?? 0)} · Block off / Sets / Overall.
@@ -636,7 +636,8 @@ export function ResultsView() {
           <StatLine k="Avg positions" v={fmtNum(avgPos, 2)} />
           <StatLine k="Avg orders" v={fmtNum(avgOrd, 2)} />
           <StatLine k="Session PF" v={fmtPf(Number(session?.pf ?? liveNow?.pf))} />
-          <StatLine k="Occupied" v={`${liveSnap.occupied || live.occupied || liveNow?.occupied || 0} / ${live.symbols ?? liveNow?.symbols ?? liveSnap.session?.symbols ?? 50}`} />
+          <StatLine k="Occupied" v={`${liveSnap.occupied || live.occupied || 0} / ${live.symbols ?? liveNow?.symbols ?? liveSnap.session?.symbols ?? 50}`} />
+          <StatLine k="Legs" v={`${liveSnap.livePos || 0} · ${liveSnap.liveLong}L/${liveSnap.liveShort}S`} />
           <StatLine k="DDT" v={fmtNum(ddt, 0)} />
           <StatLine k="MDD" v={fmtMdd(mdd)} />
         </div>

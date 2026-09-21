@@ -118,11 +118,19 @@ export function OverviewView() {
       0,
   );
   const tapeN = Number(liveSnap.trades);
-  const sessPf = tapeN > 0 ? Number(liveSnap.pf || 0) : winnerPf || Number(liveSnap.pf || liveWin?.pf || 0);
+  const sessPf = tapeN > 0
+    ? Number(liveSnap.pf || 0)
+    : liveSnap.hasLive
+      ? Number(liveSnap.pf || liveWin?.pf || 0)
+      : winnerPf || Number(liveSnap.pf || liveWin?.pf || 0);
   const sessWr = tapeN > 0 ? Number(liveSnap.wr) : Number(liveWin?.wr ?? liveSnap.wr);
   const sessNet = Number(liveSnap.net);
   const sessTrades = tapeN;
-  const closedPf = tapeN > 0 ? Number(overall?.overall?.pf ?? overall?.pf ?? sessPf) : winnerPf || sessPf;
+  const closedPf = tapeN > 0
+    ? Number(overall?.overall?.pf ?? overall?.pf ?? sessPf)
+    : liveSnap.hasLive
+      ? Number(overall?.overall?.pf ?? overall?.pf ?? sessPf)
+      : winnerPf || sessPf;
   const closedWr = Number(overall?.overall?.wr ?? overall?.wr ?? sessWr);
   const closedNet = Number(overall?.overall?.net ?? overall?.net ?? sessNet);
   const closedN = tapeN;
@@ -363,7 +371,8 @@ export function OverviewView() {
           <StatLine k="Closed PF" v={fmtPf(closedPf)} />
           <StatLine k="Closed WR" v={fmtWr(closedWr)} />
           <StatLine k="Net" v={fmtUsd(closedNet)} tone={closedNet >= 0 ? "up" : "down"} />
-          <StatLine k="Occupied" v={`${liveSnap.occupied || overall.occupied || liveSnap.livePos || 0} · ${overall.slots ?? liveSnap.livePos ?? 0} slots`} />
+          <StatLine k="Occupied" v={`${liveSnap.occupied || overall.occupied || 0} / ${overall.symbols ?? liveSnap.session?.symbols ?? 50}`} />
+          <StatLine k="Legs" v={`${liveSnap.livePos || overall.slots || 0} · ${liveSnap.liveLong}L/${liveSnap.liveShort}S`} />
         </div>
         {overall.byPlaybook?.length ? (
           <div className="mt-3 flex flex-wrap gap-2">

@@ -118,7 +118,7 @@ export function liveNumbers(
   const liveOrd =
     fetched && fetched.orders.length > 0 ? fetched.orders.length : num(session?.liveOrd);
   const pingOk = Boolean(session?.pingOk || exchange?.ok);
-  const occupied = bookOcc || sessOcc || num(session?.occupied) || livePos;
+  const occupied = bookOcc || sessOcc || num(session?.occupied);
   const posRows = (exchange?.positions?.length ? exchange.positions : sessBook) as { side?: string }[];
   const liveLong = posRows.filter((p) => p.side === "long").length;
   const liveShort = posRows.filter((p) => p.side === "short").length;

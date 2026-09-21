@@ -19,6 +19,14 @@ export const DEFAULT_SHORT_BLOCK_PF = 1.15;
 export const DEFAULT_SHORT_MIN_TP_ATR = 0.4;
 export const DEFAULT_SHORT_MIN_SL_OF_TP = 1.75;
 
+/** Persisted 0.42 / 1.7 were old defaults that dropped the 0.4 / 1.75 live cells. */
+function migrateShortMinTp(n: number): number {
+  return Math.abs(n - 0.42) < 1e-9 ? DEFAULT_SHORT_MIN_TP_ATR : n;
+}
+function migrateShortMinSl(n: number): number {
+  return Math.abs(n - 1.7) < 1e-9 ? DEFAULT_SHORT_MIN_SL_OF_TP : n;
+}
+
 export const DEFAULT_SHORT_PROGRESS: ShortProgressConfig = {
   enabled: true,
   indications: [...SHORT_PROGRESS_INDICATIONS],
@@ -62,8 +70,8 @@ export function sanitizeShortProgress(raw: Partial<ShortProgressConfig> | null |
     drawdownLookback: Math.min(40, Math.max(4, Math.round(Number(raw.drawdownLookback) || d.drawdownLookback))),
     prevRelN: Math.min(24, Math.max(3, Math.round(Number(raw.prevRelN) || d.prevRelN))),
     bestOnly: raw.bestOnly !== false,
-    minTpAtr: Math.min(0.6, Math.max(0.3, Number(raw.minTpAtr) || d.minTpAtr)),
-    minSlOfTp: Math.min(2.5, Math.max(0.5, Number(raw.minSlOfTp) || d.minSlOfTp)),
+    minTpAtr: migrateShortMinTp(Math.min(0.6, Math.max(0.3, Number(raw.minTpAtr) || d.minTpAtr))),
+    minSlOfTp: migrateShortMinSl(Math.min(2.5, Math.max(0.5, Number(raw.minSlOfTp) || d.minSlOfTp))),
     maxTpAtr: Math.min(0.6, Math.max(0.42, Number(raw.maxTpAtr) || d.maxTpAtr || 0.6)),
     evalHours: Math.min(48, Math.max(4, Math.round(Number(raw.evalHours) || d.evalHours || 20))),
     evalPositiveOnly: raw.evalPositiveOnly !== false,

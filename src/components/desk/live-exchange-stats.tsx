@@ -161,7 +161,7 @@ export function LiveExchangeStats({
   const playbooks = live.playbooks?.length
     ? live.playbooks
     : (live.byPlaybook ?? []).map((p) => ({ ...p, active: { ...p, key: `${p.key}:active`, n: 0 }, steps: [] }));
-  const runSym = Number(live.runningSymbols) || Number(live.occupied) || Number(exchangePos) || 0;
+  const runSym = Number(live.runningSymbols) || Number(live.occupied) || 0;
   const avgPos = Number(avgLivePos ?? live.avgPositions ?? exchangePos ?? 0);
   const avgOrd = Number(avgLiveOrd ?? live.avgOrders ?? exchangeOrd ?? 0);
   const liveCfg = Number(live.configsLive ?? playbooks.filter((p) => p.n > 0).length);
