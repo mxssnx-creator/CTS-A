@@ -907,7 +907,7 @@ export async function placeSwapOrder(input: {
       side: input.side,
       positionSide: input.positionSide,
       type: input.type,
-      recvWindow: 5000,
+      recvWindow: 20000,
       timestamp: Date.now(),
     };
     if (sendQty > 0) params.quantity = sendQty;

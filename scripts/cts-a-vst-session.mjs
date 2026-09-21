@@ -1081,8 +1081,12 @@ function isMarginFail(s) {
   return /insufficient margin|maximum open amount|available amount|lower the leverage/i.test(String(s || ""));
 }
 
-function liveBudgetNow() {
-  return liveEntryBudget(Number(lastBook.equity) || 0);
+const X01_GROWTH = new Set(["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "LINKUSDT", "AVAXUSDT", "ADAUSDT", "SUIUSDT", "NEARUSDT", "APTUSDT"]);
+function x01CanAfford(symbol, equity) {
+  const eq = Number(equity) || 0;
+  if (!(eq > 0)) return false;
+  const lev = Math.max(10, Number(cachedMaxLeverage(symbol)) || 25);
+  return 2 / lev <= eq * 0.55;
 }
 
 function pfGateClosed() {
@@ -1920,9 +1924,12 @@ async function mirrorToExchange(e, network, cfg) {
     if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side)) continue;
     if (isBlockAdd && fillJobs.filter((x) => /Block/i.test(String(x.note || x._rel?.note || ""))).length >= budget.maxNew) continue;
     if (!isBlockAdd && openN + fillJobs.length >= budget.maxPos) break;
+    if (IS_X01 && !x01CanAfford(f.symbol, book.equity) && !X01_GROWTH.has(f.symbol)) continue;
+    if (IS_X01 && (Number(book.equity) || 0) < 8 && !X01_GROWTH.has(f.symbol) && fillJobs.length >= 1) continue;
     if (apiQuiet()) break;
     fillJobs.push(f);
   }
+  if (IS_X01) fillJobs.sort((a, b) => Number(X01_GROWTH.has(b.symbol)) - Number(X01_GROWTH.has(a.symbol)));
   const fillOut = await mapLimit(fillJobs, 2, async (f) => {
     try {
       const r = await withLiveBusy(() =>
@@ -1954,7 +1961,9 @@ async function mirrorToExchange(e, network, cfg) {
       skippedFills.add(f.id);
       const err = String(r?.error ?? "err");
       const dead = markDeadSymbol(f.symbol, err);
-      if (!dead && !/min notional exceeds|TP Price|SL Price|must be (greater|lower)/i.test(err)) {
+      if (!dead && isMarginFail(err)) {
+        skipUntil.set(f.symbol, Date.now() + 12_000);
+      } else if (!dead && !/min notional exceeds|TP Price|SL Price|must be (greater|lower)/i.test(err)) {
         skipUntil.set(f.symbol, Date.now() + (isRateLimited(r?.error) ? 480_000 : 90_000));
       }
       const quiet = noteApiFail(r);
