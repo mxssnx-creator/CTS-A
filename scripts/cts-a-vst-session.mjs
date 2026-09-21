@@ -945,8 +945,65 @@ function pfGateClosed() {
   return lastExec.n >= 8 && lastExec.pf + 1e-9 < LIVE_MIN_PF;
 }
 
-async function flattenBelowMinPf(_network, _book, _e) {
-  return null;
+/** First-seen wall time per owned live leg — short-range hold matches sim minutes. */
+const openedAt = new Map();
+const MAX_HOLD_MS = Math.max(4, Number(LIVE_CFG.maxHoldTicks) || 24) * 60_000;
+
+function cellProtectOf(p, spec, network) {
+  const entry = Number(p.entry || p.mark || 0);
+  const cell = protectFor(p.symbol);
+  const mode = network === "mainnet" ? "main" : "vst";
+  return { cell, ...liveProtectPrices(entry, p.side, cell.slAtr, cell.tpRatio, spec, mode), entry };
+}
+
+function slIsLooser(side, curSl, wantSl) {
+  if (!(curSl > 0) || !(wantSl > 0)) return false;
+  return side === "long" ? curSl < wantSl * 0.998 : curSl > wantSl * 1.002;
+}
+
+function tpIsLooser(side, curTp, wantTp) {
+  if (!(curTp > 0) || !(wantTp > 0)) return false;
+  return side === "long" ? curTp > wantTp * 1.002 : curTp < wantTp * 0.998;
+}
+
+async function flattenBelowMinPf(network, book, e) {
+  if (apiQuiet()) return null;
+  const owned = (book.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side) && Number(p.qty) > 0);
+  const liveKeys = new Set(owned.map((p) => `${p.symbol}:${p.side}`));
+  for (const k of [...openedAt.keys()]) if (!liveKeys.has(k)) openedAt.delete(k);
+  const now = Date.now();
+  const map = await fetchContractMap(network);
+  const notes = [];
+  let n = 0;
+  const ranked = [...owned].sort((a, b) => Number(a.pnl || 0) - Number(b.pnl || 0));
+  for (const p of ranked) {
+    if (n >= 3 || apiQuiet()) break;
+    const key = `${p.symbol}:${p.side}`;
+    if (!openedAt.has(key)) openedAt.set(key, now);
+    const age = now - openedAt.get(key);
+    const spec = map.get(p.venueSymbol);
+    const prot = cellProtectOf(p, spec, network);
+    if (!(prot.entry > 0)) continue;
+    const mark = Number(p.mark || prot.entry);
+    const slDist = Math.abs(prot.sl - prot.entry);
+    const mtmDist = p.side === "long" ? prot.entry - mark : mark - prot.entry;
+    const pastSl = slDist > 0 && mtmDist > slDist * 1.05;
+    const loser = Number(p.pnl) <= 0 || mtmDist > 0;
+    const timed = age >= MAX_HOLD_MS && loser;
+    if (!pastSl && !timed) continue;
+    const r = await closeHit(network, p);
+    if (r?.ok) {
+      n += 1;
+      openedAt.delete(key);
+      mirrored.delete(`own:${key}`);
+      mirrored.delete(`live:${key}`);
+      taggedKeys.delete(key);
+      notes.push(pastSl ? `flat SL ${p.symbol}` : `flat time ${p.symbol}`);
+    } else {
+      noteApiFail(r);
+    }
+  }
+  return notes.length ? notes.join(" · ") : null;
 }
 
 function apiQuiet() {
@@ -1164,19 +1221,20 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const slAtr = cell.slAtr;
     const tpRatio = cell.tpRatio;
     const cellProt = liveProtectPrices(px, p.side, slAtr, tpRatio, spec, network === "mainnet" ? "main" : "vst");
-    const enginePos = e?.positions?.find((x) => x.symbol === p.symbol && x.side === p.side);
+    const shortLive = cfgUsesShortRange(cfg) || cfgUsesShortRange(currentPick?.cfg) || true;
     const g0 = grouped.get(key);
-    const wide = pickWidestProtect(p.side, p.entry || px, [
-      { sl: cellProt.sl, tp: cellProt.tp },
-      enginePos ? { sl: enginePos.sl, tp: enginePos.tp } : {},
-      ...((g0?.sl || []).map((o) => ({ sl: Number(o.stopPrice || o.price || 0) }))),
-      ...((g0?.tp || []).map((o) => ({ tp: Number(o.stopPrice || o.price || 0) }))),
-    ]);
-    const prot = {
-      ...cellProt,
-      sl: wide.sl || cellProt.sl,
-      tp: wide.tp || cellProt.tp,
-    };
+    const prot = shortLive
+      ? cellProt
+      : (() => {
+          const enginePos = e?.positions?.find((x) => x.symbol === p.symbol && x.side === p.side);
+          const wide = pickWidestProtect(p.side, p.entry || px, [
+            { sl: cellProt.sl, tp: cellProt.tp },
+            enginePos ? { sl: enginePos.sl, tp: enginePos.tp } : {},
+            ...((g0?.sl || []).map((o) => ({ sl: Number(o.stopPrice || o.price || 0) }))),
+            ...((g0?.tp || []).map((o) => ({ tp: Number(o.stopPrice || o.price || 0) }))),
+          ]);
+          return { ...cellProt, sl: wide.sl || cellProt.sl, tp: wide.tp || cellProt.tp };
+        })();
     const protectQty = (availUsdt = 0) => {
       let q = p.qty;
       if (availUsdt > 0 && px > 0) q = Math.min(q, (availUsdt * 0.98) / px);
@@ -1274,27 +1332,24 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const entry = Number(p.entry || p.mark || 0);
     const curSl = Number(g?.sl?.[0]?.stopPrice || lastPostedSl.get(key) || 0);
     const curTp = Number(g?.tp?.[0]?.stopPrice || lastPostedTp.get(key) || 0);
-    const enginePos = e?.positions?.find((x) => x.symbol === p.symbol && x.side === p.side);
-    const wide = pickWidestProtect(p.side, entry, [
-      enginePos ? { sl: enginePos.sl, tp: enginePos.tp } : {},
-      { sl: curSl, tp: curTp },
-    ]);
-    const inProfit = p.side === "long" ? Number(p.mark) > entry : Number(p.mark) > 0 && Number(p.mark) < entry;
-    const slTight = !inProfit && wide.sl && curSl && (p.side === "long" ? curSl > wide.sl * 1.0004 : curSl < wide.sl * 0.9996);
-    const tpTight = wide.tp && curTp && (p.side === "long" ? curTp + 1e-12 < wide.tp : curTp - 1e-12 > wide.tp);
+    const cell = protectFor(p.symbol);
+    const spec = map.get(p.venueSymbol);
+    const cellProt = liveProtectPrices(entry || p.mark, p.side, cell.slAtr, cell.tpRatio, spec, network === "mainnet" ? "main" : "vst");
+    const slLoose = hasSl.has(key) && slIsLooser(p.side, curSl, cellProt.sl);
+    const tpLoose = hasTp.has(key) && tpIsLooser(p.side, curTp, cellProt.tp);
     const slDrift =
       hasSl.has(key) &&
       wantQ > 0 &&
       ((slQ > 0 && Math.abs(wantQ - slQ) / Math.max(wantQ, slQ) > 0.08) ||
         (prevQ > 0 && slQ <= 0 && Math.abs(wantQ - prevQ) / Math.max(wantQ, prevQ) > 0.08) ||
-        slTight);
+        slLoose);
     const tpDrift =
       hasTp.has(key) &&
-      ((tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.08) || tpTight);
+      ((tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.08) || tpLoose);
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift, missing: !hasSl.has(key) || !hasTp.has(key) });
   }
-  need.sort((a, b) => Number(b.missing) - Number(a.missing));
-  for (let i = 0; i < Math.min(need.length, 4) && posts < 8; i += 1) {
+  need.sort((a, b) => Number(b.missing) - Number(a.missing) || Number(a.p.pnl || 0) - Number(b.p.pnl || 0));
+  for (let i = 0; i < Math.min(need.length, 6) && posts < 12; i += 1) {
     if (apiQuiet()) break;
     const row = need[i];
     const r = await protectOne(row.p, row.missing ? false : row.slDrift, row.missing ? false : row.tpDrift);
@@ -1346,7 +1401,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (p.side === "short" && !(next > mark)) continue;
       trailNeed.push({ p, key, spec, cell, mark, next, slOrd });
     }
-    const trailOut = await mapLimit(trailNeed.slice(0, 1), 1, async (row) => {
+    const trailOut = await mapLimit(trailNeed.slice(0, 4), 2, async (row) => {
       const { p, key, spec, cell, mark, next, slOrd } = row;
       const slId = String(slOrd?.id || "");
       if (slId) {
