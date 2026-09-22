@@ -1265,6 +1265,12 @@ export interface VstEngine {
   shortComboPreTape?: Record<string, { pnl: number }[]>;
   /** Live validExec independent last-N per combo. Disable/continue uses this only. */
   shortComboLiveTape?: Record<string, { pnl: number }[]>;
+  /** Intern last-N per indication:tactic:combo. Eval picks 1–10% valid from this. */
+  shortRelTape?: Record<string, { pnl: number }[]>;
+  shortRelPreTape?: Record<string, { pnl: number }[]>;
+  /** Frozen intern relations that passed post-eval (1–10% of intern n, much higher PF). */
+  validRelKeys?: Record<string, number>;
+  validRelShare?: number;
 }
 
 export interface BlockLaneState {

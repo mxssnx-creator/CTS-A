@@ -206,6 +206,8 @@ import {
   refreshLiveDisable,
   liveRelationDisabled,
   liveShouldExecute,
+  internRelProven,
+  refreshValidRelKeys,
   laneLastNStack,
   lanePassExec,
   lastNProgressOf,
@@ -3431,6 +3433,30 @@ describe("VST engine", () => {
     const byTac = new Set(e.queue.map((o) => o.tactic).filter(Boolean));
     assert.ok(byInd.size >= 4, `inds ${[...byInd]}`);
     assert.ok(byTac.size >= 2, `tacs ${[...byTac]}`);
+  });
+
+  it("post-eval valid rels are 1-10% of intern and much higher PF", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true }, { warmup: 0, symbolCount: 4, arm: false, complete: true });
+    e.completeSim = true;
+    e.preEvalDone = true;
+    e.shortPf = 0.95;
+    const win = Array.from({ length: 12 }, (_, i) => ({ pnl: i % 4 === 0 ? 0.4 : 1.2 }));
+    const lose = Array.from({ length: 40 }, () => ({ pnl: -0.8 }));
+    const mid = Array.from({ length: 20 }, (_, i) => ({ pnl: i % 3 === 0 ? 0.2 : -0.5 }));
+    e.shortRelPreTape = {
+      "break:hybrid:0.48:0.75": win,
+      "ema:trailing:0.48:0.75": lose,
+      "trend:axis:0.52:1.00": mid,
+      "active:hybrid:0.48:1.00": lose,
+      "direction:trailing:0.42:0.75": lose,
+    };
+    refreshValidRelKeys(e);
+    assert.ok((e.validRelShare ?? 0) >= 0.01 && (e.validRelShare ?? 0) <= 0.10, `share ${e.validRelShare}`);
+    assert.ok(e.validRelKeys?.["break:hybrid:0.48:0.75"], `keys ${Object.keys(e.validRelKeys || {})}`);
+    assert.ok(!e.validRelKeys?.["ema:trailing:0.48:0.75"]);
+    assert.equal(internRelProven(e, { indication: "break", tactic: "hybrid", tpAtr: 0.48, slOfTp: 0.75 }), true);
+    assert.equal(internRelProven(e, { indication: "ema", tactic: "trailing", tpAtr: 0.48, slOfTp: 0.75 }), false);
+    assert.equal(liveShouldExecute(e, { symbol: "BTC-USDT", side: "long", indication: "ema", tactic: "trailing", playbook: "short", kind: "short", tpAtr: 0.48, slOfTp: 0.75 }), false);
   });
 
   it("break, active, and direction run with their own ranges, playbooks, and auto-evals", () => {

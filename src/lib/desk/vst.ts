@@ -65,6 +65,8 @@ import {
   allTpSlCombos,
   allShortTpSlCombos,
   shortProtectGridFor,
+  DEFAULT_SHORT_MIN_TP_ATR,
+  DEFAULT_SHORT_MIN_SL_OF_TP,
   shortComboKey,
   snapShortTpAtr,
   snapShortSlOfTp,
@@ -166,7 +168,7 @@ function paperMode(e: VstEngine) {
 export function engineSizeFactor(_e?: VstEngine) {
   return 1;
 }
-/** Complete intern-all: score every TP×SL independently (exclusive 1 per symbol:side). After pre, live only currently performing; intern continues on intern-only symbols. */
+/** Complete intern-all: rotate every indication×tactic×combo (1 intern leg/side). After pre, valid-execute only the top 1–10% intern relations (much higher PF). */
 function internAllPhase(e: VstEngine) {
   return Boolean(e.completeSim && paperMode(e) && !e.preEvalDone);
 }
@@ -196,9 +198,70 @@ function comboTapeStats(rows: { pnl: number }[] | undefined): { n: number; pf: n
   }
   return { n: rows.length, pf: profitFactor(gp, gl), net };
 }
+function internRelKey(ind: string | undefined, tac: string | undefined, tpAtr: number, slOfTp: number): string {
+  return `${ind || "na"}:${tac || "na"}:${shortComboKey(tpAtr, slOfTp)}`;
+}
+function noteRelClose(
+  e: VstEngine,
+  c: { indication?: string; tactic?: string; tpAtr?: number; slOfTp?: number; pnl?: number; validExec?: boolean },
+) {
+  if (c.tpAtr == null || c.slOfTp == null) return;
+  if (c.validExec === true && e.preEvalDone) return;
+  const key = internRelKey(c.indication, c.tactic, c.tpAtr, c.slOfTp);
+  const bag = e.shortRelTape ?? (e.shortRelTape = {});
+  const ring = bag[key] ?? (bag[key] = []);
+  ring.unshift({ pnl: Number(c.pnl) || 0 });
+  if (ring.length > SHORT_COMBO_TAPE_CAP) ring.length = SHORT_COMBO_TAPE_CAP;
+}
+export function refreshValidRelKeys(e: VstEngine) {
+  const tapes = (e.shortRelPreTape && Object.keys(e.shortRelPreTape).length ? e.shortRelPreTape : e.shortRelTape) ?? {};
+  const stats = Object.entries(tapes).map(([k, rows]) => ({ k, ...comboTapeStats(rows) }));
+  const internN = stats.reduce((s, r) => s + r.n, 0);
+  let gp = 0;
+  let gl = 0;
+  for (const rows of Object.values(tapes)) {
+    for (const x of rows) {
+      const p = Number(x.pnl) || 0;
+      if (p > 0) gp += p;
+      else gl += Math.abs(p);
+    }
+  }
+  const overall = profitFactor(gp, gl);
+  const floor = Math.max(minPfFor(e, "shortBase"), overall > 0 ? overall * 1.5 : 1.15, 1.05);
+  const ranked = stats
+    .filter((r) => r.n >= 6 && r.net > 0)
+    .sort((a, b) => b.pf - a.pf || b.n - a.n);
+  const maxN = Math.max(1, Math.floor(Math.max(internN, 1) * 0.10));
+  const minN = Math.max(1, Math.floor(Math.max(internN, 1) * 0.01));
+  const keys: Record<string, number> = {};
+  let cum = 0;
+  for (const r of ranked) {
+    if (cum >= maxN && Object.keys(keys).length) break;
+    if (r.pf + 1e-9 < floor && cum >= minN) break;
+    keys[r.k] = r.pf;
+    cum += r.n;
+  }
+  e.validRelKeys = keys;
+  e.validRelShare = internN > 0 ? cum / internN : 0;
+}
+export function internRelProven(
+  e: VstEngine,
+  rel: { indication?: string; tactic?: string; tpAtr?: number; slOfTp?: number },
+): boolean {
+  if (internAllPhase(e) || !e.preEvalDone) return true;
+  if (!e.completeSim) return true;
+  const keys = e.validRelKeys;
+  if (!keys || !Object.keys(keys).length) return false;
+  if (rel.tpAtr == null || rel.slOfTp == null) return false;
+  const k = internRelKey(rel.indication, rel.tactic, rel.tpAtr, rel.slOfTp);
+  if (keys[k]) return true;
+  const combo = shortComboKey(rel.tpAtr, rel.slOfTp);
+  const prefix = `${rel.indication || "na"}:`;
+  return Object.keys(keys).some((x) => x.startsWith(prefix) && x.endsWith(`:${combo}`));
+}
 function noteShortComboClose(
   e: VstEngine,
-  c: { connId?: string; id?: string; tpAtr?: number; slOfTp?: number; pnl?: number; validExec?: boolean },
+  c: { connId?: string; id?: string; tpAtr?: number; slOfTp?: number; pnl?: number; validExec?: boolean; indication?: string; tactic?: string },
 ) {
   if (c.tpAtr == null || c.slOfTp == null) return;
   if (!deskTapeRow(e, c)) return;
@@ -208,6 +271,7 @@ function noteShortComboClose(
   const ring = bag[key] ?? (bag[key] = []);
   ring.unshift({ pnl: Number(c.pnl) || 0 });
   if (ring.length > SHORT_COMBO_TAPE_CAP) ring.length = SHORT_COMBO_TAPE_CAP;
+  noteRelClose(e, c);
 }
 function internCumulativeOk(rows: { pnl: number }[] | undefined, floor: number, minN: number): boolean {
   const st = comboTapeStats(rows);
@@ -1152,6 +1216,9 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.shortComboTape = e.shortComboTape ?? {};
   e.shortComboPreTape = e.shortComboPreTape ?? {};
   e.shortComboLiveTape = e.shortComboLiveTape ?? {};
+  e.shortRelTape = e.shortRelTape ?? {};
+  e.shortRelPreTape = e.shortRelPreTape ?? {};
+  e.validRelKeys = e.validRelKeys ?? {};
   if (e.blockCfg) {
     e.blockCfg.volumeRatio = clampBlockVol(e.blockCfg.volumeRatio);
     e.blockCfg.overallVolumeRatio = clampOverallVol(e.blockCfg.overallVolumeRatio ?? DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
@@ -1267,6 +1334,10 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     shortComboTape: {},
     shortComboPreTape: {},
     shortComboLiveTape: {},
+    shortRelTape: {},
+    shortRelPreTape: {},
+    validRelKeys: {},
+    validRelShare: 0,
     liveTape: false,
     strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
   };
@@ -1719,8 +1790,14 @@ export function shortProtectGrid(e: VstEngine, cfg: TacticConfig) {
   };
   const gated = Boolean(e.preEvalDone || e.liveTape);
   if (gated && intern) {
-    // After pre: live GRID is independently proven combos only. Intern-all already scored during pre.
-    return allShortTpSlCombos().filter((c) => withinFloors(c) && shortComboProven(e, c.tpAtr, c.slOfTp) && inRange(c));
+    const validCombos = new Set(
+      Object.keys(e.validRelKeys ?? {}).map((k) => k.split(":").slice(-2).join(":")),
+    );
+    return allShortTpSlCombos().filter((c) => {
+      if (!withinFloors(c) || !inRange(c)) return false;
+      if (validCombos.size) return validCombos.has(shortComboKey(c.tpAtr, c.slOfTp));
+      return shortComboProven(e, c.tpAtr, c.slOfTp);
+    });
   }
   if (intern) {
     const keep = floors.filter((c) => {
@@ -1753,11 +1830,19 @@ function flattenNonPerforming(e: VstEngine) {
   }
   e.shortComboPreTape = snap;
   e.shortComboTape = {};
-  const liveCombo = (tpAtr?: number, slOfTp?: number) => {
-    if (tpAtr == null || slOfTp == null) return false;
-    return shortComboProven(e, tpAtr, slOfTp);
+  const relSnap: Record<string, { pnl: number }[]> = {};
+  for (const [k, rows] of Object.entries(e.shortRelTape ?? {})) {
+    relSnap[k] = rows.map((r) => ({ pnl: r.pnl }));
+  }
+  e.shortRelPreTape = relSnap;
+  e.shortRelTape = {};
+  refreshValidRelKeys(e);
+  const liveCombo = (o: { tpAtr?: number; slOfTp?: number; indication?: string; tactic?: string }) => {
+    if (o.tpAtr == null || o.slOfTp == null) return false;
+    if (!internRelProven(e, o)) return false;
+    return shortComboProven(e, o.tpAtr, o.slOfTp);
   };
-  const dropPending = (o: LiveOrder) => o.validExec !== true || !liveCombo(o.tpAtr, o.slOfTp);
+  const dropPending = (o: LiveOrder) => o.validExec !== true || !liveCombo(o);
   for (const o of e.queue) {
     if (dropPending(o)) markTerminal(e, o, "cancelled");
   }
@@ -1767,7 +1852,7 @@ function flattenNonPerforming(e: VstEngine) {
   }
   const keepPos: typeof e.positions = [];
   for (const p of e.positions) {
-    if (p.validExec === true && liveCombo(p.tpAtr, p.slOfTp)) {
+    if (p.validExec === true && liveCombo(p)) {
       p.validExec = true;
       keepPos.push(p);
       continue;
@@ -1792,7 +1877,7 @@ function sliceShortGrid(
   const internAll = internAllPhase(e);
   const isolatedLive = Boolean(e.completeSim) && Boolean(e.preEvalDone) && !internExplore;
   const cap = internAll || internExplore
-    ? Math.min(internExplore ? 2 : rank < 12 ? 4 : 2, all.length)
+    ? Math.min(internAll ? 1 : internExplore ? 2 : 2, all.length)
     : isolatedLive
       ? 1
       : e.preEvalDone
@@ -1814,7 +1899,11 @@ function sliceShortGrid(
   }
   const ordered = internAll || internExplore || !proven.length ? all : [...proven, ...rest];
   if (cap >= ordered.length) return ordered;
-  const start = internAll || internExplore ? hash(`${symbol}:${Math.floor(e.tick / 12)}`) % ordered.length : 0;
+  const start = internAll
+    ? Math.floor(e.tick / 60) % ordered.length
+    : internExplore
+      ? hash(`${symbol}:${Math.floor(e.tick / 30)}`) % ordered.length
+      : 0;
   const out: typeof all = [];
   for (let i = 0; i < cap; i += 1) out.push(ordered[(start + i) % ordered.length]!);
   return out;
@@ -1942,15 +2031,33 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const gatedExec = Boolean(e.preEvalDone || e.liveTape);
         const internAll = internAllPhase(e);
         const internScore = Boolean(e.completeSim && paperMode(e));
-        const internKeep = internAll || internSlot || Boolean(e.liveTape);
+        const internKeep = internAll || internSlot || Boolean(e.liveTape && !e.completeSim);
         const internHere = internAll || internSlot;
         const validExec = internHere ? false : (!gatedExec || liveShouldExecute(e, execRel));
         if (!internKeep && !internHere && !validExec && !keepInd && !shortLane) continue;
-        if ((internAll || (complete && gatedExec && !internSlot)) && busyLegs.has(`${s.id}:${side}`)) continue;
+        if (internAll || internSlot) {
+          const rotI = Math.floor(e.tick / 20) % Math.max(1, inds.length);
+          if (ind !== inds[rotI]) continue;
+          const rotTacs = rankTactics(e, pickLiveTactic(e, ind, e.lastTactic));
+          const rotT = Math.floor(e.tick / 60) % Math.max(1, rotTacs.length);
+          if (tac !== rotTacs[rotT]) continue;
+        }
+        if ((internAll || internSlot || (complete && gatedExec && !internHere && validExec)) && busyLegs.has(`${s.id}:${side}`)) continue;
         const short = shortLane;
         const evalGrid = internHere && short
           ? (internAll
-            ? shortProtectGrid(e, cfg)
+            ? (() => {
+              const all = allShortTpSlCombos().filter((c) => cfgUsesShortRange({ ...cfg, ...c, shortRange: true }));
+              const floors = shortProtectGridFor({
+                minTpAtr: DEFAULT_SHORT_MIN_TP_ATR,
+                minSlOfTp: DEFAULT_SHORT_MIN_SL_OF_TP,
+                maxTpAtr: 0.6,
+                positiveOnly: false,
+              });
+              const seen = new Set(floors.map((c) => shortComboKey(c.tpAtr, c.slOfTp)));
+              const rest = all.filter((c) => !seen.has(shortComboKey(c.tpAtr, c.slOfTp)));
+              return [...floors, ...rest];
+            })()
             : allShortTpSlCombos().filter((c) => cfgUsesShortRange({ ...cfg, ...c, shortRange: true })))
           : short
             ? shortProtectGrid(e, cfg)
@@ -1960,7 +2067,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         for (const prot of grid) {
           if (qn >= qMax || pn >= pMax) break;
           const comboKey = prot ? shortComboKey(prot.tpAtr, prot.slOfTp) : "";
-          const comboOk = !prot || internAll || internSlot || internKeep || shortComboProven(e, prot.tpAtr, prot.slOfTp);
+          const comboOk = !prot || internAll || internSlot || internKeep
+            || internRelProven(e, { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp })
+            || shortComboProven(e, prot.tpAtr, prot.slOfTp);
           const comboExec = internHere
             ? false
             : !gatedExec || liveShouldExecute(e, prot ? { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp } : execRel);
@@ -1978,7 +2087,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           }
           if (!laneValid && !internHere && !internKeep) continue;
           if (!laneValid && (internHere || internKeep) && gatedExec && busyLegs.has(`${s.id}:${side}`)) continue;
-          const exclusiveLeg = internAll || (complete && gatedExec && !internSlot);
+          const exclusiveLeg = internAll || internSlot || (complete && gatedExec && !internHere);
           const legKey = exclusiveLeg
             ? `${s.id}:${side}`
             : `${s.id}:${side}:${ind}:${tac}:${comboKey || "x"}`;
@@ -2596,7 +2705,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   });
   if (originBook !== "block" && !opts?.skipComboTape) {
     const sh = blockOverlayShare(p.qty, p.blockQty, originBook);
-    noteShortComboClose(e, { connId: p.connId, id: p.id, tpAtr: p.tpAtr, slOfTp: p.slOfTp, pnl: pnl * (1 - sh), validExec: p.validExec === true });
+    noteShortComboClose(e, { connId: p.connId, id: p.id, tpAtr: p.tpAtr, slOfTp: p.slOfTp, pnl: pnl * (1 - sh), validExec: p.validExec === true, indication: p.indication, tactic: p.tactic ?? e.lastTactic });
   }
   if (countsOnBlockTape(e, p.validExec === true)) {
     recordBlockClose(e, p, pnl);
@@ -7968,6 +8077,12 @@ export function liveShouldExecute(
   const play = String(rel.playbook || "");
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca) return t.dca;
+  if (e.preEvalDone && e.completeSim && e.validRelKeys && Object.keys(e.validRelKeys).length) {
+    if (rel.tpAtr == null || rel.slOfTp == null) return false;
+    if (!internRelProven(e, rel)) return false;
+    if (!(t.block || t.trailing || t.axis) && play !== "block") return false;
+    return true;
+  }
   const blockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   if (blockFill) {
     if (t.block === false) return false;

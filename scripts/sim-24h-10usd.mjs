@@ -21,8 +21,8 @@ const CFG = {
   slAtr: SHORT_WINNER.tpAtr * SHORT_WINNER.slOfTp,
   tpRatio: 1 / SHORT_WINNER.slOfTp,
   trailingPct: 1.5,
-  maxHoldTicks: 60,
-  maxHoldBars: 5,
+  maxHoldTicks: 24,
+  maxHoldBars: 3,
   axisPartialRatio: 3,
 };
 
@@ -86,7 +86,7 @@ txt += line(`LIVE gated PF ${fmt(livePf, 3)} n=${liveN}  paper PF ${fmt(r.paperP
 txt += line(`PRE   PF ${fmt(r.pre?.pf, 3)}  WR ${pct(r.pre?.wr, 1)}  n=${r.pre?.trades ?? 0}  eq ${fmt(r.pre?.equity, 4)}`);
 txt += line(`MDD ${pct(r.mdd)}  DDT ${r.ddt}  avgPos ${fmt(r.avgPositions)}  avgOrd ${fmt(r.avgOrders, 1)}  avgBlock ${fmt(r.avgBlockOrd, 1)}  maxMargin ${fmt(r.maxMargin, 4)}  eqUse ${pct((r.maxMargin || 0) / Math.max(r.equity, startEq))}`);
 txt += line(`orders placed ${r.ordersPlaced}  filled ${r.ordersFilled}  SL ${r.slExits}  TP ${r.tpExits}  open pos ${r.openPositions}  open ord ${r.openOrders}`);
-txt += line(`greenHours gated ${green}/${hours.length}  paper ${paperGreen}/${hours.length}  selected n=${r.selected?.n ?? 0} PF ${fmt(r.selected?.pf)}`);
+txt += line(`valid share ${fmt((engine.validRelShare || 0) * 100, 1)}%  valid keys ${Object.keys(engine.validRelKeys || {}).length}  ${Object.keys(engine.validRelKeys || {}).slice(0, 8).join(",") || "—"}`);
 txt += line(`floors short ${fmt(r.floors?.short)} base ${fmt(r.floors?.base)} block ${fmt(r.floors?.block)} overall ${fmt(r.floors?.overall)}`);
 txt += line("");
 
