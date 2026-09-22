@@ -344,9 +344,10 @@ describe("VST engine", () => {
     assert.equal(sp.minTpAtr, 0.48);
     assert.equal(sp.minSlOfTp, 0.75);
     const liveCells = filterLiveShortCombos();
-    assert.ok(liveCells.length >= 1);
+    assert.ok(liveCells.length >= 8, `live cells ${liveCells.length}`);
     assert.ok(liveCells.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 0.75));
     assert.ok(liveCells.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
+    assert.ok(liveCells.some((c) => c.tpAtr === 0.6));
     assert.ok(!liveCells.some((c) => c.tpAtr === 0.3 || c.tpAtr === 0.38));
   });
 
@@ -2912,8 +2913,8 @@ describe("VST engine", () => {
     const internGrid = shortProtectGridFor({ intern: true });
     assert.equal(internGrid.length, all.length);
     const liveGrid = shortProtectGridFor({ complete: false, minTpAtr: 0.38, minSlOfTp: 0.75, maxTpAtr: 0.6, positiveOnly: true });
-    assert.ok(liveGrid.length >= 1);
-    assert.ok(liveGrid.every((c) => c.tpAtr === SHORT_WINNER.tpAtr && c.slOfTp === SHORT_WINNER.slOfTp));
+    assert.ok(liveGrid.length >= 8, `live grid ${liveGrid.length}`);
+    assert.ok(liveGrid.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 0.75));
     assert.ok(liveGrid.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
     assert.ok(!liveGrid.some((c) => c.tpAtr + 1e-9 < 0.48));
     assert.ok(!liveGrid.some((c) => c.slOfTp + 1e-9 < 0.75));
@@ -4612,8 +4613,9 @@ describe("full config coverage", () => {
     assert.ok(wide.some((c) => c.tpAtr === 0.6));
     assert.ok(wide.every((c) => c.tpAtr >= 0.42 && c.tpAtr <= 0.6 && c.slOfTp >= 1.75));
     const pos = filterLiveShortCombos(0.38, 0.75, 0.6, true);
-    assert.ok(pos.length >= 1);
-    assert.ok(pos.every((c) => c.tpAtr === SHORT_WINNER.tpAtr && c.slOfTp === SHORT_WINNER.slOfTp));
+    assert.ok(pos.length >= 8);
+    assert.ok(pos.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 0.75));
+    assert.ok(pos.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
     assert.equal(filterLiveShortCombos(0.42, 1.7, 0.6, false).length, 32);
     assert.equal(filterLiveShortCombos(0.4, 1.7, 0.6, false).length, 36);
     assert.ok(AUTO_EVAL_HOURS.includes(20) && SHORT_EVAL_HOURS === 20);

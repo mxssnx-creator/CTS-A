@@ -250,16 +250,20 @@ function shortComboRow(
 function internStartRows(e: VstEngine, key: string): { pnl: number }[] | undefined {
   const internLive = e.shortComboTape?.[key];
   const pre = e.shortComboPreTape?.[key];
-  if (e.preEvalDone && internLive && internLive.length >= 20 && internStartOk(e, internLive)) return internLive;
+  if (e.preEvalDone && internLive && internLive.length >= 8 && internStartOk(e, internLive)) return internLive;
   if (pre && pre.length) return pre;
   return internLive;
 }
 function internStartOk(e: VstEngine, rows: { pnl: number }[] | undefined): boolean {
   const shortFloor = minPfFor(e, "short");
   const baseFloor = minPfFor(e, "shortBase");
-  if (!internCumulativeOk(rows, shortFloor, 20)) return false;
+  const st = comboTapeStats(rows);
+  const floor = Math.max(shortFloor, 1.15);
+  if (st.n >= 4 && st.pf + 1e-9 >= floor && st.net > 0) return true;
+  if (st.n >= 8 && st.pf + 1e-9 >= shortFloor && st.net > 0) return true;
+  if (!internCumulativeOk(rows, floor, 4)) return false;
   const d = decideLastN(rows ?? [], lastNProgressOf(e), shortFloor, baseFloor);
-  return d.evalHits.some((h) => h.n >= 15 && h.samples >= h.n && h.pf + 1e-9 >= baseFloor && h.avg > 0);
+  return d.validHits.some((h) => h.n >= 8 && h.samples >= h.n && h.pf + 1e-9 >= floor && h.avg > 0);
 }
 function internComboRank(e: VstEngine, tpAtr: number, slOfTp: number): number {
   const rows = internStartRows(e, shortComboKey(tpAtr, slOfTp));
@@ -1795,7 +1799,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     if (!q || !(q.px > 0)) return;
     const internSlot = internOnlyFloor >= 0 && rank >= internOnlyFloor;
     if (e.liveTape && rank >= liveCap && !busy.has(s.id) && !busyLegs.has(`${s.id}:long`) && !busyLegs.has(`${s.id}:short`)) return;
-    if (!internSlot && skipLiveSymbol(e, s.id, winN) && !(tapeRed(e) || e.losingHour?.red)) return;
+    if (!internSlot && skipLiveSymbol(e, s.id, winN)) return;
     if ((e.cooldown[cooldownKey(connId, s.id)] ?? 0) > e.tick) return;
     if (pn >= pMax) return;
     const mode = e.blockCfg?.sides ?? "both";
@@ -1823,7 +1827,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       : liveInd === "break" && winner !== "break"
         ? [liveInd, winner]
         : [liveInd];
-    if (!complete && (e.losingHour?.red || tapeRed(e))) {
+    if (!complete && internAll0 && (e.losingHour?.red || tapeRed(e))) {
       const extra = (e.losingHour?.greenInds?.length ? e.losingHour.greenInds : DEFAULT_LOSING_HOUR_INDS)
         .filter((id) => id !== liveInd && id !== winner)
         .slice(0, 2);
@@ -1951,7 +1955,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const gatedExec = Boolean(e.preEvalDone || e.liveTape);
         const internAll = internAllPhase(e);
         const internScore = Boolean(e.completeSim && paperMode(e));
-        const internKeep = internAll || internSlot || (internScore && !gatedExec);
+        const internKeep = internAll || internSlot || internScore;
         const internHere = internAll || internSlot;
         const validExec = internHere ? false : (!gatedExec || liveShouldExecute(e, execRel));
         if (!internKeep && !internHere && !validExec && !keepInd && !shortLane) continue;

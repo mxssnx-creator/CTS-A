@@ -235,7 +235,7 @@ const X01_LIVE_CFG = {
 const LIVE_CFG = IS_X01
   ? { ...X01_LIVE_CFG }
   : { trailingPct: 1.5, tpRatio: 1 / 0.75, dcaCount: 1, slAtr: 0.36, tpAtr: 0.48, slOfTp: 0.75, shortRange: true, maxHoldTicks: 24, maxHoldBars: 3, axisLevels: 5, axisPartialRatio: AXIS_PARTIAL_RATIO };
-const LIVE_SHORT_TACTICS = ["trailing"];
+const LIVE_SHORT_TACTICS = ["trailing", "hybrid"];
 const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   ["atr", "fibonacci"].map((range) => ({
     tactic,

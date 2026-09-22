@@ -427,15 +427,16 @@ export function filterLiveShortCombos(
   positiveOnly = true,
   allowed?: readonly { tpAtr: number; slOfTp: number }[],
 ): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
-  const all = liveShortProtectCombos(minTpAtr, minSlOfTp, maxTpAtr);
-  if (!positiveOnly) return all;
-  const allow = (allowed?.length ? allowed : SHORT_20H_POSITIVE).map((c) => shortComboKey(c.tpAtr, c.slOfTp));
-  const keys = new Set(allow);
-  const hit = all.filter((c) => keys.has(shortComboKey(c.tpAtr, c.slOfTp)));
-  if (hit.length) return hit;
-  const win = all.filter((c) => Math.abs(c.tpAtr - SHORT_WINNER.tpAtr) < 1e-9 && Math.abs(c.slOfTp - SHORT_WINNER.slOfTp) < 1e-9);
-  if (win.length) return win;
-  return all.filter((c) => c.tpAtr + 1e-9 >= SHORT_WINNER.tpAtr && c.slOfTp + 1e-9 >= SHORT_WINNER.slOfTp).slice(0, 4);
+  const floorTp = positiveOnly ? Math.max(snapShortTpAtr(minTpAtr), DEFAULT_SHORT_MIN_TP_ATR) : snapShortTpAtr(minTpAtr);
+  const floorSl = positiveOnly ? Math.max(snapShortSlOfTp(minSlOfTp), DEFAULT_SHORT_MIN_SL_OF_TP) : snapShortSlOfTp(minSlOfTp);
+  const all = liveShortProtectCombos(floorTp, floorSl, maxTpAtr);
+  if (!positiveOnly) return liveShortProtectCombos(minTpAtr, minSlOfTp, maxTpAtr);
+  if (allowed?.length) {
+    const keys = new Set(allowed.map((c) => shortComboKey(c.tpAtr, c.slOfTp)));
+    const hit = all.filter((c) => keys.has(shortComboKey(c.tpAtr, c.slOfTp)));
+    if (hit.length) return hit;
+  }
+  return all;
 }
 
 /** Intern scoring: every TP×SL. Execution GRID: short floors, then last-N keeps performing cells. */
