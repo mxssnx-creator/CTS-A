@@ -62,7 +62,7 @@ const SETTINGS = process.env.CTS_A_SETTINGS ?? (IS_X01 ? "/var/lib/cts-a/desk-se
 const OVERALL = process.env.CTS_A_OVERALL ?? (IS_X01 ? "/var/lib/cts-a/overall-stats.json" : "/var/lib/cts-a/overall-stats-x02.json");
 const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CYCLE_MS = Number(process.env.CTS_A_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
-const SHORT_CYCLE_MS = Number(process.env.CTS_A_SHORT_CYCLE_MS ?? (IS_X01 ? 1000 : 12_000));
+const SHORT_CYCLE_MS = Number(process.env.CTS_A_SHORT_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
 const LIVE_MIN_PF = IS_X01
@@ -350,7 +350,17 @@ function loadProtectCells() {
   return floor.length ? floor : allProtectCells().filter((c) => Number(c.tpAtr) >= minTp && Number(c.slOfTp) >= minSl && allowedTrail.has(Number(c.trailPct)));
 }
 let protectCells = loadProtectCells();
+function liveWinnerProtect() {
+  return {
+    slAtr: SHORT_WINNER.tpAtr * SHORT_WINNER.slOfTp,
+    tpRatio: 1 / SHORT_WINNER.slOfTp,
+    trailPct: 1.5,
+    tpAtr: SHORT_WINNER.tpAtr,
+    slOfTp: SHORT_WINNER.slOfTp,
+  };
+}
 function protectFor(symbol) {
+  if (!IS_X01 && cfgUsesShortRange(currentPick?.cfg ?? LIVE_CFG)) return liveWinnerProtect();
   const cells = cfgUsesShortRange(currentPick?.cfg) ? shortProtectCells() : protectCells;
   return pickProtectCell(String(symbol || "BTCUSDT"), cells);
 }
@@ -670,13 +680,16 @@ function snapshot(e, extra) {
 }
 
 function writeSettingsPick(pick, extra = {}) {
+  const cfg = !IS_X01 && cfgUsesShortRange(pick?.cfg)
+    ? { ...pick.cfg, ...LIVE_CFG, tpAtr: SHORT_WINNER.tpAtr, slOfTp: SHORT_WINNER.slOfTp, slAtr: SHORT_WINNER.tpAtr * SHORT_WINNER.slOfTp, tpRatio: 1 / SHORT_WINNER.slOfTp, trailingPct: 1.5, shortRange: true }
+    : pick.cfg;
   const body = {
     v: 1,
     at: Date.now(),
     rev: extra.rev ?? Date.now() % 1e9,
-    tactic: pick.tactic,
-    rangeType: pick.range,
-    tacticConfig: { ...pick.cfg },
+    tactic: pick.tactic === "hybrid" || pick.tactic === "trailing" ? pick.tactic : "trailing",
+    rangeType: pick.range || "atr",
+    tacticConfig: { ...cfg },
     blockConfig: BLOCK,
     symbolCount: LIVE_SYMBOLS,
     evalSymbolCount: EVAL_SYMBOLS,
