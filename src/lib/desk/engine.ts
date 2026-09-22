@@ -70,6 +70,8 @@ export {
   coordinateLastNFromPrefix,
   slimLastNProgress,
   scoreLastNGroup,
+  scoreLastNModeTape,
+  foldLastNProcessings,
   hitsToProgressRows,
   relComboKey,
   lastNMaxOf,

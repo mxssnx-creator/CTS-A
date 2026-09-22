@@ -18,6 +18,8 @@ import {
   relComboKey,
   sanitizeLastNProgress,
   scoreLastNGroup,
+  scoreLastNModeTape,
+  foldLastNProcessings,
   slimLastNProgress,
 } from "./last-n-progress.ts";
 
@@ -83,6 +85,21 @@ describe("multi last-N prefix + modes", () => {
     assert.equal(mp.pass, true);
     assert.equal(mp.stack, 1);
   });
+
+  it("independent and combined processings score different PFs on a mixed tape", () => {
+    const rows = mixed(8, 12);
+    const i = scoreLastNModeTape(rows, cfgI, 1.2, 1.1, "independent");
+    const c = scoreLastNModeTape(rows, cfgC, 1.2, 1.1, "combined");
+    const fold = foldLastNProcessings(rows.slice(0, 8), rows, cfgP, 1.2, 1.1);
+    assert.equal(i.pass, true);
+    assert.equal(c.pass, false);
+    assert.ok(i.pf > c.pf + 0.2, `independent PF ${i.pf} vs combined ${c.pf}`);
+    assert.ok(fold.independent.pf > fold.combined.pf + 0.2, `fold ind ${fold.independent.pf} vs comb ${fold.combined.pf}`);
+    assert.equal(fold.parallel.pass, true);
+    assert.ok(Math.abs(fold.parallel.pf - fold.independent.pf) < 1e-9);
+    assert.ok(fold.independent.n <= fold.combined.n || fold.independent.pf > fold.combined.pf);
+  });
+
 
   it("losing disable windows kill independent (all) and combined (majority)", () => {
     const rows = Array.from({ length: 24 }, () => ({ pnl: -0.8 }));

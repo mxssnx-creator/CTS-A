@@ -1123,7 +1123,7 @@ export interface ProgressEvalRow {
 export interface ProgressEval {
   at: number;
   lastNMode: LastNPassMode;
-  lastNModes: Record<LastNPassMode, { pass: boolean; pf: number }>;
+  lastNModes: Record<LastNPassMode, { pass: boolean; pf: number; n?: number; net?: number; gatedPf?: number; gatedN?: number }>;
   evalNs: Record<string, ProgressEvalRow>;
   validNs: Record<string, ProgressEvalRow>;
   disableNs: Record<string, ProgressEvalRow>;

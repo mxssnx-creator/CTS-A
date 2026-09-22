@@ -356,6 +356,73 @@ export function scoreLastNGroup(
   };
 }
 
+function tapeFold(rows: { pnl: number }[]): { n: number; pf: number; net: number } {
+  let gp = 0;
+  let gl = 0;
+  let net = 0;
+  for (const r of rows) {
+    const p = Number(r.pnl) || 0;
+    net += p;
+    if (p > 0) gp += p;
+    else if (p < 0) gl += -p;
+  }
+  const pf = gl < 1e-12 ? (gp > 1e-12 ? 4 : 0) : gp / gl;
+  return { n: rows.length, pf: Number.isFinite(pf) ? pf : 0, net };
+}
+
+/** Independent / Combined / Parallel processings. Never share one mixed PF. */
+export type LastNModeScore = {
+  pass: boolean;
+  pf: number;
+  n: number;
+  net: number;
+  gatedPf: number;
+  gatedN: number;
+};
+
+export function scoreLastNModeTape(
+  rows: { pnl: number }[],
+  cfg: LastNProgressConfig,
+  minPf: number,
+  basePf: number,
+  mode: LastNPassMode,
+): LastNModeScore {
+  const st = tapeFold(rows);
+  const d = decideLastN(rows, { ...cfg, mode }, minPf, basePf);
+  const validOk = d.validHits.filter((h) => h.samples >= h.n && validLastNGood(h, minPf));
+  const validFull = d.validHits.filter((h) => h.samples >= h.n);
+  const best = [...validOk].sort((a, b) => b.pf - a.pf || b.n - a.n)[0];
+  const longestOk = [...validOk].sort((a, b) => b.n - a.n || b.pf - a.pf)[0];
+  const longest = [...validFull].sort((a, b) => b.n - a.n || b.pf - a.pf)[0];
+  // Independent gates on the best passing valid window. Combined uses the longest majority window.
+  const gated = mode === "combined" ? (longestOk ?? longest) : (best ?? longestOk ?? longest);
+  return {
+    pass: d.pass,
+    pf: gated?.pf ?? st.pf,
+    n: gated?.n ?? st.n,
+    net: gated?.net ?? st.net,
+    gatedPf: gated?.pf ?? 0,
+    gatedN: gated?.n ?? 0,
+  };
+}
+
+export function foldLastNProcessings(
+  independentRows: { pnl: number }[],
+  combinedRows: { pnl: number }[],
+  cfg: LastNProgressConfig,
+  minPf: number,
+  basePf: number,
+): Record<LastNPassMode, LastNModeScore> {
+  const mixed = combinedRows.length ? combinedRows : independentRows;
+  const ind = independentRows.length ? independentRows : mixed;
+  const independent = scoreLastNModeTape(ind, cfg, minPf, basePf, "independent");
+  const combined = scoreLastNModeTape(mixed, cfg, minPf, basePf, "combined");
+  const parallel: LastNModeScore = independent.pass
+    ? { ...independent, pass: true }
+    : { ...combined, pass: combined.pass };
+  return { independent, combined, parallel };
+}
+
 export function hitsToProgressRows(
   hits: LastNWindowHit[],
   minPf: number,

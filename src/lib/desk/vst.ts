@@ -103,6 +103,7 @@ import {
   lastNPrefix,
   coordinateLastNFromPrefix,
   scoreLastNGroup,
+  foldLastNProcessings,
   hitsToProgressRows,
   relComboKey,
   lastNMaxOf,
@@ -4358,6 +4359,28 @@ function laneDecKey(rel: {
  * Base ok uses shortBase/base floors on independent tapes. Live last-N valid uses short/overall.
  * Never pin a hardcoded combo set.
  */
+function independentPassingComboRows(
+  e: VstEngine,
+  ln: LastNProgressConfig,
+  minPf: number,
+  basePf: number,
+): { pnl: number }[] {
+  const live = e.shortComboLiveTape ?? {};
+  const intern = e.preEvalDone ? {} : (e.shortComboTape ?? {});
+  const out: { pnl: number }[] = [];
+  const seen = new Set<string>();
+  for (const bag of [live, intern]) {
+    for (const [k, rows] of Object.entries(bag)) {
+      if (seen.has(k) || !rows?.length) continue;
+      seen.add(k);
+      const d = decideLastN(rows, { ...ln, mode: "independent" }, minPf, basePf);
+      if (!(d.pass || internStartOk(e, rows))) continue;
+      out.push(...rows);
+    }
+  }
+  return out;
+}
+
 export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockCfg ?? DEFAULT_BLOCK_CONFIG): ProgressEval {
   const ln = lastNProgressOf(e);
   const maxN = lastNMaxOf(ln);
@@ -4374,13 +4397,15 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
   const validNs = hitsToProgressRows(coordPick.validHits, minPf, ln.validNs);
   const disableNs = hitsToProgressRows(coordPick.disableHits, 0, ln.disableNs, "avg");
 
-  const validPf = coordPick.validHits.find((h) => h.n === coordPick.bestValid)?.pf ?? coordPick.validHits[0]?.pf ?? 0;
-  const lastNModes = {
-    independent: { pass: coordPick.independent, pf: validPf },
-    combined: { pass: coordPick.combined, pf: validPf },
-    parallel: { pass: coordPick.independent || coordPick.combined, pf: validPf },
-  } as ProgressEval["lastNModes"];
-  const lastNMode = coordPick.mode;
+  const independentRows = independentPassingComboRows(e, ln, minPf, basePf);
+  const lastNModes = foldLastNProcessings(independentRows, newestCoord, ln, minPf, basePf);
+  const lastNMode = lastNModes.independent.pass
+    ? lastNModes.combined.pass
+      ? "parallel"
+      : "independent"
+    : lastNModes.combined.pass
+      ? "combined"
+      : coordPick.mode;
 
   const blockCounts: Record<string, ProgressEvalRow> = {};
   for (const n of [1, 2, 3, 4, 5, 6]) {
@@ -4451,10 +4476,12 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
     .filter((n) => n >= 1);
   const coord: LastNCoordState = {
     at: e.tick,
-    mode: coordPick.mode,
-    independent: coordPick.independent,
-    combined: coordPick.combined,
-    stack: coordPick.stack,
+    mode: lastNMode,
+    independent: lastNModes.independent.pass,
+    combined: lastNModes.combined.pass,
+    stack: lastNMode === "parallel" && lastNModes.independent.pass && lastNModes.combined.pass
+      ? (ln.parallelStack !== false ? ln.parallelVolRatio : 1)
+      : 1,
     evalNs: coordPick.evalNs,
     validNs: coordPick.validNs,
     disableNs: coordPick.disableNs,
@@ -6104,6 +6131,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       });
     }
   }
+  refreshProgressEvals(engine, opts?.block ?? engine.blockCfg ?? DEFAULT_BLOCK_CONFIG);
   const audit = auditEngine(engine);
   const issues = [...audit.issues];
   const profit = engine.ledger.profit;
@@ -6231,17 +6259,26 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const paperPf = prehours > 0 ? livePf : engine.stats.pf;
   const selectedPositive = selected.n >= 4 && selected.pf > 0 && selected.net >= 0;
   const gatedPositive = liveGated.n >= 4 && gatedPf > 0 && gatedNetVal >= 0;
+  const proc = engine.progressEval?.lastNModes;
+  const procMode = engine.progressEval?.lastNMode ?? ln.mode;
+  const procRow = procMode === "combined" ? proc?.combined : proc?.independent;
+  const procPf = Number(procRow?.gatedPf ?? procRow?.pf) || 0;
+  const procN = Number(procRow?.gatedN ?? procRow?.n) || 0;
+  const procNet = Number(procRow?.net) || 0;
+  const procPositive = Boolean(procRow?.pass) && procN >= 4 && procPf > 0 && procNet >= -1e-12;
   const reportPf = engine.shortComboOnly
     ? paperPf
-    : gatedPositive
-      ? gatedPf
-      : liveGated.n >= 4
+    : procPositive
+      ? procPf
+      : gatedPositive
         ? gatedPf
-        : selectedPositive
-          ? selected.pf
-          : prehours > 0
-            ? gatedPf
-            : paperPf;
+        : liveGated.n >= 4
+          ? gatedPf
+          : selectedPositive
+            ? selected.pf
+            : prehours > 0
+              ? gatedPf
+              : paperPf;
   const floors = {
     overall: minPfFor(engine, "overall"),
     base: minPfFor(engine, engine.shortRange ? "shortBase" : "base"),
@@ -6331,6 +6368,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       evalNs: Object.fromEntries(ln.evalNs.map((n) => [n, lastNSnap(n)])),
       validNs: Object.fromEntries(ln.validNs.map((n) => [n, lastNSnap(n)])),
       disableNs: Object.fromEntries(ln.disableNs.map((n) => [n, lastNSnap(n)])),
+      modes: engine.progressEval?.lastNModes,
     },
     disabled: Object.keys(engine.liveDisabled ?? {}),
     liveGated,

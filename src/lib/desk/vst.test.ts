@@ -4771,6 +4771,30 @@ describe("full config coverage", () => {
 });
 
 describe("calculations, relations, adjustments, stats", () => {
+  it("Independent and Combined last-N processings do not share one mixed PF", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true }, { warmup: 0, symbolCount: 4, arm: false, complete: true });
+    e.shortRange = true;
+    e.preEvalDone = true;
+    e.completeSim = true;
+    e.shortPf = 0.95;
+    e.shortBasePf = 0.7;
+    const win = Array.from({ length: 12 }, () => ({ pnl: 1.2 }));
+    const lose = Array.from({ length: 16 }, () => ({ pnl: -0.9 }));
+    e.shortComboLiveTape = {
+      "0.48:0.75": win,
+      "0.52:1.75": lose,
+    };
+    e.closed = [
+      ...win.map((r, i) => ({ id: `w${i}`, connId: e.activeConnId, symbol: "BTCUSDT", side: "long" as const, pnl: r.pnl, qty: 1, entry: 100, exit: 101, reason: "tp" as const, tick: i, r: r.pnl, playbook: "short", kind: "short", tactic: "trailing" as const, indication: "trend" as const, tpAtr: 0.48, slOfTp: 0.75, validExec: true })),
+      ...lose.map((r, i) => ({ id: `l${i}`, connId: e.activeConnId, symbol: "ETHUSDT", side: "short" as const, pnl: r.pnl, qty: 1, entry: 100, exit: 99, reason: "sl" as const, tick: 20 + i, r: r.pnl, playbook: "short", kind: "short", tactic: "trailing" as const, indication: "ema" as const, tpAtr: 0.52, slOfTp: 1.75, validExec: true })),
+    ] as never;
+    const snap = refreshProgressEvals(e);
+    assert.ok(snap.lastNModes.independent.pass, "independent processing keeps the winning combo");
+    assert.ok(snap.lastNModes.independent.pf > snap.lastNModes.combined.pf + 0.2, `independent PF ${snap.lastNModes.independent.pf} vs combined ${snap.lastNModes.combined.pf}`);
+    assert.ok((snap.lastNModes.independent.n ?? 0) <= (snap.lastNModes.combined.n ?? 99));
+    assert.equal(snap.lastNModes.parallel.pass, true);
+  });
+
   it("profitFactor and pfFromPnls match gross profit / gross loss exactly", () => {
     assert.equal(profitFactor(12, 6), 2);
     assert.equal(profitFactor(0, 4), 0);
