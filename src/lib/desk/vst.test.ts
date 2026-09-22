@@ -3400,6 +3400,17 @@ describe("VST engine", () => {
     assert.ok(liveGrid.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
   });
 
+  it("liveTape intern-evals symbols beyond the 50 live cap", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true, trailingPct: 1.5 }, { warmup: 8, symbolCount: 24, liveSymbolCap: 8, arm: false });
+    e.liveTape = true;
+    e.liveSymbolCap = 8;
+    e.symbolCount = 24;
+    armUniverse(e, { ...CFG, shortRange: true, trailingPct: 1.5 }, "trailing", "atr");
+    const intern = e.queue.filter((o) => o.validExec === false);
+    assert.ok(e.queue.length >= 8, `queued ${e.queue.length}`);
+    assert.ok(intern.length >= 4, `eval intern ${intern.length} / ${e.queue.length}`);
+  });
+
   it("break, active, and direction run with their own ranges, playbooks, and auto-evals", () => {
     assert.equal(openPlaybook("hybrid", "break"), "normal");
     assert.equal(openPlaybook("hybrid", "active"), "normal");

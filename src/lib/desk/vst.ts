@@ -1797,8 +1797,14 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   universe.forEach((s, rank) => {
     const q = e.quotes[s.id];
     if (!q || !(q.px > 0)) return;
-    const internSlot = internOnlyFloor >= 0 && rank >= internOnlyFloor;
-    if (e.liveTape && rank >= liveCap && !busy.has(s.id) && !busyLegs.has(`${s.id}:long`) && !busyLegs.has(`${s.id}:short`)) return;
+    const beyondLive =
+      Boolean(e.liveTape) &&
+      rank >= liveCap &&
+      !busy.has(s.id) &&
+      !busyLegs.has(`${s.id}:long`) &&
+      !busyLegs.has(`${s.id}:short`);
+    const internSlot = (internOnlyFloor >= 0 && rank >= internOnlyFloor) || beyondLive;
+    if (e.liveTape && rank >= liveCap && !internSlot) return;
     if (!internSlot && skipLiveSymbol(e, s.id, winN)) return;
     if ((e.cooldown[cooldownKey(connId, s.id)] ?? 0) > e.tick) return;
     if (pn >= pMax) return;
@@ -2029,7 +2035,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             playbook: book,
           });
           const loseScale = entryVolumeScale(e, { playbook: book, indication: ind, kind, tactic: tac, blockLevel: 0 });
-          if (!complete && rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
+          if (!internSlot && !complete && rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
           const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul * nStack * loseScale;
           const axisPartial = clampAxisPartial(cfg.axisPartialRatio);
           const depth = complete

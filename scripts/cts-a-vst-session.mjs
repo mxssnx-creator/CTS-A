@@ -1515,7 +1515,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift, missing: !hasSl.has(key) || !hasTp.has(key) });
   }
   need.sort((a, b) => Number(b.missing) - Number(a.missing) || Number(a.p.pnl || 0) - Number(b.p.pnl || 0));
-  for (let i = 0; i < Math.min(need.length, 24) && posts < 48; i += 1) {
+  for (let i = 0; i < Math.min(need.length, 12) && posts < 24; i += 1) {
     if (apiQuiet()) break;
     const row = need[i];
     const r = await protectOne(row.p, row.missing ? false : row.slDrift, row.missing ? false : row.tpDrift);
@@ -1870,6 +1870,7 @@ async function mirrorToExchange(e, network, cfg) {
       if (!o) return false;
       if (o.playbook === "dca" || o.tactic === "dca" || /dca/i.test(String(o.note || ""))) return false;
       if (IS_X01) return true;
+      if (o.validExec === false) return false;
       return (
         o.kind === "short" ||
         o.playbook === "short" ||
@@ -1890,7 +1891,7 @@ async function mirrorToExchange(e, network, cfg) {
       _fromQueue: true,
     }));
   for (const f of [...e.fills, ...queueIntents]) {
-    if (fillJobs.length >= 48) break;
+    if (fillJobs.length >= 16) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
     if (e.lastTactic === "dca" || /dca/i.test(String(f.playbook || f.note || ""))) {
