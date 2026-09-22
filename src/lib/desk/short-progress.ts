@@ -73,9 +73,9 @@ export function sanitizeShortProgress(raw: Partial<ShortProgressConfig> | null |
     drawdownLookback: Math.min(40, Math.max(4, Math.round(Number(raw.drawdownLookback) || d.drawdownLookback))),
     prevRelN: Math.min(24, Math.max(3, Math.round(Number(raw.prevRelN) || d.prevRelN))),
     bestOnly: raw.bestOnly !== false,
-    minTpAtr: migrateShortMinTp(Math.min(0.6, Math.max(0.3, Number(raw.minTpAtr) || d.minTpAtr))),
-    minSlOfTp: migrateShortMinSl(Math.min(2.5, Math.max(0.5, Number(raw.minSlOfTp) || d.minSlOfTp))),
-    maxTpAtr: Math.min(0.6, Math.max(0.42, Number(raw.maxTpAtr) || d.maxTpAtr || 0.6)),
+    minTpAtr: migrateShortMinTp(Math.min(0.6, Math.max(DEFAULT_SHORT_MIN_TP_ATR, Number(raw.minTpAtr) || d.minTpAtr))),
+    minSlOfTp: migrateShortMinSl(Math.min(2.5, Math.max(DEFAULT_SHORT_MIN_SL_OF_TP, Number(raw.minSlOfTp) || d.minSlOfTp))),
+    maxTpAtr: Math.min(0.6, Math.max(DEFAULT_SHORT_MIN_TP_ATR, Number(raw.maxTpAtr) || d.maxTpAtr || 0.6)),
     evalHours: Math.min(48, Math.max(4, Math.round(Number(raw.evalHours) || d.evalHours || 20))),
     evalPositiveOnly: raw.evalPositiveOnly !== false,
   };

@@ -37,8 +37,12 @@ import {
   snapSlOfTp,
   SHORT_TP_ATR,
   SHORT_SL_OF_TP,
+  SHORT_WINNER,
+  DEFAULT_SHORT_MIN_TP_ATR,
+  DEFAULT_SHORT_MIN_SL_OF_TP,
   snapShortTpAtr,
   snapShortSlOfTp,
+  clampLiveShortProtect,
   formatShortRatio,
   SHORT_PROGRESS_INDICATIONS,
   DEFAULT_SHORT_PROGRESS,
@@ -1175,7 +1179,7 @@ export function SettingsView() {
               </span>
             </div>
             <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
-              <span className="text-xs font-medium text-muted">Short-range strategy (TP 0.30–0.60 · SL 1.3–2.0×TP)</span>
+              <span className="text-xs font-medium text-muted">Short-range strategy (live TP {DEFAULT_SHORT_MIN_TP_ATR.toFixed(2)}–0.60 · SL ≥ {DEFAULT_SHORT_MIN_SL_OF_TP.toFixed(2)}×TP)</span>
               <div className="flex flex-wrap gap-1">
                 <button
                   type="button"
@@ -1184,8 +1188,7 @@ export function SettingsView() {
                     if (cfg.shortRange) {
                       setCfg({ shortRange: false, tpAtr: 1, slOfTp: 1, slAtr: slAtrOf(1, 1), tpRatio: tpRatioOf(1) });
                     } else {
-                      const tpAtr = snapShortTpAtr(cfg.tpAtr ?? 0.3);
-                      const slOfTp = snapShortSlOfTp(cfg.slOfTp ?? 1);
+                      const { tpAtr, slOfTp } = clampLiveShortProtect(cfg.tpAtr ?? SHORT_WINNER.tpAtr, cfg.slOfTp ?? SHORT_WINNER.slOfTp);
                       setCfg({
                         shortRange: true,
                         tpAtr,
@@ -1202,7 +1205,7 @@ export function SettingsView() {
                 >
                   {cfg.shortRange ? "Short on" : "Short off"}
                 </button>
-                {SHORT_TP_ATR.map((t) => {
+                {SHORT_TP_ATR.filter((t) => t + 1e-9 >= DEFAULT_SHORT_MIN_TP_ATR).map((t) => {
                   const on = Boolean(cfg.shortRange) && snapShortTpAtr(cfg.tpAtr ?? 0) === t;
                   return (
                     <button
@@ -1210,7 +1213,7 @@ export function SettingsView() {
                       type="button"
                       aria-pressed={on}
                       onClick={() => {
-                        const slOfTp = snapShortSlOfTp(cfg.slOfTp ?? 1);
+                        const slOfTp = Math.max(DEFAULT_SHORT_MIN_SL_OF_TP, snapShortSlOfTp(cfg.slOfTp ?? SHORT_WINNER.slOfTp));
                         setCfg({
                           shortRange: true,
                           tpAtr: t,
@@ -1226,7 +1229,7 @@ export function SettingsView() {
                     </button>
                   );
                 })}
-                {SHORT_SL_OF_TP.map((r) => {
+                {SHORT_SL_OF_TP.filter((r) => r + 1e-9 >= DEFAULT_SHORT_MIN_SL_OF_TP).map((r) => {
                   const on = Boolean(cfg.shortRange) && snapShortSlOfTp(cfg.slOfTp ?? 0) === r;
                   return (
                     <button
@@ -1234,7 +1237,7 @@ export function SettingsView() {
                       type="button"
                       aria-pressed={on}
                       onClick={() => {
-                        const tpAtr = snapShortTpAtr(cfg.shortRange && cfg.tpAtr ? cfg.tpAtr : 0.45);
+                        const tpAtr = clampLiveShortProtect(cfg.shortRange && cfg.tpAtr ? cfg.tpAtr : SHORT_WINNER.tpAtr, r).tpAtr;
                         setCfg({
                           shortRange: true,
                           tpAtr,
@@ -1252,7 +1255,7 @@ export function SettingsView() {
                 })}
               </div>
               <span className="text-[11px] text-subtle">
-                {SHORT_TP_ATR.length} TP × {SHORT_SL_OF_TP.length} SL = {SHORT_TP_ATR.length * SHORT_SL_OF_TP.length} independent short combos · SL 0.5–2.5 step 0.25 · overall PF {th.shortPf?.toFixed(2) ?? "0.95"} · base PF {th.shortBasePf?.toFixed(2) ?? "0.70"}
+                Live TP/SL chips start at {DEFAULT_SHORT_MIN_TP_ATR.toFixed(2)} / {DEFAULT_SHORT_MIN_SL_OF_TP.toFixed(2)} (0.30–0.45 and 0.50× failed). Intern still scores the full grid. overall PF {th.shortPf?.toFixed(2) ?? "0.95"} · base PF {th.shortBasePf?.toFixed(2) ?? "0.70"}
               </span>
             </div>
             <RangeKnob
@@ -1458,7 +1461,7 @@ export function SettingsView() {
             <RangeKnob
               label="Min TP ATR"
               value={shortProgress.minTpAtr}
-              min={0.3}
+              min={0.48}
               max={0.6}
               step={0.02}
               format={(n) => n.toFixed(2)}
@@ -1468,7 +1471,7 @@ export function SettingsView() {
             <RangeKnob
               label="Max TP ATR"
               value={shortProgress.maxTpAtr ?? 0.6}
-              min={0.42}
+              min={0.48}
               max={0.6}
               step={0.02}
               format={(n) => n.toFixed(2)}
@@ -1478,7 +1481,7 @@ export function SettingsView() {
             <RangeKnob
               label="Min SL of TP"
               value={shortProgress.minSlOfTp}
-              min={0.5}
+              min={0.75}
               max={2.5}
               step={0.25}
               format={(n) => n.toFixed(2)}
@@ -1518,7 +1521,7 @@ export function SettingsView() {
           </div>
           <p className="mt-3 text-xs text-muted">
             Last parts {shortProgress.lastParts.join("/")} · activity {shortProgress.activityWindows.join("/")}h ·
-            TP {shortProgress.minTpAtr.toFixed(2)}–{(shortProgress.maxTpAtr ?? 0.6).toFixed(2)} / min SL {shortProgress.minSlOfTp.toFixed(2)} (grid 0.5–2.5 / 0.25) ·
+            TP {shortProgress.minTpAtr.toFixed(2)}–{(shortProgress.maxTpAtr ?? 0.6).toFixed(2)} / min SL {shortProgress.minSlOfTp.toFixed(2)} (live floor 0.48 / 0.75; intern still scores 0.30–0.60) ·
             auto-eval {shortProgress.evalHours ?? 20}h · {shortProgress.evalPositiveOnly !== false ? "positive PF only" : "allow PF under 1"} ·
             base under 1 is allowed for overlay; Block default {shortProgress.blockPf.toFixed(2)}.
           </p>

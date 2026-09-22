@@ -36,6 +36,7 @@ import {
   shortTpRatioOf,
   cfgUsesShortRange,
   SHORT_WINNER,
+  clampLiveShortProtect,
   clampBlockVol,
   clampSharedVol,
   clampOverallVol,
@@ -236,8 +237,9 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;
       const short = asBool(cfg.shortRange, false) || cfgUsesShortRange(cfg);
       if (short) {
-        const slOfTp = snapShortSlOfTp(asNum(cfg.slOfTp, SHORT_WINNER.slOfTp));
-        const tpAtr = snapShortTpAtr(asNum(cfg.tpAtr, SHORT_WINNER.tpAtr));
+        const clamped = clampLiveShortProtect(asNum(cfg.tpAtr, SHORT_WINNER.tpAtr), asNum(cfg.slOfTp, SHORT_WINNER.slOfTp));
+        const slOfTp = clamped.slOfTp;
+        const tpAtr = clamped.tpAtr;
         return {
           trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.5)),
           dcaCount: 1,

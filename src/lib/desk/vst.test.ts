@@ -4629,7 +4629,8 @@ describe("full config coverage", () => {
     assert.equal(clampOverallVol(1.5), 1.5);
     assert.equal(clampOverallVol(3), 3);
     assert.equal(allShortTpSlCombos().length, SHORT_TP_ATR.length * SHORT_SL_OF_TP.length);
-    assert.equal(sanitizeShortProgress({ minTpAtr: 0.3, minSlOfTp: 0.5 }).minSlOfTp, 0.5);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.3, minSlOfTp: 0.5 }).minSlOfTp, 0.75);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.3, minSlOfTp: 0.5 }).minTpAtr, 0.48);
     assert.equal(sanitizeShortProgress({ minSlOfTp: 2.5 }).minSlOfTp, 2.5);
     assert.ok(liveShortProtectCombos(0.45, 2).every((c) => c.tpAtr >= 0.45 && c.slOfTp >= 2));
     assert.ok(isPositive({ pf: 0.85, mdd: 0.05, wr: 0.6, volumeFactor: 1.2, playbook: "short", shortRange: true }, { ...DEFAULT_THRESHOLDS, shortPf: 0.8 }));

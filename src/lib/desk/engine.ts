@@ -319,7 +319,7 @@ export function formatShortRatio(n: number): string {
 }
 
 export function snapShortTpAtr(n: number): number {
-  if (!Number.isFinite(n)) return 0.4;
+  if (!Number.isFinite(n)) return 0.48;
   let best: (typeof SHORT_TP_ATR)[number] = SHORT_TP_ATR[0]!;
   let dist = Infinity;
   for (const t of SHORT_TP_ATR) {
@@ -332,7 +332,7 @@ export function snapShortTpAtr(n: number): number {
   return best;
 }
 export function snapShortSlOfTp(n: number): ShortSlOfTp {
-  if (!Number.isFinite(n)) return 1.75;
+  if (!Number.isFinite(n)) return 0.75;
   let best: ShortSlOfTp = 1.75;
   let dist = Infinity;
   for (const r of SHORT_SL_OF_TP) {
@@ -383,6 +383,15 @@ export function shortComboKey(tpAtr: number, slOfTp: number): string {
 /** Independent-tape winner (6h+4h pre ×12, hold 24): 0.48/0.75 PF 1.21 off / 1.29 Block shared. */
 export const SHORT_WINNER = { tpAtr: 0.48, slOfTp: 0.75 as const };
 
+/** Live settings/exec floor — intern may still score the full 0.30–0.60 grid. */
+export function clampLiveShortProtect(tpAtr: number, slOfTp: number): { tpAtr: number; slOfTp: number } {
+  let tp = snapShortTpAtr(tpAtr);
+  let sl = snapShortSlOfTp(slOfTp);
+  if (tp + 1e-9 < DEFAULT_SHORT_MIN_TP_ATR) tp = SHORT_WINNER.tpAtr;
+  if (sl + 1e-9 < DEFAULT_SHORT_MIN_SL_OF_TP) sl = SHORT_WINNER.slOfTp;
+  return { tpAtr: tp, slOfTp: sl };
+}
+
 export function snapShortTacticConfig<T extends {
   tpAtr?: number;
   slOfTp?: number;
@@ -390,8 +399,9 @@ export function snapShortTacticConfig<T extends {
   tpRatio?: number;
   shortRange?: boolean;
 }>(cfg: T): T {
-  const tpAtr = snapShortTpAtr(cfg.tpAtr ?? SHORT_WINNER.tpAtr);
-  const slOfTp = snapShortSlOfTp(cfg.slOfTp ?? SHORT_WINNER.slOfTp);
+  const clamped = clampLiveShortProtect(cfg.tpAtr ?? SHORT_WINNER.tpAtr, cfg.slOfTp ?? SHORT_WINNER.slOfTp);
+  const tpAtr = clamped.tpAtr;
+  const slOfTp = clamped.slOfTp;
   return {
     ...cfg,
     shortRange: true,

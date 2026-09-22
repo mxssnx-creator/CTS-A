@@ -80,7 +80,7 @@ Counts **1–6** are scored; **live volume skips N=2** (not productive) so adjus
 ### 2.5 Short GRID
 
 Intern: TP 0.30–0.60 (14) × SL/TP 0.50–2.50 step 0.25 (9) = **126 independent cells**.  
-Live floors: **min TP 0.38**, **min SL/TP 0.75**, max TP 0.60.  
+Live floors: **min TP 0.48**, **min SL/TP 0.75**, max TP 0.60. TP 0.30–0.45 and SL/TP 0.50 failed on live — intern may still score them.  
 **Do not exclusive-lock** `0.48/0.75`. Seed/winner is a **reference**, not an allowlist. After pre, every independently Base-ok + last-N/PF-positive combo may execute.
 
 Proven after pre (`shortComboProven`):
