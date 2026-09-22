@@ -3396,7 +3396,7 @@ describe("VST engine", () => {
     assert.ok(e.orders.length <= VST_MAX_WORKING_ORDERS);
     const liveGrid = shortProtectGrid(e, { ...CFG, shortRange: true });
     assert.ok(liveGrid.length >= 1);
-    assert.ok(liveGrid.every((c) => c.tpAtr >= 0.38 && c.slOfTp >= 0.75));
+    assert.ok(liveGrid.every((c) => c.tpAtr >= 0.48 && c.slOfTp >= 0.75));
     assert.ok(liveGrid.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
   });
 

@@ -64,7 +64,7 @@ const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CYCLE_MS = Number(process.env.CTS_A_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
 const SHORT_CYCLE_MS = Number(process.env.CTS_A_SHORT_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
-const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 100);
+const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 2000);
 const LIVE_MIN_PF = IS_X01
   ? Math.max(DEFAULT_MIN_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_MIN_PF) || DEFAULT_MIN_PF)
   : Math.max(DEFAULT_SHORT_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_SHORT_PF) || DEFAULT_SHORT_PF);
@@ -1103,7 +1103,9 @@ function x01CanAfford(symbol, equity) {
 }
 
 function liveBudgetNow() {
-  return liveEntryBudget(Number(lastBook.equity) || 0);
+  const b = liveEntryBudget(Number(lastBook.equity) || 0);
+  if (IS_X01) return b;
+  return { ...b, trade: true, block: true, maxNew: Math.max(b.maxNew, 48), maxPos: Math.max(b.maxPos, LIVE_MAX_POS || 2000) };
 }
 
 function pfGateClosed() {
@@ -1513,7 +1515,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift, missing: !hasSl.has(key) || !hasTp.has(key) });
   }
   need.sort((a, b) => Number(b.missing) - Number(a.missing) || Number(a.p.pnl || 0) - Number(b.p.pnl || 0));
-  for (let i = 0; i < Math.min(need.length, 6) && posts < 12; i += 1) {
+  for (let i = 0; i < Math.min(need.length, 24) && posts < 48; i += 1) {
     if (apiQuiet()) break;
     const row = need[i];
     const r = await protectOne(row.p, row.missing ? false : row.slDrift, row.missing ? false : row.tpDrift);
@@ -1529,7 +1531,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const mode = network === "mainnet" ? "main" : "vst";
     const trailNeed = [];
     for (const p of posByVol) {
-      if (trailNeed.length >= 16) break;
+      if (trailNeed.length >= 40) break;
       if (!isOwnedLeg(p.symbol, p.side)) continue;
       const key = `${p.symbol}:${p.side}`;
       if (!hasSl.has(key)) continue;
@@ -1565,7 +1567,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (p.side === "short" && !(next > mark)) continue;
       trailNeed.push({ p, key, spec, cell, mark, next, slOrd });
     }
-    const trailOut = await mapLimit(trailNeed.slice(0, 4), 2, async (row) => {
+    const trailOut = await mapLimit(trailNeed.slice(0, 12), 3, async (row) => {
       const { p, key, spec, cell, mark, next, slOrd } = row;
       const slId = String(slOrd?.id || "");
       if (slId) {
@@ -1888,7 +1890,7 @@ async function mirrorToExchange(e, network, cfg) {
       _fromQueue: true,
     }));
   for (const f of [...e.fills, ...queueIntents]) {
-    if (fillJobs.length >= 6) break;
+    if (fillJobs.length >= 48) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
     if (e.lastTactic === "dca" || /dca/i.test(String(f.playbook || f.note || ""))) {
@@ -1947,7 +1949,7 @@ async function mirrorToExchange(e, network, cfg) {
     fillJobs.push(f);
   }
   if (IS_X01) fillJobs.sort((a, b) => Number(X01_GROWTH.has(b.symbol)) - Number(X01_GROWTH.has(a.symbol)));
-  const fillOut = await mapLimit(fillJobs, 2, async (f) => {
+  const fillOut = await mapLimit(fillJobs, 4, async (f) => {
     try {
       const r = await withLiveBusy(() =>
         placeSwapOrder({

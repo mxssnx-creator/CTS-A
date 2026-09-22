@@ -131,7 +131,7 @@ export const TP_SL_RATIO = 1;
 export const SL_ATR_MULT = 1;
 export const VST_MAX_SYMBOLS = 300;
 export const VST_LIVE_SYMBOLS = 50;
-export const VST_MAX_POSITIONS = 400;
+export const VST_MAX_POSITIONS = 2000;
 export const VST_BATCH_SIZE = 48;
 export const VST_RATE_PER_SEC = 16;
 export const VST_RATE_BURST = 40;
@@ -153,11 +153,11 @@ export function intervalMinutesOf(e?: { intervalStrategy?: IntervalStrategyConfi
 export function ticksPerIntervalOf(e?: { intervalStrategy?: IntervalStrategyConfig } | null): number {
   return Math.max(5, Math.round(intervalMinutesOf(e)));
 }
-export const VST_MAX_WORKING_ORDERS = 2400;
-export const VST_MAX_QUEUE = 2400;
-const PAPER_MAX_POSITIONS = 2500;
-const PAPER_MAX_QUEUE = 8000;
-const PAPER_MAX_WORKING = 8000;
+export const VST_MAX_WORKING_ORDERS = 8000;
+export const VST_MAX_QUEUE = 8000;
+const PAPER_MAX_POSITIONS = 8000;
+const PAPER_MAX_QUEUE = 12000;
+const PAPER_MAX_WORKING = 12000;
 const SHORT_COMBO_TAPE_CAP = 80;
 function paperMode(e: VstEngine) {
   return !e.liveTape;

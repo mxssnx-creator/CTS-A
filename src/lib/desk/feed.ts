@@ -48,11 +48,8 @@ export function liveEntryBudget(equity: number, minNotional = 2) {
   const eq = Math.max(0, Number(equity) || 0);
   void minNotional;
   if (!(eq > 0)) return { trade: false, block: false, maxNew: 0, maxPos: 0, reason: "empty" as const };
-  if (eq < 1) return { trade: true, block: false, maxNew: 1, maxPos: 2, reason: "micro" as const };
-  if (eq < 8) return { trade: true, block: true, maxNew: 1, maxPos: 4, reason: "low" as const };
-  if (eq < 20) return { trade: true, block: true, maxNew: 1, maxPos: 24, reason: "lean" as const };
-  if (eq < 50) return { trade: true, block: true, maxNew: 2, maxPos: 50, reason: "ok" as const };
-  return { trade: true, block: true, maxNew: 4, maxPos: 80, reason: "full" as const };
+  if (eq < 1) return { trade: true, block: true, maxNew: 16, maxPos: 200, reason: "micro" as const };
+  return { trade: true, block: true, maxNew: 64, maxPos: 2000, reason: "full" as const };
 }
 
 /** Desk id → BingX swap contract. Omissions stay on the last quoted walk. */

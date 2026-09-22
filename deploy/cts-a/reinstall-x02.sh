@@ -55,6 +55,7 @@ want = {
   "CTS_A_PROTECT": "/var/lib/cts-a/protect-grid-x02.json",
   "CTS_A_SYMBOLS": "50",
   "CTS_A_EVAL_SYMBOLS": "300",
+  "CTS_A_LIVE_MAX_POS": "2000",
 }
 lines = []
 seen = set()
