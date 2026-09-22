@@ -720,7 +720,7 @@ function writeSettingsPick(pick, extra = {}) {
     shortRange: !IS_X01,
     liveGrid: GRID.length,
     shortGrid: SHORT_GRID.length,
-    activePresetId: extra.activePresetId ?? (IS_X01 ? "x01-live" : "stable-02"),
+    activePresetId: extra.activePresetId ?? (IS_X01 ? "x01-live" : "vst-working-01"),
     strategyToggles: { ...STRAT },
     shortProgress: sanitizeShortProgress({
       ...DEFAULT_SHORT_PROGRESS,
