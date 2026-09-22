@@ -2086,8 +2086,8 @@ function applyPfGates(engine, remote) {
     engine.shortBasePf = sp.basePf;
     engine.shortAxisPf = sp.axisPf;
     engine.shortBlockPf = sp.blockPf;
-    shortMinTp = sp.minTpAtr;
-    shortMinSl = sp.minSlOfTp;
+    shortMinTp = Math.max(SHORT_WINNER.tpAtr, sp.minTpAtr);
+    shortMinSl = Math.max(SHORT_WINNER.slOfTp, sp.minSlOfTp);
     shortMaxTp = sp.maxTpAtr ?? 0.6;
     shortEvalPositive = sp.evalPositiveOnly !== false;
     rebuildShortGrid();

@@ -16,12 +16,13 @@ export const SHORT_PROGRESS_INDICATIONS: IndicationId[] = [
 export const DEFAULT_SHORT_AXIS_PF = 0.9;
 export const DEFAULT_SHORT_BLOCK_PF = 1.15;
 /** Live floors: intern 0.30–0.60 / 0.50–2.50; live lock is the 6h PF≥1.15 subset. */
-export const DEFAULT_SHORT_MIN_TP_ATR = 0.38;
+export const DEFAULT_SHORT_MIN_TP_ATR = 0.48;
 export const DEFAULT_SHORT_MIN_SL_OF_TP = 0.75;
 
-/** Old live lock 0.40/1.75 dropped Base-positive 0.75–1.50 tapes. */
+/** Old live floors 0.38–0.42 stopped out. Winner tape is 0.48/0.75. */
 function migrateShortMinTp(n: number): number {
-  if (Math.abs(n - 0.42) < 1e-9 || Math.abs(n - 0.4) < 1e-9) return DEFAULT_SHORT_MIN_TP_ATR;
+  if (n + 1e-9 < 0.48) return DEFAULT_SHORT_MIN_TP_ATR;
+  if (Math.abs(n - 0.42) < 1e-9 || Math.abs(n - 0.4) < 1e-9 || Math.abs(n - 0.38) < 1e-9) return DEFAULT_SHORT_MIN_TP_ATR;
   return n;
 }
 function migrateShortMinSl(n: number): number {

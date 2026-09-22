@@ -198,9 +198,9 @@ export function trailStopFromPeak(input: {
   const peakProfit = signed * (peak - entry);
   const tpDist = Math.abs(tp - entry);
   if (peakProfit <= 1e-12 || !(tpDist > 0)) return sl;
-  if (peakProfit < tpDist * (input.shortRange ? 0.72 : 0.55)) return sl;
+  if (peakProfit < tpDist * (input.shortRange ? 0.52 : 0.55)) return sl;
   const give = trailGiveback(peakProfit / tpDist, trailPct);
-  const minGap = tpDist * (input.shortRange ? 0.58 : 0.45);
+  const minGap = tpDist * (input.shortRange ? 0.42 : 0.45);
   const gap = Math.max(peakProfit * give, minGap);
   let next = peak - signed * gap;
   if (side === "long") {
@@ -414,10 +414,18 @@ export function filterLiveShortCombos(
   minTpAtr = DEFAULT_SHORT_MIN_TP_ATR,
   minSlOfTp = DEFAULT_SHORT_MIN_SL_OF_TP,
   maxTpAtr = 0.6,
-  _positiveOnly = true,
-  _allowed?: readonly { tpAtr: number; slOfTp: number }[],
+  positiveOnly = true,
+  allowed?: readonly { tpAtr: number; slOfTp: number }[],
 ): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
-  return liveShortProtectCombos(minTpAtr, minSlOfTp, maxTpAtr);
+  const all = liveShortProtectCombos(minTpAtr, minSlOfTp, maxTpAtr);
+  if (!positiveOnly) return all;
+  const allow = (allowed?.length ? allowed : SHORT_20H_POSITIVE).map((c) => shortComboKey(c.tpAtr, c.slOfTp));
+  const keys = new Set(allow);
+  const hit = all.filter((c) => keys.has(shortComboKey(c.tpAtr, c.slOfTp)));
+  if (hit.length) return hit;
+  const win = all.filter((c) => Math.abs(c.tpAtr - SHORT_WINNER.tpAtr) < 1e-9 && Math.abs(c.slOfTp - SHORT_WINNER.slOfTp) < 1e-9);
+  if (win.length) return win;
+  return all.filter((c) => c.tpAtr + 1e-9 >= SHORT_WINNER.tpAtr && c.slOfTp + 1e-9 >= SHORT_WINNER.slOfTp).slice(0, 4);
 }
 
 /** Intern scoring: every TP×SL. Execution GRID: short floors, then last-N keeps performing cells. */

@@ -1265,7 +1265,7 @@ export async function fetchLiveExecutions(input: {
   for (const host of HOSTS[input.network]) {
     try {
       const ordUrl = signedUrl(host, "/openApi/swap/v2/trade/allOrders", secret, {
-        recvWindow: 5000,
+        recvWindow: 20000,
         timestamp: Date.now(),
         limit: 100,
       });
@@ -1291,9 +1291,10 @@ export async function fetchLiveExecutions(input: {
         });
       }
       const incUrl = signedUrl(host, "/openApi/swap/v2/user/income", secret, {
-        recvWindow: 5000,
+        recvWindow: 20000,
         timestamp: Date.now() + 1,
         limit: 1000,
+        incomeType: "REALIZED_PNL",
       });
       const incOut = await getJson(incUrl, { headers: { "X-BX-APIKEY": apiKey } });
       const incBody = incOut.json as { code?: number; data?: Record<string, unknown>[] };
@@ -1330,7 +1331,18 @@ export async function fetchLiveExecutions(input: {
     input.connId,
     since,
   );
-  const pnl = desk.pnl;
+  const pnl = desk.pnl.length
+    ? desk.pnl
+    : orders
+        .filter((o) => /FILLED|CLOSED/i.test(o.status) && Number(o.pnl))
+        .map((o) => ({
+          symbol: o.symbol,
+          type: "REALIZED_PNL",
+          income: Number(o.pnl) || 0,
+          info: String(o.info || ""),
+          time: Number(o.time) || 0,
+        }))
+        .filter((x) => !since || x.time >= since);
   const wins = pnl.filter((x) => x.income > 0);
   const profit = wins.reduce((s, x) => s + x.income, 0);
   const loss = Math.abs(pnl.filter((x) => x.income < 0).reduce((s, x) => s + x.income, 0));
