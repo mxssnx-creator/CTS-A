@@ -1512,7 +1512,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const trailT0 = Date.now();
   let trailed = 0;
   const protectGapNow = Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0));
-  if (posts < 48 && !apiQuiet() && protectGapNow === 0 && STRAT.trailing) {
+  if (posts < 48 && !apiQuiet() && STRAT.trailing) {
     const mode = network === "mainnet" ? "main" : "vst";
     const trailNeed = [];
     for (const p of posByVol) {
