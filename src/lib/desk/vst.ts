@@ -259,11 +259,21 @@ function internStartOk(e: VstEngine, rows: { pnl: number }[] | undefined): boole
   const baseFloor = minPfFor(e, "shortBase");
   const st = comboTapeStats(rows);
   const floor = Math.max(shortFloor, 1.15);
-  if (st.n >= 4 && st.pf + 1e-9 >= floor && st.net > 0) return true;
-  if (st.n >= 8 && st.pf + 1e-9 >= shortFloor && st.net > 0) return true;
-  if (!internCumulativeOk(rows, floor, 4)) return false;
+  if (st.n >= 8 && st.pf + 1e-9 >= floor && st.net > 0) return true;
+  if (st.n >= 12 && st.pf + 1e-9 >= shortFloor && st.net > 0) return true;
+  if (!internCumulativeOk(rows, floor, 8)) return false;
   const d = decideLastN(rows ?? [], lastNProgressOf(e), shortFloor, baseFloor);
   return d.validHits.some((h) => h.n >= 8 && h.samples >= h.n && h.pf + 1e-9 >= floor && h.avg > 0);
+}
+function internBestLiveRank(e: VstEngine): number {
+  let best = 0;
+  const src = (e.preEvalDone ? e.shortComboPreTape : e.shortComboTape) ?? e.shortComboTape ?? {};
+  for (const k of Object.keys(src)) {
+    const [tp, sl] = k.split(":").map(Number);
+    if (!(tp > 0 && sl > 0)) continue;
+    best = Math.max(best, internComboRank(e, tp, sl));
+  }
+  return best;
 }
 function internComboRank(e: VstEngine, tpAtr: number, slOfTp: number): number {
   const rows = internStartRows(e, shortComboKey(tpAtr, slOfTp));
@@ -291,7 +301,14 @@ export function shortComboProven(e: VstEngine, tpAtr: number, slOfTp: number): b
       if (liveSt.n >= 6 && liveSt.net <= 0 && liveSt.pf + 1e-9 < baseFloor) return false;
       if (liveSt.n >= 8 && liveSt.pf + 1e-9 >= shortFloor && liveSt.net > 0) return true;
     }
-    if (internStartOk(e, intern)) return true;
+    if (internStartOk(e, intern)) {
+      if (e.preEvalDone && e.completeSim) {
+        const rank = internComboRank(e, tpAtr, slOfTp);
+        const best = internBestLiveRank(e);
+        if (best >= 1e6 && rank + 1e-9 < best * 0.97) return false;
+      }
+      return true;
+    }
     if (e.liveTape && intern.length < 6) return true;
     if (!e.preEvalDone && !e.liveTape) return true;
     return false;
@@ -1728,6 +1745,8 @@ export function shortProtectGrid(e: VstEngine, cfg: TacticConfig) {
  */
 function flattenNonPerforming(e: VstEngine) {
   if (!e.preEvalDone) return;
+  refreshPrePassKeys(e, { intern: true });
+  const internKeys = { ...(e.prePassKeys ?? {}) };
   const snap: Record<string, { pnl: number }[]> = {};
   for (const [k, rows] of Object.entries(e.shortComboTape ?? {})) {
     snap[k] = rows.map((r) => ({ pnl: r.pnl }));
@@ -1758,6 +1777,7 @@ function flattenNonPerforming(e: VstEngine) {
     closePosition(e, p, px, "time", { skipComboTape: true });
   }
   e.positions = keepPos;
+  if (Object.keys(internKeys).length) e.prePassKeys = internKeys;
 }
 
 function sliceShortGrid(
@@ -1922,14 +1942,16 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const gatedExec = Boolean(e.preEvalDone || e.liveTape);
         const internAll = internAllPhase(e);
         const internScore = Boolean(e.completeSim && paperMode(e));
-        const internKeep = internAll || internSlot || internScore || Boolean(e.liveTape);
+        const internKeep = internAll || internSlot || Boolean(e.liveTape);
         const internHere = internAll || internSlot;
         const validExec = internHere ? false : (!gatedExec || liveShouldExecute(e, execRel));
         if (!internKeep && !internHere && !validExec && !keepInd && !shortLane) continue;
-        if (complete && gatedExec && !internSlot && busyLegs.has(`${s.id}:${side}`)) continue;
+        if ((internAll || (complete && gatedExec && !internSlot)) && busyLegs.has(`${s.id}:${side}`)) continue;
         const short = shortLane;
         const evalGrid = internHere && short
-          ? allShortTpSlCombos().filter((c) => cfgUsesShortRange({ ...cfg, ...c, shortRange: true }))
+          ? (internAll
+            ? shortProtectGrid(e, cfg)
+            : allShortTpSlCombos().filter((c) => cfgUsesShortRange({ ...cfg, ...c, shortRange: true })))
           : short
             ? shortProtectGrid(e, cfg)
             : [null];
@@ -1956,7 +1978,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           }
           if (!laneValid && !internHere && !internKeep) continue;
           if (!laneValid && (internHere || internKeep) && gatedExec && busyLegs.has(`${s.id}:${side}`)) continue;
-          const exclusiveLeg = complete && gatedExec && !internSlot;
+          const exclusiveLeg = internAll || (complete && gatedExec && !internSlot);
           const legKey = exclusiveLeg
             ? `${s.id}:${side}`
             : `${s.id}:${side}:${ind}:${tac}:${comboKey || "x"}`;
@@ -2041,7 +2063,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             countPlaced(e);
           });
           busyLegs.add(legKey);
-          if (complete && gatedExec && !internSlot) busyLegs.add(`${s.id}:${side}`);
+          if (exclusiveLeg) busyLegs.add(`${s.id}:${side}`);
           if (!complete && !comboKey) busy.add(s.id);
         }
       }
@@ -4387,15 +4409,16 @@ function pfRows(rows: { pnl: number }[]) {
   };
 }
 
-export function refreshPrePassKeys(e: VstEngine) {
+export function refreshPrePassKeys(e: VstEngine, opts?: { intern?: boolean }) {
   const by = new Map<string, { pnl: number }[]>();
   const push = (k: string, pnl: number) => {
     const a = by.get(k) ?? (by.set(k, []), by.get(k)!);
     a.push({ pnl });
   };
+  const intern = internAllPhase(e) || Boolean(opts?.intern);
   for (const c of e.closed) {
     if (!deskTapeRow(e, c)) continue;
-    if (e.preEvalDone && !internAllPhase(e) && c.validExec !== true) continue;
+    if (e.preEvalDone && !internAllPhase(e) && !intern && c.validExec !== true) continue;
     const ind = String(c.indication || "trend");
     const play = String(c.playbook || "short");
     const tac = String(c.tactic || e.lastTactic || "trailing");
@@ -4410,16 +4433,20 @@ export function refreshPrePassKeys(e: VstEngine) {
     const parts = k.split(":");
     const play = parts.length >= 2 ? parts[1]! : parts[0]!;
     const lane = playLaneOf(play, e.shortRange);
-    const floor = minPfFor(e, lane);
+    const floor = intern ? Math.max(minPfFor(e, lane), 1.15) : minPfFor(e, lane);
     const pf = pfFromPnls(rows);
     if (pf + 1e-9 >= floor) keys[k] = pf;
   }
+  if (!Object.keys(keys).length && e.prePassKeys && Object.keys(e.prePassKeys).length) return;
   e.prePassKeys = keys;
 }
 
 function prePassOk(e: VstEngine, rel: { indication?: string; playbook?: string; tactic?: string; kind?: string }): boolean {
   const keys = e.prePassKeys;
-  if (!keys || !Object.keys(keys).length) return true;
+  if (!keys || !Object.keys(keys).length) {
+    if (e.preEvalDone && (e.completeSim || e.liveTape)) return false;
+    return true;
+  }
   const ind = String(rel.indication || "");
   const play = String(rel.playbook || rel.kind || "");
   const tac = String(rel.tactic || "");
@@ -7942,13 +7969,18 @@ export function liveShouldExecute(
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca) return t.dca;
   const blockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
-  if (blockFill) return t.block !== false;
+  if (blockFill) {
+    if (t.block === false) return false;
+    const shortComboBlk = isShortComboRel(e, rel);
+    if (shortComboBlk && e.preEvalDone && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!)) return false;
+    return true;
+  }
   const shortCombo = isShortComboRel(e, rel);
   const shortLane = rel.kind === "short" || play === "short" || /short/i.test(note) || Boolean(e.shortRange && shortCombo);
   if (shortCombo && !(e.shortComboOnly && paperMode(e))) {
     if (!shortComboProven(e, rel.tpAtr!, rel.slOfTp!)) return false;
   }
-  if (!(shortLane && shortCombo) && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
+  if ((e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
   if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel)) return false;
   if (shortCombo) {
     if (!(t.block || t.trailing || t.axis)) return false;
