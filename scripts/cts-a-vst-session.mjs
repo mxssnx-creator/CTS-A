@@ -250,7 +250,7 @@ let shortEvalPositive = true;
 let shortPositive = SHORT_20H_POSITIVE.map((c) => ({ tpAtr: c.tpAtr, slOfTp: c.slOfTp }));
 
 function shortGridCombos() {
-  return filterLiveShortCombos(shortMinTp, shortMinSl, shortMaxTp, shortEvalPositive, shortPositive);
+  return filterLiveShortCombos(shortMinTp, shortMinSl, shortMaxTp, true);
 }
 
 function x01BestGrid() {
