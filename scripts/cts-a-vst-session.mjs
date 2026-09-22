@@ -2415,7 +2415,7 @@ async function main() {
       let wroteExchange = false;
       if (!apiQuiet() && ping.pingOk) {
         try {
-          const liveNote = await withTimeout(mirrorToExchange(engine, ping.network, pick.cfg), 40000, "live");
+          const liveNote = await withTimeout(mirrorToExchange(engine, ping.network, pick.cfg), 60000, "live");
           if (liveNote) {
             adjustments.push(liveNote);
             noteOp(liveNote);
@@ -2527,13 +2527,13 @@ async function main() {
   }
 
   void (async () => {
-    await sleep(1200);
+    await sleep(IS_X01 ? 1200 : 180_000);
     adjustments.push("complete compute start");
     try {
       const complete = await completeComputationsAsync(pick.cfg, {
-        symbolCount: IS_X01 ? 8 : 16,
+        symbolCount: IS_X01 ? 8 : 12,
         hours: [...AUTO_EVAL_HOURS],
-        yieldFn: () => sleep(20),
+        yieldFn: () => sleep(IS_X01 ? 20 : 120),
         onCell: (cell, i, total) => {
           if (i === 1 || i === total || i % 5 === 0) {
             adjustments.push(`compute ${i}/${total} ${cell.tactic}/${cell.range} ${cell.hours}h PF ${cell.pf.toFixed(2)}`);
