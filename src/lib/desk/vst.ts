@@ -1454,14 +1454,11 @@ export function pickLiveTactic(e: VstEngine, ind: IndicationId, fallback: Tactic
   const tog = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
   const hinted = tacticForIndication(ind, { axis: tog.axis !== false, trailing: tog.trailing !== false });
   const preferred = e.indTacticBest?.[ind];
-  const ev = e.progressEval?.tactics;
   const allow = (t: TacticKind | undefined): t is TacticKind => {
     if (!t) return false;
     if (t === "dca" && !tog.dca) return false;
     if (t === "axis" && tog.axis === false) return false;
     if (t === "trailing" && tog.trailing === false) return false;
-    const row = ev?.[t];
-    if (!internAllPhase(e) && t !== fallback && row && row.n >= 6 && !row.ok) return false;
     return t === "trailing" || t === "axis" || t === "hybrid" || t === "dca";
   };
   if (fallback === "axis" && allow("axis")) return "axis";
@@ -1469,6 +1466,38 @@ export function pickLiveTactic(e: VstEngine, ind: IndicationId, fallback: Tactic
   if (allow(hinted)) return hinted;
   if (allow(fallback)) return fallback;
   return tog.axis !== false ? "hybrid" : "trailing";
+}
+
+/** Every enabled tactic — no skip of trailing/axis/hybrid. DCA only if toggle on. */
+export function enabledLiveTactics(e: VstEngine): TacticKind[] {
+  const tog = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  const out: TacticKind[] = [];
+  if (tog.trailing !== false) out.push("trailing");
+  if (tog.axis !== false) out.push("axis");
+  out.push("hybrid");
+  if (tog.dca) out.push("dca");
+  return out;
+}
+
+/** All catalog indications, winner and higher-quality first. Never drops a lane. */
+export function rankIndications(e: VstEngine, pack: Parameters<typeof indicationQuality>[1], winner: IndicationId): IndicationId[] {
+  const catalog = (e.shortProgress?.indications?.length ? e.shortProgress.indications : SHORT_PROGRESS_INDICATIONS) as IndicationId[];
+  const score = (id: IndicationId) => {
+    const q = indicationQuality(id, pack);
+    const ev = e.progressEval?.indications?.[id];
+    const mag = Math.abs(Number((pack as unknown as Record<string, number>)[id]) || 0);
+    return (id === winner ? 80 : 0) + q * 8 + (ev && ev.n >= 3 ? ev.pf * 4 : 0) + mag;
+  };
+  return catalog.slice().sort((a, b) => score(b) - score(a));
+}
+
+/** All enabled tactics, preferred / higher PF first. */
+export function rankTactics(e: VstEngine, preferred: TacticKind): TacticKind[] {
+  const score = (t: TacticKind) => {
+    const ev = e.progressEval?.tactics?.[t];
+    return (t === preferred ? 80 : 0) + (ev && ev.n >= 3 ? ev.pf : 1);
+  };
+  return enabledLiveTactics(e).slice().sort((a, b) => score(b) - score(a));
 }
 
 const TICKS_PER_LOSING_HOUR = 60;
@@ -1828,33 +1857,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         liveInd = "break";
       }
     }
-    let inds: IndicationId[] = complete
-      ? ((e.shortProgress?.indications?.length ? e.shortProgress.indications : SHORT_PROGRESS_INDICATIONS) as IndicationId[])
-      : liveInd === "break" && winner !== "break"
-        ? [liveInd, winner]
-        : [liveInd];
-    if (!complete && internAll0 && (e.losingHour?.red || tapeRed(e))) {
-      const extra = (e.losingHour?.greenInds?.length ? e.losingHour.greenInds : DEFAULT_LOSING_HOUR_INDS)
-        .filter((id) => id !== liveInd && id !== winner)
-        .slice(0, 2);
-      for (const id of extra) {
-        if (!inds.includes(id as IndicationId)) inds.push(id as IndicationId);
-      }
-    }
-    if (!complete) {
-      for (const extra of ["ema", "bollinger", "direction"] as const) {
-        if (inds.includes(extra)) continue;
-        const mag = Math.abs(Number((pack as unknown as Record<string, number>)[extra]) || 0);
-        const qe = indicationQuality(extra, pack);
-        if (qe >= indicationQualityFloor(extra) * 0.6 || mag >= 0.12) inds.push(extra);
-      }
-      inds.sort((a, b) => {
-        const rank = (id: IndicationId) =>
-          (DEFAULT_LOSING_HOUR_INDS as readonly string[]).includes(id) || id === "break" || id === "active" ? 0 : 1;
-        return rank(a) - rank(b);
-      });
-    }
-    if (complete && !internAll0) inds = [winner];
+    const inds = rankIndications(e, pack, liveInd);
     let trySides = axisTactic ? [meanSide] : symbolSideSet(s.id, mode, direction(q));
     const dual = trySides.length === 2;
     if (!dual && !complete && e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
@@ -1876,7 +1879,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           sides = [brk];
         }
       }
-      const tac = pickLiveTactic(e, ind, e.lastTactic);
+      for (const tac of rankTactics(e, pickLiveTactic(e, ind, e.lastTactic))) {
       const axisInd = tac === "axis";
       const book = cfgUsesShortRange(cfg)
         ? "short"
@@ -1890,39 +1893,11 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       const kind = cfgUsesShortRange(cfg) ? "short" : kindFromIndication(ind, book, tac);
       const range = pickIndicationRange(e, ind, rangeType ?? e.lastRange ?? "atr");
       const shortLane = cfgUsesShortRange(cfg);
-      const indEv = e.progressEval?.indications?.[ind];
       const keepInd =
         book === "block" ||
         (DEFAULT_LOSING_HOUR_INDS as readonly string[]).includes(ind) ||
         ind === "break" ||
         ind === "active";
-      if (!complete && indEv && indEv.n >= 6 && !indEv.ok && !keepInd) continue;
-      const coord = e.lastNCoord;
-      // Short TP×SL combos are independent tapes. Mixed indication:tactic:playbook last-N
-      // must not skip Base-ok cells (tp 0.4 / SL 1.75) after extra SL ratios join the GRID.
-      if (!complete && coord && !keepInd && !shortLane) {
-        if (indEv && indEv.n >= 4 && coord.activeInds.length && !coord.activeInds.includes(ind)) continue;
-        const playEv = e.progressEval?.playbooks?.[book];
-        if (playEv && playEv.n >= 4 && coord.activePlays.length && !coord.activePlays.includes(book)) continue;
-        const tacEv = e.progressEval?.tactics?.[tac];
-        if (tacEv && tacEv.n >= 4 && coord.activeTacs.length && !coord.activeTacs.includes(tac)) continue;
-        const combo = coord.combos[relComboKey({ indication: ind, tactic: tac, rangeType: range, playbook: book, kind })];
-        if (combo && combo.n >= 4 && !combo.ok) continue;
-      }
-      if (complete) {
-        if (ind !== winner && indicationRingDepth(s.id) < 10) continue;
-        const qScore = indicationQuality(ind, pack);
-        const floor = indicationQualityFloor(ind);
-        if (ind !== winner) {
-          if (qScore < floor * 0.72) continue;
-          const qWin = indicationQuality(winner, pack);
-          if (REDUNDANT_INDS[winner]?.includes(ind) && qScore + 0.04 < qWin) continue;
-          if (qScore < qWin * (ind === "break" || ind === "ema" || ind === "bollinger" ? 0.5 : 0.68)) continue;
-        }
-      } else if (ind === "break" && winner !== "break") {
-        const qScore = indicationQuality("break", pack);
-        if (qScore < indicationQualityFloor("break") * 0.85) continue;
-      }
       for (const side of sides) {
         if (qn >= qMax || pn >= pMax) break;
         if (!complete && dual && e.blockCfg?.windows !== false && blockRelPaused(e, `leg:${s.id}:${side}`, winN)) continue;
@@ -1933,20 +1908,6 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             { symbol: s.id, side, indication: ind, kind, tactic: tac, rangeType: range, playbook: book },
             winN,
           )
-        )
-          continue;
-        if (
-          !complete &&
-          !keepInd &&
-          liveRelationDisabled(e, {
-            symbol: s.id,
-            side,
-            indication: ind,
-            kind,
-            tactic: tac,
-            rangeType: range,
-            playbook: book,
-          })
         )
           continue;
         const execRel = {
@@ -1961,7 +1922,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const gatedExec = Boolean(e.preEvalDone || e.liveTape);
         const internAll = internAllPhase(e);
         const internScore = Boolean(e.completeSim && paperMode(e));
-        const internKeep = internAll || internSlot || internScore;
+        const internKeep = internAll || internSlot || internScore || Boolean(e.liveTape);
         const internHere = internAll || internSlot;
         const validExec = internHere ? false : (!gatedExec || liveShouldExecute(e, execRel));
         if (!internKeep && !internHere && !validExec && !keepInd && !shortLane) continue;
@@ -1972,18 +1933,18 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           : short
             ? shortProtectGrid(e, cfg)
             : [null];
-        const grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot) : [null];
+        const grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : [null];
         const trailPct = snapTrailPct(cfg.trailingPct);
         for (const prot of grid) {
           if (qn >= qMax || pn >= pMax) break;
           const comboKey = prot ? shortComboKey(prot.tpAtr, prot.slOfTp) : "";
-          const comboOk = !prot || internAll || internSlot || shortComboProven(e, prot.tpAtr, prot.slOfTp);
+          const comboOk = !prot || internAll || internSlot || internKeep || shortComboProven(e, prot.tpAtr, prot.slOfTp);
           const comboExec = internHere
             ? false
             : !gatedExec || liveShouldExecute(e, prot ? { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp } : execRel);
           if (gatedExec && prot && !internHere && !(e.shortComboOnly && paperMode(e))) {
             if (!comboOk) continue;
-            if (!comboExec && !keepInd) continue;
+            if (!comboExec && !keepInd && !internKeep) continue;
           }
           let laneValid = internHere ? false : comboExec && comboOk;
           if (complete && gatedExec && laneValid) {
@@ -1998,17 +1959,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const exclusiveLeg = complete && gatedExec && !internSlot;
           const legKey = exclusiveLeg
             ? `${s.id}:${side}`
-            : complete
-              ? `${s.id}:${side}:${ind}:${comboKey}`
-              : comboKey
-                ? `${s.id}:${side}:${comboKey}`
-                : `${s.id}:${side}`;
+            : `${s.id}:${side}:${ind}:${tac}:${comboKey || "x"}`;
           if (busyLegs.has(legKey)) continue;
-          if (!complete && !comboKey) {
-            if (dual) {
-              if (busyLegs.has(`${s.id}:${side}`)) continue;
-            } else if (busy.has(s.id) || busyLegs.has(`${s.id}:${side}`)) continue;
-          } else if (!complete && dual && busyLegs.has(`${s.id}:${side}:${comboKey}`)) continue;
+          if (exclusiveLeg && busyLegs.has(`${s.id}:${side}`)) continue;
           const hi = pickRange(q, cfg, range);
           const protMul = short && ind !== "break" ? { slMul: 1, tpMul: 1, holdMul: 0.7 } : indicationProtect(ind);
           const pxHint = meanSide === "long" || !axisInd
@@ -2038,7 +1991,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           if (!internSlot && !complete && rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
           const notional = positionNotional(e.stats.equity || 1e4, e.costStep || 10) * volMul * nStack * loseScale;
           const axisPartial = clampAxisPartial(cfg.axisPartialRatio);
-          const depth = complete
+          const depth = internSlot || internHere
+            ? 1
+            : complete
             ? Math.min(2, hi.levels.length)
             : axisInd
               ? Math.min(Math.max(2, cfg.axisLevels), hi.levels.length, axisPartial >= 2 ? 2 : 5)
@@ -2089,6 +2044,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           if (complete && gatedExec && !internSlot) busyLegs.add(`${s.id}:${side}`);
           if (!complete && !comboKey) busy.add(s.id);
         }
+      }
       }
     }
   });

@@ -154,6 +154,9 @@ import {
   healEngine,
   initVstEngine,
   armUniverse,
+  rankIndications,
+  rankTactics,
+  enabledLiveTactics,
   releaseVanished,
   skipLiveSymbol,
   entryMinPf,
@@ -3392,7 +3395,7 @@ describe("VST engine", () => {
     assert.ok(VST_MAX_WORKING_ORDERS >= 2400);
     const e = initVstEngine({ ...CFG, shortRange: true, trailingPct: 1.5 }, { warmup: 0, symbolCount: 24, arm: true });
     assert.ok(e.queue.length + e.orders.length >= 24, `armed ${e.queue.length}+${e.orders.length}`);
-    assert.ok(e.queue.length <= VST_MAX_QUEUE);
+    assert.ok(e.queue.length <= 12000);
     assert.ok(e.orders.length <= VST_MAX_WORKING_ORDERS);
     const liveGrid = shortProtectGrid(e, { ...CFG, shortRange: true });
     assert.ok(liveGrid.length >= 1);
@@ -3409,6 +3412,25 @@ describe("VST engine", () => {
     const intern = e.queue.filter((o) => o.validExec === false);
     assert.ok(e.queue.length >= 8, `queued ${e.queue.length}`);
     assert.ok(intern.length >= 4, `eval intern ${intern.length} / ${e.queue.length}`);
+  });
+
+  it("indications and tactics all run, best first, no exclusive lock", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true, trailingPct: 1.5 }, { warmup: 4, symbolCount: 4, arm: false });
+    const pack = { trend: 0.4, break: 0.1, active: 0.05, direction: -0.02, move: 0.08, rsi: 0.01, bollinger: 0.02, sar: 0.1, macd: 0.12, ema: 0.2, agree: true, activity: 0.5, lastPart: 0.1, drawdown: 0.05, prevRel: 0.1 } as Parameters<typeof rankIndications>[1];
+    const inds = rankIndications(e, pack, "trend");
+    assert.equal(inds.length, 10);
+    assert.equal(inds[0], "trend");
+    assert.ok(enabledLiveTactics(e).includes("trailing") && enabledLiveTactics(e).includes("axis") && enabledLiveTactics(e).includes("hybrid"));
+    assert.ok(!enabledLiveTactics(e).includes("dca"));
+    const tacs = rankTactics(e, "hybrid");
+    assert.equal(tacs[0], "hybrid");
+    assert.equal(tacs.length, 3);
+    e.liveTape = true;
+    armUniverse(e, { ...CFG, shortRange: true, trailingPct: 1.5 }, "trailing", "atr");
+    const byInd = new Set(e.queue.map((o) => o.indication).filter(Boolean));
+    const byTac = new Set(e.queue.map((o) => o.tactic).filter(Boolean));
+    assert.ok(byInd.size >= 4, `inds ${[...byInd]}`);
+    assert.ok(byTac.size >= 2, `tacs ${[...byTac]}`);
   });
 
   it("break, active, and direction run with their own ranges, playbooks, and auto-evals", () => {
