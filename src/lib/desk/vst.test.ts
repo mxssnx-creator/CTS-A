@@ -208,6 +208,7 @@ import {
   liveShouldExecute,
   internRelProven,
   refreshValidRelKeys,
+  shortComboProven,
   laneLastNStack,
   lanePassExec,
   lastNProgressOf,
@@ -3321,7 +3322,10 @@ describe("VST engine", () => {
     assert.equal(lanePassExec(e, winRel), true);
     const grid = shortProtectGrid(e, { ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75 });
     e.completeSim = true;
+    const internDone = e.preEvalDone;
+    e.preEvalDone = false;
     const internGrid = shortProtectGrid(e, { ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75 });
+    e.preEvalDone = internDone;
     assert.ok(internGrid.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75));
     assert.ok(!grid.some((c) => c.tpAtr === 0.4 && Math.abs(c.slOfTp - 0.5) < 1e-9) || internGrid.some((c) => c.tpAtr === 0.4 && c.slOfTp === 1.75), "0.4/0.5 loser must not mix live");
     armUniverse(e, { ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75, trailingPct: 1.5, maxHoldTicks: 24 }, "trailing", "atr");
@@ -3456,7 +3460,19 @@ describe("VST engine", () => {
     assert.ok(!e.validRelKeys?.["ema:trailing:0.48:0.75"]);
     assert.equal(internRelProven(e, { indication: "break", tactic: "hybrid", tpAtr: 0.48, slOfTp: 0.75 }), true);
     assert.equal(internRelProven(e, { indication: "ema", tactic: "trailing", tpAtr: 0.48, slOfTp: 0.75 }), false);
-    assert.equal(liveShouldExecute(e, { symbol: "BTC-USDT", side: "long", indication: "ema", tactic: "trailing", playbook: "short", kind: "short", tpAtr: 0.48, slOfTp: 0.75 }), false);
+    e.shortRange = true;
+    e.shortComboPreTape = { "0.48:0.75": win, "0.42:0.75": lose };
+    assert.equal(shortComboProven(e, 0.48, 0.75), true, "independent combo tape keep PF≥1 starts live");
+    assert.equal(
+      liveShouldExecute(e, { symbol: "BTC-USDT", side: "long", indication: "ema", tactic: "trailing", playbook: "short", kind: "short", tpAtr: 0.48, slOfTp: 0.75 }),
+      true,
+      "live execute is independent combo tape, not internRel 1-10%",
+    );
+    assert.equal(shortComboProven(e, 0.42, 0.75), false);
+    assert.equal(
+      liveShouldExecute(e, { symbol: "BTC-USDT", side: "long", indication: "direction", tactic: "trailing", playbook: "short", kind: "short", tpAtr: 0.42, slOfTp: 0.75 }),
+      false,
+    );
   });
 
   it("break, active, and direction run with their own ranges, playbooks, and auto-evals", () => {

@@ -399,9 +399,8 @@ export function snapShortTacticConfig<T extends {
   tpRatio?: number;
   shortRange?: boolean;
 }>(cfg: T): T {
-  const clamped = clampLiveShortProtect(cfg.tpAtr ?? SHORT_WINNER.tpAtr, cfg.slOfTp ?? SHORT_WINNER.slOfTp);
-  const tpAtr = clamped.tpAtr;
-  const slOfTp = clamped.slOfTp;
+  const tpAtr = snapShortTpAtr(cfg.tpAtr ?? SHORT_WINNER.tpAtr);
+  const slOfTp = snapShortSlOfTp(cfg.slOfTp ?? SHORT_WINNER.slOfTp);
   return {
     ...cfg,
     shortRange: true,
