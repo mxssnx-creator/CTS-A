@@ -299,6 +299,20 @@ export function frozenTypeBlend(e: VstEngine): { n: number; pf: number; net: num
   if (!g || g.blendN < 4) return null;
   return { n: g.blendN, pf: g.blendPf, net: g.blendNet };
 }
+
+/** Live exchange only. A progress order must already be proving itself on the site book. */
+export function liveOrderAllowed(e: VstEngine, o: { validExec?: boolean; tpAtr?: number; slOfTp?: number; playbook?: string }): boolean {
+  if (isBotPlay(o.playbook)) return true;
+  if (o.validExec !== true) return false;
+  const floorEq = Number(e.startEquity) > 0 ? Number(e.startEquity) : 10;
+  if (!(Number(e.stats?.pf) > 1)) return false;
+  if (!(Number(e.stats?.equity) + 1e-9 >= floorEq)) return false;
+  if (o.tpAtr == null || o.slOfTp == null) return false;
+  const key = shortComboKey(o.tpAtr, o.slOfTp);
+  const st = comboTapeStats(e.shortComboLiveTape?.[key] ?? e.shortComboTape?.[key]);
+  const tiny = st.pf >= PF_NO_LOSS - 1e-9 && st.net <= 1e-6;
+  return st.n >= 8 && st.pf > 1 && st.pf < 6 && st.net > 0 && !tiny;
+}
 function validatedOrderDepth(
   e: VstEngine,
   ind: IndicationId,

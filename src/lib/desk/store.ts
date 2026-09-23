@@ -69,6 +69,7 @@ import {
   engageLiveBook,
   LIVE_RUN_CFG,
   liveRunBlock,
+  liveOrderAllowed,
   isDeskConn,
   resetBook,
   resetSession as resetVstSession,
@@ -379,7 +380,7 @@ function queueBotControls(get: () => { activeConnId: string; connections: Connec
 
 function queueExchangeOpen(get: () => { activeConnId: string; connections: Connection[]; exchange: ExchangeBook | null; vst: VstEngine; pullExchange: () => Promise<void> }, set: (partial: { ticketMsg?: string }) => void) {
   const id = get().activeConnId;
-  if (!isDeskConn(id)) return;
+  if (!isDeskConn(id) || id === "bingx-x01") return;
   const conn = get().connections.find((c) => c.id === id);
   if (!conn || conn.network === "paper") return;
   const now = Date.now();
@@ -1041,7 +1042,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
         for (const o of e.queue) {
           const play = String(o.playbook || "");
           const bot = play.startsWith("bot:");
-          const progressOrder = e.x01Progress && o.connId === "bingx-x01" && !bot;
+          const progressOrder = e.x01Progress && o.connId === "bingx-x01" && !bot && liveOrderAllowed(e, o);
           if (!bot && !progressOrder) continue;
           if (born.some((b) => b.id === o.id) || liveBotSent.has(o.id)) continue;
           born.push({ id: o.id, connId: o.connId, symbol: o.symbol, side: o.side, price: o.price, qty: o.qty, sl: o.sl, tp: o.tp, bot });
