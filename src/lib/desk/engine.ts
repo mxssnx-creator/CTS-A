@@ -67,6 +67,7 @@ export {
   VALID_EXEC_NS,
   LIVE_DISABLE_NS,
   GATED_MIN_PF,
+  edgePnl,
   gatedFloorPf,
   decideLastN,
   decideLastNFromPrefix,
@@ -95,6 +96,7 @@ import {
   VALID_EXEC_POS_N,
   LIVE_DISABLE_N,
   DEFAULT_LAST_N_PROGRESS,
+  edgePnl,
 } from "./last-n-progress.ts";
 export { EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N };
 
@@ -122,13 +124,12 @@ export function profitFactor(profit: number, loss: number): number {
   const pf = gp / gl;
   return Number.isFinite(pf) ? pf : 0;
 }
-export function pfFromPnls(rows: { pnl: number }[] | undefined | null): number {
+export function pfFromPnls(rows: { pnl?: number; ratio?: number }[] | undefined | null): number {
   if (!rows?.length) return 0;
   let gp = 0;
   let gl = 0;
   for (const r of rows) {
-    const p = Number(r.pnl);
-    if (!Number.isFinite(p)) continue;
+    const p = edgePnl(r);
     if (p > 0) gp += p;
     else if (p < 0) gl -= p;
   }
@@ -156,6 +157,19 @@ export function closePnl(side: number, entry: number, exit: number, qty: number,
   const q = Number(qty);
   if (!(e0 > 0) || !(x > 0) || !(q > 0) || !Number.isFinite(e0 + x + q)) return 0;
   return (x - e0) * q * signed - positionRtCost(e0, x, q, rtPct);
+}
+
+/** Net return versus entry. 0 is the base ratio 1. Cost is the same round-trip deduction as closePnl, per unit of entry notional. Not a balance. */
+export function positionNetRatio(side: number, entry: number, exit: number, rtPct = POSITION_RT_COST_PCT): number {
+  const signed = side < 0 ? -1 : 1;
+  const e0 = Number(entry);
+  const x = Number(exit);
+  if (!(e0 > 0) || !(x > 0) || !Number.isFinite(e0 + x)) return 0;
+  const gross = ((x - e0) / e0) * signed;
+  const pct = Number(rtPct);
+  const cost = pct > 0 && Number.isFinite(pct) ? ((e0 + x) / 2) / e0 * pct : 0;
+  const net = gross - cost;
+  return Number.isFinite(net) ? net : 0;
 }
 
 /** Replay helper: unit-notional close with RT cost deducted. */
@@ -3039,16 +3053,17 @@ export function indicationFromQuote(
     const slopeOk = Math.abs(r6) > 0.0024 && Math.sign(r6) === emaDir && Math.abs(r3) > 0.001;
     const richEma = stacked && slopeOk && emaDir !== 0 ? clampDir(emaDir * 0.86) : 0;
     const w = 0.58;
-    trend = mixInd(richTrend, trend, w);
-    brk = brkDir !== 0 ? mixInd(richBreak, brk, 0.8) : mixInd(brk, 0, span > 1.18 ? 0.92 : 0.72);
+    const trendOk = stacked && !exhausted;
+    trend = trendOk ? mixInd(richTrend, trend, w) : 0;
+    brk = brkDir !== 0 ? richBreak : 0;
     active = mixInd(richActive, active, w);
-    direction = richDir !== 0 ? mixInd(richDir, direction, 0.78) : mixInd(direction, 0, 0.62);
-    move = richMove !== 0 ? mixInd(richMove, move, 0.72) : mixInd(0, move, 0.85);
-    rsi = mixInd(richRsi, rsi, w);
-    bollinger = mixInd(richBb, bollinger, w);
-    sar = richSar !== 0 ? mixInd(richSar, sar, 0.7) : mixInd(0, sar, 0.82);
-    macd = mixInd(richMacd, macd, w);
-    ema = richEma !== 0 ? mixInd(richEma, ema, 0.72) : mixInd(0, ema, 0.85);
+    direction = richDir !== 0 && !exhausted ? mixInd(richDir, direction, 0.78) : 0;
+    move = richMove !== 0 ? richMove : 0;
+    rsi = richRsi !== 0 ? richRsi : 0;
+    bollinger = richBb !== 0 ? richBb : 0;
+    sar = richSar !== 0 ? richSar : 0;
+    macd = richMacd !== 0 ? richMacd : 0;
+    ema = richEma !== 0 ? richEma : 0;
     lastPart = mixInd(clampDir(r3 * 40), lastPart, 0.7);
     drawdown = clamp(ddRing * 0.65 + drawdown * 0.35, 0, 1);
     prevRel = mixInd(clampDir(Math.sign(r6) === Math.sign(r12) ? Math.sign(r6) * 0.7 : Math.sign(r3) * 0.4), prevRel, 0.65);

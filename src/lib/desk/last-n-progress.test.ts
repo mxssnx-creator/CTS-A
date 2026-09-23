@@ -108,6 +108,23 @@ describe("multi last-N prefix + modes", () => {
     assert.ok(fold.modes.independent.n <= fold.modes.combined.n || fold.modes.independent.pf > fold.modes.combined.pf);
   });
 
+  it("two positive base windows make combined stronger than the weaker single", () => {
+    const rows: { pnl: number }[] = [];
+    for (let i = 0; i < 20; i++) rows.push({ pnl: 1 });
+    for (let i = 0; i < 10; i++) rows.push({ pnl: -0.8 });
+    for (let i = 0; i < 40; i++) rows.push({ pnl: -0.15 });
+    const pre = lastNPrefix(rows, 80);
+    const w30 = lastNHitFromPrefix(pre, 30);
+    const w50 = lastNHitFromPrefix(pre, 50);
+    assert.ok(w30.pf + 1e-9 >= 1 && w30.avg >= 0, `30 pf ${w30.pf} avg ${w30.avg}`);
+    assert.ok(w50.pf + 1e-9 >= 1 && w50.avg >= 0, `50 pf ${w50.pf} avg ${w50.avg}`);
+    const c = scoreLastNModeTape(rows, cfgC, 1, 1, "combined");
+    const weaker = Math.min(w30.pf, w50.pf);
+    assert.equal(c.pass, true, `combined pass pf ${c.pf} n ${c.n}`);
+    assert.ok(c.pf + 1e-9 >= weaker, `combined ${c.pf} should beat weaker single ${weaker}`);
+    assert.ok(c.pf + 1e-9 >= Math.max(w30.pf, w50.pf) - 1e-9, `combined ${c.pf} should be the stronger of 30=${w30.pf} and 50=${w50.pf}`);
+  });
+
   it("gated PF below 1 fail-closes Independent, Combined, and Parallel", () => {
     assert.equal(GATED_MIN_PF, 1);
     assert.equal(gatedFloorPf(0), 1);

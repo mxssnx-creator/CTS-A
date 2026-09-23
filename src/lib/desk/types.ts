@@ -817,6 +817,8 @@ export interface ClosedTrade {
   symbol: string;
   side: Side;
   pnl: number;
+  /** Net return vs entry after cost. 0 is breakeven (ratio base 1). */
+  ratio?: number;
   qty: number;
   entry: number;
   exit: number;
@@ -903,6 +905,9 @@ export interface VstLedger {
   ordersRejected: number;
   ddTicks: number;
   maxDdt: number;
+  /** Sum of positive position returns (0 = ratio base 1). PF uses these, not the dollar balance. */
+  ratioProfit?: number;
+  ratioLoss?: number;
 }
 
 export interface SymbolTape {

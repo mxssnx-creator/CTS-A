@@ -17,6 +17,15 @@ export const EVAL_POS_N = 50;
 export const VALID_EXEC_POS_N = 15;
 export const LIVE_DISABLE_N = 12;
 
+/** PF scores the position return, not the dollar balance. `ratio` is net vs entry (0 = base 1). */
+export function edgePnl(row: { pnl?: number; ratio?: number } | null | undefined): number {
+  if (!row) return 0;
+  const ratio = Number(row.ratio);
+  if (Number.isFinite(ratio)) return ratio;
+  const pnl = Number(row.pnl);
+  return Number.isFinite(pnl) ? pnl : 0;
+}
+
 export type LastNWindowHit = { n: number; pf: number; avg: number; net: number; samples: number; ok: boolean };
 
 export const DEFAULT_LAST_N_PROGRESS: LastNProgressConfig = {
@@ -86,13 +95,13 @@ export function lastNMaxOf(cfg: LastNProgressConfig): number {
 /** Prefix sums over newest-first rows. O(min(len, maxN)) then O(1) per window. */
 export type LastNPrefix = { n: number; gp: number[]; gl: number[]; net: number[] };
 
-export function lastNPrefix(rows: { pnl: number }[], maxN: number): LastNPrefix {
+export function lastNPrefix(rows: { pnl?: number; ratio?: number }[], maxN: number): LastNPrefix {
   const cap = Math.min(rows.length, Math.max(0, Math.round(maxN) || 0));
   const gp = new Array(cap + 1).fill(0);
   const gl = new Array(cap + 1).fill(0);
   const net = new Array(cap + 1).fill(0);
   for (let i = 0; i < cap; i++) {
-    const p = Number(rows[i]!.pnl) || 0;
+    const p = edgePnl(rows[i]);
     gp[i + 1] = gp[i]! + (p > 0 ? p : 0);
     gl[i + 1] = gl[i]! + (p < 0 ? -p : 0);
     net[i + 1] = net[i]! + p;
@@ -377,7 +386,7 @@ export function scoreLastNGroup(
 ): LastNGroupScore {
   if (rows.length < 4) {
     let net = 0;
-    for (const r of rows) net += Number(r.pnl) || 0;
+    for (const r of rows) net += edgePnl(r);
     return { n: rows.length, pf: 0, net, ok: true, stack: 1 };
   }
   const d = decideLastN(rows, cfg, minPf, basePf);
@@ -392,12 +401,27 @@ export function scoreLastNGroup(
   };
 }
 
-function tapeFold(rows: { pnl: number }[]): { n: number; pf: number; net: number } {
+function agreeWindowPf(hits: LastNWindowHit[]): number {
+  if (!hits.length) return 0;
+  let best = 0;
+  const excess: number[] = [];
+  for (const h of hits) {
+    if (h.pf > best) best = h.pf;
+    excess.push(Math.max(0, h.pf - 1));
+  }
+  excess.sort((a, b) => b - a);
+  const second = excess[1] ?? 0;
+  const lift = Math.min(second, (excess[0] ?? 0) * 0.25, 0.35);
+  const pf = best + lift;
+  return pf > 4 ? 4 : pf;
+}
+
+function tapeFold(rows: { pnl?: number; ratio?: number }[]): { n: number; pf: number; net: number } {
   let gp = 0;
   let gl = 0;
   let net = 0;
   for (const r of rows) {
-    const p = Number(r.pnl) || 0;
+    const p = edgePnl(r);
     net += p;
     if (p > 0) gp += p;
     else if (p < 0) gl += -p;
@@ -430,14 +454,17 @@ export function scoreLastNModeTape(
   const best = [...validOk].sort((a, b) => b.pf - a.pf || b.n - a.n)[0];
   const longestOk = [...validOk].sort((a, b) => b.n - a.n || b.pf - a.pf)[0];
   const longest = [...validFull].sort((a, b) => b.n - a.n || b.pf - a.pf)[0];
-  // Independent gates on the best passing valid window. Combined uses the longest majority window.
-  // Majority 2+ uses the longest of at least two passing windows. Fail processing: show mixed longest so gated PF < 1 is visible.
+  const evalOkHits = d.evalHits.filter((h) => h.samples >= h.n && evalLastNGood(h, basePf));
+  const bestEval = [...evalOkHits].sort((a, b) => b.pf - a.pf || b.n - a.n)[0];
+  // Two or more positive base windows (eval 50 and 30): combined is the stronger window
+  // plus the next window's edge, capped at the no-loss PF. Never the diluted longer tape.
+  const agreeLift = mode === "combined" && d.pass && evalOkHits.length >= 2 ? agreeWindowPf(evalOkHits) : 0;
   const gated = mode === "combined"
-    ? (d.pass ? longestOk : longest) ?? longestOk ?? longest
+    ? (d.pass && evalOkHits.length >= 2 ? bestEval : (d.pass ? longestOk : longest)) ?? longestOk ?? longest
     : mode === "majority"
       ? (validOk.length >= MAJORITY_MIN_POSITIVE ? longestOk : (best ?? longest)) ?? longest
       : (d.pass ? best : (best ?? longest)) ?? longestOk ?? longest;
-  const gatedPf = gated?.pf ?? 0;
+  const gatedPf = agreeLift > 0 ? agreeLift : (gated?.pf ?? 0);
   const gatedN = gated?.n ?? 0;
   const net = gated?.net ?? st.net;
   const floor = gatedFloorPf(minPf);
@@ -450,7 +477,7 @@ export function scoreLastNModeTape(
     !tinyNoLoss;
   return {
     pass: Boolean(d.pass && gatedOk && majorityOk),
-    pf: gated?.pf ?? st.pf,
+    pf: agreeLift > 0 ? agreeLift : (gated?.pf ?? st.pf),
     n: gated?.n ?? st.n,
     net,
     gatedPf,

@@ -57,6 +57,7 @@ import {
   POSITION_COST_PCT,
   POSITION_RT_COST_PCT,
   closePnl,
+  positionNetRatio,
   positionRtCost,
   unitClosePnl,
   TRAIL_PCTS,
@@ -477,6 +478,9 @@ describe("VST engine", () => {
     const unit = unitClosePnl(1, 100, 100.42);
     assert.ok(unit < ((0.42 / 100) * 12) - 0.01, `unit ${unit} deducts RT from UNIT_NOTIONAL`);
     assert.equal(closePnl(1, 100, 100, 1), -positionRtCost(100, 100, 1));
+    const ratio = positionNetRatio(1, 100, 100.42);
+    assert.ok(Math.abs(ratio - win / 100) < 1e-12, `ratio ${ratio} must match close pnl / entry notional`);
+    assert.ok(ratio > 0 && ratio < 0.0042, `ratio ${ratio} is a return, not a balance`);
     assert.equal(profitFactor(100, 50), 2);
     assert.equal(profitFactor(10, 0), PF_NO_LOSS);
     assert.equal(profitFactor(0, 0), 0);
