@@ -193,7 +193,7 @@ function performingLive(e: VstEngine) {
 }
 
 type TypeGateRow = { n: number; pf: number; net: number; ok: boolean };
-const typeGateMem = new WeakMap<VstEngine, { indications: Record<string, TypeGateRow>; tactics: Record<string, TypeGateRow> }>();
+const typeGateMem = new WeakMap<VstEngine, { indications: Record<string, TypeGateRow>; tactics: Record<string, TypeGateRow>; floor: number; blendN: number; blendPf: number; blendNet: number }>();
 const liveIndTally = new WeakMap<VstEngine, Record<string, { n: number; gp: number; gl: number; fail?: boolean }>>();
 
 function noteLiveInd(e: VstEngine, ind: string, pnl: number, tac?: string) {
@@ -280,10 +280,25 @@ function freezeLiveTypeGate(e: VstEngine) {
   const tactics: Record<string, TypeGateRow> = {};
   for (const [k, rows] of Object.entries(indP)) indications[k] = scoreTypeGate(rows);
   for (const [k, rows] of Object.entries(tacP)) tactics[k] = scoreTypeGate(rows);
-  typeGateMem.set(e, { indications, tactics });
+  const proven: { pnl: number }[] = [];
+  for (const [k, tape] of Object.entries(e.shortComboPreTape ?? {})) {
+    const [tpS, slS] = k.split(":");
+    const tp = Number(tpS);
+    const sl = Number(slS);
+    if (!Number.isFinite(tp) || !Number.isFinite(sl) || !tape?.length) continue;
+    if (!shortComboProven(e, tp, sl)) continue;
+    proven.push(...tape);
+  }
+  const blend = comboTapeStats(proven);
+  const floor = blend.n >= 4 && blend.pf > 1 ? blend.pf : 1;
+  typeGateMem.set(e, { indications, tactics, floor, blendN: blend.n, blendPf: blend.pf, blendNet: blend.net });
 }
 
-/** After type validation, live size follows that lane's PF. Below 1 places nothing. No default of 1. */
+export function frozenTypeBlend(e: VstEngine): { n: number; pf: number; net: number } | null {
+  const g = typeGateMem.get(e);
+  if (!g || g.blendN < 4) return null;
+  return { n: g.blendN, pf: g.blendPf, net: g.blendNet };
+}
 function validatedOrderDepth(
   e: VstEngine,
   ind: IndicationId,
@@ -308,6 +323,7 @@ function validatedOrderDepth(
     if (st.n >= 4) {
       const tiny = st.pf >= PF_NO_LOSS - 1e-9 && st.net <= 1e-6;
       if (st.pf + 1e-9 < 1 || st.net <= 1e-9 || tiny) return 0;
+      if (gate.floor > 1 && !(st.pf > gate.floor + 1e-9)) return 0;
       pf = Math.min(pf, st.pf);
     } else if (!shortComboProven(e, tpAtr, slOfTp)) return 0;
   }
@@ -587,6 +603,17 @@ export function shortComboProven(e: VstEngine, tpAtr: number, slOfTp: number): b
   const key = shortComboKey(tpAtr, slOfTp);
   if (e.preEvalDone && !e.liveTape) {
     const pre = e.shortComboPreTape?.[key];
+    const gate = typeGateMem.get(e);
+    if (performingLive(e) && gate) {
+      const st = comboTapeStats(pre);
+      const tiny = st.pf >= PF_NO_LOSS - 1e-9 && st.net <= 1e-6;
+      const need = gate.floor > 1 ? gate.floor : 1;
+      const beats = st.n >= 4 && st.net > 1e-9 && !tiny && (gate.floor > 1 ? st.pf > need + 1e-9 : st.pf + 1e-9 >= need);
+      if (!beats) return false;
+      const liveSt = comboTapeStats(e.shortComboLiveTape?.[key]);
+      if (liveSt.n >= 8 && !(liveSt.pf > need + 1e-9 && liveSt.net > 0)) return false;
+      return true;
+    }
     if (pre && pre.length) {
       const st = comboTapeStats(pre);
       const tiny = st.pf >= PF_NO_LOSS - 1e-9 && st.net <= 1e-6;
@@ -6887,11 +6914,12 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         if (shortComboProven(engine, tp, sl)) provenTape.push(...tape);
       }
       const provenSt = comboTapeStats(provenTape);
+      const frozen = frozenTypeBlend(engine);
       const pe1 = engine.progressEval;
       afterTypesStage = {
-        n: provenSt.n,
-        pf: provenSt.pf,
-        net: provenSt.net,
+        n: frozen?.n || provenSt.n,
+        pf: frozen?.n ? frozen.pf : provenSt.pf,
+        net: frozen?.n ? frozen.net : provenSt.net,
         wr: internStage.wr,
         orders: internStage.orders,
         fills: internStage.fills,
@@ -7242,11 +7270,22 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   }
   const liveTapeRows = deskClosed.filter((c) => (c.tick || 0) > preTicks);
   const gatedRows = liveTapeRows.filter((c) => c.validExec === true);
+  const typeBlend = frozenTypeBlend(engine);
+  const typeFloor = typeBlend && typeBlend.n >= 4 ? typeBlend.pf : 1;
+  const keptGate = gatedRows.filter((c) => {
+    if (c.protect || c.tpAtr == null || c.slOfTp == null) return false;
+    const key = shortComboKey(c.tpAtr, c.slOfTp);
+    const liveSt = comboTapeStats(engine.shortComboLiveTape?.[key]);
+    if (liveSt.n >= 8) return liveSt.pf > typeFloor + 1e-9 && liveSt.net > 0;
+    const preSt = comboTapeStats(engine.shortComboPreTape?.[key]);
+    return preSt.n >= 4 && preSt.pf > typeFloor + 1e-9 && preSt.net > 0;
+  });
+  const keptStats = comboTapeStats(keptGate);
   const liveGated = {
-    n: gatedLiveN,
-    pf: profitFactor(liveRatioP, liveRatioL),
-    net: liveRatioP - liveRatioL,
-    avg: gatedLiveN ? (liveRatioP - liveRatioL) / gatedLiveN : 0,
+    n: keptStats.n,
+    pf: keptStats.n >= 4 ? keptStats.pf : 0,
+    net: keptStats.net,
+    avg: keptStats.n ? keptStats.net / keptStats.n : 0,
     of: liveTapeRows.length,
   };
   const picked = selectMinPfCells(engine, byPlaybook, byPlayInd);
@@ -7316,7 +7355,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const procN = Number(procRow?.gatedN ?? procRow?.n) || 0;
   const procNet = Number(procRow?.net) || 0;
   const procPositive = Boolean(procRow?.pass) && procN >= 4 && procPf + 1e-9 >= GATED_MIN_PF && procNet >= -1e-12;
-  const reportPf = engine.shortComboOnly
+  const reportPf = prehours > 0 && liveGated.n >= 4
+    ? liveGated.pf
+    : engine.shortComboOnly
     ? paperPf
     : complete && ((engine.ledger.ratioProfit || 0) + (engine.ledger.ratioLoss || 0) > 0)
       ? paperPf
