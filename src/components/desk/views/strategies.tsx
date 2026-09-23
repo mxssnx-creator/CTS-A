@@ -88,8 +88,9 @@ export function StrategiesView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Configs</p>
         <h1 className="text-2xl font-semibold tracking-tight">Strategies</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Normal is the general lane. Trend, Break, Active and Direction indications run independently on every
-          set. Ranked by last {lastNs.picks} picks across the universe (header quote {symbol}).
+          Normal is the general lane. All ten indications process independently — common Trend / Break / Active /
+          Direction plus Move, RSI, Bollinger, SAR, MACD and EMA. Ranked by last {lastNs.picks} picks across the
+          universe (header quote {symbol}).
         </p>
       </div>
 
@@ -157,7 +158,8 @@ export function StrategiesView() {
       <div>
         <p className="text-xs font-medium uppercase tracking-wide text-subtle">Independent indications</p>
         <p className="mt-1 text-xs text-muted">
-          Trend, Break, Active and Direction configs process on every strategy set, including Normal.
+          All indication configs process on every strategy set. Common Trend / Break / Active / Direction always
+          run; extras stay covered for future configs.
         </p>
         <div className="mt-2 flex flex-wrap gap-1">
           {INDICATION_KINDS.map((k) => (

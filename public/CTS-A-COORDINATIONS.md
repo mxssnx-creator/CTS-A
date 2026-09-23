@@ -1,5 +1,7 @@
 # CTS-A — Coordinations that must not regress
 
+**Stable baseline: git tag `stable` (2026-09-23).** Repair from that commit. Do not revert the tape-accounting rules in `AGENTS.project.md` (arm after flags, interval baseline after the exam reset, no gatedFlip, leg range spacing, no double-counted drawdown placements).
+
 **Read this before changing PF floors, last-N, Block volumes, short GRID, intern/live isolation, or sim headlines.**  
 Pair with [CTS-A-COMPLETE-CONTEXT.md](./CTS-A-COMPLETE-CONTEXT.md) and [CTS-A-defaults.json](./CTS-A-defaults.json). Machine dump: [CTS-A-coordinations.json](./CTS-A-coordinations.json).
 
@@ -60,6 +62,9 @@ Raising floors **selects the positive subset**. It must not starve Block adds or
 | Disable | 6–20 step 2 | **12** |
 
 Mode **parallel**, `parallelStack=true`, `parallelVolRatio=1.25`.  
+Processings: **Independent** (any valid window PF≥1) · **Combined** (majority eval then valid) · **Parallel** (Independent or Combined; extra stack when both pass) · **Majority 2+** (two or more valid windows PF≥1 — confirms Independent, rejects a single lucky N).  
+**Overall** passes only when 2 or more of Independent / Combined / Majority are gated-positive (Parallel is derived, not double-counted). Headline stays the Independent performing tape. Gated PF below 1 is a failed processing.  
+**Complete** = full Eval 15–80 / Valid 8–24 / Disable 6–20 intern coverage + gated PF<1 never passes. Intern still scores every combo for future configs.  
 Each **relation / combo / indication / tactic / playbook / short TP×SL** scores the **full** last-N grid on its own tape (prefix O(N) then O(windows)). Book-level slim windows are **display / stack only** — they must not replace per-relation eval.  
 `ok` = last-N pass **OR** (full window pf≥minPf && net≥0 && samples≥4). Undersampled n<4 stays armable (high order count).  
 Disable never overrides a valid-execute pass. After pre, disable uses **live `validExec` tape only**. Red disable + valid still green → keep processing.
@@ -110,6 +115,26 @@ Tactics live: trailing / axis / hybrid. Preferred ranges: **atr / geometric / fi
 ### 2.7 Ownership
 
 Handle **only** `clientOrderId` starting with `CTSA` + this conn tag (`V2` on x02). Foreign never cancel / flatten / attach. System Net = desk closed realized + owned open unrealized. Positions count = **symbol × direction**. Orders = complete tagged count. Common SL/TP = **widest** of partials; still pull wide SL in if 1+1 exist but looser than cell.
+
+### 2.8 High-frequency Bots (Sandwich)
+
+Own **Bots** section. Does **not** invent a parallel VST engine. Hour-by-hour intern compute lives in `src/lib/desk/bots.ts`; **Start** maps symbol count, Active strategies and short TP/SL floors onto the existing desk and starts VST.
+
+| Control | Grid | Default |
+|---|---|---|
+| Type | Sandwich, Snap, Pulse, Ribbon, Sweep, Clamp, Magnet, Pivot | **Sandwich** (arm up to 3 independent) |
+| Symbol count | 10–50 step 10 | **10** |
+| Selection | 1H Volatility, 15m Range, ATR Rank, Volume Burst, Session Heat | **1H Volatility** |
+| Min TP % | 0.2–1.6 step 0.2 | **0.4** (live lift **0.48**) |
+| Min SL % of market | 0.4–0.8 | **0.5** (SL/TP ≥ 0.75 live) |
+| Min trail distance % | 0.2–0.6 | **0.3** (live trail stays **1.5%**) |
+| Volume factor | 1–10 | **1** — recalc when equity +**60%**, tracks balance |
+| Strategies | Normal, Trailing, Axis, Block, DCA Active/Off | intern always; live only Active |
+| Backtest hours | 12–72 step 12 | **24** from **$10** |
+
+Hour table columns: **h, eq, PF, n, net, margin**. Stats: last pos **12 / 25 / 75** and hours **2 / 6 / 20** — independent PF + max DDT. Hour green = n>0 and net≥0; empty = G0 not a fail. Overall last-N still needs **2+** of Independent / Combined / Majority; gated PF < 1 fails closed.
+
+Live start of a short combo: Independent last-N pass **and** (overall intern PF≥1 **or** Majority 2+ valid windows **or** thin n<8). A single lucky N of intern-all mixed dump does not go live. After pre, **all proven combos** execute — no exclusive cap=1.
 
 ---
 

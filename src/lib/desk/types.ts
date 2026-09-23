@@ -1,6 +1,28 @@
 export type Venue = "bingx" | "bybit";
-export type RangeType = "linear" | "geometric" | "atr" | "volume" | "fibonacci";
+export type IndCalcKind = "base" | "dd" | "px" | "rng";
+
+export interface CalcDiffRow {
+  kind: IndCalcKind;
+  n: number;
+  pf: number;
+  net: number;
+  placed: number;
+}
+
+/** Base ladder versus the drawdown, market-price, and extra-range legs. */
+export interface CalcDiff {
+  rows: CalcDiffRow[];
+  baseN: number;
+  extraN: number;
+  extraPf: number;
+  extraNet: number;
+  ordersBase: number;
+  ordersExtra: number;
+  good: boolean;
+  note: string;
+}
 export type TacticKind = "trailing" | "dca" | "axis" | "hybrid";
+export type RangeType = "linear" | "geometric" | "atr" | "volume" | "fibonacci";
 export type StrategyKind = "normal" | "trend" | "mean" | "breakout" | "volume" | "hybrid" | "active" | "block" | "short";
 
 /** Independent live switches. Normal is always computed internally even when live is off. */
@@ -24,6 +46,7 @@ export type IndicationId =
   | "sar"
   | "macd"
   | "ema";
+export type IndicationLevels = Record<IndicationId, number>;
 export type Side = "long" | "short";
 export type LaneStatus = "validated" | "candidate" | "rejected";
 export type ConnStatus = "connected" | "disconnected" | "error" | "testing";
@@ -39,6 +62,7 @@ export type OrderTypeId =
 
 export type ViewId =
   | "overview"
+  | "bots"
   | "strategies"
   | "positions"
   | "combinations"
@@ -375,7 +399,7 @@ export interface Lane {
   kind: StrategyKind;
   activity: number;
   hf: boolean;
-  indications: { trend: number; break: number; active: number; direction: number };
+  indications: IndicationLevels;
   timing?: number;
   activityAgree?: number;
   evals?: LastNEvalRow[];
@@ -398,7 +422,7 @@ export interface Coordination {
   nextCount: number;
   activity: number;
   hf: boolean;
-  indications: { trend: number; break: number; active: number; direction: number };
+  indications: IndicationLevels;
   agree: boolean;
   timing?: number;
   activityAgree?: number;
@@ -550,7 +574,33 @@ export interface ShortProgressConfig {
   evalPositiveOnly?: boolean;
 }
 
-export type LastNPassMode = "independent" | "combined" | "parallel";
+export type LastNPassMode = "independent" | "combined" | "parallel" | "majority";
+
+export interface LastNModeScore {
+  pass: boolean;
+  pf: number;
+  n: number;
+  net: number;
+  gatedPf: number;
+  gatedN: number;
+}
+
+/** Overall last-N processing: 2+ of Independent / Combined / Majority must be gated-positive. */
+export interface LastNOverallScore extends LastNModeScore {
+  positive: number;
+  keys: LastNPassMode[];
+}
+
+/** Complete last-N correctness: full grids, intern coverage, gated PF<1 never passes. */
+export interface LastNCompleteScore {
+  pass: boolean;
+  coverage: boolean;
+  positive: number;
+  evalOk: boolean;
+  validOk: boolean;
+  disableOk: boolean;
+  typesOk: boolean;
+}
 
 /** Multi last-N progress: Base eval 15–80 / Valid 8–24 / Disable 6–20. Independent, combined, or both (parallel stack). */
 export interface LastNProgressConfig {
@@ -700,6 +750,7 @@ export interface LiveOrder {
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
+  calc?: IndCalcKind;
 }
 
 export interface LivePosition {
@@ -733,6 +784,7 @@ export interface LivePosition {
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
+  calc?: IndCalcKind;
 }
 
 export interface Fill {
@@ -781,9 +833,12 @@ export interface ClosedTrade {
   level?: number;
   blockQty?: number;
   validExec?: boolean;
+  /** Hour-protect scratch. Not a live loss and not an intern fill. */
+  protect?: boolean;
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
+  calc?: IndCalcKind;
 }
 
 export interface VstStats {
@@ -912,7 +967,20 @@ export interface SimReport {
     netCum?: number;
     vol?: number;
     notional?: number;
+    avgNotional?: number;
+    margin?: number;
+    avgMargin?: number;
+    marginPct?: number;
+    eqUsePct?: number;
     blockOrd?: number;
+    gatedN?: number;
+    gatedNet?: number;
+    gatedPf?: number;
+    hourPf?: number;
+    avgPos?: number;
+    avgOrd?: number;
+    placed?: number;
+    filled?: number;
   }[];
   intervals?: {
     m: number;
@@ -959,13 +1027,59 @@ export interface SimReport {
         disable: { n: number; pf: number; net: number; avg: number };
       }
     >;
+    mode?: LastNPassMode;
+    evalNs?: Record<number, { n: number; pf: number; net: number; avg: number }>;
+    validNs?: Record<number, { n: number; pf: number; net: number; avg: number }>;
+    disableNs?: Record<number, { n: number; pf: number; net: number; avg: number }>;
+    modes?: Record<LastNPassMode, LastNModeScore>;
+    overall?: LastNOverallScore;
+    complete?: LastNCompleteScore;
   };
   liveGated?: { n: number; of?: number; pf?: number; avg?: number; net?: number };
   selected?: { n: number; pf: number; net: number; avg: number; of?: number; keys?: string[]; greenHours?: number; hours?: number };
   paperPf?: number;
   greenHours?: number;
+  prehours?: number;
+  byIndication?: { id: string; n: number; pf: number; wr?: number; net?: number }[];
+  byPlaybook?: { id: string; n: number; pf: number; wr?: number; net?: number }[];
+  byTactic?: { id: string; n: number; pf: number; wr?: number; net?: number }[];
   floors?: { overall: number; base: number; short: number; block: number; axis: number };
   disabled?: string[];
+  stages?: {
+    intern: SimStageTape;
+    afterEval: SimStageTape;
+    afterTypes: SimStageTape;
+  };
+  internOrders?: number;
+  livePlaced?: number;
+  liveFilled?: number;
+  mixedLeaks?: number;
+  basePositive?: number;
+  comboTapes?: Record<string, { n: number; pf: number; net: number; ok?: boolean }>;
+  eqUse?: number;
+  maxMargin?: number;
+  calcDiff?: CalcDiff;
+}
+
+export interface SimStageTape {
+  n: number;
+  pf: number;
+  net: number;
+  wr: number;
+  orders?: number;
+  fills?: number;
+  equity?: number;
+  evalN?: number;
+  evalPf?: number;
+  validN?: number;
+  validPf?: number;
+  comboPositive?: number;
+  comboCovered?: number;
+  kinds?: Record<string, { n: number; pf: number; net: number }>;
+  tactics?: Record<string, { n: number; pf: number; net: number }>;
+  modes?: Record<LastNPassMode, LastNModeScore>;
+  overall?: LastNOverallScore;
+  complete?: LastNCompleteScore;
 }
 
 export interface HorizonMark {
@@ -1123,7 +1237,9 @@ export interface ProgressEvalRow {
 export interface ProgressEval {
   at: number;
   lastNMode: LastNPassMode;
-  lastNModes: Record<LastNPassMode, { pass: boolean; pf: number; n?: number; net?: number; gatedPf?: number; gatedN?: number }>;
+  lastNModes: Record<LastNPassMode, LastNModeScore>;
+  lastNOverall?: LastNOverallScore;
+  lastNComplete?: LastNCompleteScore;
   evalNs: Record<string, ProgressEvalRow>;
   validNs: Record<string, ProgressEvalRow>;
   disableNs: Record<string, ProgressEvalRow>;
@@ -1146,6 +1262,7 @@ export interface LastNCoordState {
   mode: LastNPassMode;
   independent: boolean;
   combined: boolean;
+  majority: boolean;
   stack: number;
   evalNs: number[];
   validNs: number[];
@@ -1247,6 +1364,12 @@ export interface VstEngine {
   lastNCoord?: LastNCoordState;
   /** Paper-only: arm every indication × config independently (thousands of orders). */
   completeSim?: boolean;
+  /** Complete 24h open tape (no intern-all pre): trade the full book like the working $10 screenshot. */
+  openCompleteTape?: boolean;
+  /** Per-symbol hour open/high/low for skip-one-way on the complete open tape. */
+  hourAnchor?: Record<string, { hour: number; o: number; h: number; l: number }>;
+  /** Live gated hour accumulator (hour-protect: intern a flipping loser, keep the hour green). */
+  hourLive?: { hour: number; p: number; l: number; n: number };
   /** Lock arming to cfg.tpAtr×slOfTp so independent combo sims do not mix the GRID. */
   shortComboOnly?: boolean;
   /** Pre-historic eval finished — valid-execute (last 15) and disable (last 12) gates apply. Real counted + Live run from valid. */

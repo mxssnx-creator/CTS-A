@@ -152,6 +152,64 @@ export function ResultsView() {
     greenHours?: number;
     hourly?: { h: number; eq: number; hourPf: number; net: number; mdd: number; eqUsePct?: number; avgPos?: number; avgOrd?: number; trades?: number }[];
   } | null>(null);
+  const [complete24, setComplete24] = useState<{
+    hours?: number;
+    prehours?: number;
+    symbols?: number;
+    startEquity?: number;
+    pf?: number;
+    paperPf?: number;
+    wr?: number;
+    trades?: number;
+    equity?: number;
+    mdd?: number;
+    ddt?: number;
+    avgPositions?: number;
+    avgOrders?: number;
+    maxMargin?: number;
+    eqUse?: number;
+    ordersPlaced?: number;
+    ordersFilled?: number;
+    internOrders?: number;
+    livePlaced?: number;
+    liveFilled?: number;
+    slExits?: number;
+    tpExits?: number;
+    greenHours?: number;
+    liveGated?: { n?: number; pf?: number; net?: number };
+    selected?: { n?: number; pf?: number; net?: number };
+    mixedLeaks?: number;
+    basePositive?: number;
+    lastN?: { modes?: Record<string, { pass?: boolean; pf?: number; gatedPf?: number; n?: number; gatedN?: number }>; overall?: { pass?: boolean; pf?: number; gatedPf?: number; positive?: number }; complete?: { pass?: boolean; coverage?: boolean } };
+    stages?: {
+      intern?: { n?: number; pf?: number; net?: number; wr?: number; orders?: number; fills?: number; comboCovered?: number };
+      afterEval?: { n?: number; pf?: number; evalPf?: number; evalN?: number; validPf?: number; validN?: number; comboPositive?: number; comboCovered?: number };
+      afterTypes?: { n?: number; pf?: number; comboPositive?: number; overall?: { pass?: boolean; positive?: number } };
+    };
+    byKind?: { id: string; n: number; pf: number; wr?: number; profit?: number; loss?: number }[];
+    byTactic?: { id: string; n: number; pf: number; wr?: number; profit?: number; loss?: number }[];
+    hourly?: {
+      h: number;
+      eq: number;
+      gatedNet?: number;
+      gatedPf?: number;
+      paperNet?: number;
+      paperPf?: number;
+      selPf?: number;
+      mdd: number;
+      eqUsePct?: number;
+      avgPos?: number;
+      avgOrd?: number;
+      placed?: number;
+      filled?: number;
+      gatedN?: number;
+      hourSl?: number;
+      hourTp?: number;
+      trades?: number;
+      kinds?: Record<string, { n?: number; pf?: number }>;
+      tacs?: Record<string, { n?: number; pf?: number }>;
+    }[];
+  } | null>(null);
   useEffect(() => {
     let live = true;
     fetch("/sim-72h-1usd.json")
@@ -170,6 +228,12 @@ export function ResultsView() {
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (live) setCompleteHourly(j);
+      })
+      .catch(() => {});
+    fetch("/sim-24h-10usd.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (live) setComplete24(j);
       })
       .catch(() => {});
     return () => {
@@ -396,6 +460,116 @@ export function ResultsView() {
           .
         </p>
       </div>
+      {complete24?.hourly?.length ? (
+        <Panel
+          title={`24h complete · $${complete24.startEquity ?? 10} · ${complete24.hours ?? 24}h × ${complete24.symbols ?? 30} + ${complete24.prehours ?? 20}h intern`}
+          action={
+            <a className="text-xs text-primary underline-offset-2 hover:underline" href="/sim-24h-10usd.html" target="_blank" rel="noreferrer">
+              Full HTML
+            </a>
+          }
+        >
+          <p className="text-sm text-muted">
+            Intern scores everything. Live is performing only. PF before Base eval, after last-N eval, after strategies/types, then live gated.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <span className="border border-border px-2 py-1">Intern 126</span>
+            <span className={`border px-2 py-1 ${(complete24.mixedLeaks ?? 0) === 0 ? "border-up text-up" : "border-down text-down"}`}>
+              Mixed leaks {complete24.mixedLeaks ?? 0}
+            </span>
+            <span className={`border px-2 py-1 ${(complete24.hourly?.length ?? 0) === 24 ? "border-up text-up" : "border-border text-muted"}`}>
+              Completeness {complete24.hourly?.length ?? 0}/24
+            </span>
+            <span className="border border-border px-2 py-1">Base-positive {complete24.basePositive ?? complete24.stages?.afterEval?.comboPositive ?? 0}</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+            <Kpi label="Intern / before eval" value={fmtPf(complete24.stages?.intern?.pf ?? 0)} tone={pfTone(complete24.stages?.intern?.pf ?? 0)} hint={`n ${complete24.stages?.intern?.n ?? 0} · ${complete24.internOrders ?? complete24.stages?.intern?.orders ?? 0} ord`} />
+            <Kpi label="After Base eval" value={fmtPf(complete24.stages?.afterEval?.pf ?? 0)} tone={pfTone(complete24.stages?.afterEval?.pf ?? 0)} hint={`eval50 ${fmtPf(complete24.stages?.afterEval?.evalPf ?? 0)} n ${complete24.stages?.afterEval?.evalN ?? 0} · combo+ ${complete24.stages?.afterEval?.comboPositive ?? 0}`} />
+            <Kpi label="After types" value={fmtPf(complete24.stages?.afterTypes?.pf ?? 0)} tone={pfTone(complete24.stages?.afterTypes?.pf ?? 0)} hint={`n ${complete24.stages?.afterTypes?.n ?? 0} · overall ${complete24.stages?.afterTypes?.overall?.positive ?? 0}/3`} />
+            <Kpi label="Live gated" value={fmtPf(Number(complete24.liveGated?.n) > 0 ? complete24.liveGated?.pf ?? 0 : 0)} tone={pfTone(Number(complete24.liveGated?.n) > 0 ? complete24.liveGated?.pf ?? 0 : 0)} hint={`n ${complete24.liveGated?.n ?? 0} · sel ${fmtPf(complete24.selected?.pf ?? 0)}`} />
+            <Kpi label="Equity / MDD" value={fmtUsd(complete24.equity ?? 0)} hint={`MDD ${fmtMdd(complete24.mdd ?? 0)} · used ${fmtNum((complete24.eqUse ?? 0) * 100, 2)}%`} />
+            <Kpi label="Avg pos / ord" value={`${fmtNum(complete24.avgPositions ?? 0, 2)} / ${fmtNum(complete24.avgOrders ?? 0, 1)}`} hint={`placed ${complete24.ordersPlaced ?? 0} · filled ${complete24.ordersFilled ?? 0}`} />
+            <Kpi
+              label="Normal"
+              value={fmtPf(complete24.byKind?.find((k) => k.id === "normal")?.pf ?? 0)}
+              tone={pfTone(complete24.byKind?.find((k) => k.id === "normal")?.pf ?? 0)}
+              hint={`n ${complete24.byKind?.find((k) => k.id === "normal")?.n ?? 0}`}
+            />
+            <Kpi
+              label="Trailing"
+              value={fmtPf(complete24.byTactic?.find((k) => k.id === "trailing")?.pf ?? 0)}
+              tone={pfTone(complete24.byTactic?.find((k) => k.id === "trailing")?.pf ?? 0)}
+              hint={`n ${complete24.byTactic?.find((k) => k.id === "trailing")?.n ?? 0}`}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            {Object.entries(complete24.lastN?.modes ?? {}).map(([id, row]) => (
+              <span key={id} className={`border px-2 py-1 ${row.pass ? "border-up text-up" : "border-border text-muted"}`}>
+                {id} {row.pass ? "pass" : "fail"} {fmtPf(Number(row.gatedPf ?? row.pf ?? 0))} n={row.gatedN ?? row.n ?? 0}
+              </span>
+            ))}
+            {complete24.lastN?.overall ? (
+              <span className={`border px-2 py-1 ${complete24.lastN.overall.pass ? "border-up text-up" : "border-border text-muted"}`}>
+                overall {complete24.lastN.overall.positive ?? 0}/3 {complete24.lastN.overall.pass ? "pass" : "fail"} {fmtPf(Number(complete24.lastN.overall.gatedPf ?? complete24.lastN.overall.pf ?? 0))}
+              </span>
+            ) : null}
+            {complete24.lastN?.complete ? (
+              <span className={`border px-2 py-1 ${complete24.lastN.complete.pass ? "border-up text-up" : "border-border text-muted"}`}>
+                complete {complete24.lastN.complete.pass ? "correct" : "check"}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[980px] text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-widest text-subtle">
+                  <th className="py-2 pr-2">H</th>
+                  <th className="py-2 pr-2">Eq</th>
+                  <th className="py-2 pr-2">Gated PF</th>
+                  <th className="py-2 pr-2">Gated net</th>
+                  <th className="py-2 pr-2">Paper PF</th>
+                  <th className="py-2 pr-2">Sel PF</th>
+                  <th className="py-2 pr-2">MDD</th>
+                  <th className="py-2 pr-2">Eq use</th>
+                  <th className="py-2 pr-2">Avg pos</th>
+                  <th className="py-2 pr-2">Avg ord</th>
+                  <th className="py-2 pr-2">Placed</th>
+                  <th className="py-2 pr-2">Filled</th>
+                  <th className="py-2 pr-2">gN</th>
+                  <th className="py-2 pr-2">SL/TP</th>
+                  <th className="py-2 pr-2">Normal</th>
+                  <th className="py-2">Trail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {complete24.hourly.map((h) => (
+                  <tr key={h.h} className="border-t border-border">
+                    <td className="py-1.5 pr-2 font-mono tabular">{h.h}</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{fmtUsd(h.eq)}</td>
+                    <td className={`py-1.5 pr-2 font-mono tabular ${(h.gatedPf ?? 0) >= 1 ? "text-up" : "text-down"}`}>{fmtPf(h.gatedPf ?? 0)}</td>
+                    <td className={`py-1.5 pr-2 font-mono tabular ${(h.gatedNet ?? 0) >= 0 ? "text-up" : "text-down"}`}>{fmtUsd(h.gatedNet ?? 0)}</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{fmtPf(h.paperPf ?? 0)}</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{fmtPf(h.selPf ?? 0)}</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{fmtMdd(h.mdd)}</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{fmtNum((h.eqUsePct ?? 0) * 100, 2)}%</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{fmtNum(h.avgPos ?? 0, 2)}</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{fmtNum(h.avgOrd ?? 0, 1)}</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{h.placed ?? 0}</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{h.filled ?? 0}</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{h.gatedN ?? 0}</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{h.hourSl ?? 0}/{h.hourTp ?? 0}</td>
+                    <td className="py-1.5 pr-2 font-mono tabular">{h.kinds?.normal?.n ?? 0}/{fmtPf(h.kinds?.normal?.pf ?? 0)}</td>
+                    <td className="py-1.5 font-mono tabular">{h.tacs?.trailing?.n ?? 0}/{fmtPf(h.tacs?.trailing?.pf ?? 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-xs text-muted">
+            Gated+ {complete24.greenHours ?? 0}/{complete24.hourly.length} · intern orders {complete24.internOrders ?? 0} · live placed {complete24.livePlaced ?? 0} · live filled {complete24.liveFilled ?? 0} · SL {complete24.slExits ?? 0} / TP {complete24.tpExits ?? 0}
+          </p>
+        </Panel>
+      ) : null}
       {!liveSnap.hasLive && completeHourly?.hourly?.length ? (
         <Panel title={`Complete computing (sim) · ${completeHourly.hours ?? 12}h × ${completeHourly.symbols ?? 40} + ${completeHourly.prehours ?? 20}h pre`}>
           <p className="text-sm text-muted">

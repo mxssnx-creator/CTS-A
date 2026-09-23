@@ -1,4 +1,4 @@
-import type { LastNPassMode, LastNProgressConfig } from "./types";
+import type { LastNCompleteScore, LastNOverallScore, LastNPassMode, LastNProgressConfig } from "./types";
 
 function seq(from: number, to: number, step: number): number[] {
   const out: number[] = [];
@@ -28,6 +28,17 @@ export const DEFAULT_LAST_N_PROGRESS: LastNProgressConfig = {
   parallelVolRatio: 1.25,
 };
 
+export const LAST_N_PASS_MODES: LastNPassMode[] = ["independent", "combined", "parallel", "majority"];
+export const PRIMARY_PROCESSINGS: LastNPassMode[] = ["independent", "combined", "majority"];
+export const MAJORITY_MIN_POSITIVE = 2;
+
+export const LAST_N_PASS_META: { id: LastNPassMode; label: string; blurb: string }[] = [
+  { id: "independent", label: "Independent", blurb: "Any valid window PF≥1. More flow." },
+  { id: "combined", label: "Combined", blurb: "Majority of eval then valid windows." },
+  { id: "parallel", label: "Parallel", blurb: "Independent or Combined. Extra stack when both pass." },
+  { id: "majority", label: "Majority 2+", blurb: "Two or more valid windows PF≥1. Confirms Independent, rejects a single lucky N." },
+];
+
 function snapTo(grid: readonly number[], n: number): number {
   let best = grid[0] ?? n;
   let dist = Infinity;
@@ -54,7 +65,10 @@ export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null |
   if (!raw || typeof raw !== "object") {
     return { ...d, evalNs: [...d.evalNs], validNs: [...d.validNs], disableNs: [...d.disableNs] };
   }
-  const mode: LastNPassMode = raw.mode === "independent" || raw.mode === "combined" || raw.mode === "parallel" ? raw.mode : d.mode;
+  const mode: LastNPassMode =
+    raw.mode === "independent" || raw.mode === "combined" || raw.mode === "parallel" || raw.mode === "majority"
+      ? raw.mode
+      : d.mode;
   return {
     evalNs: sanitizeNs(raw.evalNs, EVAL_POS_NS, d.evalNs),
     validNs: sanitizeNs(raw.validNs, VALID_EXEC_NS, d.validNs),
@@ -101,7 +115,7 @@ export function lastNHitFromPrefix(pre: LastNPrefix, n: number): LastNWindowHit 
     avg,
     net,
     samples: k,
-    ok: full && pf >= 1 && avg >= 0,
+    ok: full && pf + 1e-9 >= GATED_MIN_PF && avg >= 0,
   };
 }
 
@@ -125,12 +139,28 @@ export function lastNIndependentOk(hits: LastNWindowHit[], pred: (h: LastNWindow
   return hits.some(pred);
 }
 
+/** Two or more full windows must pass. Empty intern coverage stays open; a single sampled window cannot confirm. */
+export function lastNMajorityOk(hits: LastNWindowHit[], pred: (h: LastNWindowHit) => boolean): boolean {
+  if (!hits.length) return true;
+  const full = hits.filter((h) => h.samples >= h.n);
+  if (full.length < MAJORITY_MIN_POSITIVE) return false;
+  return full.filter(pred).length >= MAJORITY_MIN_POSITIVE;
+}
+
 export function evalLastNGood(h: LastNWindowHit, basePf: number): boolean {
   return h.pf + 1e-9 >= basePf && h.avg >= 0;
 }
 
+/** Live / processing floor. Gated PF below 1 is a failed processing. */
+export const GATED_MIN_PF = 1;
+
+export function gatedFloorPf(minPf: number): number {
+  const n = Number(minPf);
+  return Math.max(GATED_MIN_PF, Number.isFinite(n) && n > 0 ? n : 0);
+}
+
 export function validLastNGood(h: LastNWindowHit, minPf: number): boolean {
-  return h.pf + 1e-9 >= minPf && h.avg >= 0;
+  return h.pf + 1e-9 >= gatedFloorPf(minPf) && h.avg >= 0;
 }
 
 export function disableLastNBad(h: LastNWindowHit): boolean {
@@ -141,6 +171,7 @@ export type LastNDecision = {
   pass: boolean;
   independent: boolean;
   combined: boolean;
+  majority: boolean;
   stack: number;
   evalHits: LastNWindowHit[];
   validHits: LastNWindowHit[];
@@ -171,15 +202,17 @@ export function decideLastNFromPrefix(
   const combEval = lastNCombinedOk(evalFull, evalGood);
   const combValid = lastNCombinedOk(validFull, validGood);
   const combined = combEval && combValid;
+  const majority = lastNMajorityOk(validFull, validGood);
 
   let pass = combined;
   if (cfg.mode === "independent") pass = independent;
   else if (cfg.mode === "parallel") pass = independent || combined;
+  else if (cfg.mode === "majority") pass = majority;
   // Disable windows are scored for live-disable / display. They must not override a valid-execute pass.
 
   const both = independent && combined;
   const stack = cfg.mode === "parallel" && cfg.parallelStack !== false && both ? cfg.parallelVolRatio : 1;
-  return { pass, independent, combined, stack, evalHits, validHits, disableHits };
+  return { pass, independent, combined, majority, stack, evalHits, validHits, disableHits };
 }
 
 export function decideLastN(
@@ -197,6 +230,7 @@ export type LastNCoordPick = {
   mode: LastNPassMode;
   independent: boolean;
   combined: boolean;
+  majority: boolean;
   stack: number;
   evalNs: number[];
   validNs: number[];
@@ -260,6 +294,7 @@ function modeFromDecision(d: LastNDecision, fallback: LastNPassMode): LastNPassM
   if (d.independent && d.combined) return "parallel";
   if (d.independent) return "independent";
   if (d.combined) return "combined";
+  if (d.majority) return "majority";
   return fallback;
 }
 
@@ -280,6 +315,7 @@ export function coordinateLastNFromPrefix(
     mode,
     independent: d.independent,
     combined: d.combined,
+    majority: d.majority,
     stack,
     evalNs,
     validNs,
@@ -351,7 +387,7 @@ export function scoreLastNGroup(
     n: hit?.samples ?? rows.length,
     pf: hit?.pf ?? 0,
     net: hit?.net ?? 0,
-    ok: d.pass || (full && (hit!.pf + 1e-9 >= minPf) && (hit!.net + 1e-12 >= 0) && hit!.samples >= 4),
+    ok: d.pass || (full && (hit!.pf + 1e-9 >= gatedFloorPf(minPf)) && (hit!.net + 1e-12 >= 0) && hit!.samples >= 4),
     stack: d.pass ? d.stack : 1,
   };
 }
@@ -395,14 +431,137 @@ export function scoreLastNModeTape(
   const longestOk = [...validOk].sort((a, b) => b.n - a.n || b.pf - a.pf)[0];
   const longest = [...validFull].sort((a, b) => b.n - a.n || b.pf - a.pf)[0];
   // Independent gates on the best passing valid window. Combined uses the longest majority window.
-  const gated = mode === "combined" ? (longestOk ?? longest) : (best ?? longestOk ?? longest);
+  // Majority 2+ uses the longest of at least two passing windows. Fail processing: show mixed longest so gated PF < 1 is visible.
+  const gated = mode === "combined"
+    ? (d.pass ? longestOk : longest) ?? longestOk ?? longest
+    : mode === "majority"
+      ? (validOk.length >= MAJORITY_MIN_POSITIVE ? longestOk : (best ?? longest)) ?? longest
+      : (d.pass ? best : (best ?? longest)) ?? longestOk ?? longest;
+  const gatedPf = gated?.pf ?? 0;
+  const gatedN = gated?.n ?? 0;
+  const net = gated?.net ?? st.net;
+  const floor = gatedFloorPf(minPf);
+  const tinyNoLoss = gatedPf >= 4 - 1e-9 && net <= 1e-6;
+  const majorityOk = mode !== "majority" || validOk.length >= MAJORITY_MIN_POSITIVE;
+  const gatedOk =
+    gatedN >= VALID_EXEC_NS[0]! &&
+    gatedPf + 1e-9 >= floor &&
+    net > 1e-9 &&
+    !tinyNoLoss;
   return {
-    pass: d.pass,
+    pass: Boolean(d.pass && gatedOk && majorityOk),
     pf: gated?.pf ?? st.pf,
     n: gated?.n ?? st.n,
-    net: gated?.net ?? st.net,
-    gatedPf: gated?.pf ?? 0,
-    gatedN: gated?.n ?? 0,
+    net,
+    gatedPf,
+    gatedN,
+  };
+}
+
+export function foldOverallProcessing(modes: Record<LastNPassMode, LastNModeScore>): LastNOverallScore {
+  const keys = PRIMARY_PROCESSINGS.filter((k) => modes[k]?.pass);
+  const positive = keys.length;
+  const headline = modes.independent.pass
+    ? modes.independent
+    : modes.majority.pass
+      ? modes.majority
+      : modes.combined.pass
+        ? modes.combined
+        : modes.independent;
+  const pass =
+    positive >= MAJORITY_MIN_POSITIVE &&
+    headline.gatedPf + 1e-9 >= GATED_MIN_PF &&
+    headline.gatedN >= VALID_EXEC_NS[0]! &&
+    headline.net > 1e-9;
+  return {
+    pass,
+    pf: headline.pf,
+    n: headline.n,
+    net: headline.net,
+    gatedPf: headline.gatedPf,
+    gatedN: headline.gatedN,
+    positive,
+    keys,
+  };
+}
+
+export type LastNTypeCatalogs = {
+  indications?: Record<string, { n: number; pf: number; net: number; ok: boolean }>;
+  ranges?: Record<string, { n: number; pf: number; net: number; ok: boolean }>;
+  tactics?: Record<string, { n: number; pf: number; net: number; ok: boolean }>;
+  playbooks?: Record<string, { n: number; pf: number; net: number; ok: boolean }>;
+  indicationKeys?: readonly string[];
+  rangeKeys?: readonly string[];
+  tacticKeys?: readonly string[];
+  playbookKeys?: readonly string[];
+};
+
+/** Fill every catalog key. Unsampled stays intern-covered (ok). Sampled gated PF<1 never passes. */
+export function coverCatalogRows(
+  scored: Record<string, { n: number; pf: number; net: number; ok: boolean }>,
+  catalog: readonly string[],
+): Record<string, { n: number; pf: number; net: number; ok: boolean }> {
+  const out: Record<string, { n: number; pf: number; net: number; ok: boolean }> = { ...scored };
+  for (const k of catalog) {
+    const r = out[k];
+    if (!r) out[k] = { n: 0, pf: 0, net: 0, ok: true };
+    else if (r.n >= 4 && r.pf + 1e-9 < GATED_MIN_PF) out[k] = { n: r.n, pf: r.pf, net: r.net, ok: false };
+  }
+  return out;
+}
+
+function catalogCovered(
+  rows: Record<string, { n: number; pf: number; net: number; ok: boolean }> | undefined,
+  keys: readonly string[] | undefined,
+): boolean {
+  if (!keys?.length) return true;
+  if (!rows) return false;
+  for (const k of keys) {
+    const r = rows[k];
+    if (!r) return false;
+    if (r.n === 0 && !r.ok) return false;
+    if (r.n >= 4 && r.pf + 1e-9 < GATED_MIN_PF && r.ok) return false;
+  }
+  return true;
+}
+
+export function completeLastNCorrectness(
+  evalNs: Record<string, { n: number; pf: number; net: number; ok: boolean }>,
+  validNs: Record<string, { n: number; pf: number; net: number; ok: boolean }>,
+  disableNs: Record<string, { n: number; pf: number; net: number; ok: boolean }>,
+  modes: Record<LastNPassMode, LastNModeScore>,
+  overall: LastNOverallScore,
+  catalogs?: LastNTypeCatalogs,
+): LastNCompleteScore {
+  const evalOk = EVAL_POS_NS.every((n) => evalNs[String(n)] != null);
+  const validOk = VALID_EXEC_NS.every((n) => validNs[String(n)] != null);
+  const disableOk = LIVE_DISABLE_NS.every((n) => disableNs[String(n)] != null);
+  const internCovered = [evalNs, validNs, disableNs].every((grid) =>
+    Object.values(grid).every((r) => (r.n > 0 ? true : r.ok)),
+  );
+  const coverage = evalOk && validOk && disableOk && internCovered;
+  const gatedFailClosed = LAST_N_PASS_MODES.every((k) => {
+    const m = modes[k];
+    if (!m) return true;
+    if (m.pass && m.gatedPf + 1e-9 < GATED_MIN_PF) return false;
+    return true;
+  });
+  const primaryPositive = PRIMARY_PROCESSINGS.filter((k) => modes[k]?.pass).length;
+  const overallAlign = overall.positive === primaryPositive && (overall.pass ? primaryPositive >= MAJORITY_MIN_POSITIVE : true);
+  const typesOk = catalogs
+    ? catalogCovered(catalogs.indications, catalogs.indicationKeys)
+      && catalogCovered(catalogs.ranges, catalogs.rangeKeys)
+      && catalogCovered(catalogs.tactics, catalogs.tacticKeys)
+      && catalogCovered(catalogs.playbooks, catalogs.playbookKeys)
+    : true;
+  return {
+    pass: coverage && gatedFailClosed && overallAlign && typesOk,
+    coverage,
+    positive: primaryPositive,
+    evalOk,
+    validOk,
+    disableOk,
+    typesOk,
   };
 }
 
@@ -412,15 +571,18 @@ export function foldLastNProcessings(
   cfg: LastNProgressConfig,
   minPf: number,
   basePf: number,
-): Record<LastNPassMode, LastNModeScore> {
+): { modes: Record<LastNPassMode, LastNModeScore>; overall: LastNOverallScore } {
   const mixed = combinedRows.length ? combinedRows : independentRows;
-  const ind = independentRows.length ? independentRows : mixed;
-  const independent = scoreLastNModeTape(ind, cfg, minPf, basePf, "independent");
+  // Independent / Majority score isolated combo tapes only. Empty intern stays fail-closed (gated n<8), never inherits the mixed book.
+  const independent = scoreLastNModeTape(independentRows, cfg, minPf, basePf, "independent");
   const combined = scoreLastNModeTape(mixed, cfg, minPf, basePf, "combined");
+  const majority = scoreLastNModeTape(independentRows, cfg, minPf, basePf, "majority");
   const parallel: LastNModeScore = independent.pass
     ? { ...independent, pass: true }
     : { ...combined, pass: combined.pass };
-  return { independent, combined, parallel };
+  const modes = { independent, combined, parallel, majority };
+  const overall = foldOverallProcessing(modes);
+  return { modes, overall };
 }
 
 export function hitsToProgressRows(
@@ -430,12 +592,18 @@ export function hitsToProgressRows(
   kind: "pf" | "avg" = "pf",
 ): Record<string, { n: number; pf: number; net: number; ok: boolean }> {
   const out: Record<string, { n: number; pf: number; net: number; ok: boolean }> = {};
+  const floor = gatedFloorPf(minPf);
   for (const h of hits) {
+    const sampled = h.samples > 0;
     out[String(h.n)] = {
       n: h.samples,
       pf: h.pf,
       net: h.net,
-      ok: kind === "avg" ? h.avg >= 0 : h.pf + 1e-9 >= minPf && h.avg >= 0,
+      ok: !sampled
+        ? true
+        : kind === "avg"
+          ? h.avg >= 0
+          : h.pf + 1e-9 >= floor && h.avg >= 0,
     };
   }
   for (const n of grid) {

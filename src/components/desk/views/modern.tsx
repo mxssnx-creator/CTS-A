@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Radar } from "lucide-react";
-import { INDICATION_KINDS, STRATEGY_KINDS } from "@/lib/desk/engine";
+import { INDICATION_KINDS, LAST_N_PASS_META, STRATEGY_KINDS } from "@/lib/desk/engine";
 import { LIVE_HOUR_NS, OVERVIEW_POS_NS } from "@/lib/desk/vst";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
 import { pickLiveOverview } from "../live-exchange-stats";
@@ -30,7 +30,7 @@ const EXAMPLES = [
 ] as const;
 
 type ExampleId = (typeof EXAMPLES)[number]["id"];
-type CoordMode = "independent" | "combined" | "parallel";
+type CoordMode = "independent" | "combined" | "parallel" | "majority";
 type PfLane = "overall" | "short" | "base" | "block";
 
 function hourVal(
@@ -214,23 +214,21 @@ export function ModernView() {
           <div>
             <p className="hud-kicker mb-2">Coordination</p>
             <div className="flex flex-wrap gap-2">
-              {(["independent", "combined", "parallel"] as const).map((m) => (
+              {LAST_N_PASS_META.map((m) => (
                 <button
-                  key={m}
+                  key={m.id}
                   type="button"
-                  onClick={() => setCoord(m)}
+                  onClick={() => setCoord(m.id)}
                   className={`min-h-11 border px-3 text-xs uppercase tracking-wide transition-[transform,border-color] duration-150 ease-out active:scale-[0.96] ${
-                    coord === m ? "border-[var(--hud-a)]" : "border-[var(--hud-line)] text-[var(--hud-muted)]"
+                    coord === m.id ? "border-[var(--hud-a)]" : "border-[var(--hud-line)] text-[var(--hud-muted)]"
                   }`}
                 >
-                  {m}
+                  {m.label}
                 </button>
               ))}
             </div>
             <p className="mt-2 text-xs text-[var(--hud-muted)]">
-              {coord === "independent" && "Each last-N window votes alone. A red 12 does not veto a green 40."}
-              {coord === "combined" && "Majority of last-N windows must pass. Used for disable."}
-              {coord === "parallel" && "Independent or combined may arm. Stack adds volume when both pass."}
+              {LAST_N_PASS_META.find((m) => m.id === coord)?.blurb}
             </p>
           </div>
           <HudDisclose title="Last-N disclosure" kicker="12 / 40 / 120 / 650" open={open === "lastn"} onToggle={() => setOpen(open === "lastn" ? null : "lastn")}>

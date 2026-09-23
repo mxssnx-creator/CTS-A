@@ -66,6 +66,9 @@ import {
   healEngine,
   initVstEngine,
   ensureEngine,
+  engageLiveBook,
+  LIVE_RUN_CFG,
+  liveRunBlock,
   isDeskConn,
   resetBook,
   resetSession as resetVstSession,
@@ -83,6 +86,15 @@ import {
 } from "./vst";
 import { completeHoursFor, replayHoursFor, runReplaySimulation } from "./replay-run";
 import { autoValidateConfigs, evaluateStages, liveLastNEvals } from "./validate";
+import {
+  defaultBotsPersist,
+  sanitizeArmed,
+  sanitizeBotConfig,
+  sanitizeBotsPersist,
+  type BotConfig,
+  type BotsPersist,
+  type BotTypeId,
+} from "./bots";
 import {
   applyLiveTape,
   LIVE_SET,
@@ -221,6 +233,15 @@ interface DeskStore {
   applyLiveConfig: () => void;
   applyBestCombo: () => void;
   runSimHours: (hours: number) => void;
+  bots: BotsPersist;
+  botsRunning: boolean;
+  setBotsSelected: (t: BotTypeId) => void;
+  setBotsHours: (h: number) => void;
+  toggleBotArmed: (t: BotTypeId) => void;
+  setBotsArmed: (t: BotTypeId[]) => void;
+  patchBotConfig: (t: BotTypeId, p: Partial<BotConfig>) => void;
+  startBot: () => void;
+  stopBot: () => void;
   autoValidate: () => AutoValidateResult;
   runStageEval: () => StageEvalBundle;
   setEvalHours: (hours: number[]) => void;
@@ -372,6 +393,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
   shortProgress: sanitizeShortProgress(DEFAULT_SHORT_PROGRESS),
   intervalStrategy: sanitizeIntervalStrategy(DEFAULT_INTERVAL_STRATEGY),
   lastNProgress: sanitizeLastNProgress(DEFAULT_LAST_N_PROGRESS),
+  bots: defaultBotsPersist(),
+  botsRunning: false,
   exchange: null,
   liveSession: null,
   liveOverall: null,
@@ -820,6 +843,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     tickStartedAt = Date.now();
     try {
       e.activeConnId = get().activeConnId;
+      if (!get().liveSession) engageLiveBook(e);
       const live = get().liveTape && get().feed.state === "live";
       tickVst(e, get().tacticConfig, get().tactic, {
         freezeIds: live ? LIVE_SET : undefined,
@@ -863,6 +887,15 @@ export const useDesk = create<DeskStore>((set, get) => ({
     else get().pauseEngine();
   },
   startEngine: () => {
+    if (!get().liveSession) {
+      set({
+        tactic: "trailing",
+        rangeType: "atr",
+        tacticConfig: { ...LIVE_RUN_CFG },
+        blockConfig: liveRunBlock(get().blockConfig),
+        costStep: 3,
+      });
+    }
     const e = get().vst;
     const cfg = get().tacticConfig;
     const tactic = get().tactic;
@@ -870,7 +903,11 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.symbolCount = get().symbolCount;
     e.orderType = get().orderType;
     e.activeConnId = get().activeConnId;
-    if (!get().liveSession) requeueFree(e, cfg, tactic, rangeType, get().activeConnId);
+    if (!get().liveSession) {
+      engageLiveBook(e);
+      e.blockCfg = get().blockConfig;
+      requeueFree(e, cfg, tactic, rangeType, get().activeConnId);
+    }
     const from = e.phase;
     e.running = true;
     e.phase = "running";
@@ -912,9 +949,19 @@ export const useDesk = create<DeskStore>((set, get) => ({
     get().syncSettings();
   },
   resetSession: () => {
+    if (!get().liveSession) {
+      set({
+        tactic: "trailing",
+        rangeType: "atr",
+        tacticConfig: { ...LIVE_RUN_CFG },
+        blockConfig: liveRunBlock(get().blockConfig),
+        costStep: 3,
+      });
+    }
     const e = get().vst;
     e.symbolCount = get().symbolCount;
     e.orderType = get().orderType;
+    if (!get().liveSession) engageLiveBook(e);
     resetVstSession(e, get().tacticConfig, get().tactic, get().rangeType);
     e.lastMsg = get().liveSession ? `Host reset · rearm ${get().activeConnId}` : e.lastMsg;
     set({
@@ -1002,12 +1049,58 @@ export const useDesk = create<DeskStore>((set, get) => ({
   },
   runSimHours: (hours) => {
     try {
+      const complete = hours >= 12;
       const marks = hours >= 32 ? [2, 4, 8, 16, 32, 72].filter((h) => h <= hours) : undefined;
-      const { report } = simulateHours(hours, get().tacticConfig, get().tactic, {
-        symbolCount: get().symbolCount,
+      const cfg = complete
+        ? {
+            ...get().tacticConfig,
+            shortRange: true as const,
+            tpAtr: 0.42,
+            slOfTp: 1.7,
+            slAtr: 0.714,
+            tpRatio: 1 / 1.7,
+            trailingPct: 1.5,
+            maxHoldTicks: 8,
+            maxHoldBars: 3,
+            axisPartialRatio: 3,
+          }
+        : get().tacticConfig;
+      const { report } = simulateHours(hours, cfg, complete ? "trailing" : get().tactic, {
+        symbolCount: complete ? Math.max(80, get().symbolCount) : get().symbolCount,
         orderType: get().orderType,
-        rangeType: get().rangeType,
+        rangeType: complete ? "atr" : get().rangeType,
         marks,
+        block: complete
+          ? {
+              ...DEFAULT_BLOCK_CONFIG,
+              ...get().blockConfig,
+              enabled: true,
+              counts: [1, 2, 3, 4, 5, 6],
+              volumeRatio: 0.4,
+              relVolumeRatio: 0.4,
+              sharedVolumeRatio: 3,
+              overallVolumeRatio: 3,
+              maxVolumeMultiplier: 8,
+              minActiveLevel: 1,
+              pauseCountRatio: 0,
+              windows: true,
+              stack: true,
+              volumeMode: "parallel",
+              overallMode: "parallel",
+              liveDisable: false,
+              autoEval: true,
+            }
+          : get().blockConfig,
+        equity: complete ? 10 : undefined,
+        costStep: complete ? 3 : undefined,
+        complete,
+        comboOnly: false,
+        prehours: 0,
+        shortPf: 0.95,
+        shortBasePf: 0.7,
+        blockPf: 1.15,
+        minPf: 0.95,
+        basePf: 0.7,
       });
       const e = get().vst;
       e.sim = report;
@@ -1022,6 +1115,28 @@ export const useDesk = create<DeskStore>((set, get) => ({
       set({ ticketMsg: err instanceof Error ? err.message : "sim failed" });
     }
   },
+  setBotsSelected: (t) => set((s) => ({ bots: { ...s.bots, selected: t } })),
+  setBotsHours: (h) =>
+    set((s) => {
+      const hours = (h === 12 || h === 24 || h === 36 || h === 48 || h === 60 || h === 72 ? h : s.bots.hours) as BotsPersist["hours"];
+      return { bots: { ...s.bots, hours } };
+    }),
+  toggleBotArmed: (t) =>
+    set((s) => {
+      const on = s.bots.armed.includes(t);
+      const armed = sanitizeArmed(on ? s.bots.armed.filter((x) => x !== t) : [...s.bots.armed, t], s.bots.armed);
+      return { bots: { ...s.bots, armed } };
+    }),
+  setBotsArmed: (t) => set((s) => ({ bots: { ...s.bots, armed: sanitizeArmed(t, s.bots.armed) } })),
+  patchBotConfig: (t, p) =>
+    set((s) => ({
+      bots: {
+        ...s.bots,
+        configs: { ...s.bots.configs, [t]: sanitizeBotConfig({ ...s.bots.configs[t], ...p, type: t }, t) },
+      },
+    })),
+  startBot: () => set({ botsRunning: true }),
+  stopBot: () => set({ botsRunning: false }),
   autoValidate: () => {
     try {
     const result = autoValidateConfigs({
@@ -1546,6 +1661,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
         shortProgress: snap.shortProgress ?? sanitizeShortProgress(undefined),
         intervalStrategy: snap.intervalStrategy ?? sanitizeIntervalStrategy(undefined),
         lastNProgress: snap.lastNProgress ?? sanitizeLastNProgress(undefined),
+        bots: sanitizeBotsPersist(snap.bots ?? get().bots),
         symbolCount: snap.symbolCount,
         orderType: snap.orderType,
         enabledKinds: snap.enabledKinds,

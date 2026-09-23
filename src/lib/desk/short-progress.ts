@@ -13,6 +13,9 @@ export const SHORT_PROGRESS_INDICATIONS: IndicationId[] = [
   "ema",
 ];
 
+/** Core four always process, even when extra short-progress indications are enabled. */
+export const COMMON_INDICATIONS: IndicationId[] = ["trend", "break", "active", "direction"];
+
 export const DEFAULT_SHORT_AXIS_PF = 0.9;
 export const DEFAULT_SHORT_BLOCK_PF = 1.15;
 /** Live floors: intern 0.30–0.60 / 0.50–2.50; live lock is the 6h PF≥1.15 subset. */

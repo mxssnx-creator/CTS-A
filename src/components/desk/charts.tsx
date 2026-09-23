@@ -284,6 +284,43 @@ export function MetricBarChart({
   );
 }
 
+export function HourPfChart({
+  data,
+}: {
+  data: { label: string; value: number; net?: number; empty?: boolean }[];
+}) {
+  if (!data.length) {
+    return <p className="px-4 py-8 text-sm text-muted">No hourly tape yet.</p>;
+  }
+  return (
+    <div className="h-56 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+          <CartesianGrid stroke="var(--color-border)" vertical={false} />
+          <XAxis dataKey="label" tick={TICK} axisLine={false} tickLine={false} interval={2} />
+          <YAxis width={48} tick={TICK} tickFormatter={(v) => fmtNum(v, 1)} axisLine={false} tickLine={false} />
+          <Tooltip contentStyle={TIP} formatter={(v: number) => [fmtNum(v, 2), "PF"]} />
+          <ReferenceLine y={1} stroke="var(--color-border-strong)" strokeDasharray="3 3" />
+          <Bar dataKey="value" radius={0} maxBarSize={18} isAnimationActive={false}>
+            {data.map((d, i) => (
+              <Cell
+                key={i}
+                fill={
+                  d.empty
+                    ? "var(--color-surface-muted)"
+                    : d.value >= 1 || (d.net ?? 0) >= 0
+                      ? "var(--color-up)"
+                      : "var(--color-down)"
+                }
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 export function HBarChart({
   data,
   yLabel = "PF",

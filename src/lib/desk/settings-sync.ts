@@ -67,6 +67,7 @@ import type {
   StrategyToggles,
 } from "./types";
 import { sanitizeUserPresets } from "./presets.ts";
+import { defaultBotsPersist, sanitizeBotsPersist, type BotsPersist } from "./bots.ts";
 
 export const SETTINGS_STORAGE_KEY = "cts-a-desk-settings";
 export const SETTINGS_VERSION = 1;
@@ -99,6 +100,8 @@ export interface DeskSettingsSnap {
   tacticConfig: TacticConfig;
   blockConfig: BlockConfig;
   symbolCount: number;
+  liveSymbolCap?: number;
+  evalSymbolCount?: number;
   orderType: OrderTypeId;
   enabledKinds: StrategyKind[];
   strategyId: string;
@@ -121,6 +124,7 @@ export interface DeskSettingsSnap {
   shortProgress: import("./types").ShortProgressConfig;
   intervalStrategy: import("./types").IntervalStrategyConfig;
   lastNProgress: import("./types").LastNProgressConfig;
+  bots: BotsPersist;
 }
 
 function asNum(n: unknown, fallback: number) {
@@ -185,6 +189,7 @@ export function defaultDeskSettings(): DeskSettingsSnap {
     shortProgress: { ...DEFAULT_SHORT_PROGRESS, indications: [...DEFAULT_SHORT_PROGRESS.indications], lastParts: [...DEFAULT_SHORT_PROGRESS.lastParts], activityWindows: [...DEFAULT_SHORT_PROGRESS.activityWindows] },
     intervalStrategy: { ...DEFAULT_INTERVAL_STRATEGY },
     lastNProgress: { ...DEFAULT_LAST_N_PROGRESS, evalNs: [...DEFAULT_LAST_N_PROGRESS.evalNs], validNs: [...DEFAULT_LAST_N_PROGRESS.validNs], disableNs: [...DEFAULT_LAST_N_PROGRESS.disableNs] },
+    bots: defaultBotsPersist(),
   };
 }
 
@@ -373,6 +378,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     shortProgress: sanitizeShortProgress((raw as { shortProgress?: Partial<import("./types").ShortProgressConfig> }).shortProgress),
     intervalStrategy: sanitizeIntervalStrategy((raw as { intervalStrategy?: Partial<import("./types").IntervalStrategyConfig> }).intervalStrategy),
     lastNProgress: sanitizeLastNProgress((raw as { lastNProgress?: Partial<import("./types").LastNProgressConfig> }).lastNProgress),
+    bots: sanitizeBotsPersist((raw as { bots?: BotsPersist }).bots),
   };
   if (!snap.evalHours.length) snap.evalHours = [...AUTO_EVAL_HOURS];
   if (!snap.evalLastNs.length) snap.evalLastNs = [...LANE_EVAL_NS];
@@ -416,6 +422,7 @@ export function collectDeskSettings(s: {
   shortProgress?: import("./types").ShortProgressConfig;
   intervalStrategy?: import("./types").IntervalStrategyConfig;
   lastNProgress?: import("./types").LastNProgressConfig;
+  bots?: BotsPersist;
 }): DeskSettingsSnap {
   return sanitizeDeskSettings({
     v: SETTINGS_VERSION,
@@ -453,6 +460,7 @@ export function collectDeskSettings(s: {
     shortProgress: sanitizeShortProgress((s as { shortProgress?: Partial<import("./types").ShortProgressConfig> }).shortProgress),
     intervalStrategy: sanitizeIntervalStrategy((s as { intervalStrategy?: Partial<import("./types").IntervalStrategyConfig> }).intervalStrategy),
     lastNProgress: sanitizeLastNProgress((s as { lastNProgress?: Partial<import("./types").LastNProgressConfig> }).lastNProgress),
+    bots: sanitizeBotsPersist(s.bots),
   });
 }
 

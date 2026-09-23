@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as DeskRouteImport } from './routes/_desk'
 import { Route as DeskIndexRouteImport } from './routes/_desk/index'
 import { Route as DeskSplatRouteImport } from './routes/_desk/$'
+import { Route as DeskBotsRouteImport } from './routes/_desk/bots'
 import { Route as DeskCombinationsRouteImport } from './routes/_desk/combinations'
 import { Route as DeskConnectionsRouteImport } from './routes/_desk/connections'
 import { Route as DeskEngineRouteImport } from './routes/_desk/engine'
@@ -42,6 +43,11 @@ const DeskIndexRoute = DeskIndexRouteImport.update({
 const DeskSplatRoute = DeskSplatRouteImport.update({
   id: '/$',
   path: '/$',
+  getParentRoute: () => DeskRoute,
+} as any)
+const DeskBotsRoute = DeskBotsRouteImport.update({
+  id: '/bots',
+  path: '/bots',
   getParentRoute: () => DeskRoute,
 } as any)
 const DeskCombinationsRoute = DeskCombinationsRouteImport.update({
@@ -133,6 +139,7 @@ const DeskTacticsRoute = DeskTacticsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof DeskIndexRoute
   '/$': typeof DeskSplatRoute
+  '/bots': typeof DeskBotsRoute
   '/combinations': typeof DeskCombinationsRoute
   '/connections': typeof DeskConnectionsRoute
   '/engine': typeof DeskEngineRoute
@@ -153,6 +160,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/$': typeof DeskSplatRoute
+  '/bots': typeof DeskBotsRoute
   '/combinations': typeof DeskCombinationsRoute
   '/connections': typeof DeskConnectionsRoute
   '/engine': typeof DeskEngineRoute
@@ -176,6 +184,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_desk': typeof DeskRouteWithChildren
   '/_desk/$': typeof DeskSplatRoute
+  '/_desk/bots': typeof DeskBotsRoute
   '/_desk/combinations': typeof DeskCombinationsRoute
   '/_desk/connections': typeof DeskConnectionsRoute
   '/_desk/engine': typeof DeskEngineRoute
@@ -200,6 +209,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/$'
+    | '/bots'
     | '/combinations'
     | '/connections'
     | '/engine'
@@ -220,6 +230,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/$'
+    | '/bots'
     | '/combinations'
     | '/connections'
     | '/engine'
@@ -242,6 +253,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_desk'
     | '/_desk/$'
+    | '/_desk/bots'
     | '/_desk/combinations'
     | '/_desk/connections'
     | '/_desk/engine'
@@ -287,6 +299,13 @@ declare module '@tanstack/react-router' {
       path: '/$'
       fullPath: '/$'
       preLoaderRoute: typeof DeskSplatRouteImport
+      parentRoute: typeof DeskRoute
+    }
+    '/_desk/bots': {
+      id: '/_desk/bots'
+      path: '/bots'
+      fullPath: '/bots'
+      preLoaderRoute: typeof DeskBotsRouteImport
       parentRoute: typeof DeskRoute
     }
     '/_desk/combinations': {
@@ -413,6 +432,7 @@ declare module '@tanstack/react-router' {
 
 interface DeskRouteChildren {
   DeskSplatRoute: typeof DeskSplatRoute
+  DeskBotsRoute: typeof DeskBotsRoute
   DeskCombinationsRoute: typeof DeskCombinationsRoute
   DeskConnectionsRoute: typeof DeskConnectionsRoute
   DeskEngineRoute: typeof DeskEngineRoute
@@ -435,6 +455,7 @@ interface DeskRouteChildren {
 
 const DeskRouteChildren: DeskRouteChildren = {
   DeskSplatRoute: DeskSplatRoute,
+  DeskBotsRoute: DeskBotsRoute,
   DeskCombinationsRoute: DeskCombinationsRoute,
   DeskConnectionsRoute: DeskConnectionsRoute,
   DeskEngineRoute: DeskEngineRoute,

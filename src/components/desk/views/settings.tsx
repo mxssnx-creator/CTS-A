@@ -11,6 +11,7 @@ import {
   LAST_N_OPTIONS,
   LAST_N_STAGE_META,
   LAST_N_PROGRESS_META,
+  LAST_N_PASS_META,
   lastNEval,
   ORDER_TYPES,
   paramBounds,
@@ -639,20 +640,21 @@ export function SettingsView() {
           <div className="mt-4">
             <p className="text-xs font-medium uppercase tracking-wide text-subtle">Progress last-N</p>
             <p className="mt-1 text-xs text-muted">
-              Base eval 15–80 step 5 · Valid 8–24 step 4 · Disable 6–20 step 2. Independent (valid windows on their own, more flow) · Combined (base then valid, majority) · Parallel (both, extra stack when they agree).
+              Base eval 15–80 step 5 · Valid 8–24 step 4 · Disable 6–20 step 2. Independent (any valid window PF≥1) · Combined (eval then valid, majority) · Parallel (either, extra stack when they agree) · Majority 2+ (two or more valid windows PF≥1 — confirms Independent, rejects a single lucky N). Overall passes only when 2 or more of Independent / Combined / Majority are gated-positive. Complete keeps the full grid intern-scored for future configs.
               Primaries Eval {LAST_N_PROGRESS_META[0]!.n} · Valid {LAST_N_PROGRESS_META[1]!.n} · Disable {LAST_N_PROGRESS_META[2]!.n}.
               Settings grid stays full. Live uses coordinated windows, types and combinations that actually pass — not a complete parallel sweep.
             </p>
             <div className="mt-2 flex flex-wrap gap-1">
-              {(["independent", "combined", "parallel"] as const).map((m) => (
+              {LAST_N_PASS_META.map((m) => (
                 <button
-                  key={m}
+                  key={m.id}
                   type="button"
-                  aria-pressed={lastNProgress.mode === m}
-                  className={`${chip} ${lastNProgress.mode === m ? chipOn : chipOff}`}
-                  onClick={() => setLastNProgress({ mode: m })}
+                  aria-pressed={lastNProgress.mode === m.id}
+                  title={m.blurb}
+                  className={`${chip} ${lastNProgress.mode === m.id ? chipOn : chipOff}`}
+                  onClick={() => setLastNProgress({ mode: m.id })}
                 >
-                  {m === "independent" ? "Independent" : m === "combined" ? "Combined" : "Parallel stack"}
+                  {m.label}
                 </button>
               ))}
               <button

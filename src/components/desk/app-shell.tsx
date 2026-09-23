@@ -2,6 +2,7 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
   Activity,
   BarChart3,
+  Bot,
   Cable,
   Gauge,
   Grid3x3,
@@ -32,6 +33,7 @@ import { ClickFx } from "./click-fx";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard },
+  { to: "/bots", label: "Bots", icon: Bot },
   { to: "/strategies", label: "Strategies", icon: LineChart },
   { to: "/positions", label: "Positions", icon: Layers },
   { to: "/orders", label: "Orders", icon: ListOrdered },

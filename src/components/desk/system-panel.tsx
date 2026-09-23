@@ -7,6 +7,8 @@ import {
   RANGE_META,
   TACTIC_META,
   symbolIndications,
+  SHORT_PROGRESS_INDICATIONS,
+  COMMON_INDICATIONS,
 } from "@/lib/desk/engine";
 import {
   TICKS_PER_HOUR,
@@ -122,14 +124,31 @@ export function SystemPanel({
           <>
             <h3 className="mt-5 text-xs font-medium uppercase tracking-widest text-subtle">Indications</h3>
             <div className="mt-2 grid grid-cols-2 gap-x-6 sm:grid-cols-4">
-              {(["trend", "break", "active", "direction"] as const).map((k) => {
+              {COMMON_INDICATIONS.map((k) => {
                 const b = rows.find((r) => r.key === k);
+                const ev = (liveSnap.session as { progressEval?: { indications?: Record<string, { pf: number; n: number; ok: boolean }> } } | null)?.progressEval?.indications?.[k];
+                const pf = ev?.pf ?? b?.pf ?? 0;
                 return (
                   <StatLine
                     key={k}
                     k={k}
-                    v={`PF ${fmtPf(b?.pf ?? 0)} · open ${mix?.[k] ?? b?.openN ?? 0}`}
-                    tone={pfTone(b?.pf ?? 0)}
+                    v={`PF ${fmtPf(pf)} · open ${mix?.[k] ?? b?.openN ?? 0}`}
+                    tone={ev ? (ev.ok ? pfTone(pf) : "down") : pfTone(pf)}
+                  />
+                );
+              })}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-x-6 sm:grid-cols-3 xl:grid-cols-6">
+              {SHORT_PROGRESS_INDICATIONS.filter((k) => !COMMON_INDICATIONS.includes(k)).map((k) => {
+                const b = rows.find((r) => r.key === k);
+                const ev = (liveSnap.session as { progressEval?: { indications?: Record<string, { pf: number; n: number; ok: boolean }> } } | null)?.progressEval?.indications?.[k];
+                const pf = ev?.pf ?? b?.pf ?? 0;
+                return (
+                  <StatLine
+                    key={k}
+                    k={k}
+                    v={`PF ${fmtPf(pf)}`}
+                    tone={ev ? (ev.ok ? pfTone(pf) : "down") : pfTone(pf)}
                   />
                 );
               })}

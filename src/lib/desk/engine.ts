@@ -39,16 +39,20 @@ import type {
 import {
   DEFAULT_SHORT_PROGRESS,
   SHORT_PROGRESS_INDICATIONS,
+  COMMON_INDICATIONS,
   sanitizeShortProgress,
   DEFAULT_SHORT_MIN_TP_ATR,
   DEFAULT_SHORT_MIN_SL_OF_TP,
+  emptyIndicationScores,
 } from "./short-progress.ts";
 export {
   DEFAULT_SHORT_PROGRESS,
   SHORT_PROGRESS_INDICATIONS,
+  COMMON_INDICATIONS,
   sanitizeShortProgress,
   DEFAULT_SHORT_MIN_TP_ATR,
   DEFAULT_SHORT_MIN_SL_OF_TP,
+  emptyIndicationScores,
 };
 export {
   DEFAULT_INTERVAL_STRATEGY,
@@ -62,6 +66,8 @@ export {
   EVAL_POS_NS,
   VALID_EXEC_NS,
   LIVE_DISABLE_NS,
+  GATED_MIN_PF,
+  gatedFloorPf,
   decideLastN,
   decideLastNFromPrefix,
   lastNWindows,
@@ -72,9 +78,17 @@ export {
   scoreLastNGroup,
   scoreLastNModeTape,
   foldLastNProcessings,
+  foldOverallProcessing,
+  completeLastNCorrectness,
+  coverCatalogRows,
+  lastNMajorityOk,
   hitsToProgressRows,
   relComboKey,
   lastNMaxOf,
+  LAST_N_PASS_MODES,
+  LAST_N_PASS_META,
+  PRIMARY_PROCESSINGS,
+  MAJORITY_MIN_POSITIVE,
 } from "./last-n-progress.ts";
 import {
   EVAL_POS_N,
@@ -384,6 +398,30 @@ export function shortComboKey(tpAtr: number, slOfTp: number): string {
 
 /** Independent-tape winner (6h+4h pre ×12, hold 24): 0.48/0.75 PF 1.21 off / 1.29 Block shared. */
 export const SHORT_WINNER = { tpAtr: 0.48, slOfTp: 0.75 as const };
+
+/**
+ * Busy-hour book (24h open tape, thousands of orders each hour).
+ * Performers stay on the 0.42/1.75 trailing-hybrid cell that paid.
+ * Weak lanes (active, direction, trend, bollinger) keep trading, with a wider target and a tighter stop.
+ */
+export const BUSY_HOUR_INDICATIONS = ["break", "move", "sar", "macd", "rsi", "ema"] as const;
+/** Extra range and market-price legs. Direction stays off this seed: adding it pulled the 24h book down. */
+export const HIGH_TRADE_PAY_INDICATIONS = ["break", "move", "sar", "macd", "ema"] as const;
+export const BUSY_HOUR_PROTECT: readonly { tpAtr: number; slOfTp: number }[] = [
+  { tpAtr: 0.42, slOfTp: 1.75 },
+];
+/** Kept for busy-hour experiments. Empty: the short-hold book lost, so weak lanes use their own protect. */
+export const BUSY_HOUR_WEAK_PROTECT: Partial<Record<string, { slMul: number; tpMul: number; holdMul: number }>> = {};
+
+export function busyHourProtectCells(): { tpAtr: number; slOfTp: number; slAtr: number; tpRatio: number; shortRange: true }[] {
+  return BUSY_HOUR_PROTECT.map((c) => ({
+    tpAtr: snapShortTpAtr(c.tpAtr),
+    slOfTp: snapShortSlOfTp(c.slOfTp),
+    slAtr: shortSlAtrOf(c.tpAtr, c.slOfTp),
+    tpRatio: shortTpRatioOf(c.slOfTp),
+    shortRange: true as const,
+  }));
+}
 
 /** Live settings/exec floor — intern may still score the full 0.30–0.60 grid. */
 export function clampLiveShortProtect(tpAtr: number, slOfTp: number): { tpAtr: number; slOfTp: number } {
@@ -2813,34 +2851,34 @@ export function indicationQuality(id: IndicationId, pack: IndicationSummary): nu
   const trendAlign = Math.abs(pack.trend) >= 0.18 && Math.sign(signed || 0) === Math.sign(pack.trend || 0);
   if (id === "trend") q *= 1.18;
   if (id === "break") {
-    q *= mag >= 0.24 ? 1.28 : mag >= 0.16 ? 1.08 : mag >= 0.1 ? 0.7 : 0.34;
-    if (pack.activity >= 1.02 && mag >= 0.14) q *= 1.08;
-    if (pack.agree && mag >= 0.16) q *= 1.06;
+    q *= mag >= 0.18 ? 1.22 : mag >= 0.12 ? 1.04 : mag >= 0.08 ? 0.82 : 0.48;
+    if (pack.activity >= 1.02 && mag >= 0.12) q *= 1.1;
+    if (pack.agree && mag >= 0.14) q *= 1.06;
   }
-  if (id === "active") q *= pack.activity >= 1.0 && mag >= 0.18 && Math.abs(pack.break) < 0.72 ? 1.08 : 0.42;
-  if (id === "direction") q *= mag >= 0.2 ? (mag >= 0.34 ? 1.14 : 0.9) : mag >= 0.1 ? 0.58 : 0.26;
-  if (id === "move") q *= mag >= 0.4 && trendAlign && (pack.drawdown ?? 0) < 0.32 ? 1.12 : 0.16;
-  if (id === "rsi") q *= mag >= 0.55 && Math.abs(pack.trend) < 0.38 ? 1.08 : 0.18;
-  if (id === "bollinger") q *= mag >= 0.26 ? (mag >= 0.42 ? 1.16 : 0.92) : mag >= 0.14 ? 0.62 : 0.28;
-  if (id === "ema") q *= mag >= 0.26 && (trendAlign || mag >= 0.38) ? 1.18 : mag >= 0.16 ? 0.7 : 0.26;
-  if (id === "macd") q *= mag >= 0.5 && trendAlign && pack.agree ? 1.08 : 0.14;
-  if (id === "sar") q *= mag >= 0.58 && trendAlign && Math.abs(pack.direction) >= 0.2 ? 1.1 : 0.12;
+  if (id === "active") q *= pack.activity >= 0.85 && mag >= 0.12 && Math.abs(pack.break) < 0.8 ? 1.12 : mag >= 0.08 ? 0.7 : 0.48;
+  if (id === "direction") q *= mag >= 0.16 ? (mag >= 0.28 ? 1.16 : 0.98) : mag >= 0.08 ? 0.72 : 0.42;
+  if (id === "move") q *= mag >= 0.22 && (trendAlign || mag >= 0.3) && (pack.drawdown ?? 0) < 0.45 ? 1.14 : mag >= 0.12 ? 0.78 : 0.46;
+  if (id === "rsi") q *= mag >= 0.28 && Math.abs(pack.trend) < 0.55 ? 1.12 : mag >= 0.16 ? 0.82 : 0.5;
+  if (id === "bollinger") q *= mag >= 0.18 ? (mag >= 0.32 ? 1.18 : 1.0) : mag >= 0.1 ? 0.78 : 0.48;
+  if (id === "ema") q *= mag >= 0.18 && (trendAlign || mag >= 0.28) ? 1.2 : mag >= 0.1 ? 0.82 : 0.48;
+  if (id === "macd") q *= mag >= 0.22 && (trendAlign || pack.agree || mag >= 0.32) ? 1.12 : mag >= 0.12 ? 0.76 : 0.46;
+  if (id === "sar") q *= mag >= 0.24 && (trendAlign || Math.abs(pack.direction) >= 0.12 || mag >= 0.36) ? 1.12 : mag >= 0.14 ? 0.74 : 0.44;
   return clamp(q, 0, 1.6);
 }
 
 export const INDICATION_QUALITY_FLOOR = 0.34;
 
 export const INDICATION_QUALITY_FLOORS: Record<IndicationId, number> = {
-  trend: 0.32,
-  break: 0.36,
-  active: 0.3,
-  direction: 0.32,
-  move: 0.58,
-  rsi: 0.55,
-  bollinger: 0.34,
-  sar: 0.62,
-  macd: 0.58,
-  ema: 0.36,
+  trend: 0.3,
+  break: 0.32,
+  active: 0.28,
+  direction: 0.3,
+  move: 0.36,
+  rsi: 0.32,
+  bollinger: 0.3,
+  sar: 0.36,
+  macd: 0.36,
+  ema: 0.3,
 };
 
 export function indicationQualityFloor(id: IndicationId): number {
@@ -3949,7 +3987,18 @@ export function buildLanes(
           kind: st.kind,
           activity: ind.activity,
           hf: ind.hf,
-          indications: { trend: ind.trend, break: ind.break, active: ind.active, direction: ind.direction },
+          indications: {
+            trend: ind.trend,
+            break: ind.break,
+            active: ind.active,
+            direction: ind.direction,
+            move: ind.move ?? 0,
+            rsi: ind.rsi ?? 0,
+            bollinger: ind.bollinger ?? 0,
+            sar: ind.sar ?? 0,
+            macd: ind.macd ?? 0,
+            ema: ind.ema ?? 0,
+          },
           timing: ind.timing,
           activityAgree: ind.relations.agree,
           evals,
@@ -4144,7 +4193,7 @@ export function coordinate(
     nextCount: next?.length ?? 0,
     activity: 0,
     hf: false,
-    indications: { trend: 0, break: 0, active: 0, direction: 0 },
+    indications: emptyIndicationScores(),
     agree: false,
     timing: 0,
     activityAgree: 0,
@@ -4209,10 +4258,20 @@ export function coordinate(
       break: clamp((ns / Math.max(2, nextArr.length)) * 0.55 + (pack?.break ?? 0) * 0.45, -1, 1),
       active: clamp((pack?.active ?? 0) * 0.65 + (hf ? 0.35 : 0.15) * Math.sign(os || ns || ls || 1), -1, 1),
       direction: clamp((pack?.direction ?? 0) * 0.7 + Math.sign(ns - os || pack?.direction || 0) * 0.3, -1, 1),
+      move: clamp((pack?.move ?? 0) * 0.7 + Math.max(0, Math.abs(ns) / Math.max(2, nextArr.length)) * 0.3, -1, 1),
+      rsi: clamp((pack?.rsi ?? 0) * 0.85, -1, 1),
+      bollinger: clamp((pack?.bollinger ?? 0) * 0.85, -1, 1),
+      sar: clamp((pack?.sar ?? 0) * 0.8 + (pack?.trend ?? 0) * 0.2, -1, 1),
+      macd: clamp((pack?.macd ?? 0) * 0.8 + (pack?.direction ?? 0) * 0.2, -1, 1),
+      ema: clamp((pack?.ema ?? 0) * 0.75 + (pack?.trend ?? 0) * 0.25, -1, 1),
     };
-    const signed = [indications.trend, indications.break, indications.active, indications.direction].filter(
+    const commonSigned = [indications.trend, indications.break, indications.active, indications.direction].filter(
       (x) => Math.abs(x) > 0.12,
     );
+    const extraSigned = [indications.move, indications.rsi, indications.bollinger, indications.sar, indications.macd, indications.ema].filter(
+      (x) => Math.abs(x) > 0.12,
+    );
+    const signed = commonSigned.length ? commonSigned : extraSigned;
     const agree = signed.length >= 2 && signed.every((x) => Math.sign(x) === Math.sign(signed[0]!));
     if (hf && agree && lastNet > 0 && heat < 0.85 && vol >= vfFloor) {
       recommend = "add";

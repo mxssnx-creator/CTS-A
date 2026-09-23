@@ -66,6 +66,8 @@ import {
   trailGiveback,
   liveShortProtectCombos,
   DEFAULT_SHORT_PROGRESS,
+  SHORT_PROGRESS_INDICATIONS,
+  COMMON_INDICATIONS,
   DEFAULT_INTERVAL_STRATEGY,
   INTERVAL_MINUTES_OPTIONS,
   sanitizeIntervalStrategy,
@@ -109,6 +111,7 @@ import {
   profitFactor,
   pfFromPnls,
   PF_NO_LOSS,
+  GATED_MIN_PF,
   processAllIndications,
   STRATEGIES,
   STRATEGY_KINDS,
@@ -3182,7 +3185,7 @@ describe("VST engine", () => {
     mixed.shortPf = 0.95;
     mixed.progressEval = {
       at: 1,
-      lastNModes: { independent: { pass: true, pf: 1 }, combined: { pass: true, pf: 1 }, parallel: { pass: true, pf: 1 } },
+      lastNModes: { independent: { pass: true, pf: 1, n: 12, net: 4, gatedPf: 1, gatedN: 12 }, combined: { pass: true, pf: 1, n: 12, net: 4, gatedPf: 1, gatedN: 12 }, parallel: { pass: true, pf: 1, n: 12, net: 4, gatedPf: 1, gatedN: 12 }, majority: { pass: true, pf: 1, n: 12, net: 4, gatedPf: 1, gatedN: 12 } },
       lastNMode: "parallel",
       evalNs: {},
       validNs: {},
@@ -3343,7 +3346,7 @@ describe("VST engine", () => {
     e.prePassKeys = { trend: 1, block: 1 };
     e.progressEval = {
       at: 1,
-      lastNModes: { independent: { pass: true, pf: 1 }, combined: { pass: true, pf: 1 }, parallel: { pass: true, pf: 1 } },
+      lastNModes: { independent: { pass: true, pf: 1, n: 12, net: 4, gatedPf: 1, gatedN: 12 }, combined: { pass: true, pf: 1, n: 12, net: 4, gatedPf: 1, gatedN: 12 }, parallel: { pass: true, pf: 1, n: 12, net: 4, gatedPf: 1, gatedN: 12 }, majority: { pass: true, pf: 1, n: 12, net: 4, gatedPf: 1, gatedN: 12 } },
       lastNMode: "parallel",
       evalNs: {},
       validNs: {},
@@ -3484,8 +3487,9 @@ describe("VST engine", () => {
     assert.ok(indicationProtect("break").slMul > 1);
     assert.ok(indicationProtect("break").tpMul > 1);
     assert.ok(indicationProtect("break").holdMul > 1);
-    assert.ok(indicationProtect("active").holdMul < 1);
-    assert.ok(indicationProtect("direction").tpMul >= 1);
+    assert.ok(indicationProtect("active").holdMul > 1);
+    assert.ok(indicationProtect("active").tpMul > 1);
+    assert.ok(indicationProtect("direction").tpMul > 1);
     const e = initVstEngine(CFG, { warmup: 24, symbolCount: 16, block: { ...DEFAULT_BLOCK_CONFIG, autoEval: true } });
     const seen = new Set(Object.keys(e.quotes).slice(0, 16).map((id) => classifyIndication(e, id)));
     assert.ok(seen.size >= 2, `indications ${[...seen].join(",")}`);
@@ -4643,6 +4647,52 @@ describe("full config coverage", () => {
     assert.ok((r.maxOrdersSeen || 0) >= 80, `maxOrd ${r.maxOrdersSeen}`);
   });
 
+  it("complete 24h open tape (no intern-all pre) keeps a live book with orders every hour", () => {
+    const cfg = {
+      ...CFG,
+      shortRange: true as const,
+      tpAtr: 0.42,
+      slOfTp: 1.7,
+      slAtr: 0.714,
+      tpRatio: 1 / 1.7,
+      trailingPct: 1.5,
+      maxHoldTicks: 24,
+    };
+    const { report: r } = simulateHours(3, cfg, "trailing", {
+      symbolCount: 12,
+      rangeType: "atr",
+      equity: 10,
+      costStep: 3,
+      complete: true,
+      prehours: 0,
+      block: {
+        ...DEFAULT_BLOCK_CONFIG,
+        enabled: true,
+        counts: [1, 2, 3, 4, 5, 6],
+        volumeRatio: 0.4,
+        relVolumeRatio: 0.4,
+        sharedVolumeRatio: 3,
+        overallVolumeRatio: 3,
+        maxVolumeMultiplier: 8,
+        windows: true,
+      },
+    });
+    finiteNum(r.pf, r.net, r.equity);
+    assert.equal(r.prehours ?? 0, 0);
+    assert.ok(r.trades >= 80, `trades ${r.trades}`);
+    assert.ok((r.liveGated?.n ?? 0) >= 40 || r.trades >= 80, `gated ${r.liveGated?.n} trades ${r.trades}`);
+    assert.ok((r.hourly || []).length >= 3, `hours ${r.hourly?.length}`);
+    const filledHours = (r.hourly || []).filter((h) => Number(h.gatedN || h.trades || 0) > 0);
+    assert.ok(filledHours.length >= 2, `filled hours ${filledHours.length}`);
+    const green = (r.hourly || []).filter((h) => {
+      const n = Number(h.gatedN || h.trades || 0);
+      const net = Number(h.gatedNet ?? h.net ?? 0);
+      return n > 0 && net >= 0;
+    }).length;
+    assert.ok(green + 1 >= filledHours.length || r.equity >= 10, `green ${green}/${filledHours.length} eq ${r.equity}`);
+    assert.ok((r.byIndication?.length ?? 0) >= 3, "indications still process");
+  });
+
   it("complete computations cover every live tactic, range and stage independently", () => {
     assert.ok(!LIVE_TACTICS.includes("dca"));
     const r = completeComputations(CFG, { symbolCount: 4, hours: [1] });
@@ -4743,7 +4793,8 @@ describe("full config coverage", () => {
     assert.ok(indicationProtect("move").slMul > 1.2);
     assert.ok(indicationProtect("ema").tpMul >= 1.3);
     assert.ok(indicationProtect("sar").tpMul >= 1.25);
-    assert.ok(indicationProtect("direction").holdMul < 1);
+    assert.ok(indicationProtect("direction").tpMul > 1.5);
+    assert.ok(indicationProtect("direction").holdMul > 1);
     assert.ok(INDICATION_CONFIGS.some((c) => c.id === "trend-ribbon"));
     assert.ok(INDICATION_CONFIGS.some((c) => c.id === "break-close"));
     assert.ok(INDICATION_CONFIGS.some((c) => c.id === "rsi-div"));
@@ -4793,6 +4844,352 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.ok(snap.lastNModes.independent.pf > snap.lastNModes.combined.pf + 0.2, `independent PF ${snap.lastNModes.independent.pf} vs combined ${snap.lastNModes.combined.pf}`);
     assert.ok((snap.lastNModes.independent.n ?? 0) <= (snap.lastNModes.combined.n ?? 99));
     assert.equal(snap.lastNModes.parallel.pass, true);
+    assert.equal(snap.lastNModes.majority.pass, true);
+    assert.equal(snap.lastNOverall?.pass, true);
+    assert.ok((snap.lastNOverall?.positive ?? 0) >= 2);
+    assert.equal(snap.lastNComplete?.coverage, true);
+  });
+
+  it("Independent last-N uses intern/pre combo tapes after pre, never mixed closed", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true }, { warmup: 0, symbolCount: 4, arm: false, complete: true });
+    e.shortRange = true;
+    e.preEvalDone = true;
+    e.completeSim = true;
+    e.shortPf = 0.95;
+    e.shortBasePf = 0.7;
+    const win = Array.from({ length: 12 }, () => ({ pnl: 1.2 }));
+    const win2 = Array.from({ length: 10 }, () => ({ pnl: 0.8 }));
+    const dump = Array.from({ length: 40 }, () => ({ pnl: -1 }));
+    e.shortComboTape = { "0.48:0.75": win, "0.42:0.75": win2 };
+    e.shortComboPreTape = { "0.48:0.75": win, "0.42:0.75": win2 };
+    e.shortComboLiveTape = {};
+    e.closed = [
+      ...win.map((r, i) => ({ id: `w${i}`, connId: e.activeConnId, symbol: "BTCUSDT", side: "long" as const, pnl: r.pnl, qty: 1, entry: 100, exit: 101, reason: "tp" as const, tick: i, r: r.pnl, playbook: "short", kind: "short", tactic: "trailing" as const, indication: "trend" as const, tpAtr: 0.48, slOfTp: 0.75, validExec: false })),
+      ...win2.map((r, i) => ({ id: `v${i}`, connId: e.activeConnId, symbol: "ETHUSDT", side: "short" as const, pnl: r.pnl, qty: 1, entry: 100, exit: 101, reason: "tp" as const, tick: 20 + i, r: r.pnl, playbook: "short", kind: "short", tactic: "hybrid" as const, indication: "ema" as const, tpAtr: 0.42, slOfTp: 0.75, validExec: false })),
+      ...dump.map((r, i) => ({ id: `d${i}`, connId: e.activeConnId, symbol: "XRPUSDT", side: "long" as const, pnl: r.pnl, qty: 1, entry: 100, exit: 99, reason: "sl" as const, tick: 40 + i, r: r.pnl, playbook: "short", kind: "short", tactic: "axis" as const, indication: "direction" as const, tpAtr: 0.52, slOfTp: 1.75, validExec: false })),
+    ] as never;
+    const snap = refreshProgressEvals(e);
+    assert.ok(snap.lastNModes.independent.pass, "Independent stays on the intern winner tape after pre");
+    assert.ok(snap.lastNModes.independent.gatedPf + 1e-9 >= 1, `independent gated ${snap.lastNModes.independent.gatedPf}`);
+    assert.ok(snap.lastNModes.combined.pass === false, "Combined sees the mixed intern dump");
+    assert.ok(snap.lastNModes.independent.pf > snap.lastNModes.combined.pf + 0.5);
+    assert.ok((snap.shortCombos["0.48:0.75"]?.n ?? 0) >= 8);
+    assert.equal(snap.shortCombos["0.48:0.75"]?.ok, true);
+  });
+
+  it("overall requires 2+ positive processings; a single lucky valid window is not complete-overall", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true }, { warmup: 0, symbolCount: 4, arm: false, complete: true });
+    e.shortRange = true;
+    e.preEvalDone = true;
+    e.completeSim = true;
+    e.shortPf = 0.95;
+    e.shortBasePf = 0.7;
+    const lucky = [...Array.from({ length: 8 }, () => ({ pnl: 1.2 })), ...Array.from({ length: 16 }, () => ({ pnl: -3 }))];
+    const confirmed = Array.from({ length: 16 }, () => ({ pnl: 1.2 }));
+    e.shortComboLiveTape = { "0.48:0.75": lucky };
+    e.closed = lucky.map((r, i) => ({
+      id: `k${i}`,
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      pnl: r.pnl,
+      qty: 1,
+      entry: 100,
+      exit: 101,
+      reason: r.pnl > 0 ? ("tp" as const) : ("sl" as const),
+      tick: i,
+      r: r.pnl,
+      playbook: "short",
+      kind: "short",
+      tactic: "trailing" as const,
+      indication: "trend" as const,
+      tpAtr: 0.48,
+      slOfTp: 0.75,
+      validExec: true,
+    })) as never;
+    const one = refreshProgressEvals(e);
+    assert.equal(one.lastNModes.independent.pass, true, "Independent may still pass on one window");
+    assert.equal(one.lastNModes.majority.pass, false);
+    assert.equal(one.lastNOverall?.pass, false, "overall needs 2+ processings");
+    assert.equal(one.lastNComplete?.coverage, true);
+    e.shortComboLiveTape = { "0.48:0.75": confirmed };
+    e.closed = confirmed.map((r, i) => ({
+      id: `c${i}`,
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      pnl: r.pnl,
+      qty: 1,
+      entry: 100,
+      exit: 101,
+      reason: "tp" as const,
+      tick: i,
+      r: r.pnl,
+      playbook: "short",
+      kind: "short",
+      tactic: "trailing" as const,
+      indication: "trend" as const,
+      tpAtr: 0.48,
+      slOfTp: 0.75,
+      validExec: true,
+    })) as never;
+    const two = refreshProgressEvals(e);
+    assert.equal(two.lastNModes.independent.pass, true);
+    assert.equal(two.lastNModes.majority.pass, true);
+    assert.equal(two.lastNOverall?.pass, true);
+    assert.ok((two.lastNOverall?.positive ?? 0) >= 2);
+    assert.equal(two.lastNComplete?.pass, true);
+  });
+
+  it("gated PF below 1 fails Independent / Combined / Parallel and does not live-execute", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true }, { warmup: 0, symbolCount: 4, arm: false, complete: true });
+    e.shortRange = true;
+    e.preEvalDone = true;
+    e.completeSim = true;
+    e.shortPf = 0.95;
+    e.shortBasePf = 0.7;
+    const lose = Array.from({ length: 24 }, () => ({ pnl: -0.8 }));
+    e.shortComboLiveTape = { "0.52:1.75": lose };
+    e.closed = lose.map((r, i) => ({
+      id: `l${i}`,
+      connId: e.activeConnId,
+      symbol: "ETHUSDT",
+      side: "short" as const,
+      pnl: r.pnl,
+      qty: 1,
+      entry: 100,
+      exit: 99,
+      reason: "sl" as const,
+      tick: i,
+      r: r.pnl,
+      playbook: "short",
+      kind: "short",
+      tactic: "trailing" as const,
+      indication: "ema" as const,
+      tpAtr: 0.52,
+      slOfTp: 1.75,
+      validExec: true,
+    })) as never;
+    const snap = refreshProgressEvals(e);
+    assert.equal(snap.lastNModes.independent.pass, false);
+    assert.equal(snap.lastNModes.combined.pass, false);
+    assert.equal(snap.lastNModes.parallel.pass, false);
+    assert.equal(snap.lastNModes.majority.pass, false);
+    assert.equal(snap.lastNOverall?.pass, false);
+    assert.ok((snap.lastNOverall?.positive ?? 0) < 2);
+    assert.ok((snap.lastNModes.independent.gatedPf ?? snap.lastNModes.independent.pf) < GATED_MIN_PF);
+    assert.ok((snap.lastNModes.combined.gatedPf ?? snap.lastNModes.combined.pf) < GATED_MIN_PF);
+    assert.equal(shortComboProven(e, 0.52, 1.75), false);
+    assert.equal(
+      liveShouldExecute(e, {
+        symbol: "ETHUSDT",
+        side: "short",
+        indication: "ema",
+        tactic: "trailing",
+        playbook: "short",
+        kind: "short",
+        tpAtr: 0.52,
+        slOfTp: 1.75,
+      }),
+      false,
+    );
+  });
+
+  it("intern-all still scores every combo for future configs while gated PF<1 stays intern-only", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true }, { warmup: 0, symbolCount: 4, arm: false, complete: true });
+    e.shortRange = true;
+    e.completeSim = true;
+    e.preEvalDone = false;
+    e.liveTape = false;
+    const lose = Array.from({ length: 16 }, () => ({ pnl: -0.8 }));
+    const thinWin = Array.from({ length: 2 }, () => ({ pnl: 0.4 }));
+    e.shortComboTape = {
+      "0.42:0.75": lose,
+      "0.48:0.75": thinWin,
+    };
+    assert.equal(shortComboProven(e, 0.42, 0.75), true, "intern-all keeps scoring the loser for future configs");
+    assert.equal(shortComboProven(e, 0.48, 0.75), true);
+    const snap = refreshProgressEvals(e);
+    assert.equal(Object.keys(snap.shortCombos).length, SHORT_TP_ATR.length * SHORT_SL_OF_TP.length);
+    assert.ok((snap.shortCombos["0.42:0.75"]?.n ?? 0) >= 4);
+    assert.ok((snap.shortCombos["0.42:0.75"]?.pf ?? 1) < GATED_MIN_PF);
+    assert.equal(snap.shortCombos["0.42:0.75"]?.ok, false);
+    assert.equal(snap.shortCombos["0.48:0.75"]?.n, 2);
+    assert.ok(Object.values(snap.shortCombos).some((r) => r.n === 0 && r.ok), "unsampled combos stay intern-covered");
+    assert.equal(snap.lastNModes.independent.pass, false);
+    assert.equal(snap.lastNModes.combined.pass, false);
+    assert.equal(snap.lastNModes.majority.pass, false);
+    assert.equal(snap.lastNOverall?.pass, false);
+    assert.equal(snap.lastNComplete?.coverage, true);
+    e.preEvalDone = true;
+    e.shortComboLiveTape = { "0.42:0.75": lose };
+    assert.equal(shortComboProven(e, 0.42, 0.75), false, "after pre, gated PF<1 does not live-execute");
+    assert.equal(
+      liveShouldExecute(e, {
+        symbol: "BTCUSDT",
+        side: "long",
+        indication: "trend",
+        tactic: "trailing",
+        playbook: "short",
+        kind: "short",
+        tpAtr: 0.42,
+        slOfTp: 0.75,
+      }),
+      false,
+    );
+  });
+
+  it("Independent last-N window PF≥1 starts live even when intern-all mixed PF<1", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true }, { warmup: 0, symbolCount: 4, arm: false, complete: true });
+    e.completeSim = true;
+    e.preEvalDone = true;
+    e.shortRange = true;
+    e.shortPf = 0.95;
+    e.shortBasePf = 0.7;
+    const winners = Array.from({ length: 12 }, () => ({ pnl: 1.2 }));
+    const losers = Array.from({ length: 40 }, () => ({ pnl: -0.5 }));
+    // Newest first (unshift order). Independent last-8 is the winning window; full dump PF < 1.
+    const mixedRows = [...winners, ...losers];
+    e.shortComboPreTape = { "0.48:0.75": mixedRows };
+    let gp = 0;
+    let gl = 0;
+    for (const r of mixedRows) {
+      if (r.pnl > 0) gp += r.pnl;
+      else gl += -r.pnl;
+    }
+    const mixedPf = gl > 0 ? gp / gl : gp > 0 ? 4 : 0;
+    assert.ok(mixedPf + 1e-9 < 1, `mixed intern-all pf ${mixedPf}`);
+    assert.equal(shortComboProven(e, 0.48, 0.75), true, "Independent window PF≥1 starts live");
+    assert.equal(
+      liveShouldExecute(e, {
+        symbol: "BTCUSDT",
+        side: "long",
+        indication: "ema",
+        tactic: "trailing",
+        playbook: "short",
+        kind: "short",
+        tpAtr: 0.48,
+        slOfTp: 0.75,
+      }),
+      true,
+    );
+  });
+
+  it("after intern-all, n=6 Independent-empty intern dump does not live-execute", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true }, { warmup: 0, symbolCount: 4, arm: false, complete: true });
+    e.completeSim = true;
+    e.preEvalDone = true;
+    e.shortRange = true;
+    e.shortPf = 0.95;
+    e.shortBasePf = 0.7;
+    const dump = Array.from({ length: 6 }, (_, i) => ({ pnl: i === 0 ? 0.2 : -0.8 }));
+    e.shortComboPreTape = { "0.48:0.75": dump };
+    assert.equal(shortComboProven(e, 0.48, 0.75), false, "n=6 intern dump PF<1 stays intern");
+    assert.equal(
+      liveShouldExecute(e, {
+        symbol: "BTCUSDT",
+        side: "long",
+        indication: "ema",
+        tactic: "trailing",
+        playbook: "short",
+        kind: "short",
+        tpAtr: 0.48,
+        slOfTp: 0.75,
+      }),
+      false,
+    );
+  });
+
+  it("all indications and common four process independently; ranges and configs stay covered", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true }, { warmup: 0, symbolCount: 4, arm: false, complete: true });
+    e.shortRange = true;
+    e.completeSim = true;
+    e.preEvalDone = true;
+    e.shortPf = 0.95;
+    e.shortBasePf = 0.7;
+    const win = Array.from({ length: 16 }, () => ({ pnl: 1.2 }));
+    const lose = Array.from({ length: 16 }, () => ({ pnl: -0.8 }));
+    e.shortComboLiveTape = { "0.48:0.75": win };
+    e.closed = [
+      ...win.map((r, i) => ({
+        id: `w${i}`,
+        connId: e.activeConnId,
+        symbol: "BTCUSDT",
+        side: "long" as const,
+        pnl: r.pnl,
+        qty: 1,
+        entry: 100,
+        exit: 101,
+        reason: "tp" as const,
+        tick: i,
+        r: r.pnl,
+        playbook: "short",
+        kind: "short",
+        tactic: "trailing" as const,
+        rangeType: "atr" as const,
+        indication: "trend" as const,
+        tpAtr: 0.48,
+        slOfTp: 0.75,
+        validExec: true,
+      })),
+      ...lose.map((r, i) => ({
+        id: `l${i}`,
+        connId: e.activeConnId,
+        symbol: "ETHUSDT",
+        side: "short" as const,
+        pnl: r.pnl,
+        qty: 1,
+        entry: 100,
+        exit: 99,
+        reason: "sl" as const,
+        tick: 40 + i,
+        r: r.pnl,
+        playbook: "short",
+        kind: "short",
+        tactic: "axis" as const,
+        rangeType: "fibonacci" as const,
+        indication: "ema" as const,
+        tpAtr: 0.52,
+        slOfTp: 1.75,
+        validExec: true,
+      })),
+    ] as never;
+    const snap = refreshProgressEvals(e);
+    for (const id of SHORT_PROGRESS_INDICATIONS) {
+      assert.ok(snap.indications[id], `indication ${id} covered`);
+    }
+    for (const id of COMMON_INDICATIONS) {
+      assert.ok(snap.indications[id], `common ${id} covered`);
+    }
+    assert.equal(snap.indications.trend?.ok, true, "common trend Independent tape stays performing");
+    assert.ok((snap.indications.trend?.pf ?? 0) + 1e-9 >= GATED_MIN_PF);
+    assert.equal(snap.indications.ema?.ok, false, "ema gated PF<1 is a failed processing");
+    assert.ok((snap.indications.ema?.pf ?? 1) < GATED_MIN_PF);
+    for (const id of RANGE_TYPES) {
+      assert.ok(snap.ranges[id], `range ${id} covered`);
+    }
+    assert.equal(snap.ranges.atr?.ok, true);
+    assert.equal(snap.ranges.fibonacci?.ok, false);
+    for (const id of ["trailing", "axis", "hybrid"] as const) {
+      assert.ok(snap.tactics[id], `tactic ${id} covered`);
+    }
+    assert.equal(snap.lastNComplete?.coverage, true);
+    assert.equal(snap.lastNComplete?.typesOk, true);
+    assert.ok(snap.lastNModes.independent.pass, "Independent processing still happens on the winning tape");
+    assert.equal(snap.lastNModes.combined.pass, false, "Combined sees mixed indication dump");
+    const pack = {
+      trend: 0.4, break: 0.1, active: 0.05, direction: -0.02, move: 0.08, rsi: 0.01, bollinger: 0.02, sar: 0.1, macd: 0.12, ema: 0.2,
+      agree: true, activity: 0.5, lastPart: 0.1, drawdown: 0.05, prevRel: 0.1,
+    } as Parameters<typeof rankIndications>[1];
+    e.shortProgress = sanitizeShortProgress({ enabled: true, indications: ["ema"] });
+    const ranked = rankIndications(e, pack, "ema");
+    for (const id of COMMON_INDICATIONS) assert.ok(ranked.includes(id), `common ${id} still ranks when extras filtered`);
+    assert.ok(ranked.includes("ema"));
+    const hits = processAllIndications(DESK.indicators.BTCUSDT!, DESK.candles.BTCUSDT!, 200);
+    assert.equal(hits.length, INDICATION_CONFIGS.length);
+    const kinds = new Set(INDICATION_CONFIGS.map((c) => c.kind));
+    for (const id of SHORT_PROGRESS_INDICATIONS) assert.ok(kinds.has(id), `config kind ${id}`);
+    for (const h of hits) finiteNum(h.dir, h.strength, h.activity);
   });
 
   it("profitFactor and pfFromPnls match gross profit / gross loss exactly", () => {
@@ -4840,8 +5237,8 @@ describe("calculations, relations, adjustments, stats", () => {
       pfRing: { 1: [-1, -1, -1, -1, -1, -1, -1, -1] },
       parentPf: [-1, -1, -1, -1, -1, -1, -1, -1],
       active: true,
-      pauseRemaining: {},
-      heldFactor: {},
+      pauseRemaining: {} as Record<number, number>,
+      heldFactor: {} as Record<number, number>,
     };
     const keep = { ...DEFAULT_BLOCK_CONFIG, keepAdjusted: true, pauseCountRatio: 2 };
     assert.equal(blockPfOk(lane, 1, keep, 1.2), false);
@@ -4857,8 +5254,8 @@ describe("calculations, relations, adjustments, stats", () => {
       pfRing: { 1: [-1, -1, -1, -1, -1, -1, -1, -1] },
       parentPf: [-1, -1, -1, -1, -1, -1, -1, -1],
       active: true,
-      pauseRemaining: {},
-      heldFactor: {},
+      pauseRemaining: {} as Record<number, number>,
+      heldFactor: {} as Record<number, number>,
     };
     const pause = { ...DEFAULT_BLOCK_CONFIG, keepAdjusted: false, pauseCountRatio: 2 };
     assert.equal(blockPfOk(drop, 1, pause, 1.2), false);
@@ -5470,6 +5867,7 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.equal(laneLastNStack(e, midRel), 1);
     assert.ok(snap.evalNs["50"] || snap.evalNs["15"]);
     assert.ok(Object.keys(snap.lastNModes).includes("parallel"));
+    assert.ok(Object.keys(snap.lastNModes).includes("majority"));
     const pick = coordinateLastN(e.closed.filter((c) => c.connId === e.activeConnId), e.lastNProgress, 1.1, 1.0);
     assert.ok(pick.evalNs.length <= 3);
   });
@@ -5857,10 +6255,17 @@ describe("calculations, relations, adjustments, stats", () => {
     const snap = refreshProgressEvals(e);
     assert.ok(snap.evalNs["50"] || snap.evalNs["15"]);
     assert.ok(Object.keys(snap.lastNModes).includes("parallel"));
+    assert.ok(Object.keys(snap.lastNModes).includes("majority"));
     assert.ok(snap.indications.ema || snap.indications.trend);
     assert.ok(snap.tactics.axis || snap.tactics.trailing);
     assert.ok(snap.blockCounts["2"]?.ok || snap.blockCounts["3"]?.ok);
-    assert.equal(e.lastNProgress?.mode === "independent" || e.lastNProgress?.mode === "combined" || e.lastNProgress?.mode === "parallel", true);
+    assert.equal(
+      e.lastNProgress?.mode === "independent" ||
+        e.lastNProgress?.mode === "combined" ||
+        e.lastNProgress?.mode === "parallel" ||
+        e.lastNProgress?.mode === "majority",
+      true,
+    );
     assert.ok((e.blockCfg?.counts ?? []).every((n) => n >= 1 && n <= 6 && n !== 2));
     assert.equal((e.blockCfg?.counts ?? []).join(","), "1,3,4,5,6");
     assert.equal(e.blockCfg?.volumeMode, "parallel");

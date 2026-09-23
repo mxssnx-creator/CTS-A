@@ -7,6 +7,7 @@ import {
   DESK,
   heatmapForDesk,
   LAST_N_PROGRESS_META,
+  LAST_N_PASS_META,
   posSliceStats,
   STRATEGIES,
   TACTIC_META,
@@ -45,6 +46,7 @@ export function OverviewView() {
   const enabledKinds = useDesk((s) => s.enabledKinds);
   const vstTick = useDesk((s) => s.vst.tick);
   const vstCoord = useDesk((s) => s.vst.lastNCoord);
+  const progressEval = useDesk((s) => s.vst.progressEval);
   const engineSize = useDesk((s) => s.vst.engineSizeFactor ?? 1);
   const blockExtra = useDesk((s) => s.vst.relVolumeFactor ?? 0);
   const activeConnId = useDesk((s) => s.activeConnId);
@@ -182,7 +184,33 @@ export function OverviewView() {
         </div>
         {vstCoord ? (
           <div className="mt-3 flex flex-wrap gap-1">
-            <Pill tone={vstCoord.independent || vstCoord.combined ? "up" : "neutral"}>{vstCoord.mode}</Pill>
+            {LAST_N_PASS_META.map((m) => {
+              const row = progressEval?.lastNModes?.[m.id];
+              const on = Boolean(row?.pass);
+              const pf = Number(row?.gatedPf ?? row?.pf) || 0;
+              return (
+                <Pill key={m.id} tone={on ? "up" : pf > 0 && pf < 1 ? "down" : "neutral"}>
+                  {m.label}
+                  {row ? ` ${pf.toFixed(2)}` : ""}
+                </Pill>
+              );
+            })}
+            {progressEval?.lastNOverall ? (
+              <Pill tone={progressEval.lastNOverall.pass ? "accent" : "neutral"}>
+                Overall {progressEval.lastNOverall.positive}/3
+                {progressEval.lastNOverall.pass ? ` ${Number(progressEval.lastNOverall.gatedPf ?? progressEval.lastNOverall.pf).toFixed(2)}` : ""}
+              </Pill>
+            ) : (
+              <Pill tone={vstCoord.independent || vstCoord.combined ? "up" : "neutral"}>{vstCoord.mode}</Pill>
+            )}
+            {progressEval?.lastNComplete ? (
+              <Pill tone={progressEval.lastNComplete.pass ? "up" : "down"}>
+                {progressEval.lastNComplete.pass ? "Complete" : "Incomplete"}
+              </Pill>
+            ) : null}
+            {progressEval?.lastNComplete?.typesOk === false ? (
+              <Pill tone="down">Types fail</Pill>
+            ) : null}
             {vstCoord.stack > 1 ? <Pill tone="accent">stack ×{vstCoord.stack.toFixed(2)}</Pill> : null}
             {vstCoord.activeInds.slice(0, 6).map((id) => (
               <Pill key={`i${id}`} tone="up">
@@ -192,12 +220,60 @@ export function OverviewView() {
             {vstCoord.activeTacs.slice(0, 4).map((id) => (
               <Pill key={`t${id}`}>{id}</Pill>
             ))}
+            {vstCoord.activeRanges.slice(0, 5).map((id) => (
+              <Pill key={`r${id}`}>{id}</Pill>
+            ))}
             {vstCoord.activePlays.slice(0, 4).map((id) => (
               <Pill key={`p${id}`}>{id}</Pill>
             ))}
           </div>
         ) : null}
       </Panel>
+
+      {progressEval ? (
+        <Panel title="Indications · ranges · configs">
+          <p className="text-sm text-muted">
+            All ten indications and five ranges score their own last-N. Gated PF below 1 is a failed processing.
+            Unsampled cells stay covered for future configs.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1">
+            {["trend", "break", "active", "direction", "move", "rsi", "bollinger", "sar", "macd", "ema"].map((id) => {
+              const row = progressEval.indications?.[id];
+              const pf = Number(row?.pf) || 0;
+              const sampled = (row?.n ?? 0) >= 4;
+              return (
+                <Pill key={id} tone={!row ? "neutral" : sampled && !row.ok ? "down" : row.ok && pf >= 1 ? "up" : "neutral"}>
+                  {id}
+                  {row ? ` ${pf.toFixed(2)}` : ""}
+                </Pill>
+              );
+            })}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {["linear", "geometric", "atr", "volume", "fibonacci"].map((id) => {
+              const row = progressEval.ranges?.[id];
+              const pf = Number(row?.pf) || 0;
+              const sampled = (row?.n ?? 0) >= 4;
+              return (
+                <Pill key={id} tone={!row ? "neutral" : sampled && !row.ok ? "down" : row.ok && pf >= 1 ? "up" : "neutral"}>
+                  {id}
+                  {row ? ` ${pf.toFixed(2)}` : ""}
+                </Pill>
+              );
+            })}
+            {["trailing", "axis", "hybrid"].map((id) => {
+              const row = progressEval.tactics?.[id];
+              const pf = Number(row?.pf) || 0;
+              return (
+                <Pill key={`t${id}`} tone={row && (row.n ?? 0) >= 4 && !row.ok ? "down" : "neutral"}>
+                  {id}
+                  {row ? ` ${pf.toFixed(2)}` : ""}
+                </Pill>
+              );
+            })}
+          </div>
+        </Panel>
+      ) : null}
 
       <Panel title="Overall last positions">
         <p className="text-sm text-muted">

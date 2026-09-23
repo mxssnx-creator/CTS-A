@@ -2,9 +2,24 @@ This conversation belongs to a Grok project. The project's files are mounted at 
 
 # CTS-A session reminder (do not regress)
 
+**Stable baseline: git tag `stable` (2026-09-23).** Future issues and repairs start from this tree. Do not revert the tape accounting below. Do not invent a parallel engine.
+
 **Read first:** [`public/CTS-A-COORDINATIONS.md`](public/CTS-A-COORDINATIONS.md) and [`public/CTS-A-coordinations.json`](public/CTS-A-coordinations.json). Full recreate pack: [`public/CTS-A-COMPLETE-CONTEXT.md`](public/CTS-A-COMPLETE-CONTEXT.md).
 
 One-line: **Intern scores everything. Live executes performing only. Headline is the performing tape. Block additive 0.2 / shared 1.5 / Axis 1.0. Last-N 50/15/12. Short live floors 0.48/0.75 (0.38 failed). Position size 0.12%. Deduct 0.12% RT from every pos calc (live ~0.10%). Never mix intern into live. Never 0.08. Never 0.20 paper when winners exist.**
+
+## Stable tape accounting (do not revert)
+
+- Complete open tape arms **after** `completeSim` / `openCompleteTape` / `preEvalDone` are set (`arm: false`, then `armUniverse`). Arming before the flags leaks intern paper onto the live tape.
+- Interval baseline (`prevIntProfit` / `prevIntLoss` / `prevIntNet`) resets **after** the exam book reset. Interval nets must sum to realized.
+- No `gatedFlip`. Hour tape walks closes in chronological order. Do not hide booked losses.
+- Interval / hour tape excludes protect scratches and, after the exam, non-`validExec` closes.
+- `pickRange` uses the **leg's** range, not the primary range.
+- A drawdown size-cut does not count a second placement.
+- Hour-protect scratches are not loss streaks.
+- Headline session MDD can be intra-hour mark-to-market (open positions). Hour-end equity drawdown is the number to compare against the hourly table.
+
+48h × 12 complete open tape on this tree (no pre-exam, short 0.42/1.7, trailing, $10): equity **15.95**, PF **1.090**, 478,380 trades, 14.1M orders placed, hour-end green **39/48**. Only material red hour is **32** (PF 0.88, −$0.21). Extra calc legs dd / px / rng are below 1 — not proven. Hour-end MDD max **11.66%**; engine MDD **55.65%** is intra-hour marks.
 
 ## Coordinations that produced stable positive results
 

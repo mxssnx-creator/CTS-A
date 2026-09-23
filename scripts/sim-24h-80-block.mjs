@@ -15,7 +15,7 @@ const CFG = {
   slAtr: 0.714,
   tpRatio: 1 / 1.7,
   trailingPct: 1.5,
-  maxHoldTicks: 24,
+  maxHoldTicks: 8,
   maxHoldBars: 3,
 };
 
@@ -65,15 +65,8 @@ function blockOf({
 }
 
 const CELLS = [
-  { label: "Block off", on: false, shared: 2, additive: 0.1, counts: [1, 2, 3, 4, 5, 6], pause: 0, minActive: 1 },
-  { label: "prior 3.0/0.4 · N1-6", on: true, shared: 3, additive: 0.4, counts: [1, 2, 3, 4, 5, 6], pause: 0, minActive: 1, maxMul: 8 },
-  { label: "reco A 2.0/0.15 N2-6 pause1", on: true, shared: 2, additive: 0.15, counts: [2, 3, 4, 5, 6], pause: 1, minActive: 2 },
-  { label: "reco B 2.5/0.2 N2-4 pause1", on: true, shared: 2.5, additive: 0.2, counts: [2, 3, 4], pause: 1, minActive: 2 },
-  { label: "reco C overall-only 2.0 N2-6", on: true, shared: 2, additive: 0.15, counts: [2, 3, 4, 5, 6], pause: 1, minActive: 2, sets: false },
-  { label: "reco D shared-only 2.0 N2-6", on: true, shared: 2, additive: 0.15, counts: [2, 3, 4, 5, 6], pause: 1, minActive: 2, volumeMode: "shared", overallMode: "shared" },
-  { label: "reco E 3.0/0.15 N2-6 pause1", on: true, shared: 3, additive: 0.15, counts: [2, 3, 4, 5, 6], pause: 1, minActive: 2, maxMul: 8 },
-  { label: "reco F 2.0/0.15 pause0 keep", on: true, shared: 2, additive: 0.15, counts: [2, 3, 4, 5, 6], pause: 0, minActive: 2, keep: true },
-  { label: "reco G 2.0/0.15 N1-6 min1", on: true, shared: 2, additive: 0.15, counts: [1, 2, 3, 4, 5, 6], pause: 1, minActive: 1 },
+  { label: "shared 1.5 / add 0.2", on: true, shared: 1.5, additive: 0.2, counts: [1, 2, 3, 4, 5, 6], pause: 0, minActive: 1, maxMul: 8 },
+  { label: "3.0 / 0.4 by hour", on: true, shared: 3, additive: 0.4, counts: [1, 2, 3, 4, 5, 6], pause: 0, minActive: 1, maxMul: 8 },
 ];
 
 function hourLine(h) {
@@ -109,6 +102,7 @@ function run(spec) {
     equity: EQUITY,
     costStep: 3,
     complete: true,
+    prehours: 0,
     orderType: "limit",
   });
   const ms = Date.now() - t0;

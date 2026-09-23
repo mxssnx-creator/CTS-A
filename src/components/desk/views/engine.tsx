@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Pause, Play, RotateCcw, Square } from "lucide-react";
-import { LAST_N_PROGRESS_META } from "@/lib/desk/engine";
+import { LAST_N_PROGRESS_META, LAST_N_PASS_META } from "@/lib/desk/engine";
 import { VST_MAX_SYMBOLS, universeSymbols } from "@/lib/desk/vst";
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
@@ -101,6 +101,20 @@ export function EngineView() {
             }}
           >
             {simming ? "Sim…" : "8h sim"}
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={simming}
+            onClick={() => {
+              setSimming(true);
+              window.setTimeout(() => {
+                runSim(24);
+                setSimming(false);
+              }, 30);
+            }}
+          >
+            {simming ? "Sim…" : "24h sim"}
           </Button>
         </div>
       </div>
@@ -240,6 +254,32 @@ export function EngineView() {
                   />
                 );
               })}
+              {LAST_N_PASS_META.map((m) => {
+                const row = sim.lastN?.modes?.[m.id];
+                const pf = Number(row?.gatedPf ?? row?.pf) || 0;
+                return (
+                  <StatLine
+                    key={m.id}
+                    k={m.label}
+                    v={row ? `${row.pass ? "pass" : "fail"} · PF ${fmtPf(pf)}` : "—"}
+                    tone={row?.pass ? "up" : pf > 0 && pf < 1 ? "down" : "neutral"}
+                  />
+                );
+              })}
+              {sim.lastN?.overall ? (
+                <StatLine
+                  k="Overall 2+"
+                  v={`${sim.lastN.overall.pass ? "pass" : "fail"} · ${sim.lastN.overall.positive}/3 · PF ${fmtPf(Number(sim.lastN.overall.gatedPf ?? sim.lastN.overall.pf) || 0)}`}
+                  tone={sim.lastN.overall.pass ? "up" : "down"}
+                />
+              ) : null}
+              {sim.lastN?.complete ? (
+                <StatLine
+                  k="Complete"
+                  v={sim.lastN.complete.pass ? "correct" : "check"}
+                  tone={sim.lastN.complete.pass ? "up" : "down"}
+                />
+              ) : null}
             </div>
           ) : null}
           {sim.issues.length ? (
@@ -254,6 +294,107 @@ export function EngineView() {
               positions. Ladders: {orderType.replace("_", " ")}.
             </p>
           )}
+          {sim.hourly?.length ? (
+            <div className="mt-4 overflow-x-auto">
+              <p className="mb-2 text-xs font-medium uppercase tracking-widest text-subtle">
+                {sim.startEquity ? `$${sim.startEquity} start` : "Hour by hour"} · {sim.hours}h
+                {sim.prehours ? ` +${sim.prehours}h intern` : ""}
+              </p>
+              <table className="w-full min-w-[560px] text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-widest text-subtle">
+                    {["h", "eq", "PF", "n", "net", "margin"].map((h) => (
+                      <th key={h} className="py-1 pr-3 font-medium">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sim.hourly.map((h) => {
+                    const n = Number(h.trades || h.gatedN || 0);
+                    const net = Number(h.net ?? h.gatedNet ?? 0);
+                    const pf = Number(h.hourPf || h.pf || 0);
+                    return (
+                      <tr key={h.h} className="border-t border-border">
+                        <td className="py-1 pr-3 font-mono tabular">{h.h}</td>
+                        <td className="py-1 pr-3 font-mono tabular">{fmtEquity(h.eq)}</td>
+                        <td className={`py-1 pr-3 font-mono tabular ${pf >= 1 ? "text-up" : pf > 0 ? "" : "text-down"}`}>
+                          {fmtPf(pf)}
+                        </td>
+                        <td className="py-1 pr-3 font-mono tabular">{n}</td>
+                        <td className={`py-1 pr-3 font-mono tabular ${clsPnl(net)}`}>
+                          {net >= 0 ? "+" : ""}
+                          {fmtUsd(net)}
+                        </td>
+                        <td className="py-1 font-mono tabular">{fmtUsd(Number(h.avgMargin ?? h.margin ?? 0))}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {sim.byIndication?.length ? (
+                <div className="mt-3 grid grid-cols-2 gap-x-4 sm:grid-cols-5">
+                  {sim.byIndication.slice(0, 10).map((ind) => (
+                    <StatLine
+                      key={ind.id}
+                      k={ind.id}
+                      v={`PF ${fmtPf(ind.pf)} · n ${ind.n}`}
+                      tone={pfTone(ind.pf)}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {sim.calcDiff ? (
+                <div className="mt-4">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-widest text-subtle">
+                    Indication calcs · base vs drawdown, market price, extra range
+                  </p>
+                  <p className={`mb-2 text-sm ${sim.calcDiff.good ? "text-up" : "text-down"}`}>{sim.calcDiff.note}</p>
+                  <table className="w-full min-w-[520px] text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-widest text-subtle">
+                        {["calc", "placed", "n", "PF", "net", "Δ placed"].map((h) => (
+                          <th key={h} className="py-1 pr-3 font-medium">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sim.calcDiff.rows.map((row) => {
+                        const basePlaced = sim.calcDiff?.ordersBase ?? 0;
+                        const dPlace = row.placed - basePlaced;
+                        return (
+                          <tr key={row.kind} className="border-t border-border">
+                            <td className="py-1 pr-3 font-mono">{row.kind === "dd" ? "drawdown size" : row.kind === "px" ? "mkt price" : row.kind === "rng" ? "range+" : "base"}</td>
+                            <td className="py-1 pr-3 font-mono tabular">{row.placed}</td>
+                            <td className="py-1 pr-3 font-mono tabular">{row.n}</td>
+                            <td className={`py-1 pr-3 font-mono tabular ${row.n > 0 && row.pf >= 1 ? "text-up" : row.n > 0 ? "text-down" : ""}`}>
+                              {row.n ? fmtPf(row.pf) : "—"}
+                            </td>
+                            <td className={`py-1 pr-3 font-mono tabular ${clsPnl(row.net)}`}>
+                              {row.n ? `${row.net >= 0 ? "+" : ""}${fmtUsd(row.net)}` : "—"}
+                            </td>
+                            <td className={`py-1 font-mono tabular ${row.kind === "base" || row.kind === "dd" ? "text-muted" : dPlace >= 0 ? "text-up" : "text-down"}`}>
+                              {row.kind === "base" || row.kind === "dd" ? "—" : `${dPlace >= 0 ? "+" : ""}${dPlace}`}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <p className="mt-2 text-xs text-muted">
+                    Extra orders {sim.calcDiff.ordersExtra} vs base {sim.calcDiff.ordersBase}
+                    {" · "}
+                    extra closes {sim.calcDiff.extraN} · PF {fmtPf(sim.calcDiff.extraPf)} · net {sim.calcDiff.extraNet >= 0 ? "+" : ""}
+                    {fmtUsd(sim.calcDiff.extraNet)}
+                    {sim.calcDiff.baseN ? ` · base closes ${sim.calcDiff.baseN}` : ""}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </Panel>
       ) : (
         <Panel title="Session ledger">
