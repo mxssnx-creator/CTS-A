@@ -1308,7 +1308,8 @@ export function stepDeskBots(
   if (!e.botMode) return 0;
   const armed = sanitizeArmed(armedIn);
   const bag = botHistory(e);
-  const symbols = universeSymbols(e.symbolCount).slice(0, Math.max(1, e.symbolCount || 10));
+  const botN = Math.max(10, ...armed.map((t) => sanitizeBotConfig({ ...(configs?.[t] ?? {}), type: t }, t).symbolCount));
+  const symbols = universeSymbols(botN).slice(0, botN);
   if (e.botHistTick !== e.tick) {
     e.botHistTick = e.tick;
     for (const s of symbols) {

@@ -1612,20 +1612,23 @@ function nextId(e: VstEngine, pfx: string): string {
   e.seq += 1;
   return `${pfx}${e.tick}-${e.seq}`;
 }
+function isBotPlay(play?: string): boolean {
+  return String(play || "").startsWith("bot:");
+}
 function occupiedSymbols(e: VstEngine, connId?: string): Set<string> {
   const s = new Set<string>();
   const on = (id: string) => (connId ? id === connId : isDeskConn(id));
-  for (const p of e.positions) if (on(p.connId)) s.add(p.symbol);
-  for (const o of e.orders) if (on(o.connId) && (o.status === "open" || o.status === "partial")) s.add(o.symbol);
-  for (const o of e.queue) if (on(o.connId)) s.add(o.symbol);
+  for (const p of e.positions) if (on(p.connId) && !isBotPlay(p.playbook)) s.add(p.symbol);
+  for (const o of e.orders) if (on(o.connId) && !isBotPlay(o.playbook) && (o.status === "open" || o.status === "partial")) s.add(o.symbol);
+  for (const o of e.queue) if (on(o.connId) && !isBotPlay(o.playbook)) s.add(o.symbol);
   return s;
 }
 function occupiedLegs(e: VstEngine, connId?: string): Set<string> {
   const s = new Set<string>();
   const on = (id: string) => (connId ? id === connId : isDeskConn(id));
-  for (const p of e.positions) if (on(p.connId)) s.add(`${p.symbol}:${p.side}`);
-  for (const o of e.orders) if (on(o.connId) && (o.status === "open" || o.status === "partial")) s.add(`${o.symbol}:${o.side}`);
-  for (const o of e.queue) if (on(o.connId)) s.add(`${o.symbol}:${o.side}`);
+  for (const p of e.positions) if (on(p.connId) && !isBotPlay(p.playbook)) s.add(`${p.symbol}:${p.side}`);
+  for (const o of e.orders) if (on(o.connId) && !isBotPlay(o.playbook) && (o.status === "open" || o.status === "partial")) s.add(`${o.symbol}:${o.side}`);
+  for (const o of e.queue) if (on(o.connId) && !isBotPlay(o.playbook)) s.add(`${o.symbol}:${o.side}`);
   return s;
 }
 function isTerminal(status: LiveOrder['status']): boolean {
@@ -2158,15 +2161,15 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   let pn = 0;
   const symLoad = new Map<string, number>();
   const noteLoad = (id: string) => symLoad.set(id, (symLoad.get(id) || 0) + 1);
-  for (const o of e.queue) if (o.connId === connId) {
+  for (const o of e.queue) if (o.connId === connId && !isBotPlay(o.playbook)) {
     qn += 1;
     noteLoad(o.symbol);
   }
   for (const o of e.orders) {
-    if (o.connId !== connId || (o.status !== "open" && o.status !== "partial")) continue;
+    if (o.connId !== connId || isBotPlay(o.playbook) || (o.status !== "open" && o.status !== "partial")) continue;
     noteLoad(o.symbol);
   }
-  for (const p of e.positions) if (p.connId === connId) {
+  for (const p of e.positions) if (p.connId === connId && !isBotPlay(p.playbook)) {
     pn += 1;
     noteLoad(p.symbol);
   }
@@ -3265,33 +3268,37 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     pnl = 0;
   }
   const ratio = protect ? 0 : ratio0;
-  if (p.validExec === true && p.indication) noteLiveInd(e, p.indication, ratio, p.tactic);
-  noteHourFlow(e, p.indication, ratio);
-  noteCalcClose(e, p.calc, ratio, p.validExec === true);
-  noteIndRange(e, p.indication, p.controllingRange, ratio, p.validExec === true);
+  if (!botBook) {
+    if (p.validExec === true && p.indication) noteLiveInd(e, p.indication, ratio, p.tactic);
+    noteHourFlow(e, p.indication, ratio);
+    noteCalcClose(e, p.calc, ratio, p.validExec === true);
+    noteIndRange(e, p.indication, p.controllingRange, ratio, p.validExec === true);
+  }
   p.realized += pnl;
-  bookRealized(e, pnl, reason);
-  if (ratio > 0) {
-    e.ledger.ratioProfit = (e.ledger.ratioProfit ?? 0) + ratio;
-    e.ledger.ratioWins = (e.ledger.ratioWins ?? 0) + 1;
-  } else if (ratio < 0) e.ledger.ratioLoss = (e.ledger.ratioLoss ?? 0) + -ratio;
-  if (reason === "sl") {
+  if (!botBook) {
+    bookRealized(e, pnl, reason);
+    if (ratio > 0) {
+      e.ledger.ratioProfit = (e.ledger.ratioProfit ?? 0) + ratio;
+      e.ledger.ratioWins = (e.ledger.ratioWins ?? 0) + 1;
+    } else if (ratio < 0) e.ledger.ratioLoss = (e.ledger.ratioLoss ?? 0) + -ratio;
+  }
+  if (!botBook && reason === "sl") {
     e.ledger.slExits += 1;
     e.cooldown[cooldownKey(p.connId, p.symbol)] = e.tick + (completeOpenTape(e) || performingLive(e) ? 2 : 20);
-  } else if (reason === "time") {
+  } else if (!botBook && reason === "time") {
     e.ledger.timeExits = (e.ledger.timeExits ?? 0) + 1;
     e.cooldown[cooldownKey(p.connId, p.symbol)] = e.tick + (completeOpenTape(e) || performingLive(e) ? 1 : 6);
-  } else {
+  } else if (!botBook) {
     e.ledger.tpExits += 1;
     e.cooldown[cooldownKey(p.connId, p.symbol)] = e.tick + (completeOpenTape(e) || performingLive(e) ? 1 : 8);
   }
-  if (protect) {
+  if (!botBook && protect) {
     // Flat scratch is not a win or a loss. Do not grow the loss streak.
-  } else if (pnl > 0) {
+  } else if (!botBook && pnl > 0) {
     e.ledger.winStreak += 1;
     e.ledger.lossStreak = 0;
     if (e.ledger.winStreak > e.ledger.maxWinStreak) e.ledger.maxWinStreak = e.ledger.winStreak;
-  } else if (pnl < 0) {
+  } else if (!botBook && pnl < 0) {
     e.ledger.lossStreak += 1;
     e.ledger.winStreak = 0;
     if (e.ledger.lossStreak > e.ledger.maxLossStreak) e.ledger.maxLossStreak = e.ledger.lossStreak;
@@ -3308,17 +3315,18 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     sl: 0,
     tp: 0
   };
-  tape.trades += 1;
-  if (pnl > 0) {
-    tape.wins += 1;
-    tape.profit += pnl;
-  } else tape.loss += Math.abs(pnl);
-  if (ratio > 0) tape.ratioProfit = (tape.ratioProfit ?? 0) + ratio;
-  else if (ratio < 0) tape.ratioLoss = (tape.ratioLoss ?? 0) + -ratio;
-  if (reason === "sl") tape.sl += 1;
-  else if (reason === "tp") tape.tp += 1;
-  const gatedClose = p.validExec === true && !protect;
-  noteHourLive(e, pnl, gatedClose);
+  if (!botBook) {
+    tape.trades += 1;
+    if (pnl > 0) {
+      tape.wins += 1;
+      tape.profit += pnl;
+    } else tape.loss += Math.abs(pnl);
+    if (ratio > 0) tape.ratioProfit = (tape.ratioProfit ?? 0) + ratio;
+    else if (ratio < 0) tape.ratioLoss = (tape.ratioLoss ?? 0) + -ratio;
+    if (reason === "sl") tape.sl += 1;
+    else if (reason === "tp") tape.tp += 1;
+    noteHourLive(e, pnl, p.validExec === true && !protect);
+  }
   const closedRow = {
     id: p.id,
     connId: p.connId,
@@ -3350,11 +3358,12 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   };
   e.closed.unshift(closedRow);
   noteTickClose(e, closedRow);
-  if (originBook !== "block" && !opts?.skipComboTape) {
+  const gatedClose = p.validExec === true && !protect;
+  if (!botBook && originBook !== "block" && !opts?.skipComboTape) {
     const sh = blockOverlayShare(p.qty, p.blockQty, originBook);
     noteShortComboClose(e, { connId: p.connId, id: p.id, tpAtr: p.tpAtr, slOfTp: p.slOfTp, pnl: ratio * (1 - sh), validExec: gatedClose, indication: p.indication, tactic: p.tactic ?? e.lastTactic });
   }
-  if (countsOnBlockTape(e, gatedClose)) {
+  if (!botBook && countsOnBlockTape(e, gatedClose)) {
     recordBlockClose(e, p, ratio);
     noteBlockPosClose(e, p.symbol, p.side, ratio, e.blockCfg, {
       indication: p.indication,
@@ -3368,7 +3377,12 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
       slOfTp: p.slOfTp,
     });
   }
-  if (e.closed.length > (e.completeSim && paperMode(e) ? 2500 : 600)) e.closed.length = e.completeSim && paperMode(e) ? 2500 : 600;
+  if (e.closed.length > (e.completeSim && paperMode(e) ? 2500 : 600)) {
+    const cap = e.completeSim && paperMode(e) ? 2500 : 600;
+    const keptBots = e.closed.filter((c) => isBotPlay(c.playbook));
+    const rest = e.closed.filter((c) => !isBotPlay(c.playbook)).slice(0, cap);
+    e.closed = [...rest, ...keptBots];
+  }
   e.fills.unshift({
     id: nextId(e, "f"),
     orderId: p.id,
@@ -3671,19 +3685,21 @@ function recycleOpenLadders(e: VstEngine) {
 function compactOrders(e: VstEngine) {
   recycleOpenLadders(e);
   const foreign = e.orders.filter((o) => !isDeskConn(o.connId));
-  e.orders = e.orders.filter((o) => ownedByDesk(o) && (o.status === "open" || o.status === "partial"));
+  const bots = e.orders.filter((o) => isBotPlay(o.playbook) && (o.status === "open" || o.status === "partial" || o.status === "queued"));
+  e.orders = e.orders.filter((o) => ownedByDesk(o) && !isBotPlay(o.playbook) && (o.status === "open" || o.status === "partial"));
   if (e.orders.length > maxWorking(e)) {
     const extra = e.orders.splice(maxWorking(e));
     for (const o of extra) markTerminal(e, o, "cancelled");
   }
-  const deskQueue = e.queue.filter((o) => ownedByDesk(o));
+  const deskQueue = e.queue.filter((o) => ownedByDesk(o) && !isBotPlay(o.playbook));
+  const botQueue = e.queue.filter((o) => isBotPlay(o.playbook));
   const foreignQ = e.queue.filter((o) => !isDeskConn(o.connId));
   if (deskQueue.length > maxQueue(e)) {
     const drop = deskQueue.splice(maxQueue(e));
     for (const o of drop) markTerminal(e, o, "cancelled");
   }
-  e.queue = [...deskQueue, ...foreignQ];
-  e.orders = [...e.orders, ...foreign];
+  e.queue = [...deskQueue, ...botQueue, ...foreignQ];
+  e.orders = [...e.orders, ...bots, ...foreign];
   if (completeOpenTape(e)) {
     const unfilled = e.orders.filter((o) => (o.status === "open" || o.status === "partial") && o.filled <= 1e-12);
     if (unfilled.length > 1600) {
@@ -3716,7 +3732,12 @@ function compactOrders(e: VstEngine) {
   }
   if (e.batches.length > VST_MAX_BATCHES) e.batches.length = VST_MAX_BATCHES;
   if (e.fills.length > VST_FILL_KEEP) e.fills.length = VST_FILL_KEEP;
-  if (e.closed.length > (e.completeSim && paperMode(e) ? 2500 : 600)) e.closed.length = e.completeSim && paperMode(e) ? 2500 : 600;
+  if (e.closed.length > (e.completeSim && paperMode(e) ? 2500 : 600)) {
+    const cap = e.completeSim && paperMode(e) ? 2500 : 600;
+    const keptBots = e.closed.filter((c) => isBotPlay(c.playbook));
+    const rest = e.closed.filter((c) => !isBotPlay(c.playbook)).slice(0, cap);
+    e.closed = [...rest, ...keptBots];
+  }
   for (const id of Object.keys(e.cooldown)) {
     if ((e.cooldown[id] ?? 0) <= e.tick) delete e.cooldown[id];
   }
@@ -3792,7 +3813,7 @@ function liveRatioPf(e: VstEngine): number {
   return ratioProfitFactor(e.ledger.ratioProfit || 0, e.ledger.ratioLoss || 0, e.ledger.ratioWins || 0);
 }
 function recomputeStats(e: VstEngine) {
-  const unreal = e.positions.reduce((s, p) => s + p.unrealized, 0);
+  const unreal = e.positions.reduce((s, p) => s + (isBotPlay(p.playbook) ? 0 : p.unrealized), 0);
   const net = e.ledger.profit - e.ledger.loss + unreal;
   const base = Number(e.startEquity) > 0 ? Number(e.startEquity) : 1e4;
   const equity = base + net;
@@ -3951,15 +3972,24 @@ export function sanitizeBook(e: VstEngine): number {
     return true;
   });
   if (e.queue.length > maxQueue(e)) {
-    e.queue.length = maxQueue(e);
+    const bots = e.queue.filter((o) => isBotPlay(o.playbook));
+    const rest = e.queue.filter((o) => !isBotPlay(o.playbook));
+    rest.length = Math.min(rest.length, maxQueue(e));
+    e.queue = [...rest, ...bots];
     fixes += 1;
   }
   if (e.orders.length > maxWorking(e)) {
-    e.orders.length = maxWorking(e);
+    const bots = e.orders.filter((o) => isBotPlay(o.playbook));
+    const rest = e.orders.filter((o) => !isBotPlay(o.playbook));
+    rest.length = Math.min(rest.length, maxWorking(e));
+    e.orders = [...rest, ...bots];
     fixes += 1;
   }
   if (e.positions.length > maxPositions(e)) {
-    e.positions.length = maxPositions(e);
+    const bots = e.positions.filter((p) => isBotPlay(p.playbook));
+    const rest = e.positions.filter((p) => !isBotPlay(p.playbook));
+    rest.length = Math.min(rest.length, maxPositions(e));
+    e.positions = [...rest, ...bots];
     fixes += 1;
   }
   for (const id of Object.keys(e.cooldown)) {
@@ -6166,7 +6196,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
     safeStage(e, "stats", () => recomputeStats(e));
     return e;
   }
-  if (e.botMode) {
+  if (e.botMode && !(e.x01Progress && e.activeConnId === "bingx-x01")) {
     if (opts?.symbolCount != null) e.symbolCount = clampSymbolCount(opts.symbolCount);
     if (opts?.orderType) e.orderType = opts.orderType;
     e.lastTactic = tactic;
@@ -6245,7 +6275,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
       progressed = true;
     }
   }
-  if (blockDue && !over() && !e.botMode) {
+  if (blockDue && !over() && (!e.botMode || (e.x01Progress && e.activeConnId === "bingx-x01"))) {
     safeStage(e, "block", () => {
       adjustActiveBlocks(e, cfg, tactic, block, opts?.rangeType, { endStage: opts?.endStage || e.tick >= endTick });
     });
@@ -6277,18 +6307,19 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   }
   const armEvery = completeOpenTape(e) || performingLive(e) || (e.completeSim && paperMode(e)) ? 2 : e.completeSim ? 6 : tapeRed(e) ? 8 : 12;
   if (!opts?.skipWalk && e.tick % armEvery === 0 && (completeOpenTape(e) || performingLive(e))) recycleOpenLadders(e);
-  const qn = e.queue.filter((o) => o.connId === e.activeConnId).length;
+  const progressLane = e.x01Progress && e.activeConnId === "bingx-x01";
+  const qn = e.queue.filter((o) => o.connId === e.activeConnId && !isBotPlay(o.playbook)).length;
   const qArm = e.completeSim ? Math.max(80, maxQueue(e) * 0.55) : Math.max(320, maxQueue(e) * 0.4);
-  const workN = e.orders.filter((o) => o.connId === e.activeConnId && (o.status === "open" || o.status === "partial")).length;
+  const workN = e.orders.filter((o) => o.connId === e.activeConnId && !isBotPlay(o.playbook) && (o.status === "open" || o.status === "partial")).length;
   const workArm = e.completeSim ? Math.floor(maxWorking(e) * 0.85) : maxWorking(e);
   if (
     !opts?.skipWalk &&
-    !e.botMode &&
+    (!e.botMode || progressLane) &&
     e.tick % armEvery === 0 &&
     !over() &&
     qn < qArm &&
     workN < workArm &&
-    e.positions.filter((p) => p.connId === e.activeConnId).length < maxPositions(e)
+    e.positions.filter((p) => p.connId === e.activeConnId && !isBotPlay(p.playbook)).length < maxPositions(e)
   ) {
     safeStage(e, "arm", () => armUniverse(e, cfg, tactic, opts?.rangeType));
   }

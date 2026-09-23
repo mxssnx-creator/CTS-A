@@ -289,6 +289,7 @@ let ticking = false;
 let tickStartedAt = 0;
 const liveBotSent = new Set<string>();
 const liveBotAt: Record<string, number> = {};
+const liveLane = new Map<string, "bot" | "progress">();
 
 function controlPrices(side: "long" | "short", entry: number, mark: number, slPct: number, tpPct: number) {
   const px = mark > 0 ? mark : entry;
@@ -501,12 +502,12 @@ const boot = initVstEngine(DEFAULT_TACTIC_CONFIG, { warmup: 0, symbolCount: 12, 
   boot.running = true;
   boot.phase = "running";
   boot.activeConnId = "bingx-x01";
-  boot.symbolCount = 12;
+  boot.symbolCount = 40;
   engageLiveBook(boot);
   const three = sanitizeArmed(armed);
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 6; i++) {
     stepDeskBots(boot, three, sess.configs);
-    tickVst(boot, LIVE_RUN_CFG, "trailing", { symbolCount: 12, rangeType: "atr", block: liveRunBlock() });
+    tickVst(boot, LIVE_RUN_CFG, "trailing", { symbolCount: 40, rangeType: "atr", block: liveRunBlock() });
   }
   const open = boot.positions.filter((p) => p.connId === "bingx-x01" && p.qty > 0).length;
   const progress = [...boot.queue, ...boot.orders].filter((o) => o.connId === "bingx-x01" && !String(o.playbook || "").startsWith("bot:") && (o.status === "queued" || o.status === "open" || o.status === "partial")).length;
@@ -1054,18 +1055,17 @@ export const useDesk = create<DeskStore>((set, get) => ({
       }
       takeBorn();
       const live = get().liveTape && get().feed.state === "live" && !anyBots;
+      const progress = view === "bingx-x01";
       const tickOpts = {
         freezeIds: live ? LIVE_SET : undefined,
-        rangeType: get().rangeType,
-        symbolCount: get().symbolCount,
-        orderType: get().orderType,
-        block: get().blockConfig,
+        rangeType: "atr" as const,
+        symbolCount: progress ? 40 : get().symbolCount,
+        orderType: progress ? "market" as const : get().orderType,
+        block: progress ? liveRunBlock(get().blockConfig) : get().blockConfig,
       };
-      const progress = e.x01Progress;
       const tickCfg = progress ? LIVE_RUN_CFG : get().tacticConfig;
-      const tickTac = progress ? "trailing" : get().tactic;
-      const tickBlock = progress ? liveRunBlock(get().blockConfig) : get().blockConfig;
-      tickVst(e, tickCfg, tickTac, { ...tickOpts, block: tickBlock });
+      const tickTac = progress ? "trailing" as const : get().tactic;
+      tickVst(e, tickCfg, tickTac, tickOpts);
       e.botHistTick = e.tick;
       for (const id of runningIds) {
         if (id === view) continue;
@@ -1081,13 +1081,17 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const nowLive = Date.now();
       for (const o of born) {
         if (liveBotSent.has(o.id)) continue;
-        if (nowLive - (liveBotAt[o.connId] ?? 0) < 4000) continue;
+        const lane = o.bot ? `bot:${o.connId}` : `px:${o.connId}`;
+        if (nowLive - (liveBotAt[lane] ?? 0) < 4000) continue;
         const conn = get().connections.find((c) => c.id === o.connId);
         if (!conn || conn.network === "paper") continue;
+        const owner = liveLane.get(`${o.connId}:${o.symbol}`);
+        const mine = o.bot ? "bot" : "progress";
+        if (owner && owner !== mine) continue;
         const heldLive = get().exchange?.connId === o.connId && get().exchange.positions.some((p) => p.symbol === o.symbol && p.qty > 0);
-        if (heldLive) continue;
+        if (heldLive && owner !== mine) continue;
         liveBotSent.add(o.id);
-        liveBotAt[o.connId] = nowLive;
+        liveBotAt[lane] = nowLive;
         const px = o.price > 0 ? o.price : 1;
         const acct = get().exchange?.connId === o.connId && (get().exchange?.equity ?? 0) > 0 ? get().exchange!.equity : 0;
         const notional = botLiveNotional(acct, BOT_DEFAULT_VOLUME_FACTOR);
@@ -1115,6 +1119,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
           .then((res) => {
             set({ ticketMsg: res.ok ? `LIVE ${conn.id} ${o.symbol} ${o.side}` : `LIVE rejected ${conn.id}: ${res.error}` });
             if (!res.ok) return;
+            liveLane.set(`${conn.id}:${o.symbol}`, o.bot ? "bot" : "progress");
             if (o.bot) void placeBotControls(conn.network === "testnet" ? "testnet" : "mainnet", conn.id, o.symbol, o.side, px, Math.max(slPct, 0.008), Math.max(tpPct, 0.006), px, "both", notional / px);
             if (get().activeConnId === conn.id) void get().pullExchange();
           })
@@ -1460,12 +1465,6 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.symbolCount = cfg.symbolCount;
     e.orderType = "market";
     e.strategyToggles = { ...cfg.strategies };
-    e.queue = e.queue.filter((o) => o.connId !== id || String(o.playbook || "").startsWith("bot:"));
-    for (const o of e.orders) {
-      if (o.connId !== id || String(o.playbook || "").startsWith("bot:")) continue;
-      if (o.status === "open" || o.status === "partial" || o.status === "queued") o.status = "cancelled";
-    }
-    e.orders = e.orders.filter((o) => o.connId !== id || String(o.playbook || "").startsWith("bot:") || o.status === "filled");
     if (!e.running || e.phase === "paused" || e.phase === "idle" || e.phase === "stopped") get().startEngine();
     e.botMode = true;
     e.activeConnId = id;
@@ -1504,7 +1503,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const cfg = get().tacticConfig;
     const tactic = get().tactic;
     const range = get().rangeType;
-    const n = Math.min(12, Math.max(8, get().symbolCount || 10));
+    const n = 40;
     const order = ["bingx-x01", ...DESK_CONN_IDS.filter((id) => id !== "bingx-x01")];
     for (const id of order) {
       const sess = botByConn[id];
@@ -1514,9 +1513,10 @@ export const useDesk = create<DeskStore>((set, get) => ({
       e.x01Progress = id === "bingx-x01";
       const tickCfg = e.x01Progress ? LIVE_RUN_CFG : cfg;
       const tickTac = e.x01Progress ? "trailing" : tactic;
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 8; i++) {
         stepDeskBots(e, sess.armed, sess.configs);
-        tickVst(e, tickCfg, tickTac, { symbolCount: n, rangeType: range, block: e.x01Progress ? liveRunBlock(get().blockConfig) : get().blockConfig });
+        if (e.x01Progress) e.symbolCount = n;
+        tickVst(e, tickCfg, tickTac, { symbolCount: e.x01Progress ? n : Math.min(12, get().symbolCount || 10), rangeType: range, block: e.x01Progress ? liveRunBlock(get().blockConfig) : get().blockConfig });
       }
     }
     e.activeConnId = "bingx-x01";
