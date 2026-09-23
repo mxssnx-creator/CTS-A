@@ -26,6 +26,20 @@ export function edgePnl(row: { pnl?: number; ratio?: number } | null | undefined
   return Number.isFinite(pnl) ? pnl : 0;
 }
 
+/** Average position multiple. 1 is flat after round-trip cost. Dollar qty and balance are ignored. */
+export function positionAverageRatio(rows: { pnl?: number; ratio?: number }[] | null | undefined): number {
+  if (!rows?.length) return 1;
+  let sum = 0;
+  let n = 0;
+  for (const row of rows) {
+    const edge = edgePnl(row);
+    if (!Number.isFinite(edge)) continue;
+    sum += edge;
+    n += 1;
+  }
+  return n ? 1 + sum / n : 1;
+}
+
 export type LastNWindowHit = { n: number; pf: number; avg: number; net: number; samples: number; ok: boolean };
 
 export const DEFAULT_LAST_N_PROGRESS: LastNProgressConfig = {

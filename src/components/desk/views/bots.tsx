@@ -16,7 +16,9 @@ import {
   LAST_POS_WINDOWS,
   VF_RECALC_RATIO,
   defaultBotConfig,
+  liveBotDeskStats,
   liveBotFloors,
+  liveBotTape,
   rankBotTypes,
   runParallelBots,
   type BotConfig,
@@ -171,6 +173,9 @@ export function BotsView() {
   usePreserveScroll();
   const bots = useDesk((s) => s.bots);
   const running = useDesk((s) => s.botsRunning);
+  const activeConnId = useDesk((s) => s.activeConnId);
+  const botByConn = useDesk((s) => s.botByConn);
+  const vst = useDesk((s) => s.vst);
   const setSelected = useDesk((s) => s.setBotsSelected);
   const setHours = useDesk((s) => s.setBotsHours);
   const toggleArmed = useDesk((s) => s.toggleBotArmed);
@@ -187,10 +192,11 @@ export function BotsView() {
   const best = useMemo(() => ranked.slice(0, BOT_PARALLEL_CAP).map((r) => r.type), [ranked]);
 
   const parallel = useMemo(() => {
+    if (running) return {} as ReturnType<typeof runParallelBots>;
     const cfgs: Partial<Record<BotTypeId, Partial<BotConfig>>> = {};
     for (const t of armed) cfgs[t] = bots.configs[t] ?? defaultBotConfig(t);
     return runParallelBots(armed, hours, 20260922, cfgs);
-  }, [armed, hours, bots.configs]);
+  }, [running, armed, hours, bots.configs]);
 
   const cols = armed.length <= 1 ? "grid-cols-1" : armed.length === 2 ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1 lg:grid-cols-3";
   const floors = liveBotFloors(cfg);
@@ -202,8 +208,7 @@ export function BotsView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Bots</p>
         <h1 className="text-2xl font-semibold tracking-tight">High-frequency bots</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted">
-          Best three run side by side. Select up to {BOT_PARALLEL_CAP} — each selected type keeps its own config, tape,
-          last-N and results. Live Start arms the focused type on the desk; intern still scores every overlay.
+          Best three run side by side on the connection selected at the top. Each connection keeps its own bots, orders, and results.
         </p>
       </div>
 
@@ -357,13 +362,35 @@ export function BotsView() {
               Stop
             </Button>
           </div>
-          <Pill tone={running ? "up" : "neutral"}>{running ? "Running" : "Stopped"}</Pill>
+          <Pill tone={running ? "up" : "neutral"}>{running ? "Live" : "Stopped"}</Pill>
           <span className="text-xs text-muted">
+            {activeConnId === "bingx-x01" ? "Live mainnet x01" : activeConnId}
+            {running ? ` · ${armed.length} bots on this connection` : " · this connection is stopped"}
+            {Object.entries(botByConn).some(([id, s]) => id !== activeConnId && s.running) ? " · other connections still running" : ""}
+            {" · "}
             Focused {BOT_TYPE_META[selected].label}
             {armed.includes(selected) ? " · selected for parallel" : " · not in parallel set"}
             · live TP {floors.tpAtr.toFixed(2)}% · SL/TP {floors.slOfTp.toFixed(2)} · trail {floors.trailPct.toFixed(1)}%
           </span>
         </div>
+        {running ? (
+          <div className="mt-4 grid gap-2 border-t border-border pt-4 sm:grid-cols-3">
+            {armed.map((t) => {
+              const st = liveBotDeskStats(vst, t);
+              return (
+                <div key={t} className="border border-border px-3 py-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold">{BOT_TYPE_META[t].label}</span>
+                    <Pill tone={st.n > 0 && st.pf >= 1 ? "up" : st.n > 0 ? "down" : "neutral"}>{st.n ? `PF ${fmtPf(st.pf)}` : "arming"}</Pill>
+                  </div>
+                  <p className="mt-1 font-mono text-xs tabular text-muted">
+                    fills {st.n} · open {st.open} · working {st.orders}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
 
         <div className="mt-4 border-t border-border pt-4">
           <p className="mb-2 text-xs font-medium text-muted">Strategies — intern always scores; live execute only when Active</p>
@@ -395,7 +422,69 @@ export function BotsView() {
         </div>
       </Panel>
 
-      <Panel title="Independent results · selected types only" action={<span className="text-xs text-muted">Tapes never mix</span>}>
+      <Panel title={running ? "Live tape · selected types" : "Independent results · selected types only"} action={<span className="text-xs text-muted">{running ? "Desk clock · tapes stay separate" : "Tapes never mix"}</span>}>
+        {running ? (
+          <div className="mb-4 border border-border px-3 py-2">
+            <p className="text-xs text-muted">Open on {activeConnId}</p>
+            <ul className="mt-2 divide-y divide-border text-sm">
+              {vst.positions.filter((p) => p.connId === activeConnId && p.qty > 0 && String(p.playbook || "").startsWith("bot:")).slice(0, 16).map((p) => (
+                <li key={p.id} className="flex items-center justify-between gap-2 py-1.5">
+                  <span className="font-mono text-xs">{p.symbol.replace("USDT", "")}</span>
+                  <span className="capitalize">{p.side}</span>
+                  <span className="text-muted">{String(p.playbook || "").replace("bot:", "")}</span>
+                </li>
+              ))}
+            </ul>
+            {vst.positions.some((p) => p.connId === activeConnId && p.qty > 0 && String(p.playbook || "").startsWith("bot:")) ? null : (
+              <p className="mt-2 text-xs text-muted">Waiting for the first fill on this connection.</p>
+            )}
+          </div>
+        ) : null}
+        {running ? (
+          <div className={`grid gap-4 ${cols}`}>
+            {armed.map((t) => {
+              const tape = liveBotTape(vst, t, activeConnId);
+              return (
+                <div key={t} className="flex min-w-0 flex-col gap-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">{BOT_TYPE_META[t].label}</h3>
+                    <Pill tone={tape.stats.n > 0 && tape.stats.pf >= 1 ? "up" : tape.stats.n > 0 ? "down" : "neutral"}>
+                      {tape.stats.n ? `PF ${fmtPf(tape.stats.pf)}` : "Live"}
+                    </Pill>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Kpi label="Live PF" value={fmtPf(tape.stats.pf)} tone={tape.stats.n > 0 && tape.stats.pf >= 1 ? "up" : tape.stats.n > 0 ? "down" : "neutral"} hint={`${tape.stats.n} fills`} />
+                    <Kpi label="Open" value={String(tape.stats.open)} tone="neutral" hint={`${tape.stats.orders} working`} />
+                  </div>
+                  <Panel title="Hour by hour" padded>
+                    <div className="max-h-56 overflow-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="sticky top-0 bg-surface text-subtle">
+                          <tr>
+                            {["h", "eq", "PF", "n", "net"].map((h) => (
+                              <th key={h} className="px-2 py-1.5 font-medium">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tape.hours.map((h) => (
+                            <tr key={h.hour} className="border-t border-border">
+                              <td className="px-2 py-1 font-mono tabular">{h.hour}</td>
+                              <td className="px-2 py-1 font-mono tabular">{fmtUsd(h.eq)}</td>
+                              <td className={`px-2 py-1 font-mono tabular ${h.n === 0 ? "text-muted" : h.pf >= 1 ? "text-up" : "text-down"}`}>{h.n ? fmtPf(h.pf) : "—"}</td>
+                              <td className="px-2 py-1 font-mono tabular">{h.n}</td>
+                              <td className={`px-2 py-1 font-mono tabular ${h.net >= 0 ? "text-up" : "text-down"}`}>{h.net >= 0 ? "+" : ""}{fmtUsd(h.net)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Panel>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
         <div className={`grid gap-4 ${cols}`}>
           {armed.map((t) => {
             const report = parallel[t];
@@ -403,6 +492,7 @@ export function BotsView() {
             return <BotResultsColumn key={t} type={t} report={report} />;
           })}
         </div>
+        )}
       </Panel>
     </div>
   );

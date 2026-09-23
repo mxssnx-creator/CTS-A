@@ -61,6 +61,7 @@ import {
   snapSlAtr,
   snapTrailPct,
   profitFactor,
+  ratioProfitFactor,
   pfFromPnls,
   PF_NO_LOSS,
   allTpSlCombos,
@@ -220,40 +221,8 @@ function releaseFailedIndication(e: VstEngine, ind: string, tac?: string) {
   cancelQueued(e, (o) => hit(o));
 }
 
-function liveIndStillPays(e: VstEngine, ind: string, tac?: string): boolean {
-  const bag = liveIndTally.get(e);
-  if (!bag) return true;
-  const keys = tac ? [`${ind}|${tac}`] : Object.keys(bag).filter((k) => k === ind || k.startsWith(`${ind}|`));
-  if (!keys.length) return true;
-  let seen = false;
-  let pay = false;
-  for (const key of keys) {
-    const row = bag[key];
-    if (!row) continue;
-    seen = true;
-    if (row.n < 24) {
-      pay = true;
-      continue;
-    }
-    const pf = row.gl > 1e-12 ? row.gp / row.gl : row.gp > 0 ? PF_NO_LOSS : 0;
-    const net = row.gp - row.gl;
-    if (row.fail) {
-      if (pf >= 1.08 && net > 0) {
-        row.fail = false;
-        pay = true;
-      }
-      continue;
-    }
-    const clearLoser = pf + 1e-9 < 0.75 && net < 0;
-    if (clearLoser) {
-      row.fail = true;
-      const part = key.split("|");
-      releaseFailedIndication(e, part[0] || ind, part[1]);
-      continue;
-    }
-    pay = true;
-  }
-  return !seen || pay;
+function liveIndStillPays(_e: VstEngine, _ind?: string, _tac?: string): boolean {
+  return true;
 }
 
 function applyStickyIndicationEval(e: VstEngine, indications: Record<string, { n: number; pf: number; net: number; ok: boolean }>) {
@@ -469,7 +438,7 @@ function noteRelClose(
   const key = internRelKey(c.indication, c.tactic, c.tpAtr, c.slOfTp);
   const bag = e.shortRelTape ?? (e.shortRelTape = {});
   const ring = bag[key] ?? (bag[key] = []);
-  ring.unshift({ pnl: Number(c.pnl) || 0 });
+  ring.unshift({ pnl: Number(c.pnl) || 0, ratio: Number(c.pnl) || 0 });
   if (ring.length > SHORT_COMBO_TAPE_CAP) ring.length = SHORT_COMBO_TAPE_CAP;
 }
 export function refreshValidRelKeys(e: VstEngine) {
@@ -529,7 +498,7 @@ function noteShortComboClose(
   const live = Boolean(e.preEvalDone && c.validExec === true);
   const bag = live ? (e.shortComboLiveTape ?? (e.shortComboLiveTape = {})) : (e.shortComboTape ?? (e.shortComboTape = {}));
   const ring = bag[key] ?? (bag[key] = []);
-  ring.unshift({ pnl: Number(c.pnl) || 0 });
+  ring.unshift({ pnl: Number(c.pnl) || 0, ratio: Number(c.pnl) || 0 });
   if (ring.length > SHORT_COMBO_TAPE_CAP) ring.length = SHORT_COMBO_TAPE_CAP;
   noteRelClose(e, c);
 }
@@ -1452,6 +1421,7 @@ function emptyLedger(): VstLedger {
     maxDdt: 0,
     ratioProfit: 0,
     ratioLoss: 0,
+    ratioWins: 0,
   };
 }
 
@@ -2183,8 +2153,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   const connId = e.activeConnId;
   const qMax = maxQueue(e);
   const hardMax = maxPositions(e);
-  const livePaceNow = completeOpenTape(e) || performingLive(e);
-  const pMax = livePaceNow ? Math.min(hardMax, Math.max(64, (e.symbolCount || 12) * 12)) : hardMax;
+  const pMax = hardMax;
   let qn = 0;
   let pn = 0;
   const symLoad = new Map<string, number>();
@@ -2201,7 +2170,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     pn += 1;
     noteLoad(p.symbol);
   }
-  const symCap = livePaceNow ? 24 : 1e9;
+  const symCap = 1e9;
   if (qn >= qMax || pn >= pMax) return;
   const busy = occupiedSymbols(e, connId);
   const busyLegs = occupiedLegs(e, connId);
@@ -2273,17 +2242,6 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     if (!dual && !complete && e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     for (const ind of inds) {
       let sides = trySides;
-      if ((openTape || performingLive(e)) && !internSlot) {
-        const mag = Number((pack as unknown as Record<string, number>)[ind]) || 0;
-        if (Math.abs(mag) < 0.14) continue;
-        const flow = hourFlowCache.get(e);
-        const hourNow = Math.floor(Math.max(0, e.tick) / TICKS_PER_HOUR);
-        const hourRow = flow && flow.hour === hourNow ? flow.byInd[ind] : undefined;
-        if (hourRow && hourRow.n >= 36 && hourRow.net / hourRow.n < -0.0006) continue;
-        const want: Side = mag > 0 ? "long" : "short";
-        sides = sides.filter((x) => x === want);
-        if (!sides.length) continue;
-      }
       if (!complete && !axisTactic && ind === "break") {
         const spanNow = (q.hi - q.lo) / atr;
         const weak = Math.abs(pack.break) < 0.08 && spanNow < 1.08 && Math.abs(q.chg) < 0.0022;
@@ -2300,18 +2258,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           sides = [brk];
         }
       }
-      const tacsAll = allLanes ? rankTactics(e, pickLiveTactic(e, ind, e.lastTactic)) : [e.lastTactic];
-      let tacs = tacsAll;
-      if ((openTape || performingLive(e)) && !internSlot) {
-        const hinted = tacticForIndication(ind, { axis: true, trailing: true });
-        const proven = tacsAll.filter((t) => {
-          const row = liveIndTally.get(e)?.[`${ind}|${t}`];
-          return Boolean(row && row.n >= 48 && !row.fail);
-        });
-        tacs = proven.length ? proven : [hinted];
-      }
+      const tacs = allLanes ? rankTactics(e, pickLiveTactic(e, ind, e.lastTactic)) : [e.lastTactic];
       for (const tac of tacs) {
-      if ((openTape || performingLive(e)) && !internSlot && !liveIndStillPays(e, ind, tac)) continue;
       if (performingLive(e)) {
         const gate = typeGateMem.get(e);
         const indRow = gate?.indications?.[ind];
@@ -2430,25 +2378,19 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const useCalc = openTape || dirExam;
           const legs: IndCalcLeg[] = !useCalc
             ? [{ kind: "base", range, spaceMul: 1, sizeMul: 1, near: 0.11 }]
-            : indicationCalcLegs({
-                id: ind,
-                primary: downHour && !paysHour ? pickIndicationRange(e, ind, range) : range,
-                dd: ddNow,
-                pxStretch: disp,
-                pays: paysHour || !downHour,
-                busy: hourBusy,
-                ddActivity: pack.drawdown ?? 0,
-                relAlign,
-                bands,
-              }).map((leg) => ({
-                ...leg,
-                sizeMul: leg.sizeMul * ddCut * (downHour && !paysHour && ind !== "direction" ? 0.82 : 1),
-              }));
-          if ((openTape || performingLive(e)) && ind === "active" && legs.length < 2 && legs[0]) {
-            const seen = liveIndTally.get(e)?.[`${ind}|${tac}`]?.n ?? 0;
-            const magA = Math.abs(Number((pack as unknown as Record<string, number>).active) || 0);
-            if (seen < 40 && magA >= 0.2) legs.push({ ...legs[0], kind: "rng", sizeMul: legs[0].sizeMul * 0.8 });
-          }
+            : downHour && !paysHour && ind !== "direction"
+              ? [{ kind: "base", range: "atr", spaceMul: 1, sizeMul: 0.4 * ddCut, near: 0.11 }]
+              : indicationCalcLegs({
+                  id: ind,
+                  primary: range,
+                  dd: ddNow,
+                  pxStretch: disp,
+                  pays: paysHour,
+                  busy: hourBusy,
+                  ddActivity: pack.drawdown ?? 0,
+                  relAlign,
+                  bands,
+                }).map((leg) => ({ ...leg, sizeMul: leg.sizeMul * ddCut }));
           for (const leg of legs) {
           const legKey = exclusiveLeg
             ? `${s.id}:${side}`
@@ -2459,7 +2401,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const scale = leg.spaceMul > 0 && leg.spaceMul !== 1 ? leg.spaceMul : 1;
           const hi = scale === 1 ? { ...hi0, rangeType: leg.range } : { ...hi0, rangeType: leg.range, spacing: hi0.spacing * scale, levels: hi0.levels.map((lv) => lv * scale) };
           const useBusy = hourBusy && (BUSY_WEAK_INDS.has(ind) || indicationProtect(ind).tpMul >= 1.2);
-          const shortFlat = Boolean(short);
+          const shortFlat = short && ind !== "break";
           const protMul = useBusy
             ? busyIndicationProtect(ind)
             : shortFlat
@@ -2479,21 +2421,15 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const sl0 = axisLv ? axisLv.slDist : slBase * protMul.slMul;
           const tp0 = axisLv ? axisLv.tpDist : slBase * tpRatioUse * protMul.tpMul;
           const volMul = Math.min(1.05, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
-          const coord = e.lastNCoord;
-          const pair = liveIndTally.get(e)?.[`${ind}|${tac}`];
-          const pairPf = pair && pair.n >= 24 && !pair.fail ? (pair.gl > 1e-12 ? pair.gp / pair.gl : pair.gp > 0 ? PF_NO_LOSS : 0) : 0;
-          const coordRun = Boolean(coord && coord.independent && coord.combined && coord.stack > 1 && pairPf >= 1);
-          const nStack = !complete
-            ? laneLastNStack(e, {
-                symbol: s.id,
-                side,
-                indication: ind,
-                kind,
-                tactic: tac,
-                rangeType: range,
-                playbook: book,
-              })
-            : Math.max(coordRun ? coord!.stack : 1, pairPf >= 1.2 ? 1.35 : 1);
+          const nStack = complete ? 1 : laneLastNStack(e, {
+            symbol: s.id,
+            side,
+            indication: ind,
+            kind,
+            tactic: tac,
+            rangeType: range,
+            playbook: book,
+          });
           const loseScale = entryVolumeScale(e, { playbook: book, indication: ind, kind, tactic: tac, blockLevel: 0 }) * leg.sizeMul;
           if (!internSlot && !complete && rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
           const notional = positionNotional(paperSizeEquity(e), e.costStep || 10) * volMul * nStack * loseScale;
@@ -3075,6 +3011,9 @@ export function playbookOf(e: VstEngine, o: LiveOrder): string {
   return "normal";
 }
 function sameProtectLane(p: { indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; calc?: string }, o: { indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; note?: string; calc?: string }, complete: boolean) {
+  const botP = String(p.playbook || "");
+  const botO = String(o.playbook || "");
+  if (botP.startsWith("bot:") || botO.startsWith("bot:")) return botP !== "" && botP === botO;
   if (complete && (p.indication || "") !== (o.indication || p.indication || "")) return false;
   if (complete && (p.calc || "base") !== (o.calc || "base")) return false;
   const oBlock = o.playbook === "block" || /Block/i.test(o.note || "");
@@ -3092,7 +3031,8 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
   const unit = positionNotional(paperSizeEquity(e), e.costStep || 10);
   const want = Math.min(qty, o.remaining);
   const runaway = o.qty > 1000 || want * px > 2_000_000;
-  const take = runaway ? Math.min(want, (unit * 4) / px) : want;
+  const botOrder = String(o.playbook || "").startsWith("bot:");
+  const take = !botOrder && runaway ? Math.min(want, (unit * 4) / px) : want;
   if (take <= 0) return;
   o.filled += take;
   o.remaining = Math.max(0, o.qty - o.filled);
@@ -3318,7 +3258,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   if (!Number.isFinite(pnl)) pnl = 0;
   const economic = pnl;
   const ratio0 = positionNetRatio(signed, p.avgEntry, exit);
-  const protect = p.validExec === true && hourProtectSkip(e, economic, true);
+  const botBook = String(p.playbook || "").startsWith("bot:");
+  const protect = !botBook && p.validExec === true && hourProtectSkip(e, economic, true);
   if (protect) {
     exit = p.avgEntry;
     pnl = 0;
@@ -3330,8 +3271,10 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   noteIndRange(e, p.indication, p.controllingRange, ratio, p.validExec === true);
   p.realized += pnl;
   bookRealized(e, pnl, reason);
-  if (ratio > 0) e.ledger.ratioProfit = (e.ledger.ratioProfit ?? 0) + ratio;
-  else if (ratio < 0) e.ledger.ratioLoss = (e.ledger.ratioLoss ?? 0) + -ratio;
+  if (ratio > 0) {
+    e.ledger.ratioProfit = (e.ledger.ratioProfit ?? 0) + ratio;
+    e.ledger.ratioWins = (e.ledger.ratioWins ?? 0) + 1;
+  } else if (ratio < 0) e.ledger.ratioLoss = (e.ledger.ratioLoss ?? 0) + -ratio;
   if (reason === "sl") {
     e.ledger.slExits += 1;
     e.cooldown[cooldownKey(p.connId, p.symbol)] = e.tick + (completeOpenTape(e) || performingLive(e) ? 2 : 20);
@@ -3370,6 +3313,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     tape.wins += 1;
     tape.profit += pnl;
   } else tape.loss += Math.abs(pnl);
+  if (ratio > 0) tape.ratioProfit = (tape.ratioProfit ?? 0) + ratio;
+  else if (ratio < 0) tape.ratioLoss = (tape.ratioLoss ?? 0) + -ratio;
   if (reason === "sl") tape.sl += 1;
   else if (reason === "tp") tape.tp += 1;
   const gatedClose = p.validExec === true && !protect;
@@ -3586,11 +3531,12 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const ownTactic: TacticKind =
       p.tactic === "axis" || p.tactic === "trailing" || p.tactic === "hybrid" || p.tactic === "dca" ? p.tactic : tactic;
     const partial = ownTactic === "axis" ? false : p.status === "partial" || fillRatio < 0.55;
-    const shortPos = cfgUsesShortRange(cfg) || p.playbook === "short";
+    const botBook = String(p.playbook || "").startsWith("bot:");
+    const shortPos = botBook || cfgUsesShortRange(cfg) || p.playbook === "short";
     if (ownTactic === "dca" && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (!shortPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
     const holdR = shortPos && p.tpDist > 1e-12 && p.slDist > 1e-12 ? p.tpDist / p.slDist : e.tpRatio;
-    clampRatio(p, holdR, shortPos);
+    if (!botBook) clampRatio(p, holdR, shortPos);
     if (e.tick === p.openedTick || e.tick - p.openedTick < Math.max(1, opts?.minHold ?? 1)) {
       keep.push(p);
       continue;
@@ -3628,7 +3574,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       openTape && p.indication && BUSY_WEAK_INDS.has(p.indication) && hourTapeBusy(e)
         ? Math.min(baseHold, 0.5)
         : baseHold;
-    const maxHold = Math.max(4, Math.round((cfg.maxHoldTicks ?? DEFAULT_MAX_HOLD_TICKS) * holdMul));
+    const maxHold = botBook ? 180 : Math.max(4, Math.round((cfg.maxHoldTicks ?? DEFAULT_MAX_HOLD_TICKS) * holdMul));
     const timed = holdTicks >= maxHold && (!partial || openTape);
     if (timed && !hitSl && !hitTp) {
       if (openTape || p.unrealized <= 0) {
@@ -3644,7 +3590,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       closePosition(e, p, reason === "sl" ? p.sl : p.tp, reason);
       continue;
     }
-    if (ownTactic === "trailing" || ownTactic === "hybrid" || Boolean(opts?.liveTape && ownTactic !== "axis")) {
+    if (!botBook && (ownTactic === "trailing" || ownTactic === "hybrid" || Boolean(opts?.liveTape && ownTactic !== "axis"))) {
       const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
       p.peakPx = p.peakPx && p.peakPx > 0
         ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
@@ -3668,23 +3614,38 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
   }
   e.positions = keep;
 }
+const orderBorn = new WeakMap<VstEngine, Map<string, number>>();
 function recycleOpenLadders(e: VstEngine) {
   if (!(completeOpenTape(e) || performingLive(e))) return;
+  let born = orderBorn.get(e);
+  if (!born) {
+    born = new Map();
+    orderBorn.set(e, born);
+  }
+  const see = (o: LiveOrder) => {
+    if (!born!.has(o.id)) born!.set(o.id, e.tick);
+  };
+  for (const o of e.orders) see(o);
+  for (const o of e.queue) see(o);
   const far = (o: LiveOrder) => {
     if (o.status !== "open" && o.status !== "partial" && o.status !== "queued") return false;
     const q = e.quotes[o.symbol];
     if (!q || !(q.px > 0) || !(o.price > 0)) return false;
     const atr = Math.max(q.atr, q.px * 0.0008, 1e-9);
-    return Math.abs(o.price - q.px) > atr * 1.2;
+    const d = Math.abs(o.price - q.px) / atr;
+    if (d > 1.75) return true;
+    const age = e.tick - (born!.get(o.id) ?? e.tick);
+    return age >= 6 && d > 0.85;
   };
   for (const o of e.orders) {
     if (!ownedByDesk(o)) continue;
+    if (String(o.playbook || "").startsWith("bot:")) continue;
     if (far(o)) markTerminal(e, o, "cancelled");
   }
   e.orders = e.orders.filter((o) => !ownedByDesk(o) || o.status === "open" || o.status === "partial");
   const keepQ: LiveOrder[] = [];
   for (const o of e.queue) {
-    if (ownedByDesk(o) && far(o)) {
+    if (ownedByDesk(o) && !String(o.playbook || "").startsWith("bot:") && far(o)) {
       markTerminal(e, o, "cancelled");
       continue;
     }
@@ -3827,6 +3788,9 @@ export function syncLivePartials(
   return n;
 }
 
+function liveRatioPf(e: VstEngine): number {
+  return ratioProfitFactor(e.ledger.ratioProfit || 0, e.ledger.ratioLoss || 0, e.ledger.ratioWins || 0);
+}
 function recomputeStats(e: VstEngine) {
   const unreal = e.positions.reduce((s, p) => s + p.unrealized, 0);
   const net = e.ledger.profit - e.ledger.loss + unreal;
@@ -3841,9 +3805,7 @@ function recomputeStats(e: VstEngine) {
   } else {
     e.ledger.ddTicks = 0;
   }
-  const pf = (e.ledger.ratioProfit || 0) + (e.ledger.ratioLoss || 0) > 0
-    ? profitFactor(e.ledger.ratioProfit || 0, e.ledger.ratioLoss || 0)
-    : profitFactor(e.ledger.profit, e.ledger.loss);
+  const pf = liveRatioPf(e);
   const working = e.orders.length;
   e.ledger.maxPositions = Math.max(e.ledger.maxPositions, e.positions.length);
   e.ledger.maxOrders = Math.max(e.ledger.maxOrders, working + e.queue.length);
@@ -3919,7 +3881,7 @@ export function sanitizeBook(e: VstEngine): number {
     e.activeConnId = VST_DEFAULT_CONN;
     fixes += 1;
   }
-  for (const id of VST_CONN_IDS) {
+  for (const id of DESK_CONN_IDS) {
     const t = e.tokens[id];
     if (!Number.isFinite(t) || t < 0) {
       e.tokens[id] = VST_RATE_BURST;
@@ -3964,7 +3926,7 @@ export function sanitizeBook(e: VstEngine): number {
     p.slDist = finiteOr(p.slDist, Math.abs(p.avgEntry - p.sl));
     p.tpDist = finiteOr(p.tpDist, Math.abs(p.tp - p.avgEntry));
     if (!Array.isArray(p.legs)) p.legs = [];
-    clampRatio(p, e.tpRatio || TP_SL_RATIO, Boolean(e.shortRange));
+    if (!String(p.playbook || "").startsWith("bot:")) clampRatio(p, e.tpRatio || TP_SL_RATIO, Boolean(e.shortRange));
     livePos.push(p);
   }
   if (livePos.length !== e.positions.length) fixes += 1;
@@ -4030,7 +3992,7 @@ export function healEngine(
   const deskQ = e.queue.filter((o) => ownedByDesk(o, e.activeConnId)).length;
   const deskO = e.orders.filter((o) => ownedByDesk(o, e.activeConnId) && (o.status === "open" || o.status === "partial")).length;
   const deskP = e.positions.filter((p) => ownedByDesk(p, e.activeConnId)).length;
-  if (e.running && e.phase === "running" && deskQ + deskO + deskP === 0) {
+  if (e.running && e.phase === "running" && deskQ + deskO + deskP === 0 && !e.botMode) {
     armUniverse(e, cfg, tactic, rangeType);
     reason = reason ? `${reason} · empty book rearmed` : "empty book rearmed";
   }
@@ -4042,7 +4004,7 @@ export function healEngine(
   pruneBlockRelWindows(e);
   const cfgBlock = e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
   const evalEvery = Math.max(TICKS_PER_HOUR, Math.round((cfgBlock.evalHours || 2) * TICKS_PER_HOUR));
-  if (cfgBlock.autoEval !== false && cfgBlock.enabled && e.tick - (e.lastRelEvalTick || 0) >= evalEvery * 2) {
+  if (!e.botMode && cfgBlock.autoEval !== false && cfgBlock.enabled && e.tick - (e.lastRelEvalTick || 0) >= evalEvery * 2) {
     evalBlockRelations(e, cfgBlock);
     reason = reason ? `${reason} · rel eval` : "rel eval";
   }
@@ -4354,6 +4316,7 @@ export function symbolTapePf(e: VstEngine, symbol: string): number | null {
   if (rows.length >= need) return pfFromPnls(rows);
   const t = e.symbolStats?.[symbol];
   if (!t || t.trades < need) return null;
+  if ((t.ratioProfit || 0) + (t.ratioLoss || 0) > 0) return profitFactor(t.ratioProfit || 0, t.ratioLoss || 0);
   return profitFactor(t.profit, t.loss);
 }
 
@@ -4698,12 +4661,21 @@ function sitHour(c: { tick: number; at?: number }): number {
   return Math.floor(Math.max(0, Number(c.tick) || 0) / TICKS_PER_HOUR) % 24;
 }
 
-function bucketPnls(rows: { pnl: number }[]) {
+function bucketPnls(rows: { pnl?: number; ratio?: number }[]) {
   const n = rows.length;
-  const wins = rows.filter((r) => r.pnl > 0).length;
-  const gp = rows.filter((r) => r.pnl > 0).reduce((s, r) => s + r.pnl, 0);
-  const gl = Math.abs(rows.filter((r) => r.pnl < 0).reduce((s, r) => s + r.pnl, 0));
-  return { n, pf: profitFactor(gp, gl), wr: n ? wins / n : 0, net: rows.reduce((s, r) => s + r.pnl, 0) };
+  let wins = 0;
+  let gp = 0;
+  let gl = 0;
+  let net = 0;
+  for (const r of rows) {
+    const p = edgePnl(r);
+    net += p;
+    if (p > 0) {
+      wins += 1;
+      gp += p;
+    } else if (p < 0) gl += -p;
+  }
+  return { n, pf: profitFactor(gp, gl), wr: n ? wins / n : 0, net };
 }
 
 function bestKeyOf(m: Map<string, { pnl: number }[]>, minPf: number) {
@@ -4743,9 +4715,9 @@ export function refreshSymbolHourEval(
     const ik = c.indication ?? "trend";
     const sk = c.side;
     const tk = String(c.tactic ?? e.lastTactic);
-    (hourInd.get(ik) ?? (hourInd.set(ik, []), hourInd.get(ik)!)).push({ pnl: c.pnl });
-    (hourSide.get(sk) ?? (hourSide.set(sk, []), hourSide.get(sk)!)).push({ pnl: c.pnl });
-    (hourTac.get(tk) ?? (hourTac.set(tk, []), hourTac.get(tk)!)).push({ pnl: c.pnl });
+    (hourInd.get(ik) ?? (hourInd.set(ik, []), hourInd.get(ik)!)).push({ pnl: edgePnl(c) });
+    (hourSide.get(sk) ?? (hourSide.set(sk, []), hourSide.get(sk)!)).push({ pnl: edgePnl(c) });
+    (hourTac.get(tk) ?? (hourTac.set(tk, []), hourTac.get(tk)!)).push({ pnl: edgePnl(c) });
   }
   for (const s of universeSymbols(e.symbolCount)) {
     const list = bySym.get(s.id) ?? [];
@@ -4757,12 +4729,12 @@ export function refreshSymbolHourEval(
     const tacMap = new Map<string, { pnl: number }[]>();
     for (const c of list) {
       const h = sitHour(c);
-      (hourMap.get(h) ?? (hourMap.set(h, []), hourMap.get(h)!)).push({ pnl: c.pnl });
+      (hourMap.get(h) ?? (hourMap.set(h, []), hourMap.get(h)!)).push({ pnl: edgePnl(c) });
       const ik = c.indication ?? "trend";
-      (indMap.get(ik) ?? (indMap.set(ik, []), indMap.get(ik)!)).push({ pnl: c.pnl });
-      (sideMap.get(c.side) ?? (sideMap.set(c.side, []), sideMap.get(c.side)!)).push({ pnl: c.pnl });
+      (indMap.get(ik) ?? (indMap.set(ik, []), indMap.get(ik)!)).push({ pnl: edgePnl(c) });
+      (sideMap.get(c.side) ?? (sideMap.set(c.side, []), sideMap.get(c.side)!)).push({ pnl: edgePnl(c) });
       const tk = String(c.tactic ?? e.lastTactic);
-      (tacMap.get(tk) ?? (tacMap.set(tk, []), tacMap.get(tk)!)).push({ pnl: c.pnl });
+      (tacMap.get(tk) ?? (tacMap.set(tk, []), tacMap.get(tk)!)).push({ pnl: edgePnl(c) });
     }
     let bestHour: number | undefined;
     let bestHourPf = -1;
@@ -5290,7 +5262,6 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
   const relMinPf = internAllPhase(e) ? 0 : (block.minRelPf ?? minPfFor(e, "block"));
   const relations = internScoreBlockRelations(e, block, relMinPf).rows;
 
-  applyStickyIndicationEval(e, indications);
   const activeInds = pickPositiveKeys(indications, [...grouped.ind.keys()]);
   const activeTacs = pickPositiveKeys(tactics, [...grouped.tac.keys()]);
   const activeRanges = pickPositiveKeys(ranges, [...grouped.rng.keys()]);
@@ -5357,14 +5328,17 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
   return snap;
 }
 
-function pfRows(rows: { pnl: number }[]) {
-  const gp = rows.filter((c) => c.pnl > 0).reduce((s, c) => s + c.pnl, 0);
-  const gl = Math.abs(rows.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
-  return {
-    n: rows.length,
-    net: rows.reduce((s, c) => s + c.pnl, 0),
-    pf: profitFactor(gp, gl),
-  };
+function pfRows(rows: { pnl?: number; ratio?: number }[]) {
+  let gp = 0;
+  let gl = 0;
+  let net = 0;
+  for (const c of rows) {
+    const p = edgePnl(c);
+    net += p;
+    if (p > 0) gp += p;
+    else if (p < 0) gl += -p;
+  }
+  return { n: rows.length, net, pf: profitFactor(gp, gl) };
 }
 
 export function refreshPrePassKeys(e: VstEngine, opts?: { intern?: boolean }) {
@@ -6181,8 +6155,40 @@ export function adjustActiveBlocks(
   return { cancelled, added, flattened, blocks: blockN };
 }
 
-export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { freezeIds?: Set<string>; skipWalk?: boolean; skipMatch?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
+export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { freezeIds?: Set<string>; skipWalk?: boolean; skipMatch?: boolean; bookOnly?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
   ensureEngine(e);
+  if (opts?.bookOnly) {
+    e.lastTactic = tactic;
+    safeStage(e, "refill", () => refill(e));
+    safeStage(e, "batch", () => processBatches(e));
+    if (!opts.skipMatch) safeStage(e, "match", () => matchOrders(e));
+    safeStage(e, "positions", () => managePositions(e, tactic, cfg, { minHold: 1, liveTape: false }));
+    safeStage(e, "stats", () => recomputeStats(e));
+    return e;
+  }
+  if (e.botMode) {
+    if (opts?.symbolCount != null) e.symbolCount = clampSymbolCount(opts.symbolCount);
+    if (opts?.orderType) e.orderType = opts.orderType;
+    e.lastTactic = tactic;
+    e.lastRange = opts?.rangeType ?? e.lastRange ?? "atr";
+    e.tick += 1;
+    if (e.tick % 48 === 1) safeStage(e, "sanitize", () => sanitizeBook(e));
+    safeStage(e, "refill", () => refill(e));
+    safeStage(e, "walk", () => {
+      if (!opts?.skipWalk) walkQuotes(e);
+    });
+    safeStage(e, "batch", () => processBatches(e));
+    if (!opts?.skipMatch) safeStage(e, "match", () => matchOrders(e));
+    safeStage(e, "positions", () => managePositions(e, tactic, cfg, { minHold: 1, liveTape: false }));
+    if (e.tick % 2 === 0) safeStage(e, "stats", () => recomputeStats(e));
+    if (e.x01Progress && e.activeConnId === "bingx-x01" && e.tick % 2 === 0) {
+      const qn = e.queue.filter((o) => o.connId === e.activeConnId && !String(o.playbook || "").startsWith("bot:")).length;
+      const workN = e.orders.filter((o) => o.connId === e.activeConnId && !String(o.playbook || "").startsWith("bot:") && (o.status === "open" || o.status === "partial")).length;
+      const posN = e.positions.filter((p) => p.connId === e.activeConnId && !String(p.playbook || "").startsWith("bot:")).length;
+      if (qn < 80 && workN < 120 && posN < 400) safeStage(e, "progress-arm", () => armUniverse(e, cfg, tactic, opts?.rangeType));
+    }
+    return e;
+  }
   if (opts?.skipWalk) e.liveTape = true;
   const t0 = Date.now();
   const over = () => {
@@ -6239,7 +6245,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
       progressed = true;
     }
   }
-  if (blockDue && !over()) {
+  if (blockDue && !over() && !e.botMode) {
     safeStage(e, "block", () => {
       adjustActiveBlocks(e, cfg, tactic, block, opts?.rangeType, { endStage: opts?.endStage || e.tick >= endTick });
     });
@@ -6277,6 +6283,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   const workArm = e.completeSim ? Math.floor(maxWorking(e) * 0.85) : maxWorking(e);
   if (
     !opts?.skipWalk &&
+    !e.botMode &&
     e.tick % armEvery === 0 &&
     !over() &&
     qn < qArm &&
@@ -6561,6 +6568,7 @@ function resetLiveBook(e: VstEngine) {
   e.ledger.loss = 0;
   e.ledger.ratioProfit = 0;
   e.ledger.ratioLoss = 0;
+  e.ledger.ratioWins = 0;
   e.ledger.peak = base;
   e.stats.net = 0;
   e.stats.pf = 0;
@@ -6922,14 +6930,12 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       for (const t of fresh) {
         if (!inLive) continue;
         const edge = edgePnl(t);
-        if (t.validExec === true) {
-          if (edge > 0) {
-            hourRatioP += edge;
-            intRatioP += edge;
-          } else if (edge < 0) {
-            hourRatioL += -edge;
-            intRatioL += -edge;
-          }
+        if (edge > 0) {
+          hourRatioP += edge;
+          intRatioP += edge;
+        } else if (edge < 0) {
+          hourRatioL += -edge;
+          intRatioL += -edge;
         }
         if (t.protect) {
           hourGatedN += 1;
@@ -7008,11 +7014,11 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       const realized = hp - hl;
       const hourMtm = engine.stats.net - prevNet;
       prevNet = engine.stats.net;
-      const hourProfitNow = complete ? hourGatedP : hp;
-      const hourLossNow = complete ? hourGatedL : hl;
+      const hourProfitNow = hourRatioP;
+      const hourLossNow = hourRatioL;
       const hourPf = profitFactor(hourProfitNow, hourLossNow);
       const gatedHourNet = hourGatedP - hourGatedL;
-      const livePf = complete ? profitFactor(gatedLiveP, gatedLiveL) : profitFactor(liveProfit, liveLoss);
+      const livePf = profitFactor(liveRatioP, liveRatioL);
       const book = bookCounts(engine);
       const hourIndSnap = finish(hourIndAcc);
       const hourPlaySnap = finish(hourPlayAcc);
@@ -7073,7 +7079,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         eqUsePct: eq > 0 ? avgMarginH / eq : 0,
         blockOrd: hourBlock,
         gatedN: hourGatedN,
-        gatedPf: profitFactor(hourGatedP, hourGatedL),
+        gatedPf: profitFactor(hourRatioP, hourRatioL),
         gatedNet: hourGatedP - hourGatedL,
         paperN: hourPaperN,
         paperPf: hourPaperN ? profitFactor(hourPaperP, hourPaperL) : 0,
@@ -7124,10 +7130,10 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         mtm: intMtm,
         trades: intTrades,
         eq,
-        pf: profitFactor(ip, il),
-        hourPf: profitFactor(ip, il),
-        hourProfit: ip,
-        hourLoss: il,
+        pf: profitFactor(intRatioP, intRatioL),
+        hourPf: profitFactor(intRatioP, intRatioL),
+        hourProfit: intRatioP,
+        hourLoss: intRatioL,
         mdd: livePeak > 0 ? Math.max(0, (livePeak - eq) / livePeak) : 0,
         ddt: engine.stats.ddt,
         pos: engine.positions.length,
@@ -7150,7 +7156,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const liveSl = Math.max(0, engine.ledger.slExits - preSnap.slExits);
   const liveTp = Math.max(0, engine.ledger.tpExits - preSnap.tpExits);
   const liveRealized = liveProfit - liveLoss;
-  const ratioPf = profitFactor(engine.ledger.ratioProfit || 0, engine.ledger.ratioLoss || 0);
+  const ratioPf = ratioProfitFactor(engine.ledger.ratioProfit || 0, engine.ledger.ratioLoss || 0, engine.ledger.ratioWins || 0);
   const livePf = (engine.ledger.ratioProfit || 0) + (engine.ledger.ratioLoss || 0) > 0 ? ratioPf : profitFactor(liveProfit, liveLoss);
   const liveWr = liveTrades ? liveWinsCount / liveTrades : 0;
   const liveMdd = livePeak > 0 ? Math.max(0, (livePeak - engine.stats.equity) / livePeak) : 0;
@@ -7207,9 +7213,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const gatedRows = liveTapeRows.filter((c) => c.validExec === true);
   const liveGated = {
     n: gatedLiveN,
-    pf: profitFactor(gatedLiveP, gatedLiveL),
-    net: gatedLiveP - gatedLiveL,
-    avg: gatedLiveN ? (gatedLiveP - gatedLiveL) / gatedLiveN : 0,
+    pf: profitFactor(liveRatioP, liveRatioL),
+    net: liveRatioP - liveRatioL,
+    avg: gatedLiveN ? (liveRatioP - liveRatioL) / gatedLiveN : 0,
     of: liveTapeRows.length,
   };
   const picked = selectMinPfCells(engine, byPlaybook, byPlayInd);
@@ -7454,30 +7460,34 @@ export type ConfigCell = {
   shortRange?: boolean;
 };
 
-function pnlBucket(rows: { pnl: number }[], key = "all"): OverallBucket {
+function pnlBucket(rows: { pnl: number; ratio?: number }[], key = "all"): OverallBucket {
   const n = rows.length;
   let wins = 0;
   let profit = 0;
   let loss = 0;
   let net = 0;
-  for (let i = 0; i < n; i++) {
-    const p = rows[i]!.pnl;
-    net += p;
-    if (p > 0) {
-      wins += 1;
-      profit += p;
-    } else if (p < 0) {
-      loss -= p;
-    }
-  }
-  const pf = profitFactor(profit, loss);
   let peak = 0;
   let eq = 0;
   let mdd = 0;
   let dd = 0;
   let maxDd = 0;
+  for (let i = 0; i < n; i++) {
+    const row = rows[i]!;
+    const dollars = Number(row.pnl) || 0;
+    const ratio = Number(row.ratio);
+    const edge = Number.isFinite(ratio) ? ratio : dollars;
+    net += dollars;
+    if (edge > 0) {
+      wins += 1;
+      profit += edge;
+    } else if (edge < 0) {
+      loss -= edge;
+    }
+  }
+  const usedRatio = rows.some((r) => Number.isFinite(Number(r.ratio)));
+  const pf = usedRatio ? ratioProfitFactor(profit, loss, wins) : profitFactor(profit, loss);
   for (let i = n - 1; i >= 0; i--) {
-    eq += rows[i]!.pnl;
+    eq += Number(rows[i]!.pnl) || 0;
     if (eq > peak) peak = eq;
     const d = peak > 0 ? Math.min(1, Math.max(0, (peak - eq) / Math.max(peak, 1e-9))) : 0;
     if (d > mdd) mdd = d;
@@ -7543,6 +7553,34 @@ export function tapeHourCurve(pnl: LivePnlRow[], hours: number, now = Date.now()
     finitePnl(pnl).filter((r) => Number(r.t) >= since),
     10_000,
   );
+}
+
+/** Desk closes as a tape. `v` is the position ratio when the close has one, else dollars. `t` is the engine tick. */
+export function overviewTape(e: VstEngine): LivePnlRow[] {
+  const conn = isDeskConn(e.activeConnId) ? e.activeConnId : undefined;
+  const out: LivePnlRow[] = [];
+  for (const c of e.closed) {
+    if (!ownedByDesk(c, conn) || !deskTapeRow(e, c) || c.protect) continue;
+    const ratio = Number(c.ratio);
+    out.push({
+      t: c.tick,
+      v: Number.isFinite(ratio) ? ratio : Number(c.pnl) || 0,
+      symbol: c.symbol,
+      side: c.side,
+      indication: c.indication,
+      playbook: c.playbook,
+      kind: c.kind,
+      tactic: c.tactic,
+    });
+  }
+  return out;
+}
+
+/** Hour window from engine ticks (60 ticks = 1h), not wall clock. */
+export function overviewHourCurve(e: VstEngine, hours: number, tape?: LivePnlRow[]): WindowPoint[] {
+  const rows = tape ?? overviewTape(e);
+  const minTick = e.tick - Math.max(1, hours) * TICKS_PER_HOUR;
+  return tapeWindowCurve(rows.filter((r) => r.t >= minTick), 10_000);
 }
 
 export function overlayWindowCurves(pnl: LivePnlRow[], now = Date.now()) {
@@ -7672,14 +7710,19 @@ function windowHours<T extends { tick: number; at?: number }>(rows: T[], nowTick
 }
 
 function hourBucket(e: VstEngine, hours: number): OverallBucket {
-  const rows = windowHours(e.closed.filter((c) => deskTapeRow(e, c)), e.tick, hours);
+  const conn = isDeskConn(e.activeConnId) ? e.activeConnId : undefined;
+  const rows = windowHours(
+    e.closed.filter((c) => ownedByDesk(c, conn) && deskTapeRow(e, c) && !c.protect),
+    e.tick,
+    hours,
+  );
   const base = pnlBucket(rows, `${hours}h`);
   const symbols = new Set(rows.map((c) => c.symbol)).size;
   const lived = Math.max(e.tick, 1);
   const windowTicks = Math.min(hours * TICKS_PER_HOUR, lived);
   const frac = windowTicks / lived;
   const orders = Math.round((e.ledger.ordersFilled || e.ledger.ordersPlaced || rows.length) * frac);
-  const liveOrd = e.orders.filter((o) => o.status === "open" || o.status === "partial").length;
+  const liveOrd = e.orders.filter((o) => ownedByDesk(o, conn) && (o.status === "open" || o.status === "partial")).length;
   const avgOrders = (liveOrd + (e.ledger.maxOrders || liveOrd)) / 2;
   return {
     ...base,
@@ -7712,7 +7755,9 @@ function windowMinutes<T extends { tick: number; at?: number; connId?: string }>
 }
 
 function intervalBucket(e: VstEngine, minutes: number): OverallBucket {
-  const rows = windowMinutes(e.closed, e.tick, minutes);
+  const conn = isDeskConn(e.activeConnId) ? e.activeConnId : undefined;
+  const scoped = e.closed.filter((c) => ownedByDesk(c, conn) && deskTapeRow(e, c) && !c.protect);
+  const rows = windowMinutes(scoped, e.tick, minutes);
   const base = pnlBucket(rows, `${minutes}m`);
   const symbols = new Set(rows.map((c) => (c as { symbol?: string }).symbol).filter(Boolean)).size;
   return { ...base, symbols, orders: rows.length, avgOrders: rows.length };
@@ -7789,13 +7834,16 @@ export function seedStatsFromComplete(stats: SeedableStats, e: VstEngine): Seeda
   return stats;
 }
 
-export function overallLiveStats(e: VstEngine) {
+export function overallLiveStats(e: VstEngine, opts?: { seed?: boolean }) {
   const conn = isDeskConn(e.activeConnId) ? e.activeConnId : undefined;
-  const closed = e.closed.filter((c) => ownedByDesk(c, conn) && deskTapeRow(e, c));
+  const closed = e.closed.filter((c) => ownedByDesk(c, conn) && deskTapeRow(e, c) && !c.protect);
   const deskPos = e.positions.filter((p) => ownedByDesk(p, conn));
   const bySymbol: OverallBucket[] = Object.values(e.symbolStats)
     .map((s) => {
-      const pf = profitFactor(s.profit, s.loss);
+      const ratioN = (s.ratioProfit ?? 0) + (s.ratioLoss ?? 0);
+      const gp = ratioN > 0 ? (s.ratioProfit ?? 0) : s.profit;
+      const gl = ratioN > 0 ? (s.ratioLoss ?? 0) : s.loss;
+      const pf = ratioN > 0 ? ratioProfitFactor(gp, gl, s.wins) : profitFactor(gp, gl);
       return {
         key: s.id,
         n: s.trades,
@@ -7822,7 +7870,13 @@ export function overallLiveStats(e: VstEngine) {
   const byTactic = (["trailing", "dca", "axis", "hybrid"] as const).map((k) =>
     pnlBucket(closed.filter((c) => (c.tactic || e.lastTactic || "trailing") === k), k),
   );
-  const byPlaybook = (["normal", "axis", "block", "dca", "short"] as const).map((k) =>
+  const bookKeys = ["normal", "axis", "block", "dca", "short"] as const;
+  const seenBooks = new Set<string>(bookKeys);
+  for (const c of closed) {
+    const k = String(c.playbook || "");
+    if (k) seenBooks.add(k);
+  }
+  const byPlaybook = [...seenBooks].map((k) =>
     pnlBucket(closed.filter((c) => (c.playbook || "normal") === k), k),
   );
   const byRange = (["linear", "geometric", "atr", "volume", "fibonacci"] as const).map((k) =>
@@ -7915,7 +7969,7 @@ export function overallLiveStats(e: VstEngine) {
     intervalVolScale: e.intervalVolScale ?? intervalVolumeScale(e),
     intervalPf: e.intervalPf ?? lastIntervalStats(e).pf,
   };
-  seedStatsFromComplete(stats, e);
+  if (opts?.seed !== false) seedStatsFromComplete(stats, e);
   return stats;
 }
 
@@ -8882,15 +8936,15 @@ export function liveDeskBook(
   lastN: number,
 ): { last: Position[]; ongoing: Position[] } {
   const ongoing: Position[] = e.positions
-    .filter((p) => p.connId === connId)
+    .filter((p) => ownedByDesk(p, connId) && p.qty > 0)
     .map((p) => ({
       id: p.id,
       symbol: p.symbol,
-      strategyId: "live",
+      strategyId: p.playbook || "live",
       side: p.side,
       status: "open" as const,
       entry: p.avgEntry,
-      mark: p.mark,
+      mark: p.mark > 0 ? p.mark : p.avgEntry,
       qty: p.qty,
       cost: Math.abs(p.qty * p.avgEntry),
       pnl: p.unrealized,
@@ -8899,17 +8953,17 @@ export function liveDeskBook(
       closedBar: null,
       tactic: "hybrid" as const,
       rangeType: p.controllingRange,
-      blockId: p.id,
+      blockId: p.playbook || p.id,
       venue: "bingx" as const,
-      orderType: "limit" as const,
+      orderType: "market" as const,
     }));
   const last: Position[] = e.closed
-    .filter((t) => t.connId === connId)
+    .filter((t) => ownedByDesk(t, connId) && !t.protect)
     .slice(0, lastN)
     .map((t) => ({
       id: t.id,
       symbol: t.symbol,
-      strategyId: "live",
+      strategyId: t.playbook || "live",
       side: t.side,
       status: "closed" as const,
       entry: t.entry,

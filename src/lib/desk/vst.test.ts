@@ -154,6 +154,7 @@ import {
   collectActiveOrderBlocks,
   blockPfOk,
   overallLiveStats,
+  overviewTape,
   haltEngine,
   healEngine,
   initVstEngine,
@@ -5457,6 +5458,55 @@ describe("calculations, relations, adjustments, stats", () => {
     const foreign = { connId: "someone-else", symbol: "BTCUSDT", side: "long" as const };
     assert.equal(ownedByDesk(foreign), false);
     assert.equal(ownedByDesk({ connId: VST_DEFAULT_CONN, symbol: "BTCUSDT" }), true);
+  });
+
+  it("overview PF is the position ratio and a winner file cannot replace a live tape", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    const row = (id: string, pnl: number, ratio: number, playbook: string, protect = false) => {
+      e.closed.unshift({
+        id,
+        connId: VST_DEFAULT_CONN,
+        symbol: "BTCUSDT",
+        side: "long",
+        pnl,
+        ratio,
+        qty: 1,
+        entry: 100,
+        exit: 100,
+        reason: pnl >= 0 ? "tp" : "sl",
+        tick: e.closed.length + 1,
+        r: ratio,
+        tactic: "trailing",
+        rangeType: "atr",
+        kind: "short",
+        indication: "trend",
+        playbook,
+        protect,
+      } as never);
+    };
+    row("a", 10, 1, "short");
+    row("b", -1, -0.5, "bot:sandwich");
+    row("c", -100, -9, "short", true);
+    (e as { completeWinner?: { pf: number; wr: number; net: number; trades: number; hours: number; mdd: number; ok: boolean; tactic: "hybrid"; range: "atr" } }).completeWinner = {
+      tactic: "hybrid",
+      range: "atr",
+      hours: 24,
+      pf: 9,
+      wr: 1,
+      net: 99,
+      trades: 40,
+      mdd: 0,
+      ok: true,
+    };
+    const ov = overallLiveStats(e, { seed: false });
+    assert.equal(ov.overall.n, 2);
+    assert.ok(Math.abs(ov.pf - 2) < 1e-9, `ratio pf ${ov.pf}`);
+    assert.ok(Math.abs(ov.net - 9) < 1e-9, `dollar net ${ov.net}`);
+    assert.equal(ov.byPlaybook.find((b) => b.key === "bot:sandwich")?.n, 1);
+    assert.ok((ov.hours["50"]?.pf ?? 0) < 3, "winner must not paint the hour");
+    const tape = overviewTape(e);
+    assert.equal(tape.length, 2);
+    assert.ok(tape.every((r) => r.t > 0));
   });
 
   it("hourly stats: nets sum to report net, margin is notional/125, hourPf from hour pnl", () => {

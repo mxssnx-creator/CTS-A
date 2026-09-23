@@ -124,6 +124,24 @@ export function profitFactor(profit: number, loss: number): number {
   const pf = gp / gl;
   return Number.isFinite(pf) ? pf : 0;
 }
+
+/**
+ * Position-ratio PF. 1 is flat after round-trip cost.
+ * A book with no losses does not snap to a constant: it is 1 plus the average
+ * net return measured in cost units, so a larger edge prints a larger PF.
+ */
+export function ratioProfitFactor(profit: number, loss: number, wins = 0): number {
+  const gp = Number.isFinite(profit) ? Math.max(0, profit) : 0;
+  const gl = Number.isFinite(loss) ? Math.max(0, loss) : 0;
+  if (gl >= 1e-12) {
+    const pf = gp / gl;
+    return Number.isFinite(pf) ? pf : 0;
+  }
+  const n = Math.max(0, Math.floor(Number(wins) || 0));
+  if (!(gp > 1e-12) || n < 1) return 0;
+  const pf = 1 + gp / (n * POSITION_RT_COST_PCT);
+  return Number.isFinite(pf) ? pf : 0;
+}
 export function pfFromPnls(rows: { pnl?: number; ratio?: number }[] | undefined | null): number {
   if (!rows?.length) return 0;
   let gp = 0;
@@ -2940,17 +2958,6 @@ export function indicationFromQuote(
   let prevRel = clampDir((desk?.direction ?? 0) * 0.55 + direction * 0.45);
 
   const ring = symbol ? pushTick(symbol, q) : [];
-  let gate: {
-    trend: boolean;
-    brk: boolean;
-    direction: boolean;
-    move: boolean;
-    rsi: boolean;
-    bollinger: boolean;
-    sar: boolean;
-    macd: boolean;
-    ema: boolean;
-  } | null = null;
   if (ring.length >= 8) {
     const closes = ring.map((t) => t.px);
     const e9 = emaLast(closes, 9);
@@ -3064,28 +3071,16 @@ export function indicationFromQuote(
     const slopeOk = Math.abs(r6) > 0.0024 && Math.sign(r6) === emaDir && Math.abs(r3) > 0.001;
     const richEma = stacked && slopeOk && emaDir !== 0 ? clampDir(emaDir * 0.86) : 0;
     const w = 0.58;
-    const trendOk = stacked && !exhausted;
-    trend = trendOk ? mixInd(richTrend, trend, w) : 0;
-    brk = brkDir !== 0 ? richBreak : 0;
+    trend = mixInd(richTrend, trend, w);
+    brk = brkDir !== 0 ? mixInd(richBreak, brk, 0.8) : mixInd(brk, 0, span > 1.18 ? 0.92 : 0.72);
     active = mixInd(richActive, active, w);
-    direction = richDir !== 0 && !exhausted ? mixInd(richDir, direction, 0.78) : 0;
-    move = richMove !== 0 ? richMove : 0;
-    rsi = richRsi !== 0 ? richRsi : 0;
-    bollinger = richBb !== 0 ? richBb : 0;
-    sar = richSar !== 0 ? richSar : 0;
-    macd = richMacd !== 0 ? richMacd : 0;
-    ema = richEma !== 0 ? richEma : 0;
-    gate = {
-      trend: trendOk,
-      brk: brkDir !== 0,
-      direction: richDir !== 0 && !exhausted,
-      move: richMove !== 0,
-      rsi: richRsi !== 0,
-      bollinger: richBb !== 0,
-      sar: richSar !== 0,
-      macd: richMacd !== 0,
-      ema: richEma !== 0,
-    };
+    direction = richDir !== 0 ? mixInd(richDir, direction, 0.78) : mixInd(direction, 0, 0.62);
+    move = richMove !== 0 ? mixInd(richMove, move, 0.72) : mixInd(0, move, 0.85);
+    rsi = mixInd(richRsi, rsi, w);
+    bollinger = mixInd(richBb, bollinger, w);
+    sar = richSar !== 0 ? mixInd(richSar, sar, 0.7) : mixInd(0, sar, 0.82);
+    macd = mixInd(richMacd, macd, w);
+    ema = richEma !== 0 ? mixInd(richEma, ema, 0.72) : mixInd(0, ema, 0.85);
     lastPart = mixInd(clampDir(r3 * 40), lastPart, 0.7);
     drawdown = clamp(ddRing * 0.65 + drawdown * 0.35, 0, 1);
     prevRel = mixInd(clampDir(Math.sign(r6) === Math.sign(r12) ? Math.sign(r6) * 0.7 : Math.sign(r3) * 0.4), prevRel, 0.65);
@@ -3102,17 +3097,6 @@ export function indicationFromQuote(
     sar = mixInd(sar, desk.sar ?? 0);
     macd = mixInd(macd, desk.macd ?? 0);
     ema = mixInd(ema, desk.ema ?? 0);
-  }
-  if (gate) {
-    if (!gate.trend) trend = 0;
-    if (!gate.brk) brk = 0;
-    if (!gate.direction) direction = 0;
-    if (!gate.move) move = 0;
-    if (!gate.rsi) rsi = 0;
-    if (!gate.bollinger) bollinger = 0;
-    if (!gate.sar) sar = 0;
-    if (!gate.macd) macd = 0;
-    if (!gate.ema) ema = 0;
   }
   const signed = [trend, brk, active, direction].filter((x) => Math.abs(x) > 0.12);
   const agree = signed.length >= 2 && signed.every((x) => Math.sign(x) === Math.sign(signed[0]!));

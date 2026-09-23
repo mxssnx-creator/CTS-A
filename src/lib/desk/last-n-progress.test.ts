@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { pfFromPnls } from "./engine.ts";
 import {
   DEFAULT_LAST_N_PROGRESS,
   EVAL_POS_N,
@@ -25,6 +26,7 @@ import {
   completeLastNCorrectness,
   coverCatalogRows,
   lastNMajorityOk,
+  positionAverageRatio,
   MAJORITY_MIN_POSITIVE,
   LAST_N_PASS_MODES,
   slimLastNProgress,
@@ -119,10 +121,18 @@ describe("multi last-N prefix + modes", () => {
     assert.ok(w30.pf + 1e-9 >= 1 && w30.avg >= 0, `30 pf ${w30.pf} avg ${w30.avg}`);
     assert.ok(w50.pf + 1e-9 >= 1 && w50.avg >= 0, `50 pf ${w50.pf} avg ${w50.avg}`);
     const c = scoreLastNModeTape(rows, cfgC, 1, 1, "combined");
-    const weaker = Math.min(w30.pf, w50.pf);
     assert.equal(c.pass, true, `combined pass pf ${c.pf} n ${c.n}`);
-    assert.ok(c.pf + 1e-9 >= weaker, `combined ${c.pf} should beat weaker single ${weaker}`);
-    assert.ok(c.pf + 1e-9 >= Math.max(w30.pf, w50.pf) - 1e-9, `combined ${c.pf} should be the stronger of 30=${w30.pf} and 50=${w50.pf}`);
+    assert.ok(c.pf > w30.pf && c.pf > w50.pf, `combined ${c.pf} must beat both singles 30=${w30.pf} 50=${w50.pf}`);
+  });
+
+  it("PF uses the position ratio, not the dollar balance", () => {
+    const small = [{ pnl: 12, ratio: 0.004 }, { pnl: -6, ratio: -0.002 }, { pnl: 9, ratio: 0.003 }];
+    const large = [{ pnl: 1200, ratio: 0.004 }, { pnl: -600, ratio: -0.002 }, { pnl: 900, ratio: 0.003 }];
+    assert.equal(pfFromPnls(small), pfFromPnls(large));
+    assert.ok(Math.abs(pfFromPnls(small) - 0.007 / 0.002) < 1e-9);
+    const avg = positionAverageRatio(small);
+    assert.ok(Math.abs(avg - (1 + (0.004 - 0.002 + 0.003) / 3)) < 1e-12, `avg ratio ${avg}`);
+    assert.ok(avg > 1);
   });
 
   it("gated PF below 1 fail-closes Independent, Combined, and Parallel", () => {

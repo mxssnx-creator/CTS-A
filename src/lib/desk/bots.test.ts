@@ -17,6 +17,7 @@ import {
   compareBots,
   defaultBotConfig,
   liveBotFloors,
+  liveBotTape,
   rankBotTypes,
   recalcVolumeFactor,
   runBotBacktest,
@@ -24,8 +25,11 @@ import {
   sanitizeArmed,
   sanitizeBotConfig,
   sanitizeBotsPersist,
+  stepDeskBots,
 } from "./bots.ts";
 import { GATED_MIN_PF } from "./last-n-progress.ts";
+import { DEFAULT_TACTIC_CONFIG, closePnl } from "./engine.ts";
+import { engageLiveBook, initVstEngine, tickVst } from "./vst.ts";
 
 describe("sandwich bots — config + volume", () => {
   it("sanitizes overall + independent per-type settings", () => {
@@ -353,6 +357,157 @@ describe("best 3 parallel bots — independent process + results", () => {
         assert.ok(r.overall.positive >= 2, `${t} primaries ${r.overall.positive}`);
       }
       assert.equal(r.gatedFailClosed, true);
+    }
+  });
+});
+
+describe("bots live on the desk tape", () => {
+  it("arms independent bot orders and does not run the ladder", () => {
+    const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, maxHoldTicks: 24 };
+    const e = initVstEngine(cfg, { symbolCount: 10, warmup: 0, arm: false, equity: 10, costStep: 3 });
+    engageLiveBook(e);
+    e.botMode = true;
+    e.running = true;
+    e.phase = "running";
+    e.symbolCount = 10;
+    const armed = ["sandwich", "clamp", "pivot"] as const;
+    const cfgs = {
+      sandwich: defaultBotConfig("sandwich"),
+      clamp: defaultBotConfig("clamp"),
+      pivot: defaultBotConfig("pivot"),
+    };
+    let placed = 0;
+    let engine = e;
+    for (let i = 0; i < 200; i++) {
+      placed += stepDeskBots(engine, armed, cfgs);
+      tickVst(engine, cfg, "trailing", { symbolCount: 10, rangeType: "atr" });
+      engine = { ...engine, botHist: engine.botHist, closed: engine.closed, positions: engine.positions, queue: engine.queue, orders: engine.orders, quotes: engine.quotes };
+    }
+    const tagged = [...engine.queue, ...engine.orders, ...engine.positions].filter((row) => String((row as { playbook?: string }).playbook || "").startsWith("bot:"));
+    const books = new Set(tagged.map((row) => String((row as { playbook?: string }).playbook || "")));
+    const closedN = engine.closed.filter((c) => String(c.playbook || "").startsWith("bot:") && !c.protect).length;
+    const histN = Object.values(engine.botHist ?? {}).reduce((n, rows) => n + rows.length, 0);
+    assert.ok(placed > 0, `placed ${placed}`);
+    assert.ok(tagged.length > 0, "bot orders reached the book");
+    assert.ok(books.size >= 2, `books ${[...books].join(",")}`);
+    assert.ok(histN >= 200, `history dropped across snapshots ${histN}`);
+    assert.ok(closedN > 0, `live closes ${closedN}`);
+    const tape = liveBotTape(engine, "sandwich");
+    assert.ok(tape.hours.length >= 2, `hours ${tape.hours.length}`);
+    const ladder = [...engine.queue, ...engine.orders].filter((o) => !String(o.playbook || "").startsWith("bot:") && (o.status === "queued" || o.status === "open" || o.status === "partial"));
+    assert.equal(ladder.length, 0);
+    const t0 = Date.now();
+    for (let i = 0; i < 40; i++) {
+      stepDeskBots(engine, armed, cfgs);
+      tickVst(engine, cfg, "trailing", { symbolCount: 10, rangeType: "atr" });
+    }
+    const ms = Date.now() - t0;
+    assert.ok(ms < 2000, `bot clock ${ms}ms`);
+    const stray = [...engine.queue, ...engine.orders].filter((o) => !String(o.playbook || "").startsWith("bot:") && (o.status === "queued" || o.status === "open" || o.status === "partial"));
+    assert.equal(stray.length, 0);
+  });
+
+  it("each connection opens its own positions and keeps one bar per tick", () => {
+    const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, maxHoldTicks: 24 };
+    const e = initVstEngine(cfg, { symbolCount: 8, warmup: 0, arm: false, equity: 10, costStep: 3 });
+    engageLiveBook(e);
+    e.running = true;
+    e.phase = "running";
+    e.symbolCount = 8;
+    const armed = ["sandwich", "clamp", "pivot"] as const;
+    const cfgs = {
+      sandwich: defaultBotConfig("sandwich"),
+      clamp: defaultBotConfig("clamp"),
+      pivot: defaultBotConfig("pivot"),
+    };
+    const conns = ["bingx-vst-01", "bingx-vst-02", "bingx-x01"] as const;
+    const view = conns[1];
+    for (let i = 0; i < 80; i++) {
+      const sampledAt = e.tick;
+      const before = e.botHist?.BTCUSDT?.length ?? 0;
+      e.activeConnId = view;
+      e.botMode = true;
+      stepDeskBots(e, armed, cfgs);
+      tickVst(e, cfg, "trailing", { symbolCount: 8, rangeType: "atr" });
+      e.botHistTick = e.tick;
+      for (const id of conns) {
+        if (id === view) continue;
+        e.activeConnId = id;
+        e.botMode = true;
+        stepDeskBots(e, armed, cfgs);
+        tickVst(e, cfg, "trailing", { bookOnly: true, symbolCount: 8, rangeType: "atr" });
+      }
+      e.botHistTick = sampledAt;
+      const after = e.botHist?.BTCUSDT?.length ?? before;
+      assert.ok(after <= before + 1, `extra bars ${before} -> ${after} at tick ${e.tick}`);
+    }
+    for (const id of conns) {
+      const open = e.positions.filter((p) => p.connId === id && p.qty > 0 && String(p.playbook || "").startsWith("bot:"));
+      const tagged = [...e.queue, ...e.orders, ...e.positions].filter((row) => row.connId === id && String((row as { playbook?: string }).playbook || "").startsWith("bot:"));
+      assert.ok(open.length > 0, `${id} open ${open.length}`);
+      assert.ok(tagged.length > 0, `${id} book empty`);
+      assert.ok(tagged.every((row) => row.connId === id), `${id} conn mixed`);
+    }
+    const moved = e.positions.some((p) => String(p.playbook || "").startsWith("bot:") && !conns.includes(p.connId as (typeof conns)[number]));
+    assert.equal(moved, false);
+  });
+
+  it("open bot positions match their fills, stops, and connection", () => {
+    const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, maxHoldTicks: 24 };
+    const e = initVstEngine(cfg, { symbolCount: 8, warmup: 0, arm: false, equity: 10, costStep: 3 });
+    engageLiveBook(e);
+    e.running = true;
+    e.phase = "running";
+    e.symbolCount = 8;
+    e.tpRatio = 2.6;
+    const armed = ["sandwich", "clamp", "pivot"] as const;
+    const cfgs = {
+      sandwich: defaultBotConfig("sandwich"),
+      clamp: defaultBotConfig("clamp"),
+      pivot: defaultBotConfig("pivot"),
+    };
+    const conns = ["bingx-vst-01", "bingx-vst-02", "bingx-x01"] as const;
+    for (let i = 0; i < 50; i++) {
+      for (const id of conns) {
+        e.activeConnId = id;
+        e.botMode = true;
+        stepDeskBots(e, armed, cfgs);
+        tickVst(e, cfg, "trailing", { symbolCount: 8, rangeType: "atr" });
+      }
+    }
+    const seen = new Set<string>();
+    let checked = 0;
+    for (const p of e.positions) {
+      if (!String(p.playbook || "").startsWith("bot:") || !(p.qty > 0)) continue;
+      checked += 1;
+      const key = `${p.connId}|${p.symbol}|${p.side}|${p.playbook}`;
+      assert.equal(seen.has(key), false, `duplicate ${key}`);
+      seen.add(key);
+      assert.ok(conns.includes(p.connId as (typeof conns)[number]), p.connId);
+      const legQty = p.legs.reduce((s, l) => s + l.qty, 0);
+      assert.ok(Math.abs(legQty - p.qty) < 1e-8, `qty ${p.qty} legs ${legQty}`);
+      assert.ok(p.avgEntry > 0 && p.mark > 0);
+      if (p.side === "long") {
+        assert.ok(p.tp > p.avgEntry, `long tp ${p.tp} entry ${p.avgEntry}`);
+        assert.ok(p.sl < p.tp, `long sl ${p.sl} tp ${p.tp}`);
+        assert.ok(p.sl < p.mark, `long stop through mark sl ${p.sl} mark ${p.mark}`);
+      } else {
+        assert.ok(p.tp < p.avgEntry, `short tp ${p.tp} entry ${p.avgEntry}`);
+        assert.ok(p.sl > p.tp, `short sl ${p.sl} tp ${p.tp}`);
+        assert.ok(p.sl > p.mark, `short stop through mark sl ${p.sl} mark ${p.mark}`);
+      }
+      const signed = p.side === "long" ? 1 : -1;
+      const mark = closePnl(signed, p.avgEntry, p.mark, p.qty);
+      assert.ok(Math.abs(mark - p.unrealized) < 1e-6, `mark ${mark} unrealized ${p.unrealized}`);
+      const foreign = e.positions.filter((q) => q.id === p.id && q.connId !== p.connId);
+      assert.equal(foreign.length, 0);
+    }
+    assert.ok(checked > 0, "no open bot positions");
+    for (const id of conns) {
+      const mine = e.positions.filter((p) => p.connId === id && p.qty > 0 && String(p.playbook || "").startsWith("bot:"));
+      const other = e.positions.filter((p) => p.connId !== id && p.qty > 0 && String(p.playbook || "").startsWith("bot:"));
+      assert.ok(mine.length > 0, `${id} empty`);
+      assert.ok(other.every((p) => p.connId !== id));
     }
   });
 });

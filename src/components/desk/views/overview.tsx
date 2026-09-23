@@ -17,7 +17,7 @@ import {
 } from "@/lib/desk/engine";
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
-import { bookCounts, exchangeAsPositions, liveDeskBook, overallLiveStats, OVERVIEW_HOUR_NS, OVERVIEW_POS_NS, positionsAsTrades, tapeHourCurve, tapeWindowCurve, type LivePnlRow } from "@/lib/desk/vst";
+import { bookCounts, exchangeAsPositions, liveDeskBook, overallLiveStats, overviewHourCurve, overviewTape, OVERVIEW_HOUR_NS, OVERVIEW_POS_NS, positionsAsTrades, tapeHourCurve, tapeWindowCurve, type LivePnlRow } from "@/lib/desk/vst";
 import { fmtNum, fmtPct, fmtSigned, fmtUsd, fmtEquity } from "@/lib/utils";
 import { EquityChart, MultiCurveChart } from "../charts";
 import { CostHeatmap } from "../heatmap";
@@ -45,6 +45,7 @@ export function OverviewView() {
   const params = useDesk((s) => s.strategyParams);
   const enabledKinds = useDesk((s) => s.enabledKinds);
   const vstTick = useDesk((s) => s.vst.tick);
+  const vstTrades = useDesk((s) => s.vst.closed.length);
   const vstCoord = useDesk((s) => s.vst.lastNCoord);
   const progressEval = useDesk((s) => s.vst.progressEval);
   const engineSize = useDesk((s) => s.vst.engineSizeFactor ?? 1);
@@ -80,8 +81,19 @@ export function OverviewView() {
     [lastNs.lanes, cfg, th, enabledKinds],
   );
   const live = liveDeskBook(useDesk.getState().vst, activeConnId, lastNs.last);
-  void vstTick;
-  const exPos = exchangeAsPositions(exchange);
+  const engineBook = useMemo(() => {
+    const e = useDesk.getState().vst;
+    const stats = overallLiveStats(e, { seed: false });
+    const tape = overviewTape(e);
+    return {
+      stats,
+      equity: Number(e.stats?.equity) || Number(e.startEquity) || 0,
+      posCurves: Object.fromEntries(OVERVIEW_POS_NS.map((n) => [String(n), tapeWindowCurve(tape, n)])),
+      hourCurves: Object.fromEntries(OVERVIEW_HOUR_NS.map((h) => [String(h), overviewHourCurve(e, h, tape)])),
+    };
+  }, [vstTick, vstTrades, activeConnId]);
+  const botsOn = useDesk((s) => s.botsRunning || Boolean(s.botByConn[s.activeConnId]?.running));
+  const exPos = botsOn ? [] : exchangeAsPositions(exchange);
   const lastPos = live.last;
   const ongoingPos = exPos.length ? exPos : live.ongoing;
   const next = live.ongoing.slice(0, lastNs.next);
@@ -100,60 +112,68 @@ export function OverviewView() {
     recovery: lastSlice.net >= 0 ? lastSlice.pf : 0,
     volumeFactor: vol.vf,
   };
+  const bookEquity = liveSnap.equity > 0 ? liveSnap.equity : engineBook.equity;
   const eq = (() => {
     const closed = lastPos.length ? lastPos : ongoingPos;
-    const base = (exchange?.equity ?? 0) - closed.reduce((s, p) => s + p.pnl, 0);
+    const base = (bookEquity || 0) - closed.reduce((s, p) => s + p.pnl, 0);
     let run = base;
     const pts = closed.map((p, i) => {
       run += p.pnl;
       return { i, eq: run };
     });
-    return pts.length ? pts : [{ i: 0, eq: exchange?.equity ?? liveSnap.equity ?? 0 }];
+    return pts.length ? pts : [{ i: 0, eq: bookEquity }];
   })();
   const stName = STRATEGIES.find((s) => s.id === strategyId)?.name ?? strategyId;
   const remoteOverall = (session?.overall as LiveOverview | undefined) ?? (overallFile?.live as LiveOverview | undefined);
-  const overall = ((remoteOverall ?? (liveSnap.hasLive ? {} : overallLiveStats(useDesk.getState().vst))) ?? {}) as LiveOverview;
+  const remoteN = Number(remoteOverall?.overall?.n ?? remoteOverall?.trades ?? 0);
+  const engineN = Number(engineBook.stats.trades ?? engineBook.stats.overall?.n ?? 0);
+  const useRemote = remoteN > 0 && engineN === 0 && liveSnap.hasLive;
+  const overall = ((useRemote ? remoteOverall : engineBook.stats) ?? {}) as LiveOverview;
   const sweepCells = (overallFile?.sweep as { cells?: { ok?: boolean; pf?: number }[] } | undefined)?.cells ?? [];
   const validated = sweepCells.filter((c) => c.ok).length;
-  const liveWin = overall?.hours?.["4"] ?? overall?.lastN?.["40"] ?? overall?.lastN?.["12"];
-  const winnerPf = Number(
-    (overallFile as { complete?: { winner?: { pf?: number } }; sweep?: { winner?: { pf?: number } } } | null)?.complete?.winner?.pf ??
-      (overallFile as { sweep?: { winner?: { pf?: number } } } | null)?.sweep?.winner?.pf ??
-      0,
-  );
-  const tapeN = Number(liveSnap.trades);
-  const sessPf = tapeN > 0
-    ? Number(liveSnap.pf || 0)
-    : liveSnap.hasLive
-      ? Number(liveSnap.pf || liveWin?.pf || 0)
-      : winnerPf || Number(liveSnap.pf || liveWin?.pf || 0);
-  const sessWr = tapeN > 0 ? Number(liveSnap.wr) : Number(liveWin?.wr ?? liveSnap.wr);
-  const sessNet = Number(liveSnap.net);
-  const sessTrades = tapeN;
-  const closedPf = tapeN > 0
-    ? Number(overall?.overall?.pf ?? overall?.pf ?? sessPf)
-    : liveSnap.hasLive
-      ? Number(overall?.overall?.pf ?? overall?.pf ?? sessPf)
-      : winnerPf || sessPf;
-  const closedWr = Number(overall?.overall?.wr ?? overall?.wr ?? sessWr);
-  const closedNet = Number(overall?.overall?.net ?? overall?.net ?? sessNet);
-  const closedN = tapeN;
-  const tape = ((session?.tape as LivePnlRow[] | undefined) ?? []).filter((r) => Number.isFinite(Number(r.v)));
+  const sessPf = Number(overall.pf ?? overall.overall?.pf ?? 0);
+  const sessWr = Number(overall.wr ?? overall.overall?.wr ?? 0);
+  const sessNet = Number(overall.net ?? overall.overall?.net ?? 0);
+  const sessTrades = Number(overall.trades ?? overall.overall?.n ?? 0);
+  const enginePf = useDesk((s) => s.vst.stats.pf);
+  const ratioGp = useDesk((s) => s.vst.ledger.ratioProfit ?? 0);
+  const ratioGl = useDesk((s) => s.vst.ledger.ratioLoss ?? 0);
+  const ratioWins = useDesk((s) => s.vst.ledger.ratioWins ?? 0);
+  const realBook = ratioWins > 0 || ratioGl > 1e-12;
+  const livePf = realBook ? enginePf : sessPf;
+  const liveTradesN = realBook ? Number(engineBook.stats.trades ?? sessTrades) : sessTrades;
+  const computeHint = !realBook
+    ? sessTrades > 0
+      ? `${sessTrades} tape closes`
+      : "no closes yet"
+    : ratioGl > 1e-12
+      ? `${ratioGp.toFixed(4)} / ${ratioGl.toFixed(4)} · ${ratioWins} wins`
+      : `1 + ${ratioGp.toFixed(4)} / (${ratioWins} × 0.0012)`;
+  const closedPf = Number(overall.overall?.pf ?? livePf);
+  const closedWr = Number(overall.overall?.wr ?? sessWr);
+  const closedNet = Number(overall.overall?.net ?? sessNet);
+  const closedN = Number(overall.overall?.n ?? sessTrades);
+  const tape = useRemote
+    ? ((session?.tape as LivePnlRow[] | undefined) ?? []).filter((r) => Number.isFinite(Number(r.v)))
+    : [];
   const overlayN = overlayLastN;
   const overlayBucket = overall.lastN?.[String(overlayN)];
-  const overlayPf = Number(overlayBucket?.pf ?? closedPf);
-  const overlayWr = Number(overlayBucket?.wr ?? closedWr);
-  const overlayNet = Number(overlayBucket?.net ?? closedNet);
-  const overlayDdt = Number(overlayBucket?.ddt ?? overall.ddt ?? 0);
-  const overlayMdd = Number(overlayBucket?.mdd ?? overall.mdd ?? 0);
+  const overlayPf = Number(overlayBucket?.pf ?? 0);
+  const overlayWr = Number(overlayBucket?.wr ?? 0);
+  const overlayNet = Number(overlayBucket?.net ?? 0);
+  const overlayDdt = Number(overlayBucket?.ddt ?? 0);
+  const overlayMdd = Number(overlayBucket?.mdd ?? 0);
+  const pickBucket = overall.lastN?.[String(lastNs.picks)] ?? overall.lastN?.[String(lastNs.last)];
   const posCurves = useMemo(() => {
+    if (!useRemote) return engineBook.posCurves;
     if (!tape.length) return Object.fromEntries(OVERVIEW_POS_NS.map((n) => [String(n), []] as const));
     return Object.fromEntries(OVERVIEW_POS_NS.map((n) => [String(n), tapeWindowCurve(tape, n)]));
-  }, [tape]);
+  }, [useRemote, tape, engineBook.posCurves]);
   const hourCurves = useMemo(() => {
+    if (!useRemote) return engineBook.hourCurves;
     if (!tape.length) return Object.fromEntries(OVERVIEW_HOUR_NS.map((h) => [String(h), []] as const));
     return Object.fromEntries(OVERVIEW_HOUR_NS.map((h) => [String(h), tapeHourCurve(tape, h)]));
-  }, [tape]);
+  }, [useRemote, tape, engineBook.hourCurves]);
   const overlayCurve = posCurves[String(overlayN)] ?? [];
   const overlayVol = overlayCurve.length ? overlayCurve[overlayCurve.length - 1]!.vol : 0;
 
@@ -167,14 +187,17 @@ export function OverviewView() {
         </p>
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
           {LAST_N_PROGRESS_META.map((st) => {
-            const b = overall.lastN?.[String(st.n)];
             const coord = vstCoord;
             const active =
               st.id === "eval" ? coord?.evalNs : st.id === "valid" ? coord?.validNs : coord?.disableNs;
+            const stageBag = st.id === "eval" ? progressEval?.evalNs : st.id === "valid" ? progressEval?.validNs : progressEval?.disableNs;
+            const stageN = active?.[0] ?? st.n;
+            const stage = stageBag?.[String(stageN)] ?? stageBag?.[String(st.n)];
+            const b = stage ?? overall.lastN?.[String(st.n)];
             return (
               <Kpi
                 key={st.id}
-                label={`${st.label} N${st.n}`}
+                label={`${st.label} N${stageN}`}
                 value={fmtPf(b?.pf ?? 0)}
                 tone={pfTone(b?.pf ?? 0)}
                 hint={active?.length ? `active ${active.join("/")} · ${b?.n ?? 0} closes` : `${b?.n ?? 0} closes`}
@@ -307,23 +330,23 @@ export function OverviewView() {
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-        <Kpi label="Live PF" value={fmtPf(sessPf)} tone={pfTone(sessPf)} hint={tapeN > 0 ? `${tapeN} tape closes` : "independent compute"} />
-        <Kpi label="Win rate" value={fmtWr(sessWr)} hint={`${liveSnap.livePos} open`} />
+        <Kpi label="Live PF" value={Number.isFinite(livePf) ? livePf.toFixed(4) : "—"} tone={pfTone(livePf)} hint={computeHint} />
+        <Kpi label="Win rate" value={fmtWr(sessWr)} hint={`${liveTradesN} closes`} />
         <Kpi label="Net" value={fmtUsd(sessNet)} tone={sessNet >= 0 ? "up" : "down"} />
-        <Kpi label="Closed PF" value={fmtPf(closedPf)} tone={closedPf >= th.minPf ? "up" : closedPf < 1 ? "down" : "accent"} hint={`${closedN} tape closes`} />
-        <Kpi label="Overlay PF" value={fmtPf(overlayPf)} tone={pfTone(overlayPf)} hint={`last ${overlayN}`} />
-        <Kpi label="Exchange pos" value={String(liveSnap.livePos)} tone="accent" hint={`${liveSnap.liveOrd} orders`} />
+        <Kpi label="Closed PF" value={fmtPf(closedPf)} tone={closedPf >= th.minPf ? "up" : closedPf > 0 && closedPf < 1 ? "down" : "accent"} hint={`${closedN} closes`} />
+        <Kpi label="Overlay PF" value={fmtPf(overlayPf)} tone={pfTone(overlayPf)} hint={`last ${overlayN} · n ${overlayBucket?.n ?? 0}`} />
+        <Kpi label="Open" value={String(liveSnap.livePos || openSlice.n)} tone="accent" hint={`${liveSnap.liveOrd} orders`} />
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
         <Kpi
           label="BingX equity"
-          value={liveSnap.equity ? fmtEquity(liveSnap.equity) : "—"}
+          value={bookEquity ? fmtEquity(bookEquity) : "—"}
           hint={liveSnap.pingOk ? `${liveSnap.latencyMs || "ok"} · ${activeConnId}` : "connecting"}
           tone={liveSnap.pingOk ? "up" : "neutral"}
         />
         <Kpi label="Exchange pos" value={String(liveSnap.livePos)} hint="At BingX" />
         <Kpi label="Exchange orders" value={String(liveSnap.liveOrd)} />
-        <Kpi label="Session PF" value={fmtPf(sessPf)} hint={`${sessTrades} all`} tone={pfTone(sessPf)} />
+        <Kpi label="Session PF" value={Number.isFinite(livePf) ? livePf.toFixed(4) : "—"} hint={computeHint} tone={pfTone(livePf)} />
         <Kpi label="Tape PF" value={fmtPf(closedPf)} hint={`${closedN} closed`} tone={pfTone(closedPf)} />
       </div>
 
@@ -359,7 +382,7 @@ export function OverviewView() {
 
       <Panel title="Windows · PF / DDT / volume / drawdown">
         <p className="text-sm text-muted">
-          Last 12 / 40 / 120 / 650 closes and last 2 / 6 / 12 / 45 hours from BingX realized PnL. Curves: equity, |PnL| volume, rolling PF, drawdown.
+          Last 12 / 40 / 120 / 650 closes and last 2 / 6 / 12 / 45 hours from the desk tape. PF is the position-ratio (base 1). Net and the equity curve are dollars.
         </p>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
@@ -451,7 +474,7 @@ export function OverviewView() {
         <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
           <StatLine k="Closed PF" v={fmtPf(closedPf)} />
           <StatLine k="Closed WR" v={fmtWr(closedWr)} />
-          <StatLine k="System Net" v={fmtUsd(liveSnap.hasLive ? liveSnap.systemNet : closedNet)} tone={(liveSnap.hasLive ? liveSnap.systemNet : closedNet) >= 0 ? "up" : "down"} />
+          <StatLine k="System Net" v={fmtUsd(useRemote ? liveSnap.systemNet : closedNet)} tone={(useRemote ? liveSnap.systemNet : closedNet) >= 0 ? "up" : "down"} />
           <StatLine k="Closed / open" v={`${fmtUsd(closedNet)} / ${fmtUsd(liveSnap.openNet)}`} />
           <StatLine k="Occupied" v={`${liveSnap.occupied || overall.occupied || 0} / ${overall.symbols ?? liveSnap.session?.symbols ?? 50}`} />
           <StatLine k="Legs" v={`${liveSnap.livePos || liveSnap.slots || overall.slots || 0} · ${liveSnap.liveLong}L/${liveSnap.liveShort}S`} />
@@ -576,9 +599,9 @@ export function OverviewView() {
           <EquityChart data={overlayCurve.length ? overlayCurve.map((p) => ({ i: p.i, eq: p.eq })) : eq} />
         </Panel>
         <Panel className="xl:col-span-2" title={`Last ${lastNs.picks} evals`}>
-          <StatLine k="PF" v={fmtPf(last.pf)} tone={pfTone(last.pf)} />
-          <StatLine k="Net" v={fmtUsd(last.net)} tone={last.net >= 0 ? "up" : "down"} />
-          <StatLine k="Win rate" v={fmtWr(last.wr)} />
+          <StatLine k="PF" v={fmtPf(pickBucket?.pf ?? last.pf)} tone={pfTone(pickBucket?.pf ?? last.pf)} />
+          <StatLine k="Net" v={fmtUsd(pickBucket?.net ?? last.net)} tone={(pickBucket?.net ?? last.net) >= 0 ? "up" : "down"} />
+          <StatLine k="Win rate" v={fmtWr(pickBucket?.wr ?? last.wr)} />
           <StatLine k="Expectancy" v={fmtUsd(last.expectancy)} />
           <StatLine k="SQN" v={fmtNum(last.sqn, 2)} />
           <StatLine k="Vol-weighted confirm" v={fmtNum(vol.vf, 2)} />
@@ -712,7 +735,15 @@ export function OverviewView() {
 
 function VstStrip() {
   const live = useLiveSnapshot();
+  const enginePf = useDesk((s) => s.vst.stats.pf);
+  const engineEq = useDesk((s) => s.vst.stats.equity);
+  const engineN = useDesk((s) => s.vst.ledger.trades);
+  const engineWr = useDesk((s) => s.vst.stats.wr);
   const tpRatio = useDesk((s) => s.tacticConfig.tpRatio);
+  const pf = live.trades > 0 ? live.pf : enginePf;
+  const equity = live.equity > 0 ? live.equity : engineEq;
+  const trades = live.trades > 0 ? live.trades : engineN;
+  const wr = live.trades > 0 ? live.wr : engineWr;
   return (
     <Panel
       title="BingX VST ×02"
@@ -723,11 +754,11 @@ function VstStrip() {
       }
     >
       <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
-        <StatLine k="Equity" v={live.equity ? fmtUsd(live.equity, 0) : "—"} tone={live.pingOk ? "up" : "neutral"} />
-        <StatLine k="Live PF" v={fmtPf(live.pf)} tone={pfTone(live.pf)} />
+        <StatLine k="Equity" v={equity ? fmtUsd(equity, 0) : "—"} tone={live.pingOk || equity > 0 ? "up" : "neutral"} />
+        <StatLine k="Live PF" v={fmtPf(pf)} tone={pfTone(pf)} />
         <StatLine k="Exchange pos" v={String(live.livePos)} />
         <StatLine k="Exchange orders" v={`${live.liveOrd} · SL ${live.liveSl} · TP ${live.liveTp}`} />
-        <StatLine k="Closed" v={`${live.trades} · WR ${fmtWr(live.wr)}`} />
+        <StatLine k="Closed" v={`${trades} · WR ${fmtWr(wr)}`} />
         <StatLine k="Tactic" v={`${live.tactic} · ${live.range}`} />
         <StatLine k="Ping" v={live.pingOk ? "ok" : "connecting"} tone={live.pingOk ? "up" : "neutral"} />
         <StatLine k="TP / SL" v={`${tpRatio.toFixed(2)}R`} />

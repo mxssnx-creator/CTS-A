@@ -7,7 +7,7 @@ import {
   TACTIC_META,
   volumeCoord,
 } from "@/lib/desk/engine";
-import { bookCounts, exchangeAsPositions, liveDeskBook, positionsAsTrades } from "@/lib/desk/vst";
+import { liveDeskBook, positionsAsTrades } from "@/lib/desk/vst";
 import type { Position } from "@/lib/desk/types";
 import { useDesk } from "@/lib/desk/store";
 import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
@@ -41,9 +41,8 @@ export function PositionsView() {
   const [tab, setTab] = useState<Tab>("open");
 
   const live = liveDeskBook(vst, activeConnId, lastNs.last);
-  const exPos = exchangeAsPositions(exchange);
   const closed = live.last;
-  const open = exPos.length ? exPos : live.ongoing;
+  const open = live.ongoing;
   const next = live.ongoing.slice(0, lastNs.next);
   const lastSlicePos = closed.slice(-lastNs.last);
   const ongoingSlice = open.slice(-lastNs.ongoing);
@@ -58,11 +57,20 @@ export function PositionsView() {
   const openEval = posSliceStats(coordOngoing);
   const vol = volumeCoord(positionsAsTrades(closed.length ? closed : open));
   const venue = connections.find((c) => c.id === activeConnId) ?? connections.find((c) => c.status === "connected") ?? connections[0];
-  const livePos = vst.positions.filter((p) => p.connId === activeConnId);
+  const livePos = vst.positions.filter((p) => p.connId === activeConnId && p.qty > 0);
   const liveOrders = vst.orders.filter(
     (o) => o.connId === activeConnId && (o.status === "open" || o.status === "partial" || o.status === "queued"),
   );
-  const tape = bookCounts(vst);
+  const slotKeys = new Set(livePos.map((p) => `${p.symbol}:${p.side}:${p.playbook || ""}`));
+  const exchRows = (exchange?.positions ?? []).filter((p) => {
+    const cid = (p as { connId?: string }).connId;
+    return !cid || cid === activeConnId;
+  });
+  const exchOrders = (exchange?.orders ?? []).filter((o) => {
+    const cid = (o as { connId?: string }).connId;
+    return !cid || cid === activeConnId;
+  });
+  const x01 = activeConnId === "bingx-x01";
 
   const sendNext = () => {
     if (liveSnap.hasLive) {
@@ -93,35 +101,42 @@ export function PositionsView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Book</p>
         <h1 className="text-2xl font-semibold tracking-tight">Positions</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Last N{lastNs.last} closed, ongoing N{lastNs.ongoing} — {liveSnap.venueLabel} live book. Closed rows are session fills on this connection.
+          {livePos.length} open on {x01 ? "live mainnet x01" : activeConnId}. Last N{lastNs.last} closed, ongoing N{lastNs.ongoing}. Other connections stay on their own books.
         </p>
       </div>
 
       <LiveBookStrip title="Exchange book" />
 
-      <Panel title={`BingX ${activeConnId}`}>
+      <Panel title={x01 ? "Live mainnet x01" : `BingX ${activeConnId}`}>
         <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
-          <StatLine k="Equity" v={liveSnap.equity ? fmtUsd(liveSnap.equity) : "—"} />
-          <StatLine k="Exchange pos" v={String(liveSnap.livePos)} />
-          <StatLine k="Exchange orders" v={String(liveSnap.liveOrd)} />
-          <StatLine k="Leverage" v={liveSnap.liveLevMax ? `${Math.round(liveSnap.liveLevMin)}–${Math.round(liveSnap.liveLevMax)}x` : "max / contract"} />
+          <StatLine k="Equity" v={exchange?.connId === activeConnId && exchange.equity ? fmtUsd(exchange.equity) : "—"} />
+          <StatLine k="Exchange pos" v={String(exchange?.connId === activeConnId ? exchRows.length : 0)} />
+          <StatLine k="Exchange orders" v={String(exchange?.connId === activeConnId ? exchOrders.length : 0)} />
+          <StatLine k="Desk open" v={String(livePos.length)} />
         </div>
-        {!liveSnap.hasLive ? (
-          <p className="mt-3 text-sm text-muted">Waiting for BingX account book. Keys stay on the host.</p>
-        ) : liveSnap.livePos === 0 && liveSnap.liveOrd === 0 ? (
-          <p className="mt-3 text-sm text-muted">Account connected. No open positions or orders on the exchange.</p>
+        {livePos.length === 0 && exchRows.length === 0 ? (
+          <p className="mt-3 text-sm text-muted">No open positions on {x01 ? "live mainnet x01" : activeConnId} yet.</p>
         ) : (
           <ul className="mt-3 max-h-[32rem] divide-y divide-border overflow-auto text-sm">
-            {exchange?.positions.map((p) => (
-              <li key={`${p.symbol}-${p.side}`} className="flex flex-wrap items-center justify-between gap-2 py-2">
+            {exchRows.map((p) => (
+              <li key={`ex-${p.symbol}-${p.side}`} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="font-mono text-xs">{p.symbol.replace("USDT", "")}</span>
                 <span className="capitalize">{p.side}</span>
+                <span className="text-muted">exchange</span>
                 <span className="text-muted">{p.qty}</span>
-                <span className="text-muted">{p.leverage ? `${p.leverage}x` : ""}</span>
                 <span className={clsPnl(p.pnl)}>{fmtUsd(p.pnl)}</span>
               </li>
             ))}
-            {exchange?.orders.map((o, i) => (
+            {livePos.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span className="font-mono text-xs">{p.symbol.replace("USDT", "")}</span>
+                <span className="capitalize">{p.side}</span>
+                <span className="text-muted">{String(p.playbook || "").replace("bot:", "")}</span>
+                <span className="text-muted">{p.qty.toPrecision(3)}</span>
+                <span className={clsPnl(p.unrealized)}>{fmtUsd(p.unrealized)}</span>
+              </li>
+            ))}
+            {exchOrders.map((o, i) => (
               <li key={`${o.id}:${o.type}:${i}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-muted">
                 <span className="font-mono text-xs">{o.symbol.replace("USDT", "")}</span>
                 <span>{o.type}</span>
@@ -137,31 +152,29 @@ export function PositionsView() {
         <p className="text-sm text-muted">{liveSnap.livePos} BingX positions · {liveSnap.liveOrd} orders on {liveSnap.venueLabel}.</p>
       ) : null}
 
-      {exchange?.ok || liveSnap.livePos > 0 ? null : (
       <Panel title={`Session book · ${activeConnId}`}>
         <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
-          <StatLine k="Slots" v={`${tape.positions.slots}/${tape.positions.maxSlots}`} />
+          <StatLine k="Slots" v={`${slotKeys.size}`} />
           <StatLine k="Legs" v={`${livePos.length}`} />
           <StatLine k="Working" v={`${liveOrders.length}`} />
           <StatLine k="Partials" v={`${livePos.filter((p) => p.status === "partial").length}`} />
         </div>
         {livePos.length === 0 ? (
-          <p className="mt-3 text-sm text-muted">No live inventory on this session. Other connections are not handled.</p>
+          <p className="mt-3 text-sm text-muted">No open positions on {activeConnId} yet. Bots fill this book on the desk clock.</p>
         ) : (
           <ul className="mt-3 divide-y divide-border text-sm">
-            {livePos.slice(0, 8).map((p) => (
+            {livePos.slice(0, 24).map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="font-mono text-xs">{p.symbol.replace("USDT", "")}</span>
                 <span className="capitalize">{p.side}</span>
-                <span className="capitalize text-muted">{p.status}</span>
-                <span className="text-muted">{p.legs.length} legs</span>
+                <span className="text-muted">{String(p.playbook || "").replace("bot:", "") || p.status}</span>
+                <span className="text-muted">{p.qty.toPrecision(3)}</span>
                 <span className={clsPnl(p.unrealized)}>{fmtUsd(p.unrealized)}</span>
               </li>
             ))}
           </ul>
         )}
       </Panel>
-      )}
 
       <div className="flex flex-wrap gap-2">
         <Segmented
@@ -279,7 +292,7 @@ function PosTable({ rows }: { rows: Position[] }) {
       <table className="w-full min-w-3xl text-left text-sm">
         <thead className="bg-bg text-xs font-medium uppercase tracking-wide text-subtle">
           <tr>
-            <th className="px-4 py-2">Id</th>
+            <th className="px-4 py-2">Symbol</th>
             <th className="px-2 py-2">Side</th>
             <th className="px-2 py-2">Entry</th>
             <th className="px-2 py-2">Mark</th>
@@ -293,7 +306,7 @@ function PosTable({ rows }: { rows: Position[] }) {
         <tbody>
           {rows.map((p) => (
             <tr key={p.id} className="border-t border-border">
-              <td className="px-4 py-2 font-mono text-xs">{p.id.slice(-12)}</td>
+              <td className="px-4 py-2 font-mono text-xs">{p.symbol.replace("USDT", "")}</td>
               <td className="px-2 py-2 capitalize">{p.side}</td>
               <td className="px-2 py-2 font-mono tabular">{fmtPx(p.entry)}</td>
               <td className="px-2 py-2 font-mono tabular">{fmtPx(p.mark)}</td>
@@ -303,7 +316,7 @@ function PosTable({ rows }: { rows: Position[] }) {
               </td>
               <td className="px-2 py-2 uppercase">{p.venue}</td>
               <td className="px-2 py-2">{p.orderType.replace("_", " ")}</td>
-              <td className="px-2 py-2">{p.blockId || "—"}</td>
+              <td className="px-2 py-2">{(p.strategyId || "").replace("bot:", "") || "—"}</td>
             </tr>
           ))}
         </tbody>

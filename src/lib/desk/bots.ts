@@ -1,7 +1,9 @@
 import type {
+  IndicationId,
   LastNCompleteScore,
   LastNOverallScore,
   StrategyToggles,
+  VstEngine,
 } from "./types.ts";
 import {
   DEFAULT_LAST_N_PROGRESS,
@@ -43,6 +45,8 @@ export const BOT_TP_STEPS = [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6] as const;
 export const BOT_SL_STEPS = [0.4, 0.5, 0.6, 0.7, 0.8] as const;
 export const BOT_TRAIL_STEPS = [0.2, 0.3, 0.4, 0.5, 0.6] as const;
 export const BOT_VF_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+/** Lowest step. Live size is half of the old 1× book. */
+export const BOT_DEFAULT_VOLUME_FACTOR = 1;
 
 export const BOT_STRATEGY_KEYS = ["normal", "trailing", "axis", "block", "dca"] as const;
 export type BotStrategyKey = (typeof BOT_STRATEGY_KEYS)[number];
@@ -59,9 +63,19 @@ export const BOT_MAX_HOLD = 24;
 export const BOT_HOUR_SIZE_CUT = 0.45;
 /** Desk 24h tape starts at $10 — never the $10k paper unit. */
 export const BOT_START_EQUITY = 10;
-/** Per-position notional as a fraction of equity. 8% × 10 names ≈ screenshot margin 0.1–0.8. */
-export const BOT_NOTIONAL_PCT = 0.4;
+/** Per-position notional as a fraction of equity. Halved from 0.40. Volume factor 1 is the default. */
+export const BOT_NOTIONAL_PCT = 0.2;
 export const BOT_MARGIN_LEV = 125;
+
+/** Live notional. Default volume factor 1 is half the previous 1× cap, and never under the $2 minimum. */
+export function botLiveNotional(equity: number, volumeFactor = BOT_DEFAULT_VOLUME_FACTOR): number {
+  const vf = Math.max(BOT_DEFAULT_VOLUME_FACTOR, Number(volumeFactor) || BOT_DEFAULT_VOLUME_FACTOR);
+  const scale = vf / 2;
+  const eq = Number(equity) > 0 ? Number(equity) : 0;
+  if (eq > 20) return Math.max(2, Math.min(8 * scale, eq * 0.15 * scale));
+  const raw = (eq > 0 ? eq * 0.8 : 4) * scale;
+  return Math.max(2, Math.min(4 * scale, raw));
+}
 
 export const BOT_TYPE_META: Record<BotTypeId, { label: string; blurb: string; thesis: string }> = {
   sandwich: {
@@ -246,7 +260,7 @@ export function defaultBotConfig(type: BotTypeId = "sandwich"): BotConfig {
     minTp: 0.4,
     minSl: 0.5,
     minTrail: 0.3,
-    volumeFactor: 1,
+    volumeFactor: BOT_DEFAULT_VOLUME_FACTOR,
     strategies: { ...DEFAULT_STRATEGY_TOGGLES },
     hours: 12,
   };
@@ -293,7 +307,7 @@ export function sanitizeBotConfig(raw: Partial<BotConfig> | null | undefined, fa
     minTp: snapTo(BOT_TP_STEPS, asNum(raw.minTp, dd.minTp)),
     minSl: snapTo(BOT_SL_STEPS, asNum(raw.minSl, dd.minSl)),
     minTrail: snapTo(BOT_TRAIL_STEPS, asNum(raw.minTrail, dd.minTrail)),
-    volumeFactor: snapTo(BOT_VF_STEPS, Math.round(asNum(raw.volumeFactor, dd.volumeFactor))),
+    volumeFactor: snapTo(BOT_VF_STEPS, Math.round(asNum(raw.volumeFactor, BOT_DEFAULT_VOLUME_FACTOR))),
     strategies: sanitizeStrategyToggles(raw.strategies),
     hours: snapTo(BOT_HOURS, Math.round(asNum(raw.hours, dd.hours))) as BotHours,
   };
@@ -519,19 +533,21 @@ function rankSymbols(
   hourIndex: number,
 ): string[] {
   const scored = ids.map((id) => {
-    const p = paths[id]!;
-    const r1 = rangeOf(p, i, BARS_PER_HOUR);
-    const px = p[i]!.c;
+    const p = paths[id];
+    if (!p?.length || !(p[p.length - 1]?.c > 0)) return { id, score: -1 };
+    const at = Math.min(i, p.length - 1);
+    const r1 = rangeOf(p, at, BARS_PER_HOUR);
+    const px = p[at]!.c;
     let score = 0;
-    if (mode === "range15") score = (rangeOf(p, i, 15).hi - rangeOf(p, i, 15).lo) / px;
-    else if (mode === "atrRank") score = atrOf(p, i, BARS_PER_HOUR) / px;
+    if (mode === "range15") score = (rangeOf(p, at, 15).hi - rangeOf(p, at, 15).lo) / px;
+    else if (mode === "atrRank") score = atrOf(p, at, BARS_PER_HOUR) / px;
     else if (mode === "volBurst") {
       const v1 = r1.v;
-      const v0 = rangeOf(p, Math.max(0, i - BARS_PER_HOUR), BARS_PER_HOUR).v;
+      const v0 = rangeOf(p, Math.max(0, at - BARS_PER_HOUR), BARS_PER_HOUR).v;
       score = v0 > 0 ? v1 / v0 : 1;
-    } else if (mode === "sessionHeat") score = sessionHeat(hourIndex) * realizedVol(p, i, BARS_PER_HOUR);
-    else score = realizedVol(p, i, BARS_PER_HOUR);
-    return { id, score };
+    } else if (mode === "sessionHeat") score = sessionHeat(hourIndex) * realizedVol(p, at, BARS_PER_HOUR);
+    else score = realizedVol(p, at, BARS_PER_HOUR);
+    return { id, score: Number.isFinite(score) ? score : -1 };
   });
   scored.sort((a, b) => b.score - a.score);
   return scored.map((s) => s.id);
@@ -1187,7 +1203,7 @@ export function liveBotFloors(cfg: BotConfig): { tpAtr: number; slOfTp: number; 
   const tp = Math.max(BOT_LIVE_MIN_TP, cfg.minTp);
   const slPct = cfg.minSl;
   const slOfTp = Math.max(BOT_LIVE_MIN_SL_OF_TP, slPct / Math.max(0.2, tp));
-  return { tpAtr: tp, slOfTp, trailPct: BOT_LIVE_TRAIL_PCT };
+  return { tpAtr: tp, slOfTp, trailPct: Math.max(0.2, cfg.minTrail) };
 }
 
 export function scoreBotReport(r: BotReport): number {
@@ -1237,4 +1253,236 @@ export function runParallelBots(
 
 export function clearBotCache(): void {
   reportCache.clear();
+}
+
+const BOT_IND: Record<BotTypeId, IndicationId> = {
+  sandwich: "active",
+  snap: "rsi",
+  pulse: "move",
+  ribbon: "ema",
+  sweep: "break",
+  clamp: "trend",
+  magnet: "sar",
+  pivot: "direction",
+};
+
+export function botPlaybook(type: BotTypeId): string {
+  return `bot:${type}`;
+}
+
+function botHistory(e: VstEngine): Record<string, Bar[]> {
+  if (!e.botHist) e.botHist = {};
+  return e.botHist;
+}
+
+function liveQuoteSignal(type: BotTypeId, bars: Bar[], axis: number, tpPct: number): Signal | null {
+  const i = bars.length - 1;
+  if (i < 3) return null;
+  if (i >= 12) {
+    const primary = signalOf(type, bars, i, tpPct);
+    if (primary) return primary;
+  }
+  const px = bars[i]?.c ?? 0;
+  if (!(px > 0)) return null;
+  let mean = 0;
+  const n = Math.min(4, i + 1);
+  for (let k = 0; k < n; k++) mean += bars[i - k]!.c;
+  mean /= n;
+  const magnet = mean > 0 ? mean : axis > 0 ? axis : px;
+  const stretch = (px - magnet) / px;
+  const need = Math.max(0.00045, tpPct * 0.15);
+  if (Math.abs(stretch) < need) return null;
+  const side: 1 | -1 = stretch > 0 ? -1 : 1;
+  const prev = bars[i - 1]?.c ?? px;
+  if (side > 0 && px < prev) return null;
+  if (side < 0 && px > prev) return null;
+  return { side, stretch: Math.abs(stretch), axis: true, quality: 1 };
+}
+
+/** Place independent bot orders on the live desk tape. One book per armed type. */
+export function stepDeskBots(
+  e: VstEngine,
+  armedIn: readonly BotTypeId[],
+  configs: Partial<Record<BotTypeId, Partial<BotConfig> | BotConfig>> | undefined,
+): number {
+  if (!e.botMode) return 0;
+  const armed = sanitizeArmed(armedIn);
+  const bag = botHistory(e);
+  const symbols = universeSymbols(e.symbolCount).slice(0, Math.max(1, e.symbolCount || 10));
+  if (e.botHistTick !== e.tick) {
+    e.botHistTick = e.tick;
+    for (const s of symbols) {
+      const q = e.quotes[s.id];
+      if (!q || !(q.px > 0)) continue;
+      const row = bag[s.id] ?? (bag[s.id] = []);
+      const prev = row.length ? row[row.length - 1]!.c : q.px;
+      const hi = Math.max(q.hi || q.px, q.px, prev);
+      const lo = Math.min(q.lo && q.lo > 0 ? q.lo : q.px, q.px, prev);
+      row.push({ o: prev, h: hi, l: lo > 0 ? lo : q.px * 0.999, c: q.px, v: Math.max(Number(q.vol) || 0, 1e-6) });
+      if (row.length > 180) row.splice(0, row.length - 180);
+    }
+  }
+  const conn = e.activeConnId;
+  let connNet = 0;
+  for (const c of e.closed) {
+    if (c.connId !== conn || c.protect) continue;
+    if (!String(c.playbook || "").startsWith("bot:")) continue;
+    connNet += Number(c.pnl) || 0;
+  }
+  const eq = Math.max(BOT_START_EQUITY, BOT_START_EQUITY + connNet);
+  let placed = 0;
+  for (const type of armed) {
+    const cfg = sanitizeBotConfig({ ...(configs?.[type] ?? {}), type }, type);
+    if (!livePrimary(cfg.strategies)) continue;
+    const play = botPlaybook(type);
+    const trailPct = cfg.minTrail / 100;
+    const tpPct = Math.max(BOT_LIVE_MIN_TP, cfg.minTp) / 100;
+    for (const p of e.positions) {
+      if (p.connId !== conn || p.playbook !== play || !(p.qty > 0) || !(p.avgEntry > 0)) continue;
+      const q = e.quotes[p.symbol];
+      if (!q || !(q.px > 0)) continue;
+      const side: 1 | -1 = p.side === "long" ? 1 : -1;
+      const hi = Math.max(q.hi || q.px, q.px);
+      const lo = Math.min(q.lo && q.lo > 0 ? q.lo : q.px, q.px);
+      if (side > 0) p.peakPx = Math.max(p.peakPx || p.avgEntry, hi);
+      else p.peakPx = p.peakPx && p.peakPx > 0 ? Math.min(p.peakPx, lo) : lo;
+      const peak = p.peakPx > 0 ? p.peakPx : p.avgEntry;
+      const mfe = side > 0 ? (peak - p.avgEntry) / p.avgEntry : (p.avgEntry - peak) / p.avgEntry;
+      const tp = side > 0 ? p.avgEntry * (1 + tpPct) : p.avgEntry * (1 - tpPct);
+      p.tp = tp;
+      p.tpDist = Math.abs(tp - p.avgEntry);
+      if (mfe + 1e-12 >= trailPct) {
+        const next = trailLevel(side, peak, trailPct, p.avgEntry);
+        p.sl = side > 0 ? Math.max(p.sl, next) : p.sl > 0 ? Math.min(p.sl, next) : next;
+        p.slDist = Math.abs(p.sl - p.avgEntry);
+      }
+      p.trailPct = cfg.minTrail;
+    }
+    const floors = liveBotFloors(cfg);
+    const slPct = (floors.tpAtr * floors.slOfTp) / 100;
+    const ids = symbols.map((s) => s.id).filter((id) => (bag![id]?.length ?? 0) >= 4);
+    if (!ids.length) continue;
+    const paths: Record<string, Bar[]> = {};
+    for (const id of ids) paths[id] = bag![id]!;
+    const end = paths[ids[0]!]!.length - 1;
+    const want = Math.max(1, Math.min(ids.length, cfg.symbolCount || ids.length));
+    const ranked = new Set(rankSymbols(ids, paths, end, cfg.selectMode, Math.floor(Math.max(0, e.tick) / BARS_PER_HOUR)).slice(0, want));
+    const ind = BOT_IND[type];
+    let typePlaced = 0;
+    for (const id of ids) {
+      if (!ranked.has(id)) continue;
+      const bars = bag![id]!;
+      const held = e.positions.some((p) => p.connId === e.activeConnId && p.symbol === id && p.playbook === play && p.qty > 0);
+      const pending = e.queue.some((o) => o.connId === e.activeConnId && o.symbol === id && o.playbook === play && o.status === "queued")
+        || e.orders.some((o) => o.connId === e.activeConnId && o.symbol === id && o.playbook === play && (o.status === "open" || o.status === "partial"));
+      if (held || pending) continue;
+      const q = e.quotes[id];
+      if (!q || !(q.px > 0)) continue;
+      const sig = liveQuoteSignal(type, bars, q.axis, tpPct);
+      if (!sig) continue;
+      const px = q.px;
+      const notional = eq * BOT_NOTIONAL_PCT * Math.max(1, cfg.volumeFactor);
+      const qty = Math.max(notional / px, 1e-8);
+      const slDist = Math.max(px * slPct, px * 0.001);
+      const tpDist = Math.max(px * tpPct, px * 0.001);
+      const side = sig.side > 0 ? "long" as const : "short" as const;
+      e.queue.push({
+        id: `bot-${e.activeConnId}-${type}-${id}-${e.tick}`,
+        connId: e.activeConnId,
+        symbol: id,
+        side,
+        type: "market",
+        qty,
+        filled: 0,
+        price: px,
+        remaining: qty,
+        status: "queued",
+        rangeType: "atr",
+        level: 1,
+        sl: side === "long" ? px - slDist : px + slDist,
+        tp: side === "long" ? px + tpDist : px - tpDist,
+        slDist,
+        tpDist,
+        batchId: "",
+        note: `Bot ${type}`,
+        indication: ind,
+        kind: "short",
+        playbook: play,
+        tactic: cfg.strategies.trailing ? "trailing" : cfg.strategies.axis ? "axis" : "hybrid",
+        validExec: true,
+        tpAtr: floors.tpAtr,
+        slOfTp: floors.slOfTp,
+        trailPct: floors.trailPct,
+        calc: "base",
+      });
+      placed += 1;
+      typePlaced += 1;
+      if (typePlaced >= 4) break;
+    }
+  }
+  return placed;
+}
+
+export function liveBotDeskStats(e: VstEngine, type: BotTypeId, connId?: string): { n: number; pf: number; net: number; open: number; orders: number } {
+  const play = botPlaybook(type);
+  const conn = connId || e.activeConnId;
+  let gp = 0;
+  let gl = 0;
+  let n = 0;
+  for (const c of e.closed) {
+    if (c.connId !== conn || c.playbook !== play || c.protect) continue;
+    const edge = Number.isFinite(Number(c.ratio)) ? Number(c.ratio) : Number(c.pnl) || 0;
+    n += 1;
+    if (edge > 0) gp += edge;
+    else if (edge < 0) gl += -edge;
+  }
+  const open = e.positions.filter((p) => p.connId === conn && p.playbook === play && p.qty > 0).length;
+  const orders = e.orders.filter((o) => o.connId === conn && o.playbook === play && (o.status === "open" || o.status === "partial")).length
+    + e.queue.filter((o) => o.connId === conn && o.playbook === play).length;
+  return { n, pf: profitFactor(gp, gl), net: gp - gl, open, orders };
+}
+
+export interface LiveBotHour {
+  hour: number;
+  n: number;
+  pf: number;
+  net: number;
+  eq: number;
+  open: number;
+}
+
+/** Independent live tape for one bot type. Equity starts at $10 and adds only that type's closes. */
+export function liveBotTape(e: VstEngine, type: BotTypeId, connId?: string): { hours: LiveBotHour[]; stats: ReturnType<typeof liveBotDeskStats> } {
+  const play = botPlaybook(type);
+  const conn = connId || e.activeConnId;
+  const stats = liveBotDeskStats(e, type, conn);
+  const oldest = e.closed.filter((c) => c.connId === conn && c.playbook === play && !c.protect).slice().reverse();
+  const byHour = new Map<number, { gp: number; gl: number; n: number; net: number }>();
+  for (const c of oldest) {
+    const hour = Math.floor(Math.max(0, c.tick) / BARS_PER_HOUR) + 1;
+    const bag = byHour.get(hour) ?? { gp: 0, gl: 0, n: 0, net: 0 };
+    const edge = Number.isFinite(Number(c.ratio)) ? Number(c.ratio) : 0;
+    const pnl = Number(c.pnl) || 0;
+    bag.n += 1;
+    bag.net += pnl;
+    if (edge > 0) bag.gp += edge;
+    else if (edge < 0) bag.gl += -edge;
+    byHour.set(hour, bag);
+  }
+  const lastHour = Math.max(1, Math.floor(Math.max(0, e.tick) / BARS_PER_HOUR) + 1, ...byHour.keys());
+  const hours: LiveBotHour[] = [];
+  let eq = BOT_START_EQUITY;
+  for (let h = 1; h <= lastHour; h++) {
+    const bag = byHour.get(h);
+    eq += bag?.net ?? 0;
+    hours.push({
+      hour: h,
+      n: bag?.n ?? 0,
+      pf: bag ? profitFactor(bag.gp, bag.gl) : 0,
+      net: bag?.net ?? 0,
+      eq,
+      open: h === lastHour ? stats.open : 0,
+    });
+  }
+  return { hours, stats };
 }

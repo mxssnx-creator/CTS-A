@@ -103,6 +103,8 @@ const NavLinks = memo(function NavLinks({
 function DeskRuntime() {
   const pullLiveDesk = useDesk((s) => s.pullLiveDesk);
   const vstRunning = useDesk((s) => s.vst.running);
+  const botsRunning = useDesk((s) => s.botsRunning);
+  const botsAny = useDesk((s) => Object.values(s.botByConn).some((b) => b.running));
   const tickEngine = useDesk((s) => s.tickEngine);
   const watchdog = useDesk((s) => s.watchdog);
   const liveTape = useDesk((s) => s.liveTape);
@@ -140,13 +142,14 @@ function DeskRuntime() {
   }, [pullRemoteSettings]);
 
   useEffect(() => {
-    if (!vstRunning || hasLive) return;
+    if (!(vstRunning || botsRunning || botsAny)) return;
+    if (hasLive && !botsRunning && !botsAny) return;
     let dead = false;
     let timer = 0;
     const step = () => {
       if (dead) return;
       try {
-        if (!document.hidden) tickEngine();
+        tickEngine();
       } catch {
         /* self-heal: keep the clock */
       }
@@ -162,7 +165,7 @@ function DeskRuntime() {
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [vstRunning, tickEngine, hasLive]);
+  }, [vstRunning, botsRunning, botsAny, tickEngine, hasLive]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -200,12 +203,12 @@ function DeskRuntime() {
   }, [liveTape, pullTape, hasLive]);
 
   useEffect(() => {
-    if (hasLive) return;
     const id = window.setInterval(() => {
       void pullExchange();
-    }, 20000);
+    }, 8000);
+    void pullExchange();
     return () => window.clearInterval(id);
-  }, [pullExchange, hasLive]);
+  }, [pullExchange]);
 
   useEffect(() => {
     if (!replayPlaying || !path.startsWith("/replay")) return;
@@ -228,7 +231,9 @@ function DeskRuntime() {
 
 function DeskSidebar() {
   const connected = useDesk((s) => s.connections.filter((c) => c.status === "connected").length);
-  const vstStats = useDesk((s) => s.vst.stats);
+  const activeConnId = useDesk((s) => s.activeConnId);
+  const bookPos = useDesk((s) => s.vst.positions.filter((p) => p.connId === s.activeConnId && p.qty > 0).length);
+  const bookOrd = useDesk((s) => s.vst.orders.filter((o) => o.connId === s.activeConnId && (o.status === "open" || o.status === "partial")).length);
   const liveTape = useDesk((s) => s.liveTape);
   const feed = useDesk((s) => s.feed);
   const liveSession = useDesk((s) => s.liveSession);
@@ -237,8 +242,6 @@ function DeskSidebar() {
   const hasLive = Boolean(liveSession) || liveSnap.hasLive;
   const pingOk = Boolean((liveSession as { pingOk?: boolean } | null)?.pingOk) || liveSnap.pingOk;
   const livePos = Number((liveSession as { livePos?: number } | null)?.livePos ?? liveSnap.livePos ?? 0);
-  const liveOrd = Number((liveSession as { liveOrd?: number } | null)?.liveOrd ?? liveSnap.liveOrd ?? 0);
-  const liveEq = Number((liveSession as { equity?: number } | null)?.equity ?? liveSnap.equity ?? 0);
   const venueLabel = liveSnap.venueLabel;
 
   return (
@@ -260,8 +263,8 @@ function DeskSidebar() {
         </div>
         <div className="mt-1">
           {hasLive
-            ? `${livePos} pos · ${liveOrd} ord · ${liveEq ? fmtUsd(liveEq, 0) : "—"}`
-            : `${vstStats.positions}/100 pos · ${vstStats.openOrders} wrk`}
+            ? `desk ${bookPos} pos · exch ${livePos} · ${activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : "vst-02"}`
+            : `${bookPos} pos · ${bookOrd} wrk · ${activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : "vst-02"}`}
         </div>
         {liveTape && !hasLive ? <div className="mt-1">tape on</div> : null}
       </div>
@@ -276,7 +279,6 @@ function DeskHeader({ onMenu }: { onMenu: () => void }) {
   const setLastN = useDesk((s) => s.setLastN);
   const vstRunning = useDesk((s) => s.vst.running);
   const liveTape = useDesk((s) => s.liveTape);
-  const feed = useDesk((s) => s.feed);
   const liveSession = useDesk((s) => s.liveSession);
   const quote = useDesk((s) => (s.liveSession ? undefined : s.vst.quotes[s.symbol]));
   const armed = useDesk((s) => s.connections.some((c) => c.armed));
@@ -285,8 +287,13 @@ function DeskHeader({ onMenu }: { onMenu: () => void }) {
   const px = quote?.px ?? lastPrice(symbol);
   const chg = quote?.chg ?? priceChange(symbol);
   const liveSnap = useLiveSnapshot();
+  const connections = useDesk((s) => s.connections);
+  const activeConnId = useDesk((s) => s.activeConnId);
+  const setActiveConn = useDesk((s) => s.setActiveConn);
+  const botByConn = useDesk((s) => s.botByConn);
   const hasLive = Boolean(liveSession) || liveSnap.hasLive;
-  const venueLabel = liveSnap.venueLabel;
+  const connLabel =
+    activeConnId === "bingx-x01" ? "Live mainnet x01" : connections.find((c) => c.id === activeConnId)?.label ?? activeConnId;
 
   return (
     <header className="sticky top-0 z-30 flex h-12 items-center gap-2 bg-header px-3 text-header-fg sm:px-4">
@@ -306,10 +313,27 @@ function DeskHeader({ onMenu }: { onMenu: () => void }) {
       <div className="hidden items-center gap-2 text-sm md:flex">
         <Activity className="size-4" />
         <span className="font-medium">
-          {armed ? "MAINNET ARMED" : hasLive ? `${venueLabel} live` : feed.state === "live" ? "Live tape" : vstRunning ? "VST live" : "VST paused"}
+          {connLabel}
+          {armed ? " · armed" : hasLive ? " · live" : vstRunning ? " · running" : ""}
         </span>
       </div>
       <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
+        <select
+          aria-label="Connection"
+          className="h-8 max-w-[9.5rem] border-0 bg-primary-hover px-2 text-sm text-header-fg sm:max-w-none"
+          value={activeConnId}
+          onChange={(e) => setActiveConn(e.target.value)}
+        >
+          {connections.map((c) => {
+            const on = Boolean(botByConn[c.id]?.running);
+            const name = c.id === "bingx-x01" ? "Live mainnet · x01" : c.id === "bingx-vst-02" ? "VST · x02" : c.id === "bingx-vst-01" ? "VST · x01" : c.label;
+            return (
+              <option key={c.id} value={c.id}>
+                {name}{on ? " · running" : ""}
+              </option>
+            );
+          })}
+        </select>
         <select
           aria-label="Quote symbol"
           className="h-8 max-w-28 border-0 bg-primary-hover px-2 text-sm text-header-fg sm:max-w-none"

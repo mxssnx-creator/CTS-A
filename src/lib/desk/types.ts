@@ -908,6 +908,8 @@ export interface VstLedger {
   /** Sum of positive position returns (0 = ratio base 1). PF uses these, not the dollar balance. */
   ratioProfit?: number;
   ratioLoss?: number;
+  /** Closes with a positive position ratio. Used so a no-loss PF scales with the average edge. */
+  ratioWins?: number;
 }
 
 export interface SymbolTape {
@@ -918,6 +920,9 @@ export interface SymbolTape {
   loss: number;
   sl: number;
   tp: number;
+  /** Sum of positive / absolute negative position returns. PF uses these, not dollar profit. */
+  ratioProfit?: number;
+  ratioLoss?: number;
 }
 
 export interface SimReport {
@@ -1380,6 +1385,13 @@ export interface VstEngine {
   /** Pre-historic eval finished — valid-execute (last 15) and disable (last 12) gates apply. Real counted + Live run from valid. */
   preEvalDone?: boolean;
   liveTape?: boolean;
+  /** Desk bots are the live book: ladder arm stays off and bot orders fill on the tape. */
+  botMode?: boolean;
+  /** Stable normal progress (LIVE_RUN tape) also runs on this book, even while bots are on. */
+  x01Progress?: boolean;
+  /** Per-symbol bars for live bot signals. Must live on the engine so snapshots keep them. */
+  botHist?: Record<string, { o: number; h: number; l: number; c: number; v: number }[]>;
+  botHistTick?: number;
   shortRange?: boolean;
   strategyToggles?: StrategyToggles;
   /** Indication/playbook/tactic keys that passed PF on the pre-eval tape. */

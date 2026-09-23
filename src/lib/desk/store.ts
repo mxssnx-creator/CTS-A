@@ -82,15 +82,21 @@ import {
   vstConnections,
   VST_DEFAULT_CONN,
   VST_TICK_MS,
+  DESK_CONN_IDS,
   mirrorEffectiveLanes,
 } from "./vst";
 import { completeHoursFor, replayHoursFor, runReplaySimulation } from "./replay-run";
 import { autoValidateConfigs, evaluateStages, liveLastNEvals } from "./validate";
 import {
   defaultBotsPersist,
+  liveBotFloors,
   sanitizeArmed,
   sanitizeBotConfig,
   sanitizeBotsPersist,
+  stepDeskBots,
+  botLiveNotional,
+  BOT_DEFAULT_VOLUME_FACTOR,
+  BOT_TYPES,
   type BotConfig,
   type BotsPersist,
   type BotTypeId,
@@ -99,6 +105,7 @@ import {
   applyLiveTape,
   LIVE_SET,
   MAX_LIVE_NOTIONAL,
+  makeClientOrderId,
   pingBingxAccount,
   placeBingxOrder,
   pullLiveTape,
@@ -234,6 +241,7 @@ interface DeskStore {
   applyBestCombo: () => void;
   runSimHours: (hours: number) => void;
   bots: BotsPersist;
+  botByConn: Record<string, BotsPersist & { running: boolean; touched?: boolean }>;
   botsRunning: boolean;
   setBotsSelected: (t: BotTypeId) => void;
   setBotsHours: (h: number) => void;
@@ -242,6 +250,7 @@ interface DeskStore {
   patchBotConfig: (t: BotTypeId, p: Partial<BotConfig>) => void;
   startBot: () => void;
   stopBot: () => void;
+  runLiveBots: () => void;
   autoValidate: () => AutoValidateResult;
   runStageEval: () => StageEvalBundle;
   setEvalHours: (hours: number[]) => void;
@@ -277,10 +286,151 @@ interface DeskStore {
 }
 
 let ticking = false;
+let tickStartedAt = 0;
+const liveBotSent = new Set<string>();
+const liveBotAt: Record<string, number> = {};
+
+function controlPrices(side: "long" | "short", entry: number, mark: number, slPct: number, tpPct: number) {
+  const px = mark > 0 ? mark : entry;
+  const slGap = Math.max(slPct, 0.004);
+  const tpGap = Math.max(tpPct, 0.004);
+  let sl = side === "long" ? entry * (1 - slPct) : entry * (1 + slPct);
+  let tp = side === "long" ? entry * (1 + tpPct) : entry * (1 - tpPct);
+  if (side === "long") {
+    if (!(sl < px * 0.999)) sl = px * (1 - slGap);
+    if (!(tp > px * 1.001)) tp = px * (1 + tpGap);
+  } else {
+    if (!(sl > px * 1.001)) sl = px * (1 + slGap);
+    if (!(tp < px * 0.999)) tp = px * (1 - tpGap);
+  }
+  return { sl, tp };
+}
+
+function placeBotControls(
+  network: "mainnet" | "testnet",
+  connId: string,
+  symbol: string,
+  side: "long" | "short",
+  entry: number,
+  slPct: number,
+  tpPct: number,
+  mark = 0,
+  which: "both" | "sl" | "tp" = "both",
+  qty = 0,
+) {
+  if (!(entry > 0)) return;
+  const { sl, tp } = controlPrices(side, entry, mark, slPct, tpPct);
+  const closeSide = side === "long" ? "SELL" : "BUY";
+  const positionSide = side === "long" ? "LONG" : "SHORT";
+  const send = (type: "STOP_MARKET" | "TAKE_PROFIT_MARKET", stop: number, kind: "S" | "T") =>
+    placeBingxOrder({
+      data: {
+        network,
+        connId,
+        symbol,
+        side: closeSide,
+        positionSide,
+        quantity: qty > 0 ? qty : 0,
+        type,
+        stopPrice: stop,
+        price: stop,
+        notional: qty > 0 ? Math.max(2, qty * stop) : 1,
+        confirmLive: true,
+        closePosition: !(qty > 0),
+        attachProtect: false,
+        clientOrderId: makeClientOrderId(connId, kind),
+      },
+    });
+  if (which !== "tp") void send("STOP_MARKET", sl, "S");
+  if (which !== "sl") void send("TAKE_PROFIT_MARKET", tp, "T");
+}
+
+function queueBotControls(get: () => { activeConnId: string; connections: Connection[]; exchange: ExchangeBook | null }) {
+  const id = get().activeConnId;
+  const conn = get().connections.find((c) => c.id === id);
+  const book = get().exchange;
+  if (!conn || conn.network === "paper" || !book?.ok || book.connId !== id) return;
+  if (Date.now() - (liveBotAt[`ctl:${id}`] ?? 0) < 8000) return;
+  const pos = book.positions.find((p) => {
+    const stop = book.orders.some((o) => o.symbol === p.symbol && /STOP/i.test(o.type) && !/TAKE_PROFIT/i.test(o.type));
+    const tp = book.orders.some((o) => o.symbol === p.symbol && /TAKE_PROFIT/i.test(o.type));
+    return !stop || !tp;
+  });
+  if (!pos) return;
+  const entry = pos.entry > 0 ? pos.entry : pos.mark;
+  if (!(entry > 0)) return;
+  const stop = book.orders.some((o) => o.symbol === pos.symbol && /STOP/i.test(o.type) && !/TAKE_PROFIT/i.test(o.type));
+  const tp = book.orders.some((o) => o.symbol === pos.symbol && /TAKE_PROFIT/i.test(o.type));
+  liveBotAt[`ctl:${id}`] = Date.now();
+  placeBotControls(
+    conn.network === "testnet" ? "testnet" : "mainnet",
+    id,
+    pos.symbol,
+    pos.side,
+    entry,
+    0.008,
+    0.008,
+    pos.mark,
+    !stop && !tp ? "both" : stop ? "tp" : "sl",
+    pos.qty,
+  );
+}
+
+function queueExchangeOpen(get: () => { activeConnId: string; connections: Connection[]; exchange: ExchangeBook | null; vst: VstEngine; pullExchange: () => Promise<void> }, set: (partial: { ticketMsg?: string }) => void) {
+  const id = get().activeConnId;
+  if (!isDeskConn(id)) return;
+  const conn = get().connections.find((c) => c.id === id);
+  if (!conn || conn.network === "paper") return;
+  const now = Date.now();
+  if (now - (liveBotAt[`ex:${id}`] ?? 0) < 5000) return;
+  const book = get().exchange;
+  if (!book || !book.ok || book.connId !== id || now - book.at > 20000) {
+    liveBotAt[`ex:${id}`] = now;
+    void get().pullExchange();
+    return;
+  }
+  if (book.positions.length >= 8) return;
+  const held = new Set(book.positions.map((p) => p.symbol));
+  const sym = universeSymbols(12).map((s) => s.id).find((s) => !held.has(s) && !liveBotSent.has(`ex:${id}:${s}`));
+  if (!sym) return;
+  liveBotAt[`ex:${id}`] = now;
+  liveBotSent.add(`ex:${id}:${sym}`);
+  const q = get().vst.quotes[sym];
+  const px = q && q.px > 0 ? q.px : 1;
+  const side = (q?.chg ?? 0) >= 0 ? "long" : "short";
+  const notional = botLiveNotional(book.equity, BOT_DEFAULT_VOLUME_FACTOR);
+  void placeBingxOrder({
+    data: {
+      network: conn.network === "testnet" ? "testnet" : "mainnet",
+      symbol: sym,
+      side: side === "long" ? "BUY" : "SELL",
+      positionSide: side === "long" ? "LONG" : "SHORT",
+      quantity: notional / px,
+      type: "MARKET",
+      price: px,
+      notional,
+      confirmLive: true,
+      connId: conn.id,
+      equity: book.equity,
+      attachProtect: false,
+      clientOrderId: makeClientOrderId(conn.id, "E"),
+    },
+  })
+    .then((res) => {
+      set({ ticketMsg: res.ok ? `LIVE ${id} ${sym} ${side}` : `LIVE rejected ${id}: ${res.error}` });
+      if (res.ok) {
+        void placeBotControls(conn.network === "testnet" ? "testnet" : "mainnet", conn.id, sym, side, px, 0.008, 0.008, px, "both", notional / px);
+        void get().pullExchange();
+      } else liveBotSent.delete(`ex:${id}:${sym}`);
+    })
+    .catch((err: unknown) => {
+      liveBotSent.delete(`ex:${id}:${sym}`);
+      set({ ticketMsg: `LIVE rejected ${id}: ${err instanceof Error ? err.message : "order failed"}` });
+    });
+}
 let pulling = false;
 let bookPulling = false;
 let deskPulling = false;
-let tickStartedAt = 0;
 let pullStartedAt = 0;
 let bookPullStartedAt = 0;
 let deskPullStartedAt = 0;
@@ -289,6 +439,22 @@ let lastSeenTick = 0;
 let stallBeats = 0;
 let persistTimer = 0;
 let applyingRemote = false;
+
+type ConnBots = BotsPersist & { running: boolean; touched?: boolean };
+
+function freshConnBots(): ConnBots {
+  return { ...defaultBotsPersist(), running: false };
+}
+
+function emptyBotByConn(): Record<string, ConnBots> {
+  return Object.fromEntries(DESK_CONN_IDS.map((id) => [id, freshConnBots()]));
+}
+
+function withConnBots(s: { activeConnId: string; botByConn: Record<string, ConnBots> }, bots: BotsPersist, running?: boolean): Record<string, ConnBots> {
+  const id = s.activeConnId;
+  const prev = s.botByConn[id] ?? freshConnBots();
+  return { ...s.botByConn, [id]: { ...bots, running: running ?? prev.running, touched: true } };
+}
 
 function snapshotVst(e: VstEngine): VstEngine {
   ensureEngine(e);
@@ -322,14 +488,30 @@ function queuePersist(snap: DeskSettingsSnap) {
   }, 280);
 }
 
-const boot = initVstEngine(DEFAULT_TACTIC_CONFIG, { warmup: 0, symbolCount: 12 });
-boot.activeConnId = "bingx-vst-02";
-boot.running = false;
-boot.phase = "idle";
-boot.sim = null;
-boot.queue = [];
-boot.orders = [];
-boot.lastMsg = `Ready · BingX VST-02 · ${boot.symbolCount} symbols`;
+const boot = initVstEngine(DEFAULT_TACTIC_CONFIG, { warmup: 0, symbolCount: 12, arm: false, equity: 10 });
+{
+  const sess = freshConnBots();
+  const armed = sanitizeArmed(sess.armed);
+  for (const t of BOT_TYPES) {
+    if (armed.length >= 3) break;
+    if (!armed.includes(t)) armed.push(t);
+  }
+  boot.botMode = true;
+  boot.x01Progress = true;
+  boot.running = true;
+  boot.phase = "running";
+  boot.activeConnId = "bingx-x01";
+  boot.symbolCount = 12;
+  engageLiveBook(boot);
+  const three = sanitizeArmed(armed);
+  for (let i = 0; i < 16; i++) {
+    stepDeskBots(boot, three, sess.configs);
+    tickVst(boot, LIVE_RUN_CFG, "trailing", { symbolCount: 12, rangeType: "atr", block: liveRunBlock() });
+  }
+  const open = boot.positions.filter((p) => p.connId === "bingx-x01" && p.qty > 0).length;
+  const progress = [...boot.queue, ...boot.orders].filter((o) => o.connId === "bingx-x01" && !String(o.playbook || "").startsWith("bot:") && (o.status === "queued" || o.status === "open" || o.status === "partial")).length;
+  boot.lastMsg = `X01 progress · ${open} open · ${progress} orders`;
+}
 
 function trimConnSymbols(conns: Connection[], count: number): Connection[] {
   const ids = universeSymbols(count).map((s) => s.id);
@@ -376,12 +558,12 @@ export const useDesk = create<DeskStore>((set, get) => ({
   symbolCount: 50,
   orderType: "limit",
   enabledKinds: [...DEFAULT_ENABLED_KINDS],
-  activeConnId: "bingx-vst-02",
+  activeConnId: "bingx-x01",
   validation: null,
   stageEval: null,
   evalHours: [...AUTO_EVAL_HOURS],
   evalLastNs: [...LANE_EVAL_NS],
-  sessionPhase: "idle" as const,
+  sessionPhase: "running" as const,
   hedgeMode: true,
   marginMode: "cross" as const,
   useMaxLeverage: true,
@@ -394,7 +576,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
   intervalStrategy: sanitizeIntervalStrategy(DEFAULT_INTERVAL_STRATEGY),
   lastNProgress: sanitizeLastNProgress(DEFAULT_LAST_N_PROGRESS),
   bots: defaultBotsPersist(),
-  botsRunning: false,
+  botByConn: Object.fromEntries(DESK_CONN_IDS.map((id) => [id, { ...freshConnBots(), running: true, touched: true }])),
+  botsRunning: true,
   exchange: null,
   liveSession: null,
   liveOverall: null,
@@ -829,7 +1012,9 @@ export const useDesk = create<DeskStore>((set, get) => ({
     });
   },
   tickEngine: () => {
-    if (get().liveSession) return;
+    const sessions = get().botByConn;
+    const runningIds = DESK_CONN_IDS.filter((id) => sessions[id]?.running);
+    if (get().liveSession && !runningIds.length) return;
     const e = get().vst;
     if (ticking) {
       if (Date.now() - tickStartedAt > VST_TICK_MS * 4) {
@@ -838,21 +1023,112 @@ export const useDesk = create<DeskStore>((set, get) => ({
         e.lastMsg = "Heal · tick unstuck";
       } else return;
     }
-    if (!e.running || e.phase === "stopped" || e.phase === "paused" || e.phase === "idle") return;
+    if ((!e.running || e.phase === "stopped" || e.phase === "paused" || e.phase === "idle") && !runningIds.length) return;
     ticking = true;
     tickStartedAt = Date.now();
     try {
-      e.activeConnId = get().activeConnId;
-      if (!get().liveSession) engageLiveBook(e);
-      const live = get().liveTape && get().feed.state === "live";
-      tickVst(e, get().tacticConfig, get().tactic, {
+      const view = get().activeConnId;
+      const sampledAt = e.tick;
+      const anyBots = runningIds.length > 0;
+      e.activeConnId = view;
+      if (!get().liveSession || anyBots) engageLiveBook(e);
+      const viewSess = sessions[view];
+      e.botMode = anyBots;
+      e.x01Progress = view === "bingx-x01";
+      const born: { id: string; connId: string; symbol: string; side: "long" | "short"; price: number; qty: number; sl: number; tp: number; bot: boolean }[] = [];
+      const takeBorn = () => {
+        for (const o of e.queue) {
+          const play = String(o.playbook || "");
+          const bot = play.startsWith("bot:");
+          const progressOrder = e.x01Progress && o.connId === "bingx-x01" && !bot;
+          if (!bot && !progressOrder) continue;
+          if (born.some((b) => b.id === o.id) || liveBotSent.has(o.id)) continue;
+          born.push({ id: o.id, connId: o.connId, symbol: o.symbol, side: o.side, price: o.price, qty: o.qty, sl: o.sl, tp: o.tp, bot });
+        }
+      };
+      if (anyBots && !viewSess?.running) {
+        try { stepDeskBots(e, [], viewSess?.configs); } catch { e.lastMsg = "Bot step recovered"; }
+      }
+      if (viewSess?.running) {
+        try { stepDeskBots(e, viewSess.armed, viewSess.configs); } catch { e.lastMsg = "Bot step recovered"; }
+      }
+      takeBorn();
+      const live = get().liveTape && get().feed.state === "live" && !anyBots;
+      const tickOpts = {
         freezeIds: live ? LIVE_SET : undefined,
         rangeType: get().rangeType,
         symbolCount: get().symbolCount,
         orderType: get().orderType,
         block: get().blockConfig,
-      });
+      };
+      const progress = e.x01Progress;
+      const tickCfg = progress ? LIVE_RUN_CFG : get().tacticConfig;
+      const tickTac = progress ? "trailing" : get().tactic;
+      const tickBlock = progress ? liveRunBlock(get().blockConfig) : get().blockConfig;
+      tickVst(e, tickCfg, tickTac, { ...tickOpts, block: tickBlock });
+      e.botHistTick = e.tick;
+      for (const id of runningIds) {
+        if (id === view) continue;
+        e.activeConnId = id;
+        e.botMode = true;
+        const sess = sessions[id];
+        if (sess) {
+          try { stepDeskBots(e, sess.armed, sess.configs); } catch { e.lastMsg = "Bot step recovered"; }
+        }
+        takeBorn();
+        tickVst(e, get().tacticConfig, get().tactic, { bookOnly: true, rangeType: tickOpts.rangeType, symbolCount: tickOpts.symbolCount, orderType: tickOpts.orderType, block: tickOpts.block });
+      }
+      const nowLive = Date.now();
+      for (const o of born) {
+        if (liveBotSent.has(o.id)) continue;
+        if (nowLive - (liveBotAt[o.connId] ?? 0) < 4000) continue;
+        const conn = get().connections.find((c) => c.id === o.connId);
+        if (!conn || conn.network === "paper") continue;
+        const heldLive = get().exchange?.connId === o.connId && get().exchange.positions.some((p) => p.symbol === o.symbol && p.qty > 0);
+        if (heldLive) continue;
+        liveBotSent.add(o.id);
+        liveBotAt[o.connId] = nowLive;
+        const px = o.price > 0 ? o.price : 1;
+        const acct = get().exchange?.connId === o.connId && (get().exchange?.equity ?? 0) > 0 ? get().exchange!.equity : 0;
+        const notional = botLiveNotional(acct, BOT_DEFAULT_VOLUME_FACTOR);
+        const slPct = px > 0 && o.sl > 0 ? Math.abs(o.sl - px) / px : 0.008;
+        const tpPct = px > 0 && o.tp > 0 ? Math.abs(o.tp - px) / px : 0.008;
+        void placeBingxOrder({
+          data: {
+            network: conn.network === "testnet" ? "testnet" : "mainnet",
+            symbol: o.symbol,
+            side: o.side === "long" ? "BUY" : "SELL",
+            positionSide: o.side === "long" ? "LONG" : "SHORT",
+            quantity: notional / px,
+            type: "MARKET",
+            price: px,
+            notional,
+            confirmLive: true,
+            connId: conn.id,
+            equity: acct,
+            slAtr: Math.max(0.8, slPct * 100),
+            tpRatio: tpPct / Math.max(slPct, 1e-6),
+            attachProtect: !o.bot,
+            clientOrderId: makeClientOrderId(conn.id, "E"),
+          },
+        })
+          .then((res) => {
+            set({ ticketMsg: res.ok ? `LIVE ${conn.id} ${o.symbol} ${o.side}` : `LIVE rejected ${conn.id}: ${res.error}` });
+            if (!res.ok) return;
+            if (o.bot) void placeBotControls(conn.network === "testnet" ? "testnet" : "mainnet", conn.id, o.symbol, o.side, px, Math.max(slPct, 0.008), Math.max(tpPct, 0.006), px, "both", notional / px);
+            if (get().activeConnId === conn.id) void get().pullExchange();
+          })
+          .catch((err: unknown) => {
+            set({ ticketMsg: `LIVE rejected ${conn.id}: ${err instanceof Error ? err.message : "order failed"}` });
+          });
+      }
+      e.botHistTick = sampledAt;
+      e.activeConnId = view;
+      e.botMode = runningIds.length > 0;
+      e.running = true;
       e.phase = "running";
+      queueExchangeOpen(get, set);
+      queueBotControls(get);
       lastSeenTick = e.tick;
       stallBeats = 0;
       const patch: Partial<DeskStore> = {
@@ -877,6 +1153,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
       e.running = true;
       e.phase = "running";
       e.lastMsg = e.lastHeal || "Tick recovered · book held";
+      queueExchangeOpen(get, set);
+      queueBotControls(get);
       set({ vst: snapshotVst(e), ticketMsg: e.lastMsg });
     } finally {
       ticking = false;
@@ -887,7 +1165,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
     else get().pauseEngine();
   },
   startEngine: () => {
-    if (!get().liveSession) {
+    const anyBots = get().botsRunning || DESK_CONN_IDS.some((id) => get().botByConn[id]?.running);
+    if (!get().liveSession && !anyBots) {
       set({
         tactic: "trailing",
         rangeType: "atr",
@@ -906,7 +1185,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     if (!get().liveSession) {
       engageLiveBook(e);
       e.blockCfg = get().blockConfig;
-      requeueFree(e, cfg, tactic, rangeType, get().activeConnId);
+      if (!e.botMode) requeueFree(e, cfg, tactic, rangeType, get().activeConnId);
     }
     const from = e.phase;
     e.running = true;
@@ -1115,28 +1394,161 @@ export const useDesk = create<DeskStore>((set, get) => ({
       set({ ticketMsg: err instanceof Error ? err.message : "sim failed" });
     }
   },
-  setBotsSelected: (t) => set((s) => ({ bots: { ...s.bots, selected: t } })),
+  setBotsSelected: (t) => set((s) => {
+    const bots = { ...s.bots, selected: t };
+    return { bots, botByConn: withConnBots(s, bots) };
+  }),
   setBotsHours: (h) =>
     set((s) => {
       const hours = (h === 12 || h === 24 || h === 36 || h === 48 || h === 60 || h === 72 ? h : s.bots.hours) as BotsPersist["hours"];
-      return { bots: { ...s.bots, hours } };
+      const bots = { ...s.bots, hours };
+      return { bots, botByConn: withConnBots(s, bots) };
     }),
   toggleBotArmed: (t) =>
     set((s) => {
       const on = s.bots.armed.includes(t);
       const armed = sanitizeArmed(on ? s.bots.armed.filter((x) => x !== t) : [...s.bots.armed, t], s.bots.armed);
-      return { bots: { ...s.bots, armed } };
+      const bots = { ...s.bots, armed };
+      return { bots, botByConn: withConnBots(s, bots) };
     }),
-  setBotsArmed: (t) => set((s) => ({ bots: { ...s.bots, armed: sanitizeArmed(t, s.bots.armed) } })),
+  setBotsArmed: (t) => set((s) => {
+    const bots = { ...s.bots, armed: sanitizeArmed(t, s.bots.armed) };
+    return { bots, botByConn: withConnBots(s, bots) };
+  }),
   patchBotConfig: (t, p) =>
-    set((s) => ({
-      bots: {
+    set((s) => {
+      const bots = {
         ...s.bots,
         configs: { ...s.bots.configs, [t]: sanitizeBotConfig({ ...s.bots.configs[t], ...p, type: t }, t) },
+      };
+      return { bots, botByConn: withConnBots(s, bots) };
+    }),
+  startBot: () => {
+    const snap = get();
+    const id = snap.activeConnId;
+    const focus = snap.bots.selected;
+    const cfg = sanitizeBotConfig(snap.bots.configs[focus], focus);
+    const floors = liveBotFloors(cfg);
+    const armed = sanitizeArmed(snap.bots.armed.length ? snap.bots.armed : [focus]);
+    const bots = { ...snap.bots, armed };
+    const botByConn = { ...snap.botByConn, [id]: { ...bots, running: true } };
+    const tactic = cfg.strategies.trailing ? "trailing" : cfg.strategies.axis ? "axis" : "hybrid";
+    set({
+      bots,
+      botsRunning: true,
+      botByConn,
+      connections: snap.connections.map((c) => ({ ...c, armed: Boolean(botByConn[c.id]?.running) })),
+      symbolCount: cfg.symbolCount,
+      strategyToggles: { ...cfg.strategies },
+      tactic,
+      rangeType: "atr",
+      orderType: "market",
+      tacticConfig: {
+        ...snap.tacticConfig,
+        tpAtr: floors.tpAtr,
+        slOfTp: floors.slOfTp,
+        trailingPct: floors.trailPct,
+        tpRatio: 1 / Math.max(0.5, floors.slOfTp),
+        slAtr: Math.max(0.3, floors.tpAtr * Math.min(floors.slOfTp, 2)),
+        shortRange: true,
+        maxHoldTicks: 24,
       },
-    })),
-  startBot: () => set({ botsRunning: true }),
-  stopBot: () => set({ botsRunning: false }),
+    });
+    const e = get().vst;
+    e.botMode = true;
+    e.activeConnId = id;
+    e.symbolCount = cfg.symbolCount;
+    e.orderType = "market";
+    e.strategyToggles = { ...cfg.strategies };
+    e.queue = e.queue.filter((o) => o.connId !== id || String(o.playbook || "").startsWith("bot:"));
+    for (const o of e.orders) {
+      if (o.connId !== id || String(o.playbook || "").startsWith("bot:")) continue;
+      if (o.status === "open" || o.status === "partial" || o.status === "queued") o.status = "cancelled";
+    }
+    e.orders = e.orders.filter((o) => o.connId !== id || String(o.playbook || "").startsWith("bot:") || o.status === "filled");
+    if (!e.running || e.phase === "paused" || e.phase === "idle" || e.phase === "stopped") get().startEngine();
+    e.botMode = true;
+    e.activeConnId = id;
+    e.lastMsg = `Bots live · ${armed.join(", ")} · ${id}`;
+    set({ botsRunning: true, vst: snapshotVst(e), ticketMsg: e.lastMsg });
+  },
+  runLiveBots: () => {
+    const botByConn = { ...get().botByConn };
+    for (const id of DESK_CONN_IDS) {
+      const base = botByConn[id] ?? freshConnBots();
+      const armed = sanitizeArmed(base.armed);
+      for (const t of BOT_TYPES) {
+        if (armed.length >= 3) break;
+        if (!armed.includes(t)) armed.push(t);
+      }
+      const three = sanitizeArmed(armed);
+      botByConn[id] = { ...base, armed: three, selected: three[0] ?? base.selected, running: true, touched: true };
+    }
+    const view = get().activeConnId;
+    const viewSess = botByConn[view];
+    set({
+      botByConn,
+      botsRunning: Boolean(viewSess?.running),
+      ...(viewSess
+        ? { bots: { selected: viewSess.selected, armed: viewSess.armed, hours: viewSess.hours, configs: viewSess.configs } }
+        : {}),
+      connections: get().connections.map((c) => ({ ...c, armed: Boolean(botByConn[c.id]?.running) })),
+    });
+    const e = get().vst;
+    e.botMode = true;
+    e.activeConnId = view;
+    if (!e.running || e.phase === "paused" || e.phase === "idle" || e.phase === "stopped") get().startEngine();
+    e.botMode = true;
+    e.running = true;
+    e.phase = "running";
+    const cfg = get().tacticConfig;
+    const tactic = get().tactic;
+    const range = get().rangeType;
+    const n = Math.min(12, Math.max(8, get().symbolCount || 10));
+    const order = ["bingx-x01", ...DESK_CONN_IDS.filter((id) => id !== "bingx-x01")];
+    for (const id of order) {
+      const sess = botByConn[id];
+      if (!sess?.running) continue;
+      e.activeConnId = id;
+      e.botMode = true;
+      e.x01Progress = id === "bingx-x01";
+      const tickCfg = e.x01Progress ? LIVE_RUN_CFG : cfg;
+      const tickTac = e.x01Progress ? "trailing" : tactic;
+      for (let i = 0; i < 20; i++) {
+        stepDeskBots(e, sess.armed, sess.configs);
+        tickVst(e, tickCfg, tickTac, { symbolCount: n, rangeType: range, block: e.x01Progress ? liveRunBlock(get().blockConfig) : get().blockConfig });
+      }
+    }
+    e.activeConnId = "bingx-x01";
+    e.botMode = true;
+    e.x01Progress = true;
+    const x01n = e.positions.filter((p) => p.connId === "bingx-x01" && p.qty > 0).length;
+    const progressN = [...e.queue, ...e.orders].filter((o) => o.connId === "bingx-x01" && !String(o.playbook || "").startsWith("bot:") && (o.status === "queued" || o.status === "open" || o.status === "partial")).length;
+    e.lastMsg = `X01 progress · ${x01n} open · ${progressN} orders`;
+    set({ vst: snapshotVst(e), ticketMsg: e.lastMsg, activeConnId: "bingx-x01", sessionPhase: "running" });
+    void get().connectActive();
+  },
+  stopBot: () => {
+    const id = get().activeConnId;
+    const e = get().vst;
+    e.queue = e.queue.filter((o) => o.connId !== id || !String(o.playbook || "").startsWith("bot:"));
+    for (const o of e.orders) {
+      if (o.connId !== id || !String(o.playbook || "").startsWith("bot:")) continue;
+      if (o.status === "open" || o.status === "partial" || o.status === "queued") o.status = "cancelled";
+    }
+    e.orders = e.orders.filter((o) => !(o.connId === id && String(o.playbook || "").startsWith("bot:") && o.status === "cancelled"));
+    const botByConn = { ...get().botByConn, [id]: { ...(get().botByConn[id] ?? { ...get().bots, running: false }), ...get().bots, running: false } };
+    const any = DESK_CONN_IDS.some((conn) => botByConn[conn]?.running);
+    e.botMode = any;
+    if (!any) get().pauseEngine();
+    set({
+      botsRunning: false,
+      botByConn,
+      connections: get().connections.map((c) => ({ ...c, armed: Boolean(botByConn[c.id]?.running) })),
+      vst: snapshotVst(e),
+      ticketMsg: `Bots stopped · ${id}`,
+    });
+  },
   autoValidate: () => {
     try {
     const result = autoValidateConfigs({
@@ -1443,24 +1855,32 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const trades = Number(sess?.trades);
     const mdd = Number(sess?.mdd);
     if (sess) {
-      if (Number.isFinite(equity) && equity > 0) {
+      const ownBook = Boolean(e.x01Progress) || DESK_CONN_IDS.some((id) => get().botByConn[id]?.running);
+      if (!ownBook && Number.isFinite(equity) && equity > 0) {
         e.stats.equity = equity;
         e.ledger.peak = Math.max(e.ledger.peak || 0, equity);
       }
-      if (Number.isFinite(pf)) e.stats.pf = pf;
-      if (Number.isFinite(wr)) e.stats.wr = wr;
-      if (Number.isFinite(net)) e.stats.net = net;
-      if (Number.isFinite(trades)) {
+      if (!ownBook && Number.isFinite(pf)) e.stats.pf = pf;
+      if (!ownBook && Number.isFinite(wr)) e.stats.wr = wr;
+      if (!ownBook && Number.isFinite(net)) e.stats.net = net;
+      if (!ownBook && Number.isFinite(trades)) {
         e.stats.trades = trades;
         e.ledger.trades = trades;
       }
-      if (Number.isFinite(mdd)) e.stats.mdd = mdd;
+      if (!ownBook && Number.isFinite(mdd)) e.stats.mdd = mdd;
       const wins = Number(sess.wins);
-      if (Number.isFinite(wins)) e.ledger.wins = wins;
-      const ph = String(sess.phase ?? sess.sessionPhase ?? "running");
-      e.running = ph === "running";
-      e.phase = ph === "paused" ? "paused" : ph === "stopped" ? "stopped" : "running";
-      e.lastMsg = String(sess.lastMsg ?? e.lastMsg);
+      if (!ownBook && Number.isFinite(wins)) e.ledger.wins = wins;
+      const botsOn = DESK_CONN_IDS.some((id) => get().botByConn[id]?.running);
+      if (botsOn) {
+        e.running = true;
+        e.phase = "running";
+        e.botMode = true;
+      } else {
+        const ph = String(sess.phase ?? sess.sessionPhase ?? "running");
+        e.running = ph === "running";
+        e.phase = ph === "paused" ? "paused" : ph === "stopped" ? "stopped" : "running";
+        e.lastMsg = String(sess.lastMsg ?? e.lastMsg);
+      }
     }
     const prevSess = get().liveSession;
     const sameShape =
@@ -1500,7 +1920,11 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const prevOv = get().liveOverall;
     const keepOv = prevOv && ov && prevOv.at === ov.at ? prevOv : ov;
     const prevEx = get().exchange;
-    const nextBook = book && book.ok && (book.positions.length > 0 || book.equity > 0) ? book : prevEx;
+    const active = get().activeConnId;
+    const incomingConn = String(book?.connId || (sess as { conn?: string } | null)?.conn || "");
+    const incomingForActive = Boolean(book?.ok) && (!incomingConn || incomingConn === active);
+    const heldForActive = Boolean(prevEx?.ok) && prevEx?.connId === active;
+    const nextBook = incomingForActive ? book : heldForActive || prevEx?.connId === active ? prevEx : null;
     const sameEx =
       prevEx &&
       nextBook &&
@@ -1521,14 +1945,13 @@ export const useDesk = create<DeskStore>((set, get) => ({
       liveOverall: keepOv,
       liveElapsed: Number(sess?.elapsedMin ?? get().liveElapsed),
       liveMark: Math.round(Number(sess?.livePnl ?? 0) * 1000),
-      exchange: sameEx ? prevEx : nextBook && nextBook.ok ? nextBook : book && book.ok ? book : prevEx,
+      exchange: sameEx ? prevEx : nextBook && nextBook.ok ? nextBook : prevEx?.connId === active ? prevEx : null,
       feed:
         sess?.pingOk || book?.ok
           ? get().feed.state === "live"
             ? get().feed
             : { state: "live", venue: "bingx", latencyMs: book?.latencyMs ?? get().feed.latencyMs, at: Date.now(), count: get().feed.count, missing: get().feed.missing }
           : get().feed,
-      activeConnId: isDeskConn(liveId) ? liveId : get().activeConnId,
       connections: sameConn
         ? prevConn
         : prevConn.map((c) =>
@@ -1536,7 +1959,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
               ? {
                   ...c,
                   hasKeys: true,
-                  armed: true,
+                  armed: Boolean(get().botByConn[c.id]?.running) || c.armed,
                   testnet: liveNet !== "mainnet",
                   network: liveNet,
                   status: sess?.pingOk || book?.ok ? "connected" : c.status,
@@ -1546,9 +1969,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
                   openOrderCount: nextOrd || c.openOrderCount,
                   apiKeyMasked: c.apiKeyMasked === "—" ? "env •••" : c.apiKeyMasked,
                 }
-              : c.armed || c.status === "connected"
-                ? { ...c, armed: false, status: "disconnected" as const, positionCount: 0, openOrderCount: 0 }
-                : c,
+              : c,
           ),
       ticketMsg:
         equity > 0
@@ -1661,7 +2082,12 @@ export const useDesk = create<DeskStore>((set, get) => ({
         shortProgress: snap.shortProgress ?? sanitizeShortProgress(undefined),
         intervalStrategy: snap.intervalStrategy ?? sanitizeIntervalStrategy(undefined),
         lastNProgress: snap.lastNProgress ?? sanitizeLastNProgress(undefined),
-        bots: sanitizeBotsPersist(snap.bots ?? get().bots),
+        bots: (() => {
+          const saved = get().botByConn[snap.activeConnId];
+          const view = saved?.touched ? saved : sanitizeBotsPersist(snap.bots ?? get().bots);
+          return { selected: view.selected, armed: view.armed, hours: view.hours, configs: view.configs };
+        })(),
+        botsRunning: Boolean(get().botByConn[snap.activeConnId]?.running),
         symbolCount: snap.symbolCount,
         orderType: snap.orderType,
         enabledKinds: snap.enabledKinds,
@@ -1693,21 +2119,25 @@ export const useDesk = create<DeskStore>((set, get) => ({
     }
   },
   hydrateSettings: async () => {
-    const local = readLocalSettings();
-    if (local && (local.rev > 0 || local.at > 0)) {
-      get().applySettingsSnap(local, "local");
-    }
     try {
+      const local = readLocalSettings();
+      if (local && (local.rev > 0 || local.at > 0)) {
+        get().applySettingsSnap(local, "local");
+      }
       const remote = await loadDeskSettings();
-      if (!remote) return;
-      const curAt = get().settingsAt;
-      const curRev = get().settingsRev;
-      if (remote.at > curAt || remote.rev > curRev) {
-        get().applySettingsSnap(remote, "server");
-        writeLocalSettings(sanitizeDeskSettings(remote));
+      if (remote) {
+        const curAt = get().settingsAt;
+        const curRev = get().settingsRev;
+        if (remote.at > curAt || remote.rev > curRev) {
+          get().applySettingsSnap(remote, "server");
+          writeLocalSettings(sanitizeDeskSettings(remote));
+        }
       }
     } catch {
       /* stay on local */
+    } finally {
+      if (!DESK_CONN_IDS.every((id) => get().botByConn[id]?.running)) get().runLiveBots();
+      if (get().activeConnId !== "bingx-x01") get().setActiveConn("bingx-x01");
     }
   },
   pullRemoteSettings: async () => {
@@ -1818,11 +2248,25 @@ export const useDesk = create<DeskStore>((set, get) => ({
     get().syncSettings();
   },
   setActiveConn: (id) => {
-    if (!isDeskConn(id)) return;
+    if (!isDeskConn(id) || id === get().activeConnId) {
+      if (id === get().activeConnId) void get().connectActive();
+      return;
+    }
+    const curId = get().activeConnId;
+    const botByConn = withConnBots(get(), get().bots, get().botByConn[curId]?.running);
+    const next = botByConn[id] ?? freshConnBots();
     const e = get().vst;
     e.activeConnId = id;
     e.lastMsg = `Current session ${id}`;
-    set({ activeConnId: id, vst: snapshotVst(e), ticketMsg: e.lastMsg });
+    set({
+      activeConnId: id,
+      botByConn,
+      bots: { selected: next.selected, armed: next.armed, hours: next.hours, configs: next.configs },
+      botsRunning: next.running,
+      connections: get().connections.map((c) => ({ ...c, armed: Boolean(botByConn[c.id]?.running) })),
+      vst: snapshotVst(e),
+      ticketMsg: e.lastMsg,
+    });
     get().syncSettings();
     void get().connectActive();
   },
@@ -1865,3 +2309,12 @@ function noteStall(e: ReturnType<typeof initVstEngine>) {
 }
 
 export { COST_STEPS, LAST_N_OPTIONS };
+
+if (typeof window !== "undefined") {
+  window.setInterval(() => {
+    const s = useDesk.getState();
+    const on = s.botsRunning || DESK_CONN_IDS.some((id) => s.botByConn[id]?.running);
+    if (!on) return;
+    s.tickEngine();
+  }, VST_TICK_MS);
+}
