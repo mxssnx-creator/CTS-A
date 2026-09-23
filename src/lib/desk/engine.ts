@@ -2940,6 +2940,17 @@ export function indicationFromQuote(
   let prevRel = clampDir((desk?.direction ?? 0) * 0.55 + direction * 0.45);
 
   const ring = symbol ? pushTick(symbol, q) : [];
+  let gate: {
+    trend: boolean;
+    brk: boolean;
+    direction: boolean;
+    move: boolean;
+    rsi: boolean;
+    bollinger: boolean;
+    sar: boolean;
+    macd: boolean;
+    ema: boolean;
+  } | null = null;
   if (ring.length >= 8) {
     const closes = ring.map((t) => t.px);
     const e9 = emaLast(closes, 9);
@@ -3064,6 +3075,17 @@ export function indicationFromQuote(
     sar = richSar !== 0 ? richSar : 0;
     macd = richMacd !== 0 ? richMacd : 0;
     ema = richEma !== 0 ? richEma : 0;
+    gate = {
+      trend: trendOk,
+      brk: brkDir !== 0,
+      direction: richDir !== 0 && !exhausted,
+      move: richMove !== 0,
+      rsi: richRsi !== 0,
+      bollinger: richBb !== 0,
+      sar: richSar !== 0,
+      macd: richMacd !== 0,
+      ema: richEma !== 0,
+    };
     lastPart = mixInd(clampDir(r3 * 40), lastPart, 0.7);
     drawdown = clamp(ddRing * 0.65 + drawdown * 0.35, 0, 1);
     prevRel = mixInd(clampDir(Math.sign(r6) === Math.sign(r12) ? Math.sign(r6) * 0.7 : Math.sign(r3) * 0.4), prevRel, 0.65);
@@ -3080,6 +3102,17 @@ export function indicationFromQuote(
     sar = mixInd(sar, desk.sar ?? 0);
     macd = mixInd(macd, desk.macd ?? 0);
     ema = mixInd(ema, desk.ema ?? 0);
+  }
+  if (gate) {
+    if (!gate.trend) trend = 0;
+    if (!gate.brk) brk = 0;
+    if (!gate.direction) direction = 0;
+    if (!gate.move) move = 0;
+    if (!gate.rsi) rsi = 0;
+    if (!gate.bollinger) bollinger = 0;
+    if (!gate.sar) sar = 0;
+    if (!gate.macd) macd = 0;
+    if (!gate.ema) ema = 0;
   }
   const signed = [trend, brk, active, direction].filter((x) => Math.abs(x) > 0.12);
   const agree = signed.length >= 2 && signed.every((x) => Math.sign(x) === Math.sign(signed[0]!));

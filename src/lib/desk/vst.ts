@@ -225,26 +225,35 @@ function liveIndStillPays(e: VstEngine, ind: string, tac?: string): boolean {
   if (!bag) return true;
   const keys = tac ? [`${ind}|${tac}`] : Object.keys(bag).filter((k) => k === ind || k.startsWith(`${ind}|`));
   if (!keys.length) return true;
-  let any = false;
+  let seen = false;
+  let pay = false;
   for (const key of keys) {
     const row = bag[key];
     if (!row) continue;
-    any = true;
-    if (row.n < 60) return true;
+    seen = true;
+    if (row.n < 24) {
+      pay = true;
+      continue;
+    }
     const pf = row.gl > 1e-12 ? row.gp / row.gl : row.gp > 0 ? PF_NO_LOSS : 0;
     const net = row.gp - row.gl;
     if (row.fail) {
-      if (pf >= 1.05 && net > 0) row.fail = false;
-      else continue;
-    } else if (pf + 1e-9 < 0.9 && net <= 0) {
+      if (pf >= 1.08 && net > 0) {
+        row.fail = false;
+        pay = true;
+      }
+      continue;
+    }
+    const clearLoser = pf + 1e-9 < 0.75 && net < 0;
+    if (clearLoser) {
       row.fail = true;
       const part = key.split("|");
       releaseFailedIndication(e, part[0] || ind, part[1]);
       continue;
     }
-    return true;
+    pay = true;
   }
-  return !any;
+  return !seen || pay;
 }
 
 function applyStickyIndicationEval(e: VstEngine, indications: Record<string, { n: number; pf: number; net: number; ok: boolean }>) {
@@ -260,7 +269,7 @@ function applyStickyIndicationEval(e: VstEngine, indications: Record<string, { n
     let seen = false;
     for (const [key, row] of Object.entries(bag)) {
       if (key !== id && !key.startsWith(`${id}|`)) continue;
-      if (row.n < 60) continue;
+      if (row.n < 24) continue;
       seen = true;
       n += row.n;
       gp += row.gp;
@@ -2267,6 +2276,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       if ((openTape || performingLive(e)) && !internSlot) {
         const mag = Number((pack as unknown as Record<string, number>)[ind]) || 0;
         if (Math.abs(mag) < 0.14) continue;
+        const flow = hourFlowCache.get(e);
+        const hourNow = Math.floor(Math.max(0, e.tick) / TICKS_PER_HOUR);
+        const hourRow = flow && flow.hour === hourNow ? flow.byInd[ind] : undefined;
+        if (hourRow && hourRow.n >= 36 && hourRow.net / hourRow.n < -0.0006) continue;
         const want: Side = mag > 0 ? "long" : "short";
         sides = sides.filter((x) => x === want);
         if (!sides.length) continue;
@@ -2293,7 +2306,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const hinted = tacticForIndication(ind, { axis: true, trailing: true });
         const proven = tacsAll.filter((t) => {
           const row = liveIndTally.get(e)?.[`${ind}|${t}`];
-          return Boolean(row && row.n >= 60 && !row.fail);
+          return Boolean(row && row.n >= 48 && !row.fail);
         });
         tacs = proven.length ? proven : [hinted];
       }
@@ -2431,6 +2444,11 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 ...leg,
                 sizeMul: leg.sizeMul * ddCut * (downHour && !paysHour && ind !== "direction" ? 0.82 : 1),
               }));
+          if ((openTape || performingLive(e)) && ind === "active" && legs.length < 2 && legs[0]) {
+            const seen = liveIndTally.get(e)?.[`${ind}|${tac}`]?.n ?? 0;
+            const magA = Math.abs(Number((pack as unknown as Record<string, number>).active) || 0);
+            if (seen < 40 && magA >= 0.2) legs.push({ ...legs[0], kind: "rng", sizeMul: legs[0].sizeMul * 0.8 });
+          }
           for (const leg of legs) {
           const legKey = exclusiveLeg
             ? `${s.id}:${side}`
@@ -2462,7 +2480,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const tp0 = axisLv ? axisLv.tpDist : slBase * tpRatioUse * protMul.tpMul;
           const volMul = Math.min(1.05, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
           const coord = e.lastNCoord;
-          const coordRun = Boolean(coord && coord.independent && coord.combined && coord.stack > 1 && liveIndStillPays(e, ind, tac));
+          const pair = liveIndTally.get(e)?.[`${ind}|${tac}`];
+          const pairPf = pair && pair.n >= 24 && !pair.fail ? (pair.gl > 1e-12 ? pair.gp / pair.gl : pair.gp > 0 ? PF_NO_LOSS : 0) : 0;
+          const coordRun = Boolean(coord && coord.independent && coord.combined && coord.stack > 1 && pairPf >= 1);
           const nStack = !complete
             ? laneLastNStack(e, {
                 symbol: s.id,
@@ -2473,9 +2493,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 rangeType: range,
                 playbook: book,
               })
-            : coordRun
-              ? coord!.stack
-              : 1;
+            : Math.max(coordRun ? coord!.stack : 1, pairPf >= 1.2 ? 1.35 : 1);
           const loseScale = entryVolumeScale(e, { playbook: book, indication: ind, kind, tactic: tac, blockLevel: 0 }) * leg.sizeMul;
           if (!internSlot && !complete && rank > 24 && finiteOr(q.vol, 0) < MIN_QUOTE_VOL) return;
           const notional = positionNotional(paperSizeEquity(e), e.costStep || 10) * volMul * nStack * loseScale;
@@ -7263,7 +7281,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const procPositive = Boolean(procRow?.pass) && procN >= 4 && procPf + 1e-9 >= GATED_MIN_PF && procNet >= -1e-12;
   const reportPf = engine.shortComboOnly
     ? paperPf
-    : selectedPositive
+    : complete && ((engine.ledger.ratioProfit || 0) + (engine.ledger.ratioLoss || 0) > 0)
+      ? paperPf
+      : selectedPositive
       ? selected.pf
       : procPositive
         ? procPf
