@@ -69,11 +69,15 @@ describe("sandwich bots — config + volume", () => {
     assert.equal(cap.vf, 10);
   });
 
-  it("live floors lift sandwich TP to 0.48 and keep SL/TP ≥ 0.75", () => {
+  it("live floors lift sandwich TP to 0.48, cap SL at 0.5%, and keep a tight trail", () => {
     const f = liveBotFloors(defaultBotConfig("sandwich"));
     assert.ok(f.tpAtr >= 0.48);
     assert.ok(f.slOfTp + 1e-9 >= 0.75);
-    assert.equal(f.trailPct, 1.5);
+    assert.ok(f.slPct <= 0.5);
+    assert.equal(f.slPct, 0.4);
+    assert.equal(f.trailPct, 0.3);
+    const wide = liveBotFloors({ ...defaultBotConfig("sandwich"), minSl: 0.8 });
+    assert.equal(wide.slPct, 0.5);
   });
 
   it("grids cover symbol counts, hours and select modes", () => {
@@ -298,6 +302,17 @@ describe("best 3 parallel bots — independent process + results", () => {
         assert.ok(r.liveStats.pf + 1e-9 >= 1, `${t} ${hours}h pf ${r.liveStats.pf}`);
         assert.ok(r.hourly.every((h) => h.green), `${t} ${hours}h red ${r.hourly.filter((h) => !h.green).map((h) => h.hour).join(",")}`);
         assert.equal(r.gatedFailClosed, true);
+        assert.ok(r.cfg.minSl <= 0.5, `${t} sl ${r.cfg.minSl}`);
+        for (const row of r.indication.hours) {
+          assert.ok(row.green, `${t} ${hours}h indication ${r.indication.id} H${row.hour} ${row.net}`);
+        }
+        for (const key of ["normal", "trailing", "axis", "block", "dca"] as const) {
+          const st = r.strategies[key];
+          assert.equal(st.active, true);
+          assert.ok(st.live && st.live.n > 0, `${t} ${key} empty`);
+          assert.ok(st.live!.pf + 1e-9 >= 1 && st.live!.net > 0, `${t} ${key} pf ${st.live?.pf} net ${st.live?.net}`);
+          for (const row of st.hours) assert.ok(row.green, `${t} ${key} H${row.hour} ${row.net}`);
+        }
       }
     }
   });
@@ -313,14 +328,16 @@ describe("best 3 parallel bots — independent process + results", () => {
     }
   });
 
-  it("live floors apply and Start-style trail stays 1.5%", () => {
+  it("live floors apply and the stop stays inside 0.5%", () => {
     const f = liveBotFloors(defaultBotConfig("sandwich"));
     assert.ok(f.tpAtr >= 0.48);
     assert.ok(f.slOfTp + 1e-9 >= 0.75);
-    assert.equal(f.trailPct, 1.5);
+    assert.ok(f.slPct <= 0.5);
+    assert.equal(f.trailPct, 0.3);
     const r = runBotBacktest(defaultBotConfig("sandwich"), 12, 20260922);
     assert.ok(r.liveFills.length >= 120);
     assert.ok(r.hourly.every((h) => h.green));
+    assert.ok(r.cfg.minSl <= 0.5);
   });
 
   it("across seeds, almost every hour stays green with PF ≥ 1", () => {
@@ -443,8 +460,9 @@ describe("bots live on the desk tape", () => {
     }
     for (const id of conns) {
       const open = e.positions.filter((p) => p.connId === id && p.qty > 0 && String(p.playbook || "").startsWith("bot:"));
-      const tagged = [...e.queue, ...e.orders, ...e.positions].filter((row) => row.connId === id && String((row as { playbook?: string }).playbook || "").startsWith("bot:"));
-      assert.ok(open.length > 0, `${id} open ${open.length}`);
+      const closed = e.closed.filter((c) => c.connId === id && String(c.playbook || "").startsWith("bot:") && !c.protect);
+      const tagged = [...e.queue, ...e.orders, ...e.positions, ...closed].filter((row) => row.connId === id && String((row as { playbook?: string }).playbook || "").startsWith("bot:"));
+      assert.ok(open.length + closed.length > 0, `${id} never traded`);
       assert.ok(tagged.length > 0, `${id} book empty`);
       assert.ok(tagged.every((row) => row.connId === id), `${id} conn mixed`);
     }

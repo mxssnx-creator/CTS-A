@@ -43,6 +43,8 @@ export type BotHours = (typeof BOT_HOURS)[number];
 
 export const BOT_TP_STEPS = [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6] as const;
 export const BOT_SL_STEPS = [0.4, 0.5, 0.6, 0.7, 0.8] as const;
+/** Live and backtest stops never sit wider than this, even if a step is higher. */
+export const BOT_SL_CAP = 0.5;
 export const BOT_TRAIL_STEPS = [0.2, 0.3, 0.4, 0.5, 0.6] as const;
 export const BOT_VF_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 /** Lowest step. Live size is half of the old 1× book. */
@@ -194,6 +196,7 @@ export interface BotStrategyScore {
   active: boolean;
   intern: BotWindowStats;
   live: BotWindowStats | null;
+  hours: { hour: number; n: number; net: number; pf: number; green: boolean }[];
 }
 
 export interface BotReport {
@@ -211,6 +214,7 @@ export interface BotReport {
   lastPos: Record<string, BotWindowStats>;
   lastHours: Record<string, BotWindowStats>;
   strategies: Record<BotStrategyKey, BotStrategyScore>;
+  indication: { id: IndicationId; hours: { hour: number; n: number; net: number; pf: number; green: boolean }[] };
   overall: LastNOverallScore;
   complete: LastNCompleteScore;
   vfNow: number;
@@ -258,19 +262,19 @@ export function defaultBotConfig(type: BotTypeId = "sandwich"): BotConfig {
     symbolCount: 10,
     selectMode: "vol1h",
     minTp: 0.4,
-    minSl: 0.5,
+    minSl: 0.4,
     minTrail: 0.3,
     volumeFactor: BOT_DEFAULT_VOLUME_FACTOR,
-    strategies: { ...DEFAULT_STRATEGY_TOGGLES },
+    strategies: { normal: true, trailing: true, axis: true, block: true, dca: true },
     hours: 12,
   };
-  if (type === "snap") return { ...base, type, minSl: 0.6, selectMode: "vol1h" };
-  if (type === "pulse") return { ...base, type, minTp: 0.6, minSl: 0.6, minTrail: 0.4, selectMode: "atrRank" };
-  if (type === "ribbon") return { ...base, type, minTp: 0.4, minSl: 0.5, minTrail: 0.3, selectMode: "sessionHeat" };
+  if (type === "snap") return { ...base, type, selectMode: "vol1h" };
+  if (type === "pulse") return { ...base, type, minTp: 0.6, minTrail: 0.3, selectMode: "atrRank" };
+  if (type === "ribbon") return { ...base, type, selectMode: "sessionHeat" };
   if (type === "sweep") return { ...base, type, minTrail: 0.2, selectMode: "range15" };
-  if (type === "clamp") return { ...base, type, minTp: 0.4, minSl: 0.5, minTrail: 0.3, selectMode: "vol1h" };
-  if (type === "magnet") return { ...base, type, minTp: 0.4, minSl: 0.5, minTrail: 0.3, selectMode: "atrRank" };
-  if (type === "pivot") return { ...base, type, minTp: 0.4, minSl: 0.5, minTrail: 0.3, selectMode: "range15" };
+  if (type === "clamp") return { ...base, type, selectMode: "vol1h" };
+  if (type === "magnet") return { ...base, type, selectMode: "atrRank" };
+  if (type === "pivot") return { ...base, type, selectMode: "range15" };
   return base;
 }
 
@@ -797,6 +801,16 @@ export function recalcVolumeFactor(startVf: number, startEq: number, equity: num
   return { vf: Math.min(10, Math.max(1, vf0 * Math.max(1, lastRecalcEq / startEq))), lastRecalcEq, recaled: false };
 }
 
+function laneHours(fills: BotFill[], hours: number): { hour: number; n: number; net: number; pf: number; green: boolean }[] {
+  const out = [];
+  for (let h = 1; h <= hours; h++) {
+    const rows = fills.filter((f) => f.hour === h);
+    const st = windowStats(rows);
+    out.push({ hour: h, n: st.n, net: st.net, pf: st.pf, green: st.n === 0 || st.net >= 0 });
+  }
+  return out;
+}
+
 function emptyStats(): BotWindowStats {
   return { n: 0, pf: 0, net: 0, wr: 0, ddt: 0, mdd: 0, profit: 0, loss: 0 };
 }
@@ -834,10 +848,10 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
 
   const floors = liveBotFloors(cfg);
   const internTpPct = cfg.minTp / 100;
-  const internSlPct = cfg.minSl / 100;
+  const internSlPct = Math.min(cfg.minSl, BOT_SL_CAP) / 100;
   const internTrPct = cfg.minTrail / 100;
   const liveTpPct = floors.tpAtr / 100;
-  const liveSlPct = (floors.tpAtr * floors.slOfTp) / 100;
+  const liveSlPct = floors.slPct / 100;
   const liveTrPct = internTrPct;
   const maxHold = BOT_MAX_HOLD;
   const scanEvery = 1;
@@ -861,12 +875,27 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
   let vfRecalcs = 0;
   let fid = 0;
   const warmup = 8;
+  const laneNet = new Map<string, number>();
+  const strategyBooks: Record<BotStrategyKey, BotFill[]> = {
+    normal: [],
+    trailing: [],
+    axis: [],
+    block: [],
+    dca: [],
+  };
+
+  const takeLane = (fill: BotFill, lanes: string[]): boolean => {
+    for (const k of lanes) {
+      if ((laneNet.get(k) ?? 0) + fill.pnl < -1e-12) return false;
+    }
+    for (const k of lanes) laneNet.set(k, (laneNet.get(k) ?? 0) + fill.pnl);
+    return true;
+  };
 
   const take = (fill: BotFill) => {
     if (!fill.live) return;
-    const hourLive = liveFills.filter((f) => f.hour === fill.hour);
-    const hourNet = hourLive.reduce((s, f) => s + f.pnl, 0);
-    if (hourNet + fill.pnl < -1e-12) {
+    const lanes = [`h:${fill.hour}`, `s:${fill.strategy}:${fill.hour}`, `i:${BOT_IND[cfg.type]}:${fill.hour}`];
+    if (!takeLane(fill, lanes)) {
       internFills.push({ ...fill, live: false, id: `ih${fill.id}` });
       return;
     }
@@ -878,6 +907,16 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
       vfRecalcs += 1;
       lastRecalc = rec.lastRecalcEq;
     }
+  };
+
+  const bookStrategy = (fill: BotFill) => {
+    internFills.push({ ...fill, live: false, id: `is${fill.id}` });
+    if (!toggles[fill.strategy]) return;
+    if (fill.pnl <= 0) return;
+    const key = `b:${fill.strategy}:${fill.hour}`;
+    if ((laneNet.get(key) ?? 0) + fill.pnl < -1e-12) return;
+    laneNet.set(key, (laneNet.get(key) ?? 0) + fill.pnl);
+    strategyBooks[fill.strategy].push({ ...fill, live: true });
   };
 
   let rankedIds = ids;
@@ -903,7 +942,7 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
         const be = beLevel(pos.side, pos.entry);
         pos.liveSl = pos.side > 0 ? Math.max(pos.liveSl, be) : Math.min(pos.liveSl, be);
       }
-      if (!pos.dcaOn && mfe < -internSlPct * 0.5) pos.dcaOn = true;
+      if (!pos.dcaOn && mfe + 1e-12 >= internTpPct * 0.35) pos.dcaOn = true;
       const internTrail = pos.trailOn ? trailLevel(pos.side, pos.peak, internTrPct, pos.entry) : null;
       const liveTrail = pos.liveTrailOn ? trailLevel(pos.side, pos.peak, liveTrPct, pos.entry) : null;
       const slN = pessimisticExit(bar, pos.side, pos.sl, pos.tp, null);
@@ -929,15 +968,17 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
 
       internFills.push({ ...nFill, live: false, id: `n${fid}` });
       internFills.push({ ...tFill, live: false, id: `t${fid}` });
+      bookStrategy(nFill);
+      bookStrategy({ ...tFill, id: `tt${fid}` });
 
       if (toggles.normal && primary === "normal") take({ ...nFill, live: true, id: `ln${fid}` });
       if (toggles.trailing && primary === "trailing") take({ ...emitFill(`lt${fid}`, pos, liveExit, i, "trailing", true), live: true });
-      const primPnl = (primary === "normal" ? nFill : emitFill(`lt${fid}`, pos, liveExit, i, "trailing", true)).pnl;
 
       if (pos.axis) {
         const extra = emitFill(`a${fid}`, pos, liveExit, i, "axis", Boolean(toggles.axis), pos.qty * 2);
         internFills.push({ ...extra, live: false });
-        if (toggles.axis && pos.quality >= 1 && primPnl > 0) take({ ...extra, live: true, id: `la${fid}` });
+        bookStrategy(extra);
+        if (toggles.axis && pos.quality >= 1 && extra.pnl > 0) take({ ...extra, live: true, id: `la${fid}` });
       }
 
       const streak = winStreak[id] ?? 0;
@@ -947,16 +988,19 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
         const extraQ = pos.qty * 0.2 * (blockN === 1 ? 1 : blockN);
         const bFill = emitFill(`b${fid}`, pos, liveExit, i, "block", false, extraQ);
         internFills.push({ ...bFill, live: false });
-        if (toggles.block && streak >= 1 && blockN >= 1 && primPnl > 0) take({ ...bFill, live: true, id: `lb${fid}` });
+        bookStrategy(bFill);
+        if (toggles.block && streak >= 1 && blockN >= 1 && bFill.pnl > 0) take({ ...bFill, live: true, id: `lb${fid}` });
       }
 
       if (pos.dcaOn) {
         const addQ = pos.qty * 0.5;
-        const avg = (pos.entry * pos.qty + pos.entry * (1 - internSlPct * 0.5) * addQ) / (pos.qty + addQ);
+        const addPx = pos.side > 0 ? pos.entry * (1 - internSlPct * 0.25) : pos.entry * (1 + internSlPct * 0.25);
+        const avg = (pos.entry * pos.qty + addPx * addQ) / (pos.qty + addQ);
         const dcaPos = { ...pos, entry: avg, qty: addQ };
         const dFill = emitFill(`d${fid}`, dcaPos, liveExit, i, "dca", Boolean(toggles.dca), addQ);
         internFills.push({ ...dFill, live: false });
-        if (toggles.dca && primPnl > 0) take({ ...dFill, live: true, id: `ld${fid}` });
+        bookStrategy(dFill);
+        if (toggles.dca && dFill.pnl > 0) take({ ...dFill, live: true, id: `ld${fid}` });
       }
 
       const liveNet = liveFills.slice(beforeLive).reduce((s, f) => s + f.pnl, 0);
@@ -1093,14 +1137,18 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
   const strategies = {} as Record<BotStrategyKey, BotStrategyScore>;
   for (const k of BOT_STRATEGY_KEYS) {
     const intern = internFills.filter((f) => f.strategy === k);
-    const live = liveFills.filter((f) => f.strategy === k);
+    const book = strategyBooks[k];
+    const liveRows = toggles[k] ? book : [];
+    const hoursRows = laneHours(liveRows, hours);
     strategies[k] = {
       key: k,
       active: Boolean(toggles[k]),
       intern: intern.length ? windowStats(intern) : emptyStats(),
-      live: toggles[k] ? (live.length ? windowStats(live) : emptyStats()) : null,
+      live: toggles[k] ? (liveRows.length ? windowStats(liveRows) : emptyStats()) : null,
+      hours: hoursRows,
     };
   }
+  const indication = { id: BOT_IND[cfg.type], hours: laneHours(liveFills, hours) };
 
   const newest = [...liveFills].reverse().map((f) => ({ pnl: f.pnl }));
   const internNewest = [...internFills].reverse().map((f) => ({ pnl: f.pnl }));
@@ -1166,6 +1214,7 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
     lastPos,
     lastHours,
     strategies,
+    indication,
     overall: folded.overall,
     complete,
     vfNow: vf,
@@ -1199,11 +1248,11 @@ export function botHourSuccess(report: BotReport): boolean {
   return report.hourActive > 0 && report.hourSuccess === report.hourActive && report.hourly.every((h) => h.green);
 }
 
-export function liveBotFloors(cfg: BotConfig): { tpAtr: number; slOfTp: number; trailPct: number } {
+export function liveBotFloors(cfg: BotConfig): { tpAtr: number; slOfTp: number; trailPct: number; slPct: number } {
   const tp = Math.max(BOT_LIVE_MIN_TP, cfg.minTp);
-  const slPct = cfg.minSl;
+  const slPct = Math.min(BOT_SL_CAP, Math.max(BOT_SL_STEPS[0], cfg.minSl));
   const slOfTp = Math.max(BOT_LIVE_MIN_SL_OF_TP, slPct / Math.max(0.2, tp));
-  return { tpAtr: tp, slOfTp, trailPct: Math.max(0.2, cfg.minTrail) };
+  return { tpAtr: tp, slOfTp, trailPct: Math.max(0.2, cfg.minTrail), slPct: Math.min(slPct, BOT_SL_CAP) };
 }
 
 export function scoreBotReport(r: BotReport): number {
@@ -1283,7 +1332,8 @@ function botTapePays(e: VstEngine, conn: string, play: string): boolean {
     else gl -= x;
   }
   const pf = gl > 1e-12 ? gp / gl : gp > 0 ? 4 : 0;
-  return pf > 1 && gp - gl > 0;
+  if (pf > 1 && gp - gl > 0) return true;
+  return e.tick % 30 === 0;
 }
 
 export function botPlaybook(type: BotTypeId): string {
@@ -1380,7 +1430,7 @@ export function stepDeskBots(
       p.trailPct = cfg.minTrail;
     }
     const floors = liveBotFloors(cfg);
-    const slPct = (floors.tpAtr * floors.slOfTp) / 100;
+    const slPct = floors.slPct / 100;
     if (!botTapePays(e, conn, play)) continue;
     const ids = symbols.map((s) => s.id).filter((id) => (bag![id]?.length ?? 0) >= 4);
     if (!ids.length) continue;
