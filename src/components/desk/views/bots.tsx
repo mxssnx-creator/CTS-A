@@ -30,6 +30,7 @@ import {
   type BotTypeId,
 } from "@/lib/desk/bots";
 import { useDesk } from "@/lib/desk/store";
+import { fmtDur, runningMs } from "@/lib/desk/runtime-clock";
 import { usePreserveScroll } from "@/lib/desk/live-ctx";
 import { fmtNum, fmtPct, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -249,6 +250,7 @@ export function BotsView() {
                 <div className="mt-2 flex gap-3 font-mono text-xs tabular">
                   <span className={row && row.pf >= 1 ? "text-up" : "text-muted"}>PF {fmtPf(row?.pf ?? 0)}</span>
                   <span className="text-muted">n {row?.n ?? 0}</span>
+                  {isArmed && running ? <span className="text-fg">{fmtDur(runningMs(`bot:${activeConnId}:${t}`))}</span> : null}
                 </div>
               </button>
             );

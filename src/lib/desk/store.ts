@@ -87,6 +87,7 @@ import {
   mirrorEffectiveLanes,
 } from "./vst";
 import { completeHoursFor, replayHoursFor, runReplaySimulation } from "./replay-run";
+import { noteCrash, noteFail, noteRecover } from "./runtime-clock";
 import { autoValidateConfigs, evaluateStages, liveLastNEvals } from "./validate";
 import {
   defaultBotsPersist,
@@ -439,6 +440,7 @@ let deskPullStartedAt = 0;
 let lastLiveMarkAt = 0;
 let lastSeenTick = 0;
 let stallBeats = 0;
+let connLocked = false;
 let persistTimer = 0;
 let applyingRemote = false;
 
@@ -1029,7 +1031,15 @@ export const useDesk = create<DeskStore>((set, get) => ({
     ticking = true;
     tickStartedAt = Date.now();
     try {
-      const view = get().activeConnId === "bingx-vst-02" ? "bingx-x01" : get().activeConnId;
+      const selected = get().activeConnId;
+      if (selected === "bingx-vst-02") {
+        e.activeConnId = selected;
+        e.x01Progress = false;
+        e.lastMsg = "VST x02 is off · selection held";
+        set({ vst: snapshotVst(e), ticketMsg: e.lastMsg });
+        return;
+      }
+      const view = selected;
       const sampledAt = e.tick;
       const anyBots = runningIds.length > 0;
       e.activeConnId = view;
@@ -1129,7 +1139,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
           });
       }
       e.botHistTick = sampledAt;
-      e.activeConnId = view;
+      e.activeConnId = selected;
+      e.x01Progress = selected === "bingx-x01";
       e.botMode = runningIds.length > 0;
       e.running = true;
       e.phase = "running";
@@ -1155,10 +1166,17 @@ export const useDesk = create<DeskStore>((set, get) => ({
       }
       set(patch);
     } catch {
-      healEngine(e, get().tacticConfig, get().tactic, get().rangeType);
-      e.running = true;
-      e.phase = "running";
-      e.lastMsg = e.lastHeal || "Tick recovered · book held";
+      try {
+        healEngine(e, get().tacticConfig, get().tactic, get().rangeType);
+        e.running = true;
+        e.phase = "running";
+        e.activeConnId = get().activeConnId;
+        e.lastMsg = e.lastHeal || "Tick recovered · book held";
+        noteRecover();
+      } catch {
+        noteCrash();
+        e.lastMsg = "Tick crashed · selection held";
+      }
       queueExchangeOpen(get, set);
       queueBotControls(get);
       set({ vst: snapshotVst(e), ticketMsg: e.lastMsg });
@@ -1528,13 +1546,13 @@ export const useDesk = create<DeskStore>((set, get) => ({
         tickVst(e, tickCfg, tickTac, { symbolCount: e.x01Progress ? n : Math.min(12, get().symbolCount || 10), rangeType: range, block: e.x01Progress ? liveRunBlock(get().blockConfig) : get().blockConfig });
       }
     }
-    e.activeConnId = "bingx-x01";
+    e.activeConnId = view;
     e.botMode = true;
-    e.x01Progress = true;
+    e.x01Progress = view === "bingx-x01";
     const x01n = e.positions.filter((p) => p.connId === "bingx-x01" && p.qty > 0).length;
     const progressN = [...e.queue, ...e.orders].filter((o) => o.connId === "bingx-x01" && !String(o.playbook || "").startsWith("bot:") && (o.status === "queued" || o.status === "open" || o.status === "partial")).length;
-    e.lastMsg = `X01 progress · ${x01n} open · ${progressN} orders`;
-    set({ vst: snapshotVst(e), ticketMsg: e.lastMsg, activeConnId: "bingx-x01", sessionPhase: "running" });
+    e.lastMsg = view === "bingx-x01" ? `X01 progress · ${x01n} open · ${progressN} orders` : `${view} · x01 kept · ${x01n} open`;
+    set({ vst: snapshotVst(e), ticketMsg: e.lastMsg, activeConnId: view, sessionPhase: "running" });
     void get().connectActive();
   },
   stopBot: () => {
@@ -2057,9 +2075,10 @@ export const useDesk = create<DeskStore>((set, get) => ({
         ? snap.strategyId
         : (playbooks[0]?.id ?? "normal");
       const e = get().vst;
+      const activeConnId = connLocked && isDeskConn(get().activeConnId) ? get().activeConnId : snap.activeConnId;
       e.symbolCount = snap.symbolCount;
       e.orderType = snap.orderType;
-      e.activeConnId = snap.activeConnId;
+      e.activeConnId = activeConnId;
       e.strategyToggles = snap.strategyToggles;
       e.blockCfg = { ...snap.blockConfig, enabled: snap.strategyToggles.block && snap.blockConfig.enabled };
       e.minPf = snap.thresholds.minPf;
@@ -2075,7 +2094,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       e.lastNProgress = snap.lastNProgress ?? sanitizeLastNProgress(undefined);
       e.shortRange = Boolean(snap.tacticConfig.shortRange);
       applyUniverse(e, snap.symbolCount, snap.orderType);
-      if (!e.running && !get().liveSession) requeueFree(e, snap.tacticConfig, snap.tactic, snap.rangeType, snap.activeConnId);
+      if (!e.running && !get().liveSession) requeueFree(e, snap.tacticConfig, snap.tactic, snap.rangeType, activeConnId);
       else e.lastMsg = `Settings synced · ${snap.tactic} · ${snap.rangeType} · ${snap.symbolCount}`;
       set({
         lastN: clampLastN(snap.lastN),
@@ -2092,11 +2111,11 @@ export const useDesk = create<DeskStore>((set, get) => ({
         intervalStrategy: snap.intervalStrategy ?? sanitizeIntervalStrategy(undefined),
         lastNProgress: snap.lastNProgress ?? sanitizeLastNProgress(undefined),
         bots: (() => {
-          const saved = get().botByConn[snap.activeConnId];
+          const saved = get().botByConn[activeConnId];
           const view = saved?.touched ? saved : sanitizeBotsPersist(snap.bots ?? get().bots);
           return { selected: view.selected, armed: view.armed, hours: view.hours, configs: view.configs };
         })(),
-        botsRunning: Boolean(get().botByConn[snap.activeConnId]?.running),
+        botsRunning: Boolean(get().botByConn[activeConnId]?.running),
         symbolCount: snap.symbolCount,
         orderType: snap.orderType,
         enabledKinds: snap.enabledKinds,
@@ -2105,7 +2124,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
         comboOnlyPositive: snap.comboOnlyPositive,
         comboTactic: snap.comboTactic,
         comboRange: snap.comboRange,
-        activeConnId: snap.activeConnId,
+        activeConnId,
         evalHours: snap.evalHours,
         evalLastNs: snap.evalLastNs,
         sessionPhase: snap.sessionPhase,
@@ -2154,7 +2173,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
           connections: get().connections.map((c) => ({ ...c, armed: c.id === "bingx-vst-02" ? false : Boolean(botByConn[c.id]?.running) })),
         });
       }
-      if (get().activeConnId !== "bingx-x01") get().setActiveConn("bingx-x01");
+      connLocked = true;
     }
   },
   pullRemoteSettings: async () => {
@@ -2269,6 +2288,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       if (id === get().activeConnId) void get().connectActive();
       return;
     }
+    connLocked = true;
     const curId = get().activeConnId;
     const botByConn = withConnBots(get(), get().bots, get().botByConn[curId]?.running);
     if (id === "bingx-vst-02" && botByConn[id]) botByConn[id] = { ...botByConn[id], running: false };
@@ -2324,6 +2344,7 @@ function noteStall(e: ReturnType<typeof initVstEngine>) {
   e.healCount = (e.healCount ?? 0) + 1;
   e.lastHeal = "stalled tick resumed";
   e.lastMsg = "Heal · stalled tick resumed";
+  noteFail();
 }
 
 export { COST_STEPS, LAST_N_OPTIONS };

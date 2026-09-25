@@ -25,6 +25,9 @@ import { memo, useEffect, useRef, useState } from "react";
 import { LAST_N_OPTIONS, lastPrice, priceChange, RANGE_META, REPLAY_RANGES, replayBarsFor, TACTIC_META, WARMUP } from "@/lib/desk/engine";
 import { useDesk } from "@/lib/desk/store";
 import { universeSymbols, VST_TICK_MS } from "@/lib/desk/vst";
+import { hostPulse, type HostPulse } from "@/lib/desk/host-pulse";
+import { BOT_TYPES } from "@/lib/desk/bots";
+import { fmtDur, markRunning, runningMs, runtimeCounts, sessionMs } from "@/lib/desk/runtime-clock";
 import { useDeskPaneScroll, bindDeskScroll, useLiveSnapshot } from "@/lib/desk/live-ctx";
 import { cn, clsPnl, fmtPct, fmtPx, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -408,6 +411,81 @@ function DeskToolbar() {
   );
 }
 
+function fmtBytes(n: number): string {
+  if (!(n > 0)) return "0 B";
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)} GB`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} MB`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(0)} KB`;
+  return `${Math.round(n)} B`;
+}
+
+function SystemStrip() {
+  const activeConnId = useDesk((s) => s.activeConnId);
+  const phase = useDesk((s) => s.vst.phase);
+  const tick = useDesk((s) => s.vst.tick);
+  const armed = useDesk((s) => s.botByConn[s.activeConnId]?.armed ?? []);
+  const [now, setNow] = useState(0);
+  const [host, setHost] = useState<HostPulse | null>(null);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const s = useDesk.getState();
+      markRunning("engine", Boolean(s.vst.running));
+      markRunning("progress", Boolean(s.vst.running && s.activeConnId === "bingx-x01"));
+      for (const [cid, b] of Object.entries(s.botByConn)) {
+        markRunning(`conn:${cid}`, Boolean(b?.running));
+        for (const t of BOT_TYPES) markRunning(`bot:${cid}:${t}`, Boolean(b?.running && b.armed?.includes(t)));
+      }
+      setNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  useEffect(() => {
+    let dead = false;
+    const pull = () => {
+      void hostPulse()
+        .then((p) => {
+          if (!dead) setHost(p);
+        })
+        .catch(() => {
+          /* keep the last pulse */
+        });
+    };
+    pull();
+    const id = window.setInterval(pull, 2000);
+    return () => {
+      dead = true;
+      window.clearInterval(id);
+    };
+  }, []);
+  const counts = runtimeCounts();
+  const conn =
+    activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : activeConnId === "bingx-vst-02" ? "x02 off" : activeConnId;
+  return (
+    <footer className="shrink-0 border-t border-border bg-surface px-3 py-1.5 text-[11px] leading-4 text-muted">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono tabular">
+        <span>cpu {host ? `${host.cpuPct.toFixed(0)}%` : "—"}</span>
+        <span>mem {host ? `${fmtBytes(host.memUsed)}/${fmtBytes(host.memTotal)}` : "—"}</span>
+        <span>heap {host ? fmtBytes(host.heap) : "—"}</span>
+        <span>db {host ? `${fmtBytes(host.dbBytes)} · ${host.dbFiles}` : "—"}</span>
+        <span>{host ? host.reqPerSec.toFixed(1) : "—"} req/s</span>
+        <span>up {host ? fmtDur(host.uptimeSec * 1000) : "—"}</span>
+        <span>session {now ? fmtDur(sessionMs()) : "—"}</span>
+        <span>progress {now ? fmtDur(runningMs("progress")) : "—"}</span>
+        <span>engine {now ? fmtDur(runningMs("engine")) : "—"} · {phase} · t{tick}</span>
+        {armed.map((t) => (
+          <span key={t}>
+            {t} {now ? fmtDur(runningMs(`bot:${activeConnId}:${t}`)) : "—"}
+          </span>
+        ))}
+        <span>fail {counts.fails}</span>
+        <span>recover {counts.recovers}</span>
+        <span>crash {counts.crashes}</span>
+        <span className="text-fg">{conn}</span>
+      </div>
+    </footer>
+  );
+}
+
 export function AppShell() {
   const paneRef = useRef<HTMLElement | null>(null);
   const [pane, setPane] = useState<HTMLElement | null>(null);
@@ -428,7 +506,7 @@ export function AppShell() {
       <DeskRuntime />
       <DeskSidebar />
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-12 lg:pb-0">
         <DeskHeader onMenu={() => setOpen(true)} />
         <DeskToolbar />
 
@@ -443,6 +521,7 @@ export function AppShell() {
         >
           <Outlet />
         </main>
+        <SystemStrip />
       </div>
 
       {open ? (

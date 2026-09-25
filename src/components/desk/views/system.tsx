@@ -49,7 +49,7 @@ export function SystemView() {
       </Panel>
       <Panel title="Database · JSON store">
         <p className="text-sm text-muted">
-          Auth is off. The trading database is host JSON: session, overall-stats, settings. Desk picks x02 when ping is ok.
+          Auth is off. The trading database is host JSON: session, overall-stats, settings. The connection you select stays selected.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-x-6 sm:grid-cols-4">
           <StatLine k="Session keys" v={String(keys)} />
