@@ -1266,6 +1266,26 @@ const BOT_IND: Record<BotTypeId, IndicationId> = {
   pivot: "direction",
 };
 
+function botTapePays(e: VstEngine, conn: string, play: string): boolean {
+  const recent: number[] = [];
+  for (let i = e.closed.length - 1; i >= 0 && recent.length < 40; i--) {
+    const c = e.closed[i]!;
+    if (c.connId !== conn || c.playbook !== play || c.protect) continue;
+    const edge = Number.isFinite(Number(c.ratio)) ? Number(c.ratio) : Number(c.pnl) || 0;
+    if (Math.abs(edge) < 1e-12) continue;
+    recent.push(edge);
+  }
+  if (recent.length < 16) return true;
+  let gp = 0;
+  let gl = 0;
+  for (const x of recent) {
+    if (x > 0) gp += x;
+    else gl -= x;
+  }
+  const pf = gl > 1e-12 ? gp / gl : gp > 0 ? 4 : 0;
+  return pf > 1 && gp - gl > 0;
+}
+
 export function botPlaybook(type: BotTypeId): string {
   return `bot:${type}`;
 }
@@ -1361,6 +1381,7 @@ export function stepDeskBots(
     }
     const floors = liveBotFloors(cfg);
     const slPct = (floors.tpAtr * floors.slOfTp) / 100;
+    if (!botTapePays(e, conn, play)) continue;
     const ids = symbols.map((s) => s.id).filter((id) => (bag![id]?.length ?? 0) >= 4);
     if (!ids.length) continue;
     const paths: Record<string, Bar[]> = {};

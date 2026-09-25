@@ -1,4 +1,5 @@
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_THRESHOLDS, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, DEFAULT_INTERVAL_STRATEGY, DEFAULT_LAST_N_PROGRESS, DEFAULT_SHORT_PROGRESS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, X01_DEFAULTS } from "./engine.ts";
+import { defaultBotsPersist } from "./bots.ts";
 import type { DeskSettingsSnap } from "./settings-sync.ts";
 
 export interface SettingsPreset {
@@ -510,7 +511,41 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       strategyToggles: { normal: false, trailing: true, axis: true, block: true, dca: false },
     },
   },
+  {
+    id: "x01-bots",
+    label: "x01 bots",
+    blurb: "Mainnet only. Sandwich + Clamp + Pivot. Volume factor 1. VST x02 off.",
+    builtin: true,
+    patch: {
+      activeConnId: "bingx-x01",
+      sessionPhase: "running",
+      bots: x01BotPreset(),
+    },
+  },
 ];
+
+export function x01BotPreset() {
+  const bots = defaultBotsPersist();
+  bots.selected = "sandwich";
+  bots.armed = ["sandwich", "clamp", "pivot"];
+  bots.hours = 24;
+  for (const t of ["sandwich", "clamp", "pivot"] as const) {
+    bots.configs[t] = {
+      ...bots.configs[t],
+      symbolCount: 10,
+      minTp: 0.4,
+      minSl: 0.5,
+      minTrail: 0.3,
+      volumeFactor: 1,
+      hours: 24,
+      strategies: { normal: false, trailing: true, axis: true, block: true, dca: false },
+    };
+  }
+  bots.configs.sandwich.selectMode = "vol1h";
+  bots.configs.clamp.selectMode = "vol1h";
+  bots.configs.pivot.selectMode = "range15";
+  return bots;
+}
 
 export const PRESET_STORAGE_KEY = "cts-a-settings-presets";
 

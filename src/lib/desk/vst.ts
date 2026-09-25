@@ -194,7 +194,7 @@ function performingLive(e: VstEngine) {
 
 type TypeGateRow = { n: number; pf: number; net: number; ok: boolean };
 const typeGateMem = new WeakMap<VstEngine, { indications: Record<string, TypeGateRow>; tactics: Record<string, TypeGateRow>; floor: number; blendN: number; blendPf: number; blendNet: number }>();
-const liveIndTally = new WeakMap<VstEngine, Record<string, { n: number; gp: number; gl: number; fail?: boolean }>>();
+const liveIndTally = new WeakMap<VstEngine, Record<string, { n: number; gp: number; gl: number; fail?: boolean; recent?: number[]; at?: number; pays?: boolean }>>();
 
 function noteLiveInd(e: VstEngine, ind: string, pnl: number, tac?: string) {
   if (!(completeOpenTape(e) || performingLive(e))) return;
@@ -206,10 +206,13 @@ function noteLiveInd(e: VstEngine, ind: string, pnl: number, tac?: string) {
     liveIndTally.set(e, bag);
   }
   const key = tac ? `${ind}|${tac}` : ind;
-  const row = bag[key] ?? (bag[key] = { n: 0, gp: 0, gl: 0 });
+  const row = bag[key] ?? (bag[key] = { n: 0, gp: 0, gl: 0, recent: [] });
   row.n += 1;
   if (x > 0) row.gp += x;
   else row.gl -= x;
+  const recent = row.recent ?? (row.recent = []);
+  recent.push(x);
+  if (recent.length > 64) recent.shift();
 }
 
 function releaseFailedIndication(e: VstEngine, ind: string, tac?: string) {
@@ -221,8 +224,44 @@ function releaseFailedIndication(e: VstEngine, ind: string, tac?: string) {
   cancelQueued(e, (o) => hit(o));
 }
 
-function liveIndStillPays(_e: VstEngine, _ind?: string, _tac?: string): boolean {
-  return true;
+function liveIndStillPays(e: VstEngine, ind?: string, tac?: string): boolean {
+  if (!ind) return true;
+  const bag = liveIndTally.get(e);
+  if (!bag) return true;
+  const judge = (recent: number[]) => {
+    if (recent.length < 40) return null;
+    const slice = recent.length > 64 ? recent.slice(-64) : recent;
+    let gp = 0;
+    let gl = 0;
+    for (const x of slice) {
+      if (x > 0) gp += x;
+      else gl -= x;
+    }
+    const pf = gl > 1e-12 ? gp / gl : gp > 0 ? PF_NO_LOSS : 0;
+    return pf > 1 && gp - gl > 0;
+  };
+  const specific = tac ? bag[`${ind}|${tac}`] : undefined;
+  if (specific && (specific.recent?.length ?? 0) >= 40) {
+    const pays = judge(specific.recent!) === true;
+    specific.fail = !pays;
+    return pays;
+  }
+  const bare = bag[ind] ?? (bag[ind] = { n: 0, gp: 0, gl: 0, recent: [] });
+  if (bare.at === e.tick && bare.pays != null) return bare.pays;
+  let recent = bare.recent ?? [];
+  if (recent.length < 40) {
+    recent = [];
+    for (const [key, row] of Object.entries(bag)) {
+      if (key !== ind && !key.startsWith(`${ind}|`)) continue;
+      if (row.recent?.length) recent.push(...row.recent);
+    }
+  }
+  const verdict = judge(recent);
+  const pays = verdict == null ? true : verdict;
+  bare.at = e.tick;
+  bare.pays = pays;
+  bare.fail = verdict === false;
+  return pays;
 }
 
 function applyStickyIndicationEval(e: VstEngine, indications: Record<string, { n: number; pf: number; net: number; ok: boolean }>) {
@@ -2304,6 +2343,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       }
       const tacs = allLanes ? rankTactics(e, pickLiveTactic(e, ind, e.lastTactic)) : [e.lastTactic];
       for (const tac of tacs) {
+      if ((openTape || performingLive(e)) && !liveIndStillPays(e, ind, tac)) continue;
       if (performingLive(e)) {
         const gate = typeGateMem.get(e);
         const indRow = gate?.indications?.[ind];
@@ -3680,8 +3720,18 @@ function recycleOpenLadders(e: VstEngine) {
   const see = (o: LiveOrder) => {
     if (!born!.has(o.id)) born!.set(o.id, e.tick);
   };
-  for (const o of e.orders) see(o);
-  for (const o of e.queue) see(o);
+  const liveIds = new Set<string>();
+  for (const o of e.orders) {
+    see(o);
+    liveIds.add(o.id);
+  }
+  for (const o of e.queue) {
+    see(o);
+    liveIds.add(o.id);
+  }
+  if (born.size > liveIds.size + 4000) {
+    for (const id of born.keys()) if (!liveIds.has(id)) born.delete(id);
+  }
   const far = (o: LiveOrder) => {
     if (o.status !== "open" && o.status !== "partial" && o.status !== "queued") return false;
     const q = e.quotes[o.symbol];

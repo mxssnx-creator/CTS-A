@@ -380,7 +380,7 @@ function queueBotControls(get: () => { activeConnId: string; connections: Connec
 
 function queueExchangeOpen(get: () => { activeConnId: string; connections: Connection[]; exchange: ExchangeBook | null; vst: VstEngine; pullExchange: () => Promise<void> }, set: (partial: { ticketMsg?: string }) => void) {
   const id = get().activeConnId;
-  if (!isDeskConn(id) || id === "bingx-x01") return;
+  if (!isDeskConn(id) || id === "bingx-x01" || id === "bingx-vst-02") return;
   const conn = get().connections.find((c) => c.id === id);
   if (!conn || conn.network === "paper") return;
   const now = Date.now();
@@ -578,7 +578,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   intervalStrategy: sanitizeIntervalStrategy(DEFAULT_INTERVAL_STRATEGY),
   lastNProgress: sanitizeLastNProgress(DEFAULT_LAST_N_PROGRESS),
   bots: defaultBotsPersist(),
-  botByConn: Object.fromEntries(DESK_CONN_IDS.map((id) => [id, { ...freshConnBots(), running: true, touched: true }])),
+  botByConn: Object.fromEntries(DESK_CONN_IDS.map((id) => [id, { ...freshConnBots(), running: id !== "bingx-vst-02", touched: true }])),
   botsRunning: true,
   exchange: null,
   liveSession: null,
@@ -1015,7 +1015,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   },
   tickEngine: () => {
     const sessions = get().botByConn;
-    const runningIds = DESK_CONN_IDS.filter((id) => sessions[id]?.running);
+    const runningIds = DESK_CONN_IDS.filter((id) => id !== "bingx-vst-02" && sessions[id]?.running);
     if (get().liveSession && !runningIds.length) return;
     const e = get().vst;
     if (ticking) {
@@ -1029,7 +1029,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     ticking = true;
     tickStartedAt = Date.now();
     try {
-      const view = get().activeConnId;
+      const view = get().activeConnId === "bingx-vst-02" ? "bingx-x01" : get().activeConnId;
       const sampledAt = e.tick;
       const anyBots = runningIds.length > 0;
       e.activeConnId = view;
@@ -1432,6 +1432,10 @@ export const useDesk = create<DeskStore>((set, get) => ({
   startBot: () => {
     const snap = get();
     const id = snap.activeConnId;
+    if (id === "bingx-vst-02") {
+      set({ ticketMsg: "VST x02 is off. Mainnet x01 keeps running." });
+      return;
+    }
     const focus = snap.bots.selected;
     const cfg = sanitizeBotConfig(snap.bots.configs[focus], focus);
     const floors = liveBotFloors(cfg);
@@ -1476,6 +1480,10 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const botByConn = { ...get().botByConn };
     for (const id of DESK_CONN_IDS) {
       const base = botByConn[id] ?? freshConnBots();
+      if (id === "bingx-vst-02") {
+        botByConn[id] = { ...base, running: false, touched: true };
+        continue;
+      }
       const armed = sanitizeArmed(base.armed);
       for (const t of BOT_TYPES) {
         if (armed.length >= 3) break;
@@ -2137,7 +2145,15 @@ export const useDesk = create<DeskStore>((set, get) => ({
     } catch {
       /* stay on local */
     } finally {
-      if (!DESK_CONN_IDS.every((id) => get().botByConn[id]?.running)) get().runLiveBots();
+      if (!get().botByConn["bingx-x01"]?.running) get().runLiveBots();
+      const x02 = get().botByConn["bingx-vst-02"];
+      if (x02?.running) {
+        const botByConn = { ...get().botByConn, "bingx-vst-02": { ...x02, running: false } };
+        set({
+          botByConn,
+          connections: get().connections.map((c) => ({ ...c, armed: c.id === "bingx-vst-02" ? false : Boolean(botByConn[c.id]?.running) })),
+        });
+      }
       if (get().activeConnId !== "bingx-x01") get().setActiveConn("bingx-x01");
     }
   },
@@ -2255,7 +2271,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
     }
     const curId = get().activeConnId;
     const botByConn = withConnBots(get(), get().bots, get().botByConn[curId]?.running);
-    const next = botByConn[id] ?? freshConnBots();
+    if (id === "bingx-vst-02" && botByConn[id]) botByConn[id] = { ...botByConn[id], running: false };
+    const next = { ...(botByConn[id] ?? freshConnBots()), running: id === "bingx-vst-02" ? false : Boolean(botByConn[id]?.running) };
     const e = get().vst;
     e.activeConnId = id;
     e.lastMsg = `Current session ${id}`;

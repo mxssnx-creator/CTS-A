@@ -1,0 +1,152 @@
+{
+  "id": "x01-bots",
+  "connection": "bingx-x01",
+  "x02": "off",
+  "bots": {
+    "selected": "sandwich",
+    "armed": [
+      "sandwich",
+      "clamp",
+      "pivot"
+    ],
+    "hours": 24,
+    "configs": {
+      "sandwich": {
+        "type": "sandwich",
+        "symbolCount": 10,
+        "selectMode": "vol1h",
+        "minTp": 0.4,
+        "minSl": 0.5,
+        "minTrail": 0.3,
+        "volumeFactor": 1,
+        "strategies": {
+          "normal": false,
+          "trailing": true,
+          "axis": true,
+          "block": true,
+          "dca": false
+        },
+        "hours": 24
+      },
+      "snap": {
+        "type": "snap",
+        "symbolCount": 10,
+        "selectMode": "vol1h",
+        "minTp": 0.4,
+        "minSl": 0.6,
+        "minTrail": 0.3,
+        "volumeFactor": 1,
+        "strategies": {
+          "normal": false,
+          "trailing": true,
+          "axis": true,
+          "block": true,
+          "dca": false
+        },
+        "hours": 12
+      },
+      "pulse": {
+        "type": "pulse",
+        "symbolCount": 10,
+        "selectMode": "atrRank",
+        "minTp": 0.6,
+        "minSl": 0.6,
+        "minTrail": 0.4,
+        "volumeFactor": 1,
+        "strategies": {
+          "normal": false,
+          "trailing": true,
+          "axis": true,
+          "block": true,
+          "dca": false
+        },
+        "hours": 12
+      },
+      "ribbon": {
+        "type": "ribbon",
+        "symbolCount": 10,
+        "selectMode": "sessionHeat",
+        "minTp": 0.4,
+        "minSl": 0.5,
+        "minTrail": 0.3,
+        "volumeFactor": 1,
+        "strategies": {
+          "normal": false,
+          "trailing": true,
+          "axis": true,
+          "block": true,
+          "dca": false
+        },
+        "hours": 12
+      },
+      "sweep": {
+        "type": "sweep",
+        "symbolCount": 10,
+        "selectMode": "range15",
+        "minTp": 0.4,
+        "minSl": 0.5,
+        "minTrail": 0.2,
+        "volumeFactor": 1,
+        "strategies": {
+          "normal": false,
+          "trailing": true,
+          "axis": true,
+          "block": true,
+          "dca": false
+        },
+        "hours": 12
+      },
+      "clamp": {
+        "type": "clamp",
+        "symbolCount": 10,
+        "selectMode": "vol1h",
+        "minTp": 0.4,
+        "minSl": 0.5,
+        "minTrail": 0.3,
+        "volumeFactor": 1,
+        "strategies": {
+          "normal": false,
+          "trailing": true,
+          "axis": true,
+          "block": true,
+          "dca": false
+        },
+        "hours": 24
+      },
+      "magnet": {
+        "type": "magnet",
+        "symbolCount": 10,
+        "selectMode": "atrRank",
+        "minTp": 0.4,
+        "minSl": 0.5,
+        "minTrail": 0.3,
+        "volumeFactor": 1,
+        "strategies": {
+          "normal": false,
+          "trailing": true,
+          "axis": true,
+          "block": true,
+          "dca": false
+        },
+        "hours": 12
+      },
+      "pivot": {
+        "type": "pivot",
+        "symbolCount": 10,
+        "selectMode": "range15",
+        "minTp": 0.4,
+        "minSl": 0.5,
+        "minTrail": 0.3,
+        "volumeFactor": 1,
+        "strategies": {
+          "normal": false,
+          "trailing": true,
+          "axis": true,
+          "block": true,
+          "dca": false
+        },
+        "hours": 24
+      }
+    }
+  }
+}
