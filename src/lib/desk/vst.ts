@@ -194,7 +194,7 @@ function performingLive(e: VstEngine) {
 
 type TypeGateRow = { n: number; pf: number; net: number; ok: boolean };
 const typeGateMem = new WeakMap<VstEngine, { indications: Record<string, TypeGateRow>; tactics: Record<string, TypeGateRow>; floor: number; blendN: number; blendPf: number; blendNet: number }>();
-const liveIndTally = new WeakMap<VstEngine, Record<string, { n: number; gp: number; gl: number; fail?: boolean; recent?: number[]; at?: number; pays?: boolean }>>();
+const liveIndTally = new WeakMap<VstEngine, Record<string, { n: number; gp: number; gl: number; fail?: boolean; recent?: number[]; at?: number; pays?: boolean; probeTick?: number; probes?: number }>>();
 
 function noteLiveInd(e: VstEngine, ind: string, pnl: number, tac?: string) {
   if (!(completeOpenTape(e) || performingLive(e))) return;
@@ -224,44 +224,63 @@ function releaseFailedIndication(e: VstEngine, ind: string, tac?: string) {
   cancelQueued(e, (o) => hit(o));
 }
 
-function liveIndStillPays(e: VstEngine, ind?: string, tac?: string): boolean {
+function dropQueuedLane(e: VstEngine, ind: string, tac?: string) {
+  cancelQueued(e, (o) => {
+    if (isBotPlay(o.playbook)) return false;
+    if (o.indication !== ind) return false;
+    return !tac || o.tactic === tac;
+  });
+}
+
+function recentLanePays(recent: number[] | undefined): boolean | null {
+  if (!recent || recent.length < 24) return null;
+  const slice = recent.length > 48 ? recent.slice(-48) : recent;
+  let gp = 0;
+  let gl = 0;
+  for (const x of slice) {
+    if (x > 0) gp += x;
+    else gl -= x;
+  }
+  const pf = gl > 1e-12 ? gp / gl : gp > 0 ? PF_NO_LOSS : 0;
+  if (pf < 0.9 && gp - gl <= 0) return false;
+  return true;
+}
+
+function indicationRecent(e: VstEngine, ind: string): number[] {
+  const bag = liveIndTally.get(e);
+  if (!bag) return [];
+  const recent: number[] = [];
+  for (const [key, row] of Object.entries(bag)) {
+    if (key !== ind && !key.startsWith(`${ind}|`)) continue;
+    if (row.recent?.length) recent.push(...row.recent.slice(-16));
+    if (recent.length >= 48) break;
+  }
+  return recent;
+}
+
+function liveIndStillPays(e: VstEngine, ind?: string): boolean {
   if (!ind) return true;
   const bag = liveIndTally.get(e);
   if (!bag) return true;
-  const judge = (recent: number[]) => {
-    if (recent.length < 40) return null;
-    const slice = recent.length > 64 ? recent.slice(-64) : recent;
-    let gp = 0;
-    let gl = 0;
-    for (const x of slice) {
-      if (x > 0) gp += x;
-      else gl -= x;
-    }
-    const pf = gl > 1e-12 ? gp / gl : gp > 0 ? PF_NO_LOSS : 0;
-    return pf > 1 && gp - gl > 0;
-  };
-  const specific = tac ? bag[`${ind}|${tac}`] : undefined;
-  if (specific && (specific.recent?.length ?? 0) >= 40) {
-    const pays = judge(specific.recent!) === true;
-    specific.fail = !pays;
-    return pays;
+  const verdict = recentLanePays(indicationRecent(e, ind));
+  if (verdict !== false) {
+    const bare = bag[ind];
+    if (bare) bare.fail = false;
+    return true;
   }
   const bare = bag[ind] ?? (bag[ind] = { n: 0, gp: 0, gl: 0, recent: [] });
-  if (bare.at === e.tick && bare.pays != null) return bare.pays;
-  let recent = bare.recent ?? [];
-  if (recent.length < 40) {
-    recent = [];
-    for (const [key, row] of Object.entries(bag)) {
-      if (key !== ind && !key.startsWith(`${ind}|`)) continue;
-      if (row.recent?.length) recent.push(...row.recent);
-    }
+  if (bare.fail !== true) {
+    bare.fail = true;
+    dropQueuedLane(e, ind);
   }
-  const verdict = judge(recent);
-  const pays = verdict == null ? true : verdict;
-  bare.at = e.tick;
-  bare.pays = pays;
-  bare.fail = verdict === false;
-  return pays;
+  if (e.tick % 30 !== 0) return false;
+  if (bare.probeTick !== e.tick) {
+    bare.probeTick = e.tick;
+    bare.probes = 0;
+  }
+  if ((bare.probes ?? 0) >= 2) return false;
+  bare.probes = (bare.probes ?? 0) + 1;
+  return true;
 }
 
 function applyStickyIndicationEval(e: VstEngine, indications: Record<string, { n: number; pf: number; net: number; ok: boolean }>) {
@@ -382,7 +401,7 @@ function validatedOrderDepth(
   }
   const liveEv = e.progressEval?.indications?.[ind];
   if (liveEv && liveEv.n >= 8 && (liveEv.ok === false || liveEv.pf + 1e-9 < 1)) return 0;
-  if (!liveIndStillPays(e, ind, tactic)) return 0;
+  if (!liveIndStillPays(e, ind)) return 0;
   if (!(pf >= 1)) return 0;
   const used = Math.min(pf, 1.6);
   const extra = Math.floor((used - 1) / 0.2);
@@ -1918,13 +1937,41 @@ export function enabledLiveTactics(e: VstEngine): TacticKind[] {
 }
 
 /** All catalog indications, winner and higher-quality first. Never drops a lane. */
+function liveLaneScore(e: VstEngine, ind: string): number {
+  const bag = liveIndTally.get(e);
+  if (!bag) return 0;
+  const recent: number[] = [];
+  for (const [key, row] of Object.entries(bag)) {
+    if (key !== ind && !key.startsWith(`${ind}|`)) continue;
+    if (row.recent?.length) recent.push(...row.recent.slice(-8));
+    if (recent.length >= 32) break;
+  }
+  const verdict = recentLanePays(recent);
+  if (verdict == null) return 0;
+  return verdict ? 60 : -80;
+}
+
+function liveTacticScore(e: VstEngine, tac: string): number {
+  const bag = liveIndTally.get(e);
+  if (!bag) return 0;
+  const recent: number[] = [];
+  for (const [key, row] of Object.entries(bag)) {
+    if (!key.endsWith(`|${tac}`) || !row.recent?.length) continue;
+    recent.push(...row.recent.slice(-12));
+    if (recent.length >= 32) break;
+  }
+  const verdict = recentLanePays(recent);
+  if (verdict == null) return 0;
+  return verdict ? 40 : -40;
+}
+
 export function rankIndications(e: VstEngine, pack: Parameters<typeof indicationQuality>[1], winner: IndicationId): IndicationId[] {
   const catalog = (e.shortProgress?.indications?.length ? e.shortProgress.indications : SHORT_PROGRESS_INDICATIONS) as IndicationId[];
   const score = (id: IndicationId) => {
     const q = indicationQuality(id, pack);
     const ev = e.progressEval?.indications?.[id];
     const mag = Math.abs(Number((pack as unknown as Record<string, number>)[id]) || 0);
-    return (id === winner ? 80 : 0) + q * 8 + (ev && ev.n >= 3 ? ev.pf * 4 : 0) + mag;
+    return (id === winner ? 80 : 0) + q * 8 + (ev && ev.n >= 3 ? ev.pf * 4 : 0) + mag + liveLaneScore(e, id);
   };
   return catalog.slice().sort((a, b) => score(b) - score(a));
 }
@@ -1933,7 +1980,7 @@ export function rankIndications(e: VstEngine, pack: Parameters<typeof indication
 export function rankTactics(e: VstEngine, preferred: TacticKind): TacticKind[] {
   const score = (t: TacticKind) => {
     const ev = e.progressEval?.tactics?.[t];
-    return (t === preferred ? 80 : 0) + (ev && ev.n >= 3 ? ev.pf : 1);
+    return (t === preferred ? 80 : 0) + (ev && ev.n >= 3 ? ev.pf : 1) + liveTacticScore(e, t);
   };
   return enabledLiveTactics(e).slice().sort((a, b) => score(b) - score(a));
 }
@@ -2343,7 +2390,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       }
       const tacs = allLanes ? rankTactics(e, pickLiveTactic(e, ind, e.lastTactic)) : [e.lastTactic];
       for (const tac of tacs) {
-      if ((openTape || performingLive(e)) && !liveIndStillPays(e, ind, tac)) continue;
+      if ((openTape || performingLive(e)) && !liveIndStillPays(e, ind)) continue;
       if (performingLive(e)) {
         const gate = typeGateMem.get(e);
         const indRow = gate?.indications?.[ind];

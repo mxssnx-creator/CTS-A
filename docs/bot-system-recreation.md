@@ -102,9 +102,9 @@ Two holds, both on the last closes only. Open positions stay managed. New entrie
 Progress indications ([src/lib/desk/vst.ts](../src/lib/desk/vst.ts) `liveIndStillPays`):
 
 - Each valid close records the position ratio on that indication, last 64.
-- After 40 samples, if profit factor ≤ 1 or net ≤ 0, `armUniverse` does not queue that indication.
-- A later window that pays again clears the hold.
-- This is what stopped the 7-day fade, where ema and macd went under 1 and pulled the book from PF 1.39 down to 1.05.
+- After 24 samples, if the indication's recent profit factor is under 0.90, new orders for it stop and its queued orders are dropped.
+- It gets a small probe every 30 ticks. If the window pays again, it comes back. A dip does not ban it forever.
+- Paying indications stay first in the arm order, so the queue stays full.
 
 Bots (`botTapePays`):
 
