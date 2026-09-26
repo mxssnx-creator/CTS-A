@@ -1417,11 +1417,13 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const strayN = strayOut.filter(Boolean).length;
   if (strayN) notes.push(`stray ${strayN}`);
 
+  const ownedSym = new Set(owned.map((p) => p.symbol));
   const leftoverJobs = (book.orders ?? []).filter((o) => {
     if (!mayCancelOrder(o)) return false;
     if (kindOf(o.type)) return false;
     const t = String(o.type || "").toUpperCase();
-    if (t === "LIMIT" || t === "MARKET") return false;
+    if (t === "LIMIT" && !ownedSym.has(o.symbol)) return false;
+    if (t === "MARKET") return false;
     return true;
   });
   if (leftoverJobs.length) {
@@ -2536,8 +2538,10 @@ async function main() {
             lastTape = Date.now();
             void refreshVol1h(engine, ping.network).catch(() => {});
             void refreshPrehistory(engine, ping.network).then((n) => {
-              if (n >= 8) adjustments.push(`prehistory ${n} hourly bars · atr + indications`);
-            }).catch(() => {});
+              adjustments.push(n >= 8 ? `prehistory ${n} hourly bars · atr + indications` : `prehistory thin ${n}`);
+            }).catch((err) => {
+              adjustments.push(`prehistory ${err instanceof Error ? err.message : "fail"}`);
+            });
           }
         } catch (err) {
           adjustments.push(`tape ${err instanceof Error ? err.message : "fail"}`);
