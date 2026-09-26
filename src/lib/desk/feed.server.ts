@@ -684,6 +684,74 @@ export function cachedVol1h(id: string): number {
   return x.v;
 }
 
+function klineBar(row: unknown): { px: number; hi: number; lo: number } | null {
+  if (!row) return null;
+  if (Array.isArray(row)) {
+    const hi = num(row[2]);
+    const lo = num(row[3]);
+    const px = num(row[4]) || num(row[1]);
+    if (px > 0 && hi > 0 && lo > 0 && hi + 1e-12 >= lo) return { px, hi, lo };
+    return null;
+  }
+  const o = row as { high?: string | number; low?: string | number; close?: string | number; highPrice?: string | number; lowPrice?: string | number };
+  const hi = num(o.high ?? o.highPrice);
+  const lo = num(o.low ?? o.lowPrice);
+  const px = num(o.close);
+  if (px > 0 && hi > 0 && lo > 0 && hi + 1e-12 >= lo) return { px, hi, lo };
+  return null;
+}
+
+/** Last 24 one-hour bars. ATR is the mean true range of the last 14, as a fraction of price. */
+export async function fetchPrehistory(network: "mainnet" | "testnet"): Promise<Map<string, { atrFrac: number; hourFrac: number; bars: { px: number; hi: number; lo: number }[] }>> {
+  const hosts = HOSTS[network];
+  const host = hosts[0]!;
+  const ids = [...LIVE_IDS];
+  const out = new Map<string, { atrFrac: number; hourFrac: number; bars: { px: number; hi: number; lo: number }[] }>();
+  let cursor = 0;
+  async function worker() {
+    while (cursor < ids.length) {
+      const id = ids[cursor++];
+      if (!id) break;
+      const vs = BINGX_SYMBOL[id] ?? (id.includes("-") ? id : `${id.replace(/USDT$/i, "")}-USDT`);
+      for (const path of [
+        `${host}/openApi/swap/v3/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=24`,
+        `${host}/openApi/swap/v2/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=24`,
+      ]) {
+        try {
+          const got = await getJson(path);
+          const body = got.json as { code?: number; data?: unknown };
+          const rows = Array.isArray(body?.data) ? body.data : [];
+          const bars = rows.map(klineBar).filter((b): b is { px: number; hi: number; lo: number } => Boolean(b));
+          if (bars.length < 8) continue;
+          const tail = bars.slice(-14);
+          let tr = 0;
+          let n = 0;
+          for (let i = 0; i < tail.length; i++) {
+            const b = tail[i]!;
+            const prev = i > 0 ? tail[i - 1]!.px : b.px;
+            const range = Math.max(b.hi - b.lo, Math.abs(b.hi - prev), Math.abs(b.lo - prev));
+            if (b.px > 0 && range > 0) {
+              tr += range / b.px;
+              n += 1;
+            }
+          }
+          const last = bars[bars.length - 1]!;
+          const atrFrac = n ? tr / n : 0;
+          const hourFrac = last.px > 0 ? Math.max(0, (last.hi - last.lo) / last.px) : 0;
+          if (atrFrac > 0) {
+            out.set(id, { atrFrac, hourFrac, bars });
+            break;
+          }
+        } catch {
+          /* next path */
+        }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: 6 }, () => worker()));
+  return out;
+}
+
 export async function fetchBingxTape(network: "mainnet" | "testnet"): Promise<FeedSnapshot> {
   const hosts = HOSTS[network];
   let lastMs = 0;

@@ -407,6 +407,15 @@ export function deskIdFromVenue(venueSymbol: string): string | undefined {
   return undefined;
 }
 
+const PRE_ATR = new Map<string, number>();
+
+/** Hourly ATR as a fraction of price. Live tape must not replace this with the 24h high-low. */
+export function seedPreAtr(id: string, atrFrac: number): void {
+  const v = Number(atrFrac);
+  if (!id || !(v > 0.0004) || v > 0.06) return;
+  PRE_ATR.set(id, v);
+}
+
 export function applyLiveTape(e: VstEngine, tickers: LiveTicker[]): number {
   let n = 0;
   for (const t of tickers) {
@@ -416,8 +425,6 @@ export function applyLiveTape(e: VstEngine, tickers: LiveTicker[]): number {
     const gap = prev > 0 ? Math.abs(t.last - prev) / prev : 1;
     const bid = t.bid > 0 ? t.bid : t.last;
     const ask = t.ask > 0 ? t.ask : t.last;
-    const hi = t.high > 0 ? t.high : Math.max(ask, t.last);
-    const lo = t.low > 0 ? t.low : Math.min(bid, t.last);
     q.px = t.last;
     // Tight live band — never slam ATR-sized hi/lo onto a live book.
     q.hi = Math.max(ask, t.last) * 1.00008;
@@ -435,15 +442,19 @@ export function applyLiveTape(e: VstEngine, tickers: LiveTicker[]): number {
     }
     const rolled = t.last > 0 ? Math.max(0, (Number(q.hi1h) - Number(q.lo1h)) / t.last) : 0;
     q.vol1h = t.range1h && t.range1h > 0 ? t.range1h : Math.max(q.vol1h || 0, rolled);
-    const span = Math.max(hi - lo, t.last * 4e-4);
-    if (gap > 0.04 || !(q.atr > 0)) {
-      q.atr = Math.max(t.last * 0.0018, span * 0.25);
+    const micro = Math.max(Math.abs(ask - bid), t.last * 4e-4);
+    const pre = PRE_ATR.get(t.id) || 0;
+    if (pre > 0) {
+      q.atr = t.last * pre;
+      q.axis = q.axis > 0 ? q.axis * 0.97 + t.last * 0.03 : t.last;
+    } else if (gap > 0.04 || !(q.atr > 0)) {
+      q.atr = Math.max(t.last * 0.0018, micro * 0.25);
       q.axis = t.last;
     } else {
-      q.atr = q.atr * 0.92 + span * 0.08;
+      q.atr = q.atr * 0.92 + micro * 0.08;
       q.axis = q.axis * 0.97 + t.last * 0.03;
     }
-    const liveVol = Number.isFinite(t.vol) && (t.vol ?? 0) > 0 ? Math.min(0.08, Math.max(0.004, t.vol as number)) : span / Math.max(t.last, 1e-9);
+    const liveVol = Number.isFinite(t.vol) && (t.vol ?? 0) > 0 ? Math.min(0.08, Math.max(0.004, t.vol as number)) : micro / Math.max(t.last, 1e-9);
     q.vol = q.vol * 0.7 + Math.min(0.08, Math.max(0.004, liveVol)) * 0.3;
     n += 1;
   }

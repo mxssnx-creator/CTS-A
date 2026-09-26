@@ -4,9 +4,9 @@
  * Keys from env — never printed.
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
-import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts } from "../src/lib/desk/engine.ts";
+import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, fetchPrehistory, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
+import { applyLiveTape, seedPreAtr, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts, seedIndicationHistory } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -480,6 +480,35 @@ async function refreshVol1h(e, network) {
     }
   }
   return n;
+}
+
+let lastPreAt = 0;
+let preInFlight = false;
+async function refreshPrehistory(e, network) {
+  if (preInFlight || Date.now() - lastPreAt < 15 * 60 * 1000) return 0;
+  preInFlight = true;
+  try {
+    const map = await fetchPrehistory(network);
+    let n = 0;
+    for (const [id, row] of map) {
+      if (!(row.atrFrac > 0) || !row.bars?.length) continue;
+      seedPreAtr(id, row.atrFrac);
+      seedIndicationHistory(id, row.bars);
+      const q = e.quotes?.[id];
+      if (q && q.px > 0) q.atr = q.px * row.atrFrac;
+      if (row.hourFrac > 0) {
+        const cached = e.quotes?.[id];
+        if (cached) cached.vol1h = Math.max(Number(cached.vol1h) || 0, row.hourFrac);
+      }
+      n += 1;
+    }
+    if (n >= 8) lastPreAt = Date.now();
+    return n;
+  } catch {
+    return 0;
+  } finally {
+    preInFlight = false;
+  }
 }
 
 function pickFromSweep() {
@@ -1388,7 +1417,13 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const strayN = strayOut.filter(Boolean).length;
   if (strayN) notes.push(`stray ${strayN}`);
 
-  const leftoverJobs = (book.orders ?? []).filter((o) => mayCancelOrder(o) && !kindOf(o.type));
+  const leftoverJobs = (book.orders ?? []).filter((o) => {
+    if (!mayCancelOrder(o)) return false;
+    if (kindOf(o.type)) return false;
+    const t = String(o.type || "").toUpperCase();
+    if (t === "LIMIT" || t === "MARKET") return false;
+    return true;
+  });
   if (leftoverJobs.length) {
     const leftoverOut = await mapLimit(leftoverJobs.slice(0, 6), 2, cancelOne);
     const n = leftoverOut.filter((r) => r?.ok).length;
@@ -1473,53 +1508,39 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (driftTp) hasTp.delete(key);
       n += drop.length;
     }
-    const placeProtect = async (type, qty, closeAll = true) => {
+    const placeProtect = async (type, qty) => {
       const body = {
         network,
         connId: CONN,
         symbol: p.symbol,
         side: p.side === "long" ? "SELL" : "BUY",
         positionSide: p.side === "long" ? "LONG" : "SHORT",
-        quantity: closeAll ? 0 : qty,
+        quantity: qty,
         type,
         price: px,
         stopPrice: type === "STOP_MARKET" ? prot.sl : prot.tp,
-        notional: Math.max(1, (closeAll ? p.qty : qty) * px),
+        notional: Math.max(1, qty * px),
         confirmLive: true,
         slAtr,
         tpRatio,
         attachProtect: false,
-        closePosition: closeAll,
+        closePosition: true,
         reduceOnly: false,
-        exactQty: !closeAll,
+        exactQty: true,
       };
       let r = await withLiveBusy(() => placeSwapOrder(body));
       n += 1;
-      if (!r.ok && closeRetry(r.error) && closeAll) {
-        r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: true, quantity: 0 }));
+      if (!r.ok && closeRetry(r.error)) {
+        r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: true, quantity: qty, exactQty: true }));
         n += 1;
-      }
-      if (!r.ok && closeRetry(r.error) && closeAll) {
-        const q2 = protectQty(parseAvailableUsdt(r.error));
-        if (q2 > 0) {
-          r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: false, exactQty: true, quantity: q2, notional: Math.max(0.5, q2 * px) }));
-          n += 1;
-        }
       }
       return r;
     };
     const attach = async (kind, type, tag) => {
-      let qty = protectQty();
+      const qty = protectQty();
       if (!(qty > 0) && !(p.qty > 0)) return `${kind} skip ${p.symbol} qty`;
       mirrored.add(tag);
-      let r = await placeProtect(type, qty, true);
-      if (!r.ok && parseAvailableUsdt(r.error) > 0) {
-        qty = protectQty(parseAvailableUsdt(r.error));
-        r = await placeProtect(type, qty, qty <= 0);
-      }
-      if (!r.ok && /available amount|quantity/i.test(String(r.error || ""))) {
-        r = await placeProtect(type, 0, true);
-      }
+      const r = await placeProtect(type, qty > 0 ? qty : snapQtyDown(p.qty, spec));
       if (!r.ok) {
         mirrored.delete(tag);
         noteApiFail(r);
@@ -2018,6 +2039,12 @@ async function mirrorToExchange(e, network, cfg) {
       mirrored.add(f.id);
       continue;
     }
+    const restingEntry = (book.orders ?? []).some((o) => {
+      if (!mayCancelOrder(o) || o.symbol !== f.symbol) return false;
+      const t = String(o.type || "").toUpperCase();
+      return t === "LIMIT" && !o.closePosition;
+    });
+    if (!isBlockAdd && restingEntry) continue;
     const otherSide = f.side === "long" ? "short" : "long";
     const otherOpen = exchangeOccupied.has(`${f.symbol}:${otherSide}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === otherSide);
     if (otherOpen && (hedgeBlocked || IS_X01)) continue;
@@ -2373,6 +2400,11 @@ async function main() {
           }
         })
         .catch(() => {});
+      void refreshPrehistory(engine, ping.network)
+        .then((n) => {
+          if (n >= 8) adjustments.push(`prehistory ${n} hourly bars · atr + indications`);
+        })
+        .catch(() => {});
     }
   } catch (err) {
     adjustments.push(`tape first ${err instanceof Error ? err.message : "fail"}`);
@@ -2503,6 +2535,9 @@ async function main() {
             freeze = new Set(ids);
             lastTape = Date.now();
             void refreshVol1h(engine, ping.network).catch(() => {});
+            void refreshPrehistory(engine, ping.network).then((n) => {
+              if (n >= 8) adjustments.push(`prehistory ${n} hourly bars · atr + indications`);
+            }).catch(() => {});
           }
         } catch (err) {
           adjustments.push(`tape ${err instanceof Error ? err.message : "fail"}`);

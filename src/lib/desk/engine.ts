@@ -2834,15 +2834,26 @@ const LIVE_IND: Record<string, IndicationSummary> = {};
 type TickSnap = { px: number; hi: number; lo: number; atr: number; vol: number; vol1h: number; axis: number; chg: number };
 const TICK_RING: Record<string, TickSnap[]> = {};
 const TICK_RING_MAX = 72;
+/** Closed bars before the live print. Live price replaces the last point each refresh. */
+const HIST_BARS: Record<string, { px: number; hi: number; lo: number }[]> = {};
+
+export function seedIndicationHistory(symbol: string, bars: { px: number; hi: number; lo: number }[]): number {
+  const clean = (bars || []).filter((b) => b && b.px > 0 && b.hi > 0 && b.lo > 0 && b.hi + 1e-12 >= b.lo);
+  if (!symbol || clean.length < 8) return 0;
+  HIST_BARS[symbol] = clean.slice(-48);
+  return HIST_BARS[symbol].length;
+}
 
 export function resetIndicationHistory(symbol?: string) {
   if (symbol) {
     delete TICK_RING[symbol];
+    delete HIST_BARS[symbol];
     delete LIVE_IND[symbol];
     delete IND_CACHE[symbol];
     return;
   }
   for (const k of Object.keys(TICK_RING)) delete TICK_RING[k];
+  for (const k of Object.keys(HIST_BARS)) delete HIST_BARS[k];
   for (const k of Object.keys(LIVE_IND)) delete LIVE_IND[k];
   for (const k of Object.keys(IND_CACHE)) delete IND_CACHE[k];
 }
@@ -2998,7 +3009,24 @@ export function indicationFromQuote(
   let drawdown = clamp(Math.max(0, axisDist - 0.4) / 2.2, 0, 1);
   let prevRel = clampDir((desk?.direction ?? 0) * 0.55 + direction * 0.45);
 
-  const ring = symbol ? pushTick(symbol, q) : [];
+  const ringLive = symbol ? pushTick(symbol, q) : [];
+  const hist = symbol ? HIST_BARS[symbol] : undefined;
+  const ring = hist && hist.length >= 14
+    ? hist.slice(-48).map((b, i, arr) => {
+        const live = i === arr.length - 1;
+        const barPx = live ? px : b.px;
+        return {
+          px: barPx,
+          hi: live ? Math.max(b.hi, px) : b.hi,
+          lo: live ? Math.min(b.lo, px) : b.lo,
+          atr,
+          vol,
+          vol1h,
+          axis: barPx,
+          chg,
+        };
+      })
+    : ringLive;
   if (ring.length >= 8) {
     const closes = ring.map((t) => t.px);
     const e9 = emaLast(closes, 9);
