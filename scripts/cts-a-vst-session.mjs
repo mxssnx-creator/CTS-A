@@ -1019,6 +1019,8 @@ const cancelFailed = new Set();
 const skipUntil = new Map();
 const skippedFills = new Set();
 let hedgeBlocked = false;
+/** Config that actually opened the live leg. The exchange book does not store tactic or range. */
+const legCfg = new Map();
 const deadSymbols = new Set();
 function markDeadSymbol(symbol, err) {
   const id = String(symbol || "");
@@ -1030,6 +1032,29 @@ function markDeadSymbol(symbol, err) {
   return true;
 }
 const trimHits = new Map();
+function diversifyLiveIntents(list) {
+  const buckets = new Map();
+  for (const f of list) {
+    const key = `${f.tactic || "trailing"}|${f.rangeType || "atr"}`;
+    const bag = buckets.get(key);
+    if (bag) bag.push(f);
+    else buckets.set(key, [f]);
+  }
+  const keys = [...buckets.keys()];
+  const out = [];
+  let i = 0;
+  while (keys.length && out.length < list.length) {
+    const key = keys[i % keys.length];
+    const bag = buckets.get(key);
+    if (!bag?.length) {
+      keys.splice(i % keys.length, 1);
+      continue;
+    }
+    out.push(bag.shift());
+    i += 1;
+  }
+  return out;
+}
 function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
   return eq * POSITION_COST_PCT * 0.3;
@@ -1790,9 +1815,10 @@ async function mirrorToExchange(e, network, cfg) {
     foreignPos: foreignPosN,
     foreignOrd: foreignOrdN,
     positions: deskPos.map((p) => {
-      const indication = e ? classifyIndication(e, p.symbol) : "trend";
-      const tactic = e ? tacticForIndication(indication, e.strategyToggles ?? STRAT) : "trailing";
-      const playbook = openPlaybook(tactic, indication);
+      const remembered = legCfg.get(`${p.symbol}:${p.side}`);
+      const indication = remembered?.indication || (e ? classifyIndication(e, p.symbol) : "trend");
+      const tactic = remembered?.tactic || (e ? tacticForIndication(indication, e.strategyToggles ?? STRAT) : "trailing");
+      const playbook = remembered?.playbook || openPlaybook(tactic, indication);
       return {
         connId: CONN,
         symbol: p.symbol,
@@ -1806,7 +1832,8 @@ async function mirrorToExchange(e, network, cfg) {
         indication,
         tactic,
         playbook,
-        kind: kindFromIndication(indication, playbook, tactic),
+        rangeType: remembered?.range || e?.lastRange || "atr",
+        kind: remembered?.kind || kindFromIndication(indication, playbook, tactic),
         owned: true,
       };
     }),
@@ -1867,6 +1894,7 @@ async function mirrorToExchange(e, network, cfg) {
     const pos = (e.positions || []).find((p) => p.symbol === sym && p.side === side);
     rememberLeg(sym, side, pos ? { indication: pos.indication, playbook: pos.playbook, kind: pos.kind, tactic: pos.tactic } : {});
     if (!livePosKeys.has(k)) forget(k);
+    legCfg.delete(k);
   }
   for (const tag of [...mirrored]) {
     if (typeof tag !== "string") continue;
@@ -1927,10 +1955,15 @@ async function mirrorToExchange(e, network, cfg) {
       kind: "entry",
       playbook: o.playbook,
       note: o.note,
+      tactic: o.tactic,
+      rangeType: o.rangeType,
+      indication: o.indication,
       _fromQueue: true,
     }));
-  for (const f of [...e.fills, ...queueIntents]) {
-    if (fillJobs.length >= 16) break;
+  const entryIntents = IS_X01 ? diversifyLiveIntents(queueIntents) : queueIntents;
+  const entryCap = IS_X01 ? 8 : 16;
+  for (const f of [...e.fills, ...entryIntents]) {
+    if (fillJobs.length >= entryCap) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
@@ -1991,6 +2024,9 @@ async function mirrorToExchange(e, network, cfg) {
   if (IS_X01) fillJobs.sort((a, b) => Number(X01_GROWTH.has(b.symbol)) - Number(X01_GROWTH.has(a.symbol)));
   const fillOut = await mapLimit(fillJobs, 4, async (f) => {
     try {
+      const mark = Number(e.quotes?.[f.symbol]?.px) || Number(f.px) || 0;
+      const ladder = Number(f.px) || mark;
+      const resting = f.side === "long" ? ladder > 0 && ladder <= mark * 0.9995 : ladder > 0 && ladder >= mark * 1.0005;
       const r = await withLiveBusy(() =>
         placeSwapOrder({
           network,
@@ -1999,8 +2035,8 @@ async function mirrorToExchange(e, network, cfg) {
           side: f.side === "long" ? "BUY" : "SELL",
           positionSide: f.side === "long" ? "LONG" : "SHORT",
           quantity: 0,
-          type: "MARKET",
-          price: f.px,
+          type: resting ? "LIMIT" : "MARKET",
+          price: resting ? ladder : mark,
           notional: liveNotional(e, f, book.equity, f._rel),
           confirmLive: true,
           slAtr: protectFor(f.symbol).slAtr,
@@ -2027,7 +2063,7 @@ async function mirrorToExchange(e, network, cfg) {
       const dead = markDeadSymbol(f.symbol, err);
       if (!dead && isMarginFail(err)) {
         skipUntil.set(f.symbol, Date.now() + 12_000);
-      } else if (!dead && !/min notional exceeds|TP Price|SL Price|must be (greater|lower)/i.test(err)) {
+      } else if (!dead && !/min notional exceeds|TP Price|SL Price|must be (greater|lower)|order price|price deviation|too far/i.test(err)) {
         skipUntil.set(f.symbol, Date.now() + (isRateLimited(r?.error) ? 480_000 : 90_000));
       }
       const quiet = noteApiFail(r);
@@ -2043,6 +2079,15 @@ async function mirrorToExchange(e, network, cfg) {
     mirrored.add(`live:${f.symbol}:${f.side}`);
     taggedKeys.add(`${f.symbol}:${f.side}`);
     exchangeOccupied.add(`${f.symbol}:${f.side}`);
+    if (f._rel) {
+      legCfg.set(`${f.symbol}:${f.side}`, {
+        tactic: f._rel.tactic,
+        range: f._rel.rangeType,
+        indication: f._rel.indication,
+        playbook: f._rel.playbook,
+        kind: f._rel.kind,
+      });
+    }
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
   }
