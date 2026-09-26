@@ -2127,7 +2127,8 @@ async function mirrorToExchange(e, network, cfg) {
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
   }
-  return notes.length ? notes.slice(0, 4).join(" · ") : null;
+  if (IS_X01) notes.push(`q ${queueIntents.length} jobs ${fillJobs.length} ok ${placed}`);
+  return notes.length ? notes.slice(-4).join(" · ") : null;
 }
 
 function intenseCheck(e, pick) {
