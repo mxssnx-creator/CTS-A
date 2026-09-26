@@ -1362,8 +1362,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const key = `${o.symbol}:${o.side}`;
     const k = kindOf(o.type);
     if (!k) continue;
-    if (k === "sl") hasSl.add(key);
-    else hasTp.add(key);
+    if (o.closePosition === true) {
+      if (k === "sl") hasSl.add(key);
+      else hasTp.add(key);
+    }
     const cur = grouped.get(key) ?? { sl: [], tp: [] };
     cur[k].push(o);
     grouped.set(key, cur);
@@ -1438,6 +1440,11 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const side = pos?.side === "short" ? "short" : "long";
     for (const kind of ["sl", "tp"]) {
       const list = (g[kind] || []).filter((o) => mayCancelOrder(o));
+      const partials = list.filter((o) => o.closePosition !== true);
+      if (partials.length && list.length === partials.length) {
+        for (const extra of partials) extraJobs.push({ tk: `${key}:${kind}`, kind, extra });
+        continue;
+      }
       if (!list || list.length <= 1) continue;
       const tk = `${key}:${kind}`;
       if ((trimHits.get(tk) || 0) >= 3) continue;
@@ -1515,25 +1522,21 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         symbol: p.symbol,
         side: p.side === "long" ? "SELL" : "BUY",
         positionSide: p.side === "long" ? "LONG" : "SHORT",
-        quantity: qty,
+        quantity: 0,
         type,
         price: px,
         stopPrice: type === "STOP_MARKET" ? prot.sl : prot.tp,
-        notional: Math.max(1, qty * px),
+        notional: Math.max(1, (qty > 0 ? qty : p.qty) * px),
         confirmLive: true,
         slAtr,
         tpRatio,
         attachProtect: false,
         closePosition: true,
         reduceOnly: false,
-        exactQty: true,
+        exactQty: false,
       };
-      let r = await withLiveBusy(() => placeSwapOrder(body));
+      const r = await withLiveBusy(() => placeSwapOrder(body));
       n += 1;
-      if (!r.ok && closeRetry(r.error)) {
-        r = await withLiveBusy(() => placeSwapOrder({ ...body, closePosition: true, quantity: qty, exactQty: true }));
-        n += 1;
-      }
       return r;
     };
     const attach = async (kind, type, tag) => {
@@ -2040,11 +2043,15 @@ async function mirrorToExchange(e, network, cfg) {
       continue;
     }
     const restingEntry = (book.orders ?? []).some((o) => {
-      if (!mayCancelOrder(o) || o.symbol !== f.symbol) return false;
+      if (!isDeskOrder(o) || o.symbol !== f.symbol) return false;
       const t = String(o.type || "").toUpperCase();
       return t === "LIMIT" && !o.closePosition;
     });
-    if (!isBlockAdd && restingEntry) continue;
+    const symbolTaken =
+      [...exchangeOccupied].some((k) => String(k).startsWith(`${f.symbol}:`)) ||
+      fillJobs.some((x) => x.symbol === f.symbol) ||
+      restingEntry;
+    if (symbolTaken) continue;
     const otherSide = f.side === "long" ? "short" : "long";
     const otherOpen = exchangeOccupied.has(`${f.symbol}:${otherSide}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === otherSide);
     if (otherOpen && (hedgeBlocked || IS_X01)) continue;
