@@ -2028,6 +2028,16 @@ async function mirrorToExchange(e, network, cfg) {
             if (slim.length >= 8) break;
           }
         }
+        const ovSeen = new Set();
+        for (const f of entryIntents) {
+          if (!/Overall Block/i.test(String(f.note || ""))) continue;
+          if (!occupiedSymbols.has(f.symbol)) continue;
+          const key = `${f.symbol}:${f.side}:${/symbol|dir|indication|type/.exec(String(f.note || ""))?.[0] || "book"}`;
+          if (ovSeen.has(key)) continue;
+          ovSeen.add(key);
+          slim.push(f);
+          if (ovSeen.size >= 8) break;
+        }
         return slim;
       })()
     : entryIntents;
@@ -2117,7 +2127,7 @@ async function mirrorToExchange(e, network, cfg) {
       [...exchangeOccupied].some((k) => String(k).startsWith(`${f.symbol}:`)) ||
       fillJobs.some((x) => x.symbol === f.symbol) ||
       restingEntry;
-    if (symbolTaken) {
+    if (symbolTaken && !isBlockAdd) {
       skipTaken += 1;
       continue;
     }
