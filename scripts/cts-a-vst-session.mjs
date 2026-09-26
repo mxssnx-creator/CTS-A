@@ -2001,6 +2001,31 @@ async function mirrorToExchange(e, network, cfg) {
           slim.push(f);
           if (slim.length >= 12) break;
         }
+        if (slim.length < 4) {
+          for (const id of Object.keys(e.quotes || {})) {
+            if (occupiedSymbols.has(id) || seen.has(id)) continue;
+            const q = e.quotes[id];
+            if (!q || !(q.px > 0) || !isUniverseSymbol(id)) continue;
+            const side = q.px >= (q.axis || q.px) ? "short" : "long";
+            const dist = Math.max(q.atr || 0, q.px * 0.0012);
+            const px = side === "long" ? Math.max(q.px - dist, q.px * 0.998) : Math.min(q.px + dist, q.px * 1.002);
+            seen.add(id);
+            slim.push({
+              id: `flat:${id}:${side}`,
+              orderId: "",
+              symbol: id,
+              side,
+              px,
+              kind: "entry",
+              playbook: "short",
+              note: "live flat",
+              tactic: e.lastTactic || "trailing",
+              rangeType: e.lastRange || "atr",
+              indication: classifyIndication(e, id),
+            });
+            if (slim.length >= 8) break;
+          }
+        }
         return slim;
       })()
     : entryIntents;
