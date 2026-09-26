@@ -198,6 +198,24 @@ export function unitClosePnl(side: number, entry: number, exit: number, notional
 
 /** Hard floor — volume factor cannot be gated below this. */
 export const MIN_VOLUME_FACTOR = 1.05;
+/** Price-percent stop floor. Dynamic ATR may widen it, never under this rate. */
+export const SYSTEM_MIN_SL_PCT = 0.4;
+
+/**
+ * Price distance. `specifiedPct` is the minimum rate (percent of price).
+ * `atr` may widen it, but only up to `specifiedPct * headroom`, and never under the specified rate.
+ */
+export function dynamicMinRateDist(px: number, specifiedPct: number, atr = 0, headroom = 1.25): number {
+  const price = Number(px);
+  const spec = Number(specifiedPct);
+  if (!(price > 0) || !(spec > 0)) return 0;
+  const floor = price * (spec / 100);
+  const room = Number(headroom);
+  const cap = floor * (room >= 1 ? room : 1);
+  const vol = Number(atr) > 0 ? Number(atr) : floor;
+  const dyn = Math.min(cap, Math.max(floor, vol));
+  return Number.isFinite(dyn) ? dyn : floor;
+}
 export const MIN_QUOTE_VOL = 0.006;
 /** Live: 0.8 too short; 1.0/1.2/1.7/2.0 lost. Keep 1.4 proven +, 1.5 slightly wider. */
 export const TRAIL_PCTS = [1.5] as const;

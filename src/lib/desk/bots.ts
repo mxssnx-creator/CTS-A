@@ -10,6 +10,7 @@ import {
   DEFAULT_STRATEGY_TOGGLES,
   POSITION_RT_COST_PCT,
   closePnl,
+  dynamicMinRateDist,
   profitFactor,
   sanitizeStrategyToggles,
 } from "./engine.ts";
@@ -43,8 +44,6 @@ export type BotHours = (typeof BOT_HOURS)[number];
 
 export const BOT_TP_STEPS = [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6] as const;
 export const BOT_SL_STEPS = [0.4, 0.5, 0.6, 0.7, 0.8] as const;
-/** Live and backtest stops never sit wider than this, even if a step is higher. */
-export const BOT_SL_CAP = 0.5;
 export const BOT_TRAIL_STEPS = [0.2, 0.3, 0.4, 0.5, 0.6] as const;
 export const BOT_VF_STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
 /** Lowest step. Live size is half of the old 1× book. */
@@ -848,10 +847,8 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
 
   const floors = liveBotFloors(cfg);
   const internTpPct = cfg.minTp / 100;
-  const internSlPct = Math.min(cfg.minSl, BOT_SL_CAP) / 100;
+  const internSlPct = cfg.minSl / 100;
   const internTrPct = cfg.minTrail / 100;
-  const liveTpPct = floors.tpAtr / 100;
-  const liveSlPct = floors.slPct / 100;
   const liveTrPct = internTrPct;
   const maxHold = BOT_MAX_HOLD;
   const scanEvery = 1;
@@ -1047,14 +1044,19 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
         continue;
       }
       const px = path[i]!.c;
+      const atr = Math.max(0, path[i]!.h - path[i]!.l);
       const mul = hourSize[hourIndex] ?? 1;
       const q = qtyFor(equity, px, vf, mul);
       if (!(q > 0)) continue;
       const side = sig.side;
-      const tp = side > 0 ? px * (1 + internTpPct) : px * (1 - internTpPct);
-      const sl = side > 0 ? px * (1 - internSlPct) : px * (1 + internSlPct);
-      const liveTp = side > 0 ? px * (1 + liveTpPct) : px * (1 - liveTpPct);
-      const liveSl = side > 0 ? px * (1 - liveSlPct) : px * (1 + liveSlPct);
+      const tpD = dynamicMinRateDist(px, Math.max(BOT_LIVE_MIN_TP, cfg.minTp), atr, 1.25);
+      const slD = dynamicMinRateDist(px, cfg.minSl, atr, 1.25);
+      const liveTpD = dynamicMinRateDist(px, floors.tpAtr, atr, 1.25);
+      const liveSlD = dynamicMinRateDist(px, floors.slPct, atr, 1.25);
+      const tp = side > 0 ? px + tpD : px - tpD;
+      const sl = side > 0 ? px - slD : px + slD;
+      const liveTp = side > 0 ? px + liveTpD : px - liveTpD;
+      const liveSl = side > 0 ? px - liveSlD : px + liveSlD;
       open[id] = {
         side,
         entry: px,
@@ -1250,9 +1252,9 @@ export function botHourSuccess(report: BotReport): boolean {
 
 export function liveBotFloors(cfg: BotConfig): { tpAtr: number; slOfTp: number; trailPct: number; slPct: number } {
   const tp = Math.max(BOT_LIVE_MIN_TP, cfg.minTp);
-  const slPct = Math.min(BOT_SL_CAP, Math.max(BOT_SL_STEPS[0], cfg.minSl));
+  const slPct = Math.max(BOT_SL_STEPS[0], cfg.minSl);
   const slOfTp = Math.max(BOT_LIVE_MIN_SL_OF_TP, slPct / Math.max(0.2, tp));
-  return { tpAtr: tp, slOfTp, trailPct: Math.max(0.2, cfg.minTrail), slPct: Math.min(slPct, BOT_SL_CAP) };
+  return { tpAtr: tp, slOfTp, trailPct: Math.max(BOT_TRAIL_STEPS[0], cfg.minTrail), slPct };
 }
 
 export function scoreBotReport(r: BotReport): number {
@@ -1406,7 +1408,6 @@ export function stepDeskBots(
     const cfg = sanitizeBotConfig({ ...(configs?.[type] ?? {}), type }, type);
     if (!livePrimary(cfg.strategies)) continue;
     const play = botPlaybook(type);
-    const trailPct = cfg.minTrail / 100;
     const tpPct = Math.max(BOT_LIVE_MIN_TP, cfg.minTp) / 100;
     for (const p of e.positions) {
       if (p.connId !== conn || p.playbook !== play || !(p.qty > 0) || !(p.avgEntry > 0)) continue;
@@ -1419,18 +1420,20 @@ export function stepDeskBots(
       else p.peakPx = p.peakPx && p.peakPx > 0 ? Math.min(p.peakPx, lo) : lo;
       const peak = p.peakPx > 0 ? p.peakPx : p.avgEntry;
       const mfe = side > 0 ? (peak - p.avgEntry) / p.avgEntry : (p.avgEntry - peak) / p.avgEntry;
-      const tp = side > 0 ? p.avgEntry * (1 + tpPct) : p.avgEntry * (1 - tpPct);
+      const atr = Number(q.atr) || 0;
+      const tpFrac = dynamicMinRateDist(q.px, Math.max(BOT_LIVE_MIN_TP, cfg.minTp), atr, 1.25) / q.px;
+      const trailFrac = dynamicMinRateDist(q.px, cfg.minTrail, atr, 1.25) / q.px;
+      const tp = side > 0 ? p.avgEntry * (1 + tpFrac) : p.avgEntry * (1 - tpFrac);
       p.tp = tp;
       p.tpDist = Math.abs(tp - p.avgEntry);
-      if (mfe + 1e-12 >= trailPct) {
-        const next = trailLevel(side, peak, trailPct, p.avgEntry);
+      if (mfe + 1e-12 >= trailFrac) {
+        const next = trailLevel(side, peak, trailFrac, p.avgEntry);
         p.sl = side > 0 ? Math.max(p.sl, next) : p.sl > 0 ? Math.min(p.sl, next) : next;
         p.slDist = Math.abs(p.sl - p.avgEntry);
       }
       p.trailPct = cfg.minTrail;
     }
     const floors = liveBotFloors(cfg);
-    const slPct = floors.slPct / 100;
     if (!botTapePays(e, conn, play)) continue;
     const ids = symbols.map((s) => s.id).filter((id) => (bag![id]?.length ?? 0) >= 4);
     if (!ids.length) continue;
@@ -1453,10 +1456,11 @@ export function stepDeskBots(
       const sig = liveQuoteSignal(type, bars, q.axis, tpPct);
       if (!sig) continue;
       const px = q.px;
+      const atr = Number(q.atr) || 0;
       const notional = eq * BOT_NOTIONAL_PCT * Math.max(1, cfg.volumeFactor);
       const qty = Math.max(notional / px, 1e-8);
-      const slDist = Math.max(px * slPct, px * 0.001);
-      const tpDist = Math.max(px * tpPct, px * 0.001);
+      const slDistPx = dynamicMinRateDist(px, floors.slPct, atr, 1.25);
+      const tpDistPx = dynamicMinRateDist(px, Math.max(BOT_LIVE_MIN_TP, cfg.minTp), atr, 1.25);
       const side = sig.side > 0 ? "long" as const : "short" as const;
       e.queue.push({
         id: `bot-${e.activeConnId}-${type}-${id}-${e.tick}`,
@@ -1471,10 +1475,10 @@ export function stepDeskBots(
         status: "queued",
         rangeType: "atr",
         level: 1,
-        sl: side === "long" ? px - slDist : px + slDist,
-        tp: side === "long" ? px + tpDist : px - tpDist,
-        slDist,
-        tpDist,
+        sl: side === "long" ? px - slDistPx : px + slDistPx,
+        tp: side === "long" ? px + tpDistPx : px - tpDistPx,
+        slDist: slDistPx,
+        tpDist: tpDistPx,
         batchId: "",
         note: `Bot ${type}`,
         indication: ind,

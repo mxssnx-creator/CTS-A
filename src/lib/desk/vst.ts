@@ -49,6 +49,8 @@ import {
   BLOCK_POS_COUNTS,
   DEFAULT_MAX_HOLD_TICKS,
   MIN_QUOTE_VOL,
+  SYSTEM_MIN_SL_PCT,
+  dynamicMinRateDist,
   blockMaxAdditionalRatio,
   blockMinimumProfitFactor,
   blockStepQty,
@@ -1281,11 +1283,12 @@ function hash(s: string): number {
 function rand(tick: number, salt: string): number {
   return hash(`${tick}:${salt}`) % 1e4 / 1e4;
 }
-function slDist(atr: number, spacing: number, slAtr: number, raw = false): number {
+function slDist(atr: number, spacing: number, slAtr: number, raw = false, px = 0): number {
   const mul = raw ? Math.max(0.05, Number(slAtr) || 0.05) : snapSlAtr(slAtr);
   const want = Math.max(atr * mul, 1e-12);
-  if (spacing > 0 && spacing * 0.9 < want * 0.5) return want;
-  return want;
+  if (spacing > 0 && spacing * 0.9 < want * 0.5 && !(px > 0)) return want;
+  if (!(px > 0)) return want;
+  return dynamicMinRateDist(px, SYSTEM_MIN_SL_PCT, want, 2);
 }
 function tpDistFromSl(sl: number, ratio = TP_SL_RATIO, raw = false): number {
   return sl * (raw ? Math.max(0.3, Number(ratio) || 1) : snapTpRatio(ratio));
@@ -1320,10 +1323,21 @@ function protectLevels(entry: number, side: Side, sl0: number, tp0: number, rati
     if (side === "short" && tp >= entry) tp = entry - want;
   }
   const tpD = Math.abs(tp - entry);
+  const minD = entry * (SYSTEM_MIN_SL_PCT / 100);
+  const maxD = minD * 2;
+  let slOut = sl;
+  let slOutD = Math.abs(entry - slOut);
+  if (minD > 0 && slOutD + 1e-12 < minD) {
+    slOut = side === "long" ? entry - minD : entry + minD;
+    slOutD = minD;
+  } else if (maxD > 0 && slOutD > maxD + 1e-12) {
+    slOut = side === "long" ? entry - maxD : entry + maxD;
+    slOutD = maxD;
+  }
   return {
-    sl,
+    sl: slOut,
     tp,
-    slDist: Math.abs(entry - sl),
+    slDist: slOutD,
     tpDist: tpD
   };
 }
@@ -2154,7 +2168,8 @@ export function entryVolumeScale(
   const lose = losingHourScale(e, rel);
   const prog = progressLaneScale(e, rel);
   const maxMul = clampMaxVolumeMul(e.blockCfg?.maxVolumeMultiplier ?? DEFAULT_MAX_VOLUME_MULTIPLIER);
-  return Math.min(maxMul, Math.max(0.12, iv * lose * prog));
+  const specified = Math.max(0.4, Number(intervalCfg(e).minScale) || 0.4);
+  return Math.min(maxMul, Math.max(specified, iv * lose * prog));
 }
 
 export function shortProtectGrid(e: VstEngine, cfg: TacticConfig) {
@@ -2548,7 +2563,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const tpRatioUse = short
             ? Math.max(0.3, prot?.tpRatio ?? cfg.tpRatio ?? TP_SL_RATIO)
             : snapTpRatio(cfg.tpRatio ?? TP_SL_RATIO);
-          const slBase = slDist(q.atr, hi.spacing, slAtrUse, short);
+          const slBase = slDist(q.atr, hi.spacing, slAtrUse, short, q.px);
           const sl0 = axisLv ? axisLv.slDist : slBase * protMul.slMul;
           const tp0 = axisLv ? axisLv.tpDist : slBase * tpRatioUse * protMul.tpMul;
           const volMul = Math.min(1.05, Math.max(0.7, finiteOr(q.vol, 0.012) / 0.014));
@@ -2644,9 +2659,16 @@ function ladderOrderType(orderType: OrderTypeId, level: number): OrderTypeId {
   return orderType;
 }
 function refill(e: VstEngine) {
-  const add = paperMode(e) ? 40 : 16;
-  const burst = paperMode(e) ? 80 : VST_RATE_BURST;
-  for (const id of Object.keys(e.tokens)) e.tokens[id] = Math.min(burst, (e.tokens[id] ?? 0) + add);
+  const min = VST_RATE_PER_SEC;
+  const paper = paperMode(e);
+  const burst = paper ? Math.max(VST_RATE_BURST, 80) : VST_RATE_BURST;
+  for (const id of Object.keys(e.tokens)) {
+    let queued = 0;
+    for (const o of e.queue) if (o.connId === id) queued += 1;
+    const dyn = queued > 120 ? min * 2 : queued > 40 ? Math.round(min * 1.5) : min;
+    const add = paper ? Math.max(min, dyn, 40) : Math.max(min, Math.min(burst, dyn));
+    e.tokens[id] = Math.min(burst, (e.tokens[id] ?? 0) + add);
+  }
 }
 function processBatches(e: VstEngine) {
   const byConn: Record<string, LiveOrder[]> = {};
@@ -3550,7 +3572,7 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   const px = p.side === "long" ? Math.max(q.px - offset, q.px * 0.5) : q.px + offset;
   if (!(px > 0)) return;
   const qty = Math.max(positionNotional(paperSizeEquity(e), e.costStep || 10) / px, 1e-8);
-  const sl0 = slDist(q.atr, p.rangeSpacing || q.atr, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg));
+  const sl0 = slDist(q.atr, p.rangeSpacing || q.atr, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg), q.px || p.avgEntry);
   const lv = protectLevels(px, p.side, sl0, tpDistFromSl(sl0, cfg.tpRatio, cfgUsesShortRange(cfg)), cfg.tpRatio, cfgUsesShortRange(cfg));
   e.queue.push({
     id: nextId(e, "d"),
@@ -6255,7 +6277,7 @@ export function adjustActiveBlocks(
         const raw = planned.reduce((s, x) => s + x.qty, 0);
         const scale = raw > room ? room / raw : 1;
         const hi = pickRange(q, cfg, rangeType);
-        const sl0 = p.slDist > 1e-12 ? p.slDist : slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg));
+        const sl0 = p.slDist > 1e-12 ? p.slDist : slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg), q.px);
         const tp0 = p.tpDist > 1e-12 ? p.tpDist : tpDistFromSl(sl0, cfg.tpRatio, cfgUsesShortRange(cfg));
         const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
         if (!(px > 0)) return;
@@ -6585,7 +6607,7 @@ export function enqueueManual(e: VstEngine, input: { connId: string; symbol: str
   if (e.positions.filter((p) => p.connId === input.connId).length >= maxPositions(e)) return `Position cap ${maxPositions(e)} reached on this session.`;
   const px = input.price ?? q.px;
   const hi = highestRange(q, DEFAULT_CFG);
-  const sl0 = slDist(q.atr, hi.spacing, DEFAULT_CFG.slAtr ?? SL_ATR_MULT);
+  const sl0 = slDist(q.atr, hi.spacing, DEFAULT_CFG.slAtr ?? SL_ATR_MULT, false, q.px);
   const tp0 = tpDistFromSl(sl0, e.tpRatio);
   const lv = protectLevels(px, input.side, sl0, tp0, e.tpRatio);
   const qty = input.cost / px;

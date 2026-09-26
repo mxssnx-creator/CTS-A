@@ -73,11 +73,11 @@ describe("sandwich bots — config + volume", () => {
     const f = liveBotFloors(defaultBotConfig("sandwich"));
     assert.ok(f.tpAtr >= 0.48);
     assert.ok(f.slOfTp + 1e-9 >= 0.75);
-    assert.ok(f.slPct <= 0.5);
+    assert.ok(f.slPct <= 0.8);
     assert.equal(f.slPct, 0.4);
     assert.equal(f.trailPct, 0.3);
     const wide = liveBotFloors({ ...defaultBotConfig("sandwich"), minSl: 0.8 });
-    assert.equal(wide.slPct, 0.5);
+    assert.equal(wide.slPct, 0.8);
   });
 
   it("grids cover symbol counts, hours and select modes", () => {
@@ -332,7 +332,7 @@ describe("best 3 parallel bots — independent process + results", () => {
     const f = liveBotFloors(defaultBotConfig("sandwich"));
     assert.ok(f.tpAtr >= 0.48);
     assert.ok(f.slOfTp + 1e-9 >= 0.75);
-    assert.ok(f.slPct <= 0.5);
+    assert.ok(f.slPct >= 0.4);
     assert.equal(f.trailPct, 0.3);
     const r = runBotBacktest(defaultBotConfig("sandwich"), 12, 20260922);
     assert.ok(r.liveFills.length >= 120);
