@@ -1,0 +1,1313 @@
+{
+  "tf": 1,
+  "days": 20.00138888888889,
+  "split": 1789571100000,
+  "sens": {
+    "tp": [
+      {
+        "v": 0.0015,
+        "pf": 0,
+        "n": 228008
+      },
+      {
+        "v": 0.0026,
+        "pf": 0.11046323105335143,
+        "n": 219167
+      },
+      {
+        "v": 0.0046,
+        "pf": 0.286370245410235,
+        "n": 212085
+      },
+      {
+        "v": 0.0067,
+        "pf": 0.42129810563066694,
+        "n": 209397
+      },
+      {
+        "v": 0.009,
+        "pf": 0.49480667158953456,
+        "n": 206733
+      },
+      {
+        "v": 0.0129,
+        "pf": 0.60770637098881,
+        "n": 203520
+      },
+      {
+        "v": 0.0181,
+        "pf": 0.667046482296987,
+        "n": 199881
+      }
+    ],
+    "slRatio": [
+      {
+        "v": 0.75,
+        "pf": 0.4195214236781903,
+        "n": 298959
+      },
+      {
+        "v": 1,
+        "pf": 0.4285554128375789,
+        "n": 297664
+      },
+      {
+        "v": 1.5,
+        "pf": 0.4422929737650921,
+        "n": 295269
+      },
+      {
+        "v": 2,
+        "pf": 0.45317524099536355,
+        "n": 293898
+      },
+      {
+        "v": 2.5,
+        "pf": 0.4571512655731552,
+        "n": 293001
+      }
+    ],
+    "minSl": [
+      {
+        "v": 0.0008,
+        "pf": 0.4407762198296616,
+        "n": 493101
+      },
+      {
+        "v": 0.0015,
+        "pf": 0.44077289278517473,
+        "n": 492975
+      },
+      {
+        "v": 0.0026,
+        "pf": 0.4401978143367425,
+        "n": 492715
+      }
+    ],
+    "trailShare": [
+      {
+        "v": 0,
+        "pf": 0.5264957801910625,
+        "n": 208643
+      },
+      {
+        "v": 0.3,
+        "pf": 0.37538725792171374,
+        "n": 638012
+      },
+      {
+        "v": 0.5,
+        "pf": 0.4607019266570946,
+        "n": 632136
+      }
+    ],
+    "minTrail": [
+      {
+        "v": 0.0005,
+        "pf": 0.4205816963673399,
+        "n": 423958
+      },
+      {
+        "v": 0.001,
+        "pf": 0.4213911292797994,
+        "n": 423756
+      },
+      {
+        "v": 0.0021,
+        "pf": 0.4229367444695269,
+        "n": 422434
+      }
+    ],
+    "holdH": [
+      {
+        "v": 1,
+        "pf": 0.4260639432677841,
+        "n": 741293
+      },
+      {
+        "v": 3,
+        "pf": 0.45397748539085236,
+        "n": 737498
+      }
+    ]
+  },
+  "survivors": [],
+  "perInd": [
+    {
+      "ind": "rsi-mid-60-40",
+      "kind": "rsi",
+      "label": "RSI14 60/40 momentum",
+      "bot": "sandwich",
+      "trainPf": 0.4543101680347445,
+      "trainN": 78,
+      "testPf": 0.7882880081515505,
+      "testN": 114,
+      "testNet": -9.593387531746766,
+      "grossTest": 0.0011584747779169516
+    },
+    {
+      "ind": "bb-bounce-20-2.5",
+      "kind": "bollinger",
+      "label": "BB 20/2.5 bounce",
+      "bot": "magnet",
+      "trainPf": 0.7041981878206374,
+      "trainN": 95,
+      "testPf": 0.7693587443114047,
+      "testN": 83,
+      "testNet": -7.6085117803083,
+      "grossTest": 0.0010833118336977963
+    },
+    {
+      "ind": "break-squeeze",
+      "kind": "break",
+      "label": "BB squeeze break",
+      "bot": "sandwich",
+      "trainPf": 0.5395669934198076,
+      "trainN": 564,
+      "testPf": 0.6765855629013652,
+      "testN": 620,
+      "testNet": -87.39450673641335,
+      "grossTest": 0.000590411181670754
+    },
+    {
+      "ind": "rsi-div",
+      "kind": "rsi",
+      "label": "RSI divergence 10",
+      "bot": "magnet",
+      "trainPf": 0.617615321586424,
+      "trainN": 4146,
+      "testPf": 0.6590906635290802,
+      "testN": 5256,
+      "testNet": -800.6474199327604,
+      "grossTest": 0.0004766982116957769
+    },
+    {
+      "ind": "trend-ema-50-200",
+      "kind": "trend",
+      "label": "EMA 50/200 trend",
+      "bot": "magnet",
+      "trainPf": 0.5718962485033341,
+      "trainN": 2663,
+      "testPf": 0.6577175128707209,
+      "testN": 3260,
+      "testNet": -497.8906572665548,
+      "grossTest": 0.0004727280451946414
+    },
+    {
+      "ind": "macd-cross-19-39-9",
+      "kind": "macd",
+      "label": "MACD 19/39/9 cross",
+      "bot": "sandwich",
+      "trainPf": 0.6786216944131579,
+      "trainN": 3497,
+      "testPf": 0.6576401485381349,
+      "testN": 4157,
+      "testNet": -636.3888772795424,
+      "grossTest": 0.0004691150414253155
+    },
+    {
+      "ind": "break-vol",
+      "kind": "break",
+      "label": "Break + volume 1.6×",
+      "bot": "magnet",
+      "trainPf": 0.7118505663810369,
+      "trainN": 445,
+      "testPf": 0.657242692290515,
+      "testN": 516,
+      "testNet": -78.35351189185606,
+      "grossTest": 0.00048152108736713105
+    },
+    {
+      "ind": "bb-bounce-50-2",
+      "kind": "bollinger",
+      "label": "BB 50/2 bounce",
+      "bot": "magnet",
+      "trainPf": 0.6189745032595269,
+      "trainN": 3294,
+      "testPf": 0.6533241437031859,
+      "testN": 4305,
+      "testNet": -670.5989520455416,
+      "grossTest": 0.0004422788570371911
+    },
+    {
+      "ind": "sar-std",
+      "kind": "sar",
+      "label": "PSAR 0.02",
+      "bot": "sandwich",
+      "trainPf": 0.6433605441902545,
+      "trainN": 5273,
+      "testPf": 0.6521939111686602,
+      "testN": 6887,
+      "testNet": -1076.8168440302138,
+      "grossTest": 0.0004364500594887253
+    },
+    {
+      "ind": "macd-hist-19-39-9",
+      "kind": "macd",
+      "label": "MACD 19/39/9 hist sign",
+      "bot": "sandwich",
+      "trainPf": 0.6561063293072733,
+      "trainN": 4158,
+      "testPf": 0.6516607355760673,
+      "testN": 5155,
+      "testNet": -807.4365366374673,
+      "grossTest": 0.0004336827611301747
+    },
+    {
+      "ind": "break-vol-1.3",
+      "kind": "break",
+      "label": "Break + volume 1.3×",
+      "bot": "magnet",
+      "trainPf": 0.7142408149438617,
+      "trainN": 563,
+      "testPf": 0.6514188189275564,
+      "testN": 683,
+      "testNet": -106.05044819024172,
+      "grossTest": 0.0004472847995572238
+    },
+    {
+      "ind": "break-don20",
+      "kind": "break",
+      "label": "Donchian 20 break",
+      "bot": "sandwich",
+      "trainPf": 0.6079720464932633,
+      "trainN": 723,
+      "testPf": 0.651099515477263,
+      "testN": 913,
+      "testNet": -142.72235016132012,
+      "grossTest": 0.0004367760113765624
+    },
+    {
+      "ind": "sar-flip",
+      "kind": "sar",
+      "label": "PSAR flip event",
+      "bot": "sandwich",
+      "trainPf": 0.6386584222390363,
+      "trainN": 5004,
+      "testPf": 0.6473907205287448,
+      "testN": 6445,
+      "testNet": -1026.5081901033957,
+      "grossTest": 0.0004072797671011656
+    },
+    {
+      "ind": "ema-stoch",
+      "kind": "ema",
+      "label": "EMA trend + stoch dip",
+      "bot": "magnet",
+      "trainPf": 0.5792381824526173,
+      "trainN": 1117,
+      "testPf": 0.6456345060550422,
+      "testN": 1218,
+      "testNet": -193.94617651943364,
+      "grossTest": 0.00040766685944635994
+    },
+    {
+      "ind": "break-vol-2",
+      "kind": "break",
+      "label": "Break + volume 2×",
+      "bot": "magnet",
+      "trainPf": 0.7642104287094106,
+      "trainN": 344,
+      "testPf": 0.6455602820127199,
+      "testN": 395,
+      "testNet": -62.7060885237819,
+      "grossTest": 0.000412504088005522
+    },
+    {
+      "ind": "dir-macd",
+      "kind": "direction",
+      "label": "MACD hist sign",
+      "bot": "sandwich",
+      "trainPf": 0.6302986526289599,
+      "trainN": 5169,
+      "testPf": 0.6443118087187445,
+      "testN": 6789,
+      "testNet": -1094.2001679033115,
+      "grossTest": 0.0003882749036629733
+    },
+    {
+      "ind": "act-hf-5",
+      "kind": "active",
+      "label": "HF momentum 5",
+      "bot": "sandwich",
+      "trainPf": 0.6373801592008027,
+      "trainN": 3815,
+      "testPf": 0.6418943912349169,
+      "testN": 4819,
+      "testNet": -782.9073564594404,
+      "grossTest": 0.0003753738193414207
+    },
+    {
+      "ind": "act-shift",
+      "kind": "active",
+      "label": "Range shift 20/60",
+      "bot": "sandwich",
+      "trainPf": 0.7010667560077366,
+      "trainN": 1357,
+      "testPf": 0.6396187591743726,
+      "testN": 1404,
+      "testNet": -229.6429563919271,
+      "grossTest": 0.0003643664074648967
+    },
+    {
+      "ind": "sar-0.01",
+      "kind": "sar",
+      "label": "PSAR 0.01",
+      "bot": "sandwich",
+      "trainPf": 0.6378079978924088,
+      "trainN": 3990,
+      "testPf": 0.6391454688514773,
+      "testN": 5163,
+      "testNet": -847.9611943299922,
+      "grossTest": 0.0003576192246176359
+    },
+    {
+      "ind": "move-swing-32",
+      "kind": "move",
+      "label": "Swing 32 mid",
+      "bot": "sandwich",
+      "trainPf": 0.5717688567753241,
+      "trainN": 157,
+      "testPf": 0.638397265237328,
+      "testN": 212,
+      "testNet": -34.608430043611975,
+      "grossTest": 0.0003675268847352866
+    },
+    {
+      "ind": "dir-thrust-4",
+      "kind": "direction",
+      "label": "4-bar thrust",
+      "bot": "sandwich",
+      "trainPf": 0.6423235244251397,
+      "trainN": 1706,
+      "testPf": 0.6380737679597573,
+      "testN": 2368,
+      "testNet": -389.41029314620613,
+      "grossTest": 0.00035553085664606903
+    },
+    {
+      "ind": "move-impulse-4-1.2",
+      "kind": "move",
+      "label": "Impulse 4 bars 1.2 ATR",
+      "bot": "sandwich",
+      "trainPf": 0.6254918126416561,
+      "trainN": 4475,
+      "testPf": 0.6379935323590186,
+      "testN": 5708,
+      "testNet": -941.5778909895531,
+      "grossTest": 0.00035042415734151076
+    },
+    {
+      "ind": "bb-wick",
+      "kind": "bollinger",
+      "label": "BB wick tag",
+      "bot": "magnet",
+      "trainPf": 0.5893163942108164,
+      "trainN": 5760,
+      "testPf": 0.6371207799047982,
+      "testN": 7901,
+      "testNet": -1308.8002595357764,
+      "grossTest": 0.00034350049419611556
+    },
+    {
+      "ind": "sar-0.03",
+      "kind": "sar",
+      "label": "PSAR 0.03",
+      "bot": "sandwich",
+      "trainPf": 0.6280336200657762,
+      "trainN": 5867,
+      "testPf": 0.6367694014658867,
+      "testN": 7783,
+      "testNet": -1290.8453399904406,
+      "grossTest": 0.0003414553000252958
+    },
+    {
+      "ind": "macd-cross",
+      "kind": "macd",
+      "label": "MACD signal cross",
+      "bot": "sandwich",
+      "trainPf": 0.632897725475265,
+      "trainN": 4807,
+      "testPf": 0.6367019485063452,
+      "testN": 6040,
+      "testNet": -1001.0282550153019,
+      "grossTest": 0.00034266845196158564
+    },
+    {
+      "ind": "break-fail",
+      "kind": "break",
+      "label": "Failed break fade",
+      "bot": "magnet",
+      "trainPf": 0.5935772026421159,
+      "trainN": 5319,
+      "testPf": 0.6347596169589381,
+      "testN": 7551,
+      "testNet": -1262.5530632393395,
+      "grossTest": 0.00032796574859062454
+    },
+    {
+      "ind": "bb-bounce",
+      "kind": "bollinger",
+      "label": "BB bounce",
+      "bot": "magnet",
+      "trainPf": 0.6417464103954402,
+      "trainN": 1492,
+      "testPf": 0.6347214852695139,
+      "testN": 1698,
+      "testNet": -282.93472897292196,
+      "grossTest": 0.00033371773278607144
+    },
+    {
+      "ind": "macd-hist",
+      "kind": "macd",
+      "label": "MACD hist rising",
+      "bot": "magnet",
+      "trainPf": 0.5983689780503492,
+      "trainN": 6851,
+      "testPf": 0.6324925398242321,
+      "testN": 9649,
+      "testNet": -1627.9787607083201,
+      "grossTest": 0.00031280053818200863
+    },
+    {
+      "ind": "move-swing",
+      "kind": "move",
+      "label": "Swing 8 mid",
+      "bot": "sandwich",
+      "trainPf": 0.6495866541938776,
+      "trainN": 4156,
+      "testPf": 0.6320824501630208,
+      "testN": 5282,
+      "testNet": -890.402053965477,
+      "grossTest": 0.0003142710072597653
+    },
+    {
+      "ind": "move-swing-16",
+      "kind": "move",
+      "label": "Swing 16 mid",
+      "bot": "sandwich",
+      "trainPf": 0.6408514892873455,
+      "trainN": 1773,
+      "testPf": 0.6320044827743742,
+      "testN": 2113,
+      "testNet": -355.03841790674693,
+      "grossTest": 0.0003197424613972984
+    },
+    {
+      "ind": "dir-st",
+      "kind": "direction",
+      "label": "Supertrend 7×2 flip",
+      "bot": "sandwich",
+      "trainPf": 0.6658443130709292,
+      "trainN": 3215,
+      "testPf": 0.6316864442653999,
+      "testN": 4036,
+      "testNet": -680.4500500967906,
+      "grossTest": 0.0003140484388088598
+    },
+    {
+      "ind": "trend-st-7-2",
+      "kind": "trend",
+      "label": "Supertrend 7×2",
+      "bot": "sandwich",
+      "trainPf": 0.6658443130709292,
+      "trainN": 3215,
+      "testPf": 0.6316864442653999,
+      "testN": 4036,
+      "testNet": -680.4500500967906,
+      "grossTest": 0.0003140484388088598
+    },
+    {
+      "ind": "act-hf-8",
+      "kind": "active",
+      "label": "HF momentum 8",
+      "bot": "sandwich",
+      "trainPf": 0.6361438100695733,
+      "trainN": 2328,
+      "testPf": 0.6314576021124804,
+      "testN": 2890,
+      "testNet": -487.4610102271755,
+      "grossTest": 0.0003132837016361227
+    },
+    {
+      "ind": "sar-fast",
+      "kind": "sar",
+      "label": "PSAR 0.04 fast",
+      "bot": "sandwich",
+      "trainPf": 0.6337344223228427,
+      "trainN": 6474,
+      "testPf": 0.626022746136988,
+      "testN": 8737,
+      "testNet": -1509.6136469176668,
+      "grossTest": 0.0002721601843681984
+    },
+    {
+      "ind": "macd-cross-5-35-5",
+      "kind": "macd",
+      "label": "MACD 5/35/5 cross",
+      "bot": "sandwich",
+      "trainPf": 0.6217419508470896,
+      "trainN": 6597,
+      "testPf": 0.6259501123663678,
+      "testN": 8766,
+      "testNet": -1514.4591806784208,
+      "grossTest": 0.0002723486417085784
+    },
+    {
+      "ind": "macd-cross-8-21-5",
+      "kind": "macd",
+      "label": "MACD 8/21/5 cross",
+      "bot": "sandwich",
+      "trainPf": 0.6167036207457663,
+      "trainN": 6450,
+      "testPf": 0.625914570517234,
+      "testN": 8541,
+      "testNet": -1475.8792636199796,
+      "grossTest": 0.0002720064821217416
+    },
+    {
+      "ind": "macd-hist-8-21-5",
+      "kind": "macd",
+      "label": "MACD 8/21/5 hist sign",
+      "bot": "sandwich",
+      "trainPf": 0.6235728401731774,
+      "trainN": 6646,
+      "testPf": 0.6258528470639813,
+      "testN": 8927,
+      "testNet": -1542.9886270304055,
+      "grossTest": 0.00027154853026745146
+    },
+    {
+      "ind": "bb-mid",
+      "kind": "bollinger",
+      "label": "BB mid reclaim",
+      "bot": "sandwich",
+      "trainPf": 0.646755535832067,
+      "trainN": 3494,
+      "testPf": 0.6255078696628934,
+      "testN": 4297,
+      "testNet": -741.7770484840553,
+      "grossTest": 0.00027373272403072155
+    },
+    {
+      "ind": "rsi-extreme",
+      "kind": "rsi",
+      "label": "RSI14 30/70 revert",
+      "bot": "magnet",
+      "trainPf": 0.6245352530966121,
+      "trainN": 2122,
+      "testPf": 0.6249598562263327,
+      "testN": 2670,
+      "testNet": -462.2510699709169,
+      "grossTest": 0.00026872258437860203
+    },
+    {
+      "ind": "macd-hist-5-35-5",
+      "kind": "macd",
+      "label": "MACD 5/35/5 hist sign",
+      "bot": "sandwich",
+      "trainPf": 0.6254924054389208,
+      "trainN": 6723,
+      "testPf": 0.6246022997286391,
+      "testN": 9038,
+      "testNet": -1569.255632960741,
+      "grossTest": 0.0002637136169942735
+    },
+    {
+      "ind": "trend-adx",
+      "kind": "trend",
+      "label": "ADX 25 + DI",
+      "bot": "sandwich",
+      "trainPf": 0.6029189273354105,
+      "trainN": 1310,
+      "testPf": 0.6243167445683997,
+      "testN": 1425,
+      "testNet": -245.62266024890357,
+      "grossTest": 0.00027633220877962397
+    },
+    {
+      "ind": "act-hf",
+      "kind": "active",
+      "label": "HF momentum 3",
+      "bot": "sandwich",
+      "trainPf": 0.6386127775610341,
+      "trainN": 5390,
+      "testPf": 0.6239185963545149,
+      "testN": 7089,
+      "testNet": -1233.675564426524,
+      "grossTest": 0.00025973259355848056
+    },
+    {
+      "ind": "ema-pullback-50",
+      "kind": "ema",
+      "label": "EMA50 pullback",
+      "bot": "magnet",
+      "trainPf": 0.7263146338069585,
+      "trainN": 652,
+      "testPf": 0.6231954428866874,
+      "testN": 814,
+      "testNet": -140.62751226894363,
+      "grossTest": 0.00027238928416531205
+    },
+    {
+      "ind": "dir-emax-5-13",
+      "kind": "direction",
+      "label": "EMA 5/13 cross",
+      "bot": "sandwich",
+      "trainPf": 0.6476882149395556,
+      "trainN": 2487,
+      "testPf": 0.618249425229633,
+      "testN": 3155,
+      "testNet": -559.2404812968251,
+      "grossTest": 0.00022744696894830908
+    },
+    {
+      "ind": "act-chop",
+      "kind": "active",
+      "label": "Chop fade",
+      "bot": "magnet",
+      "trainPf": 0.6612658306413939,
+      "trainN": 432,
+      "testPf": 0.6171248678658968,
+      "testN": 565,
+      "testNet": -99.51270447556388,
+      "grossTest": 0.00023871319512276405
+    },
+    {
+      "ind": "dir-thrust",
+      "kind": "direction",
+      "label": "3-bar thrust",
+      "bot": "sandwich",
+      "trainPf": 0.6427735952964455,
+      "trainN": 4046,
+      "testPf": 0.6161150172264629,
+      "testN": 5536,
+      "testNet": -989.9676639355893,
+      "grossTest": 0.00021176361283327302
+    },
+    {
+      "ind": "break-don55",
+      "kind": "break",
+      "label": "Donchian 55 break",
+      "bot": "magnet",
+      "trainPf": 0.25854201161213947,
+      "trainN": 41,
+      "testPf": 0.6155868112826933,
+      "testN": 35,
+      "testNet": -6.1634819055560275,
+      "grossTest": 0.00023900516984113528
+    },
+    {
+      "ind": "break-atr-2",
+      "kind": "break",
+      "label": "ATR 2× expansion",
+      "bot": "sandwich",
+      "trainPf": 0.6742925199159309,
+      "trainN": 731,
+      "testPf": 0.6137179923737559,
+      "testN": 633,
+      "testNet": -112.55093972114733,
+      "grossTest": 0.00022194408023464094
+    },
+    {
+      "ind": "rsi-21-30-70",
+      "kind": "rsi",
+      "label": "RSI21 30/70 revert",
+      "bot": "magnet",
+      "trainPf": 0.6177813934625345,
+      "trainN": 1091,
+      "testPf": 0.6123762118220916,
+      "testN": 1327,
+      "testNet": -240.67916116523577,
+      "grossTest": 0.000186291174338837
+    },
+    {
+      "ind": "move-impulse",
+      "kind": "move",
+      "label": "Impulse 6 bars 1.5 ATR",
+      "bot": "sandwich",
+      "trainPf": 0.6566988434536598,
+      "trainN": 3271,
+      "testPf": 0.6119133904506091,
+      "testN": 4025,
+      "testNet": -729.1779810304711,
+      "grossTest": 0.00018837768688094604
+    },
+    {
+      "ind": "trend-adx-30",
+      "kind": "trend",
+      "label": "ADX 30 + DI",
+      "bot": "magnet",
+      "trainPf": 0.7358908783730039,
+      "trainN": 1176,
+      "testPf": 0.6106520783841893,
+      "testN": 994,
+      "testNet": -179.7191216532721,
+      "grossTest": 0.00019196054674776764
+    },
+    {
+      "ind": "act-burst-1.5",
+      "kind": "active",
+      "label": "Range burst 1.5×",
+      "bot": "sandwich",
+      "trainPf": 0.6278404942596639,
+      "trainN": 5355,
+      "testPf": 0.6097309868697983,
+      "testN": 6482,
+      "testNet": -1185.7249782339193,
+      "grossTest": 0.0001707420885007583
+    },
+    {
+      "ind": "ema-slope-100",
+      "kind": "ema",
+      "label": "EMA100 slope",
+      "bot": "magnet",
+      "trainPf": 0.5790710351973526,
+      "trainN": 1647,
+      "testPf": 0.6080054134962077,
+      "testN": 1919,
+      "testNet": -351.1215850099369,
+      "grossTest": 0.00017028877014101343
+    },
+    {
+      "ind": "break-don40",
+      "kind": "break",
+      "label": "Donchian 40 break",
+      "bot": "sandwich",
+      "trainPf": 0.5443597734048994,
+      "trainN": 313,
+      "testPf": 0.6064797021110001,
+      "testN": 389,
+      "testNet": -71.24243341802965,
+      "grossTest": 0.00016857497640026658
+    },
+    {
+      "ind": "break-don10",
+      "kind": "break",
+      "label": "Donchian 10 break",
+      "bot": "sandwich",
+      "trainPf": 0.6052803734021014,
+      "trainN": 2144,
+      "testPf": 0.6054645741867706,
+      "testN": 2780,
+      "testNet": -515.0817393328747,
+      "grossTest": 0.0001471879880112878
+    },
+    {
+      "ind": "break-retest",
+      "kind": "break",
+      "label": "Break retest hold",
+      "bot": "sandwich",
+      "trainPf": 0.5401774412531181,
+      "trainN": 519,
+      "testPf": 0.6051122537835106,
+      "testN": 566,
+      "testNet": -104.15675718502075,
+      "grossTest": 0.00015977460803850464
+    },
+    {
+      "ind": "ema-21-55",
+      "kind": "ema",
+      "label": "EMA 21/55",
+      "bot": "magnet",
+      "trainPf": 0.5678867984120569,
+      "trainN": 1533,
+      "testPf": 0.6050160320414519,
+      "testN": 1748,
+      "testNet": -323.59589857505296,
+      "grossTest": 0.00014876488229373058
+    },
+    {
+      "ind": "break-atr-0.9",
+      "kind": "break",
+      "label": "ATR 0.9× expansion",
+      "bot": "sandwich",
+      "trainPf": 0.6387572515962641,
+      "trainN": 5789,
+      "testPf": 0.6047457127993994,
+      "testN": 7311,
+      "testNet": -1361.88379391583,
+      "grossTest": 0.00013721270152414964
+    },
+    {
+      "ind": "trend-adx-20",
+      "kind": "trend",
+      "label": "ADX 20 + DI",
+      "bot": "sandwich",
+      "trainPf": 0.6085802069652824,
+      "trainN": 1838,
+      "testPf": 0.6039397132281877,
+      "testN": 2163,
+      "testNet": -401.87985119906307,
+      "grossTest": 0.00014202565326367758
+    },
+    {
+      "ind": "act-burst",
+      "kind": "active",
+      "label": "Range burst 1.8×",
+      "bot": "sandwich",
+      "trainPf": 0.6291166766797558,
+      "trainN": 3511,
+      "testPf": 0.6039200196412249,
+      "testN": 3778,
+      "testNet": -705.1145007714604,
+      "grossTest": 0.0001336302255918177
+    },
+    {
+      "ind": "act-burst-2.5",
+      "kind": "active",
+      "label": "Range burst 2.5×",
+      "bot": "sandwich",
+      "trainPf": 0.6023423613548612,
+      "trainN": 1105,
+      "testPf": 0.6012422606253583,
+      "testN": 882,
+      "testNet": -164.51349032544022,
+      "grossTest": 0.00013476768338503234
+    },
+    {
+      "ind": "dir-reclaim",
+      "kind": "direction",
+      "label": "EMA21 reclaim",
+      "bot": "sandwich",
+      "trainPf": 0.6044104435956491,
+      "trainN": 2984,
+      "testPf": 0.5998659178458591,
+      "testN": 3774,
+      "testNet": -713.1359214487386,
+      "grossTest": 0.00011039766441787648
+    },
+    {
+      "ind": "dir-vwap",
+      "kind": "direction",
+      "label": "VWAP 60 axis",
+      "bot": "magnet",
+      "trainPf": 0.622763282866508,
+      "trainN": 1893,
+      "testPf": 0.5994010720941532,
+      "testN": 2115,
+      "testNet": -399.4775526291764,
+      "grossTest": 0.00011121724525209969
+    },
+    {
+      "ind": "break-atr",
+      "kind": "break",
+      "label": "ATR 1.15× expansion",
+      "bot": "sandwich",
+      "trainPf": 0.6358845224100128,
+      "trainN": 4028,
+      "testPf": 0.5982084557737853,
+      "testN": 4651,
+      "testNet": -885.8500555887464,
+      "grossTest": 0.00009535571793447435
+    },
+    {
+      "ind": "dir-vwap-30",
+      "kind": "direction",
+      "label": "VWAP 30 axis",
+      "bot": "sandwich",
+      "trainPf": 0.62504120171302,
+      "trainN": 2259,
+      "testPf": 0.5950787499079523,
+      "testN": 2764,
+      "testNet": -531.2447156125353,
+      "grossTest": 0.00007798583352923243
+    },
+    {
+      "ind": "ema-slope",
+      "kind": "ema",
+      "label": "EMA50 slope",
+      "bot": "magnet",
+      "trainPf": 0.6571798896512311,
+      "trainN": 1395,
+      "testPf": 0.594579504026806,
+      "testN": 1685,
+      "testNet": -323.45021396178134,
+      "grossTest": 0.00008041416046419306
+    },
+    {
+      "ind": "rsi-14-25-75",
+      "kind": "rsi",
+      "label": "RSI14 25/75 revert",
+      "bot": "magnet",
+      "trainPf": 0.5947356418800087,
+      "trainN": 868,
+      "testPf": 0.593352259473871,
+      "testN": 1029,
+      "testNet": -199.3858205851781,
+      "grossTest": 0.00006233410510031322
+    },
+    {
+      "ind": "trend-ema-5-20",
+      "kind": "trend",
+      "label": "EMA 5/20 trend",
+      "bot": "sandwich",
+      "trainPf": 0.628274704449954,
+      "trainN": 1364,
+      "testPf": 0.5930678188348407,
+      "testN": 1731,
+      "testNet": -335.29114752069205,
+      "grossTest": 0.00006302052269962432
+    },
+    {
+      "ind": "rsi-mid",
+      "kind": "rsi",
+      "label": "RSI14 55/45 momentum",
+      "bot": "sandwich",
+      "trainPf": 0.5521772056419826,
+      "trainN": 520,
+      "testPf": 0.5921886575134813,
+      "testN": 702,
+      "testNet": -136.263383828776,
+      "grossTest": 0.000058926156285244536
+    },
+    {
+      "ind": "rsi-fast",
+      "kind": "rsi",
+      "label": "RSI7 20/80 revert",
+      "bot": "magnet",
+      "trainPf": 0.5870422658955834,
+      "trainN": 1140,
+      "testPf": 0.5904633695320508,
+      "testN": 1399,
+      "testNet": -272.8932907251224,
+      "grossTest": 0.00004936890117853274
+    },
+    {
+      "ind": "break-atr-1.5",
+      "kind": "break",
+      "label": "ATR 1.5× expansion",
+      "bot": "sandwich",
+      "trainPf": 0.6539403860519166,
+      "trainN": 2140,
+      "testPf": 0.5889764662596622,
+      "testN": 2120,
+      "testNet": -414.7290273859833,
+      "grossTest": 0.00004373100289629581
+    },
+    {
+      "ind": "rsi-mid-52-48",
+      "kind": "rsi",
+      "label": "RSI14 52/48 momentum",
+      "bot": "sandwich",
+      "trainPf": 0.5821889373463194,
+      "trainN": 1380,
+      "testPf": 0.5852522857763023,
+      "testN": 1809,
+      "testNet": -359.559660407211,
+      "grossTest": 0.0000123844090259015
+    },
+    {
+      "ind": "macd-zero",
+      "kind": "macd",
+      "label": "MACD zero line",
+      "bot": "magnet",
+      "trainPf": 0.6445957961161406,
+      "trainN": 1963,
+      "testPf": 0.5817544463440562,
+      "testN": 2222,
+      "testNet": -446.18670696567096,
+      "grossTest": -0.000008040985444050574
+    },
+    {
+      "ind": "dir-emax-12-26",
+      "kind": "direction",
+      "label": "EMA 12/26 cross",
+      "bot": "magnet",
+      "trainPf": 0.6445957961161406,
+      "trainN": 1963,
+      "testPf": 0.5817544463440562,
+      "testN": 2222,
+      "testNet": -446.18670696567096,
+      "grossTest": -0.000008040985444050574
+    },
+    {
+      "ind": "ema-slope-20",
+      "kind": "ema",
+      "label": "EMA20 slope",
+      "bot": "sandwich",
+      "trainPf": 0.6267628499431019,
+      "trainN": 1937,
+      "testPf": 0.5817246860809583,
+      "testN": 2438,
+      "testNet": -490.6720021023945,
+      "grossTest": -0.000012600500830146345
+    },
+    {
+      "ind": "dir-emax-20-50",
+      "kind": "direction",
+      "label": "EMA 20/50 cross",
+      "bot": "magnet",
+      "trainPf": 0.5865629968898943,
+      "trainN": 1333,
+      "testPf": 0.5816937568696532,
+      "testN": 1524,
+      "testNet": -305.5273583235454,
+      "grossTest": -0.000004772692411730687
+    },
+    {
+      "ind": "dir-vwap-120",
+      "kind": "direction",
+      "label": "VWAP 120 axis",
+      "bot": "magnet",
+      "trainPf": 0.5756567430763703,
+      "trainN": 1739,
+      "testPf": 0.5759455790063168,
+      "testN": 2110,
+      "testNet": -431.56035620094076,
+      "grossTest": -0.000045309745028155904
+    },
+    {
+      "ind": "rsi-7-15-85",
+      "kind": "rsi",
+      "label": "RSI7 15/85 revert",
+      "bot": "magnet",
+      "trainPf": 0.5366807094074977,
+      "trainN": 392,
+      "testPf": 0.5756224135287843,
+      "testN": 480,
+      "testNet": -98.40812121077208,
+      "grossTest": -0.00005016919189108525
+    },
+    {
+      "ind": "trend-ema",
+      "kind": "trend",
+      "label": "EMA 9/21 trend",
+      "bot": "sandwich",
+      "trainPf": 0.5666254040575883,
+      "trainN": 792,
+      "testPf": 0.5752993760629048,
+      "testN": 1081,
+      "testNet": -222.08947039781748,
+      "grossTest": -0.00005448168730635866
+    },
+    {
+      "ind": "trend-st-14-4",
+      "kind": "trend",
+      "label": "Supertrend 14×4",
+      "bot": "magnet",
+      "trainPf": 0.580170158434574,
+      "trainN": 2261,
+      "testPf": 0.5748892608371523,
+      "testN": 2705,
+      "testNet": -556.6949019290269,
+      "grossTest": -0.000058021818591529806
+    },
+    {
+      "ind": "move-impulse-10-2",
+      "kind": "move",
+      "label": "Impulse 10 bars 2 ATR",
+      "bot": "sandwich",
+      "trainPf": 0.68883365595122,
+      "trainN": 1925,
+      "testPf": 0.5659379472656892,
+      "testN": 2329,
+      "testNet": -493.4938976592373,
+      "grossTest": -0.00011890896375797363
+    },
+    {
+      "ind": "move-impulse-20-2.5",
+      "kind": "move",
+      "label": "Impulse 20 bars 2.5 ATR",
+      "bot": "sandwich",
+      "trainPf": 0.5857800704998962,
+      "trainN": 1423,
+      "testPf": 0.5608790710332971,
+      "testN": 1724,
+      "testNet": -371.27492312751707,
+      "grossTest": -0.00015356683948677366
+    },
+    {
+      "ind": "trend-st-21-5",
+      "kind": "trend",
+      "label": "Supertrend 21×5",
+      "bot": "magnet",
+      "trainPf": 0.5750947029335588,
+      "trainN": 2111,
+      "testPf": 0.5608687494612971,
+      "testN": 2581,
+      "testNet": -556.1856797495791,
+      "grossTest": -0.0001549232070885769
+    },
+    {
+      "ind": "bb-walk",
+      "kind": "bollinger",
+      "label": "BB band walk",
+      "bot": "sandwich",
+      "trainPf": 0.9188415186882829,
+      "trainN": 73,
+      "testPf": 0.5561585620933264,
+      "testN": 84,
+      "testNet": -18.379054125351022,
+      "grossTest": -0.0001879826339703593
+    },
+    {
+      "ind": "rsi-14-20-80",
+      "kind": "rsi",
+      "label": "RSI14 20/80 revert",
+      "bot": "magnet",
+      "trainPf": 0.6198360216927673,
+      "trainN": 273,
+      "testPf": 0.5417842596892146,
+      "testN": 292,
+      "testNet": -67.17817212660199,
+      "grossTest": -0.0003006223331028075
+    },
+    {
+      "ind": "dir-emax",
+      "kind": "direction",
+      "label": "EMA 9/21 cross",
+      "bot": "sandwich",
+      "trainPf": 0.5384011343378179,
+      "trainN": 1642,
+      "testPf": 0.540013295826642,
+      "testN": 2244,
+      "testNet": -518.3964399573064,
+      "grossTest": -0.0003101445630895675
+    },
+    {
+      "ind": "ema-9-21",
+      "kind": "ema",
+      "label": "EMA 9/21",
+      "bot": "sandwich",
+      "trainPf": 0.5384011343378179,
+      "trainN": 1642,
+      "testPf": 0.540013295826642,
+      "testN": 2244,
+      "testNet": -518.3964399573064,
+      "grossTest": -0.0003101445630895675
+    },
+    {
+      "ind": "trend-st",
+      "kind": "trend",
+      "label": "Supertrend 10×3",
+      "bot": "sandwich",
+      "trainPf": 0.5913236201055718,
+      "trainN": 2593,
+      "testPf": 0.5247161176900651,
+      "testN": 3273,
+      "testNet": -795.6296595727695,
+      "grossTest": -0.00043088805246785876
+    },
+    {
+      "ind": "dir-reclaim-50",
+      "kind": "direction",
+      "label": "EMA50 reclaim",
+      "bot": "sandwich",
+      "trainPf": 0.5459500096182884,
+      "trainN": 1438,
+      "testPf": 0.5238733453052468,
+      "testN": 1896,
+      "testNet": -461.0569561996967,
+      "grossTest": -0.00043173500105324157
+    },
+    {
+      "ind": "dir-vwap-240",
+      "kind": "direction",
+      "label": "VWAP 240 axis",
+      "bot": "follow",
+      "trainPf": 0.635993087120657,
+      "trainN": 3235,
+      "testPf": 0.5114854123741249,
+      "testN": 4180,
+      "testNet": -1061.2928041982086,
+      "grossTest": -0.0005389780004740649
+    },
+    {
+      "ind": "trend-ema-12-26",
+      "kind": "trend",
+      "label": "EMA 12/26 trend",
+      "bot": "sandwich",
+      "trainPf": 0.4874598773289103,
+      "trainN": 635,
+      "testPf": 0.5041628030688793,
+      "testN": 926,
+      "testNet": -238.6320074266589,
+      "grossTest": -0.0005770195186464261
+    },
+    {
+      "ind": "ema-pullback",
+      "kind": "ema",
+      "label": "EMA21 pullback",
+      "bot": "magnet",
+      "trainPf": 0.6073589618605701,
+      "trainN": 174,
+      "testPf": 0.5020186044420807,
+      "testN": 238,
+      "testNet": -61.25087363664976,
+      "grossTest": -0.0005735661191869635
+    },
+    {
+      "ind": "ema-50-100",
+      "kind": "ema",
+      "label": "EMA 50/100",
+      "bot": "follow",
+      "trainPf": 0.6005115346090297,
+      "trainN": 2831,
+      "testPf": 0.4991725181960602,
+      "testN": 3392,
+      "testNet": -893.6736672937492,
+      "grossTest": -0.000634651141785713
+    },
+    {
+      "ind": "trend-ribbon",
+      "kind": "trend",
+      "label": "Ribbon 9/21/55",
+      "bot": "magnet",
+      "trainPf": 0.5938065572028747,
+      "trainN": 276,
+      "testPf": 0.4929027443910136,
+      "testN": 330,
+      "testNet": -87.3456490859727,
+      "grossTest": -0.0006468378510900831
+    },
+    {
+      "ind": "trend-ema-20-50",
+      "kind": "trend",
+      "label": "EMA 20/50 trend",
+      "bot": "magnet",
+      "trainPf": 0.6153777624737212,
+      "trainN": 339,
+      "testPf": 0.4835211998457069,
+      "testN": 393,
+      "testNet": -106.8422109095708,
+      "grossTest": -0.0007186313208542174
+    },
+    {
+      "ind": "move-cont",
+      "kind": "move",
+      "label": "Continuation ROC12",
+      "bot": "sandwich",
+      "trainPf": 0.7516443142552037,
+      "trainN": 228,
+      "testPf": 0.4707264126751339,
+      "testN": 528,
+      "testNet": -152.72402276681137,
+      "grossTest": -0.0008925004311896075
+    },
+    {
+      "ind": "bb-bounce-20-3",
+      "kind": "bollinger",
+      "label": "BB 20/3 bounce",
+      "bot": "magnet",
+      "trainPf": 0,
+      "trainN": 0,
+      "testPf": 0,
+      "testN": 0,
+      "testNet": 0,
+      "grossTest": 0
+    },
+    {
+      "ind": "bb-walk-50",
+      "kind": "bollinger",
+      "label": "BB 50 band walk",
+      "bot": "sandwich",
+      "trainPf": 0,
+      "trainN": 1,
+      "testPf": 0,
+      "testN": 0,
+      "testNet": 0,
+      "grossTest": 0
+    }
+  ]
+}

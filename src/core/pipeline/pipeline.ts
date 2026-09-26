@@ -56,7 +56,7 @@ export interface Combo {
 export function allCombos(): Combo[] {
   const out: Combo[] = [];
   for (const b of BOTS) {
-    if (b.type !== "follow") out.push({ bot: b.type, ind: "none" });
+    if (b.type !== "follow" && b.type !== "revert") out.push({ bot: b.type, ind: "none" });
     for (const ind of INDICATIONS) out.push({ bot: b.type, ind: ind.id });
   }
   return out;

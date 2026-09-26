@@ -13,7 +13,7 @@ untouched). UI at `/v2`. Everything here is honest by construction:
 
 | Stage | What it does | Where |
 |---|---|---|
-| **Base** | Every indication (10 kinds, 40 configs) × bot type (8 fade bots + `follow`) = 377 combos; plus independent strategy tapes for every protect variant × sub-strategy (normal, trailing, DCA, DCA Active). Default grid: TP 1.8/2.6/3.5/5 % × SL 1/1.5/2/2.5 × TP × trail 0/0.25/0.4 × TP (min trail 0.6 %, min SL 1 %) × hold 3h/8h ≈ 37,700 tapes. Always computed, whatever the toggles. Tapes are compact typed-array columns. | `src/core/sim/walkforward.ts` `buildTapesGen`, `src/core/pipeline/pipeline.ts` |
+| **Base** | Every indication (10 kinds, 98 configs) × bot type (8 fade bots + `follow` + `revert`) = 988 combos; plus independent strategy tapes for every protect variant × sub-strategy (normal, trailing, DCA, DCA Active). Default grid: TP 1.8/2.6/3.5/5 % × SL 1/1.5/2/2.5 × TP × trail 0/0.25/0.4 × TP (min trail 0.6 %, min SL 1 %) × hold 3h/8h ≈ 37,700 tapes. Always computed, whatever the toggles. Tapes are compact typed-array columns. | `src/core/sim/walkforward.ts` `buildTapesGen`, `src/core/pipeline/pipeline.ts` |
 | **Main** | Long-window gates: n ≥ min trades, PF ≥ min, net > 0, DDT limit; parameter robustness. Selection only uses trades closed **before** the decision time. | `selectAt`, `selectDurable` |
 | **Real** | Durable winners (default): positive in ≥ 75 % of 4 sub-windows of the last 14 days and PF ≥ 1.1 overall; still working in the **20 h pre-historic window** (PF ≥ 1.0); once held, kept while the 14-day PF stays ≥ 1.0. Entries go through last-N (12, PF ≥ 1.0), Block levels, per-symbol / per-side / total caps and the hour guard; executed on paper every hour. | `walkForward`, `execDecision` |
 | **Live** | Off by default. Needs Settings → Live enabled **and** `CTS_CORE_LIVE=1` on the host **and** API keys **and** a rolling simulated run with PF ≥ min and stable. Uses its own `CTSB{X1,V1,V2}_` client-order tags, never touches CTSA or foreign tickets, skips any symbol with foreign positions/orders. | `src/core/server/live.ts`, `live.server.ts` |
@@ -38,8 +38,9 @@ untouched). UI at `/v2`. Everything here is honest by construction:
   without any viewer. Loop every 20 s: pull newly closed BingX bars (public API, no keys; 4–6 requests in
   flight), on a new bar run Base → Main → Real, a 48 h simulated run with 20 h pre-calc, every preset on the
   same tapes, the paper book and the Live stage.
-- Base covers all 377 combos; Main expands the top 140 Base combos (`mainTop`) into every protect variant ×
-  sub-strategy (≈ 14,000 tapes). A compute over 40 symbols × 18 days of 15 m bars takes ~12 s.
+- Base covers all 988 combos (98 indications × 8 fade bots + follow + revert); Main expands the top 140 Base
+  combos (`mainTop`) into every protect variant × sub-strategy. A compute over 40 symbols × 18 days of 15 m bars
+  takes ~11–14 s with the event loop never blocked for more than ~80 ms.
 
 ## Reliability audit (all verified by tests)
 
@@ -109,6 +110,21 @@ Earlier, shorter tests (30 days) looked better — durable Block Active + DCA Ac
 - The engine, the selection and the reports are built to show this truthfully and keep searching
   continuously; the Live stage stays off and refuses to trade unless the rolling simulated run is PF ≥ min
   (1.10) and stable.
+
+### Indication research (one indication at a time, `docs/research-*.md`, `docs/oot-1h.md`)
+
+- 98 indication configs (10 kinds, each extended with parameter families) × follow / **revert** (new: fade the
+  onset) / magnet / pivot / sandwich, then the train leaders × a full protect grid (TP, SL 0.75–2.5 × TP, min SL,
+  trail share, min trail), judged on an unseen second half.
+- **1 m bars (hundreds of orders per hour): 0 of 8,820 configs survive**; pooled test PF 0.00 at TP 0.15 % up
+  to 0.67 at TP 1.8 %. BingX has no sub-minute history, so 1 s "pre-historic" data does not exist; the
+  finest re-evaluation offered is 1 minute (never finer than one bar).
+- Min SL (0.3–1 %) and min trail distance (0.2–0.8 %) are **neutral** (identical pooled PF); trailing is
+  slightly worse than none; wider TP and SL 2–2.5 × TP are better on 15 m. Defaults were set accordingly.
+- 15 m: 105 / 8,820 survivors (≈ chance level). 1 h: `follow · break-atr-2` survived in 87 grid variants
+  (median test PF 1.32) — but on the **9 months before the research window** it scored PF 0.98, full year
+  PF 1.01 (8 / 13 green months, ~11 orders / day); `follow · ema-50-100` scored 0.72 there. The recent
+  "survivors" were a trending regime, not a durable edge.
 
 ### Next levers
 

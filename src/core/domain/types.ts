@@ -55,6 +55,7 @@ export const BOT_TYPES = [
   "magnet",
   "pivot",
   "follow",
+  "revert",
 ] as const;
 export type BotType = (typeof BOT_TYPES)[number];
 

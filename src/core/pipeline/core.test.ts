@@ -60,7 +60,7 @@ describe("bots", () => {
         const a = comboSignal(b.type, ind, kFull);
         const c = comboSignal(b.type, ind, kCut);
         if (a === null) {
-          assert.equal(b.type, "follow");
+          assert.ok(b.type === "follow" || b.type === "revert");
           assert.equal(ind, "none");
           continue;
         }
@@ -68,6 +68,12 @@ describe("bots", () => {
       }
     }
   });
+  it("revert enters against every onset that follow takes", () => {
+    const f = comboSignal("follow", "trend-ema", kFull)!;
+    const r = comboSignal("revert", "trend-ema", kFull)!;
+    for (let i = 0; i < f.length; i++) assert.equal(r[i], -f[i] || 0);
+  });
+
   it("filter only removes signals that disagree", () => {
     const raw = comboSignal("sandwich", "none", kFull)!;
     const f = comboSignal("sandwich", "trend-ema", kFull)!;

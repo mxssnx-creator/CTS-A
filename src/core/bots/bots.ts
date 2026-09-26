@@ -21,6 +21,7 @@ export const BOTS: readonly BotSpec[] = [
   { type: "magnet", label: "Magnet", magnet: "Prior hour VWAP", thesis: "First half of the hour: fade back to the prior hour VWAP." },
   { type: "pivot", label: "Pivot", magnet: "Prior hour pivot", thesis: "Fade toward the prior hour (H+L+C)/3." },
   { type: "follow", label: "Follow", magnet: "—", thesis: "Enter in the indication's direction when its state turns on." },
+  { type: "revert", label: "Revert", magnet: "—", thesis: "Fade the indication: enter against its direction when its state turns on." },
 ];
 
 export const BOT_BY_TYPE: ReadonlyMap<BotType, BotSpec> = new Map(BOTS.map((b) => [b.type, b]));
@@ -48,7 +49,7 @@ function fade(k: SeriesCache, magnet: Float64Array, extra?: (i: number, side: Si
 }
 
 export function botTrigger(type: BotType, k: SeriesCache): Int8Array | null {
-  if (type === "follow") return null;
+  if (type === "follow" || type === "revert") return null;
   return k.memo(`bot:${type}`, () => {
     const per = k.period(HOUR);
     const { t, c, h, l, n } = k.b;
@@ -90,10 +91,11 @@ export function botTrigger(type: BotType, k: SeriesCache): Int8Array | null {
 export function comboSignal(bot: BotType, ind: string, k: SeriesCache): Int8Array | null {
   return k.memo(`combo:${bot}:${ind}`, () => {
     const st = indicationState(ind, k);
-    if (bot === "follow") {
+    if (bot === "follow" || bot === "revert") {
       if (!st) return null;
+      const dir = bot === "follow" ? 1 : -1;
       const out = new Int8Array(k.b.n);
-      for (let i = 1; i < st.length; i++) if (st[i] !== 0 && st[i] !== st[i - 1]) out[i] = st[i];
+      for (let i = 1; i < st.length; i++) if (st[i] !== 0 && st[i] !== st[i - 1]) out[i] = st[i] * dir;
       return out;
     }
     const trig = botTrigger(bot, k)!;

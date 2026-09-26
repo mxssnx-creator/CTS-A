@@ -67,12 +67,12 @@ export interface WalkForwardOptions {
 }
 
 export const DEFAULT_GRID: ProtectGridSpec = {
-  tp: [0.018, 0.026, 0.035, 0.05],
+  tp: [0.026, 0.035, 0.05, 0.07],
   slOfTp: [1, 1.5, 2, 2.5],
-  trailOfTp: [0, 0.25, 0.4],
+  trailOfTp: [0, 0.5],
   minTrail: 0.006,
   minSl: 0.01,
-  holdH: [3, 8],
+  holdH: [8, 24],
 };
 
 /** Every protect variant of a grid (hold converted to bars). Each variant is computed independently. */
@@ -597,7 +597,10 @@ export function* walkForwardGen(u: Universe, tapes: readonly ConfigTape[], o: Wa
   };
 
   let held = new Set<string>();
-  for (let t = startT; t < stopT; t += o.stepH * H) {
+  // re-evaluating more often than one bar cannot change anything: the step is at least one bar
+  const barH = (u.bars[0]?.tfMin ?? 60) / 60;
+  const stepH = Math.max(o.stepH, barH);
+  for (let t = startT; t < stopT; t += stepH * H) {
     const { picks, eligible } = o.mode === "durable" ? selectDurable(tapes, t, o, held) : selectAt(tapes, t, o);
     held = new Set(picks.map((p) => p.id));
     const cands: Array<{ tr: Trade; tp: ConfigTape }> = [];
@@ -605,7 +608,7 @@ export function* walkForwardGen(u: Universe, tapes: readonly ConfigTape[], o: Wa
       const tp = byId.get(p.id)!;
       for (let i = 0; i < tp.n; i++) {
         const e = tp.entryT[i];
-        if (e >= t && e < t + o.stepH * H && e < stopT) cands.push({ tr: tradeAt(tp, i), tp });
+        if (e >= t && e < t + stepH * H && e < stopT) cands.push({ tr: tradeAt(tp, i), tp });
       }
     }
     cands.sort((a, b) => a.tr.entryT - b.tr.entryT || a.tr.cfg.localeCompare(b.tr.cfg));

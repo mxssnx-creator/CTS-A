@@ -267,6 +267,9 @@ export function SettingsPage() {
             <Field label="Pre-calc (h)" hint="configs must still work here"><Num value={wf.preH} onChange={(v) => setW("preH", v)} /></Field>
             <Field label="Long window (h)" hint="Main robustness window"><Num value={wf.longH} onChange={(v) => setW("longH", v)} /></Field>
             <Field label="Sim run (h)"><Num value={wf.simH} onChange={(v) => setW("simH", v)} /></Field>
+            <Field label="Re-evaluate every (min)" hint="≥ 1 min; never finer than one bar (BingX has no sub-minute history)">
+              <Num value={Math.round((wf.stepH ?? 1) * 60)} min={1} max={2880} onChange={(v) => setW("stepH", Math.max(1, v) / 60)} />
+            </Field>
             <Field label="Portfolio size"><Num value={wf.portfolio} onChange={(v) => setW("portfolio", v)} /></Field>
             <Field label="Last-N (0 = off)"><Num value={wf.lastN} onChange={(v) => setW("lastN", v)} /></Field>
             <Field label="Last-N min PF"><Num step={0.05} value={wf.lastNMinPf} onChange={(v) => setW("lastNMinPf", v)} /></Field>

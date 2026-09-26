@@ -30,17 +30,20 @@ function fakeFeed(state: { up: boolean; historyCalls: number }): Partial<MarketF
 }
 
 describe("self-healing", { timeout: 600_000 }, () => {
-  it("falls back to synthetic when BingX is down and switches back once it answers", async () => {
+  it("uses no mock data when BingX is down, retries with backoff and recovers with real data", async () => {
     const st = { up: false, historyCalls: 0 };
     const rt = new CoreRuntime(new CoreDb(":memory:"), small, { market: "bingx", feed: fakeFeed(st) });
     rt.start();
-    await until(() => rt.status.computes >= 1);
-    assert.equal(rt.status.source, "synthetic");
+    await until(() => rt.status.errorsInRow >= 1);
+    assert.equal(rt.status.state, "error");
+    assert.equal(rt.status.source, "none");
+    assert.equal(rt.candles.size, 0, "no mock candles");
+    assert.match(rt.status.error ?? "", /no mock data/);
     st.up = true;
-    await rt.heal();
-    assert.match(rt.status.lastHeal, /switching from synthetic to real/);
-    await until(() => rt.status.source === "bingx" && rt.status.computes >= 2);
+    rt.kick();
+    await until(() => rt.status.source === "bingx" && rt.status.computes >= 1);
     assert.ok(rt.status.symbols.every((s) => /^(AAA|BBB|CCC)-USDT$/.test(s)));
+    assert.match(rt.status.lastHeal, /recovered after/);
     rt.stop();
   });
 

@@ -1,7 +1,7 @@
 // Core v2 continuous runtime. One per server process (globalThis singleton).
 //
 // Loop (every cycleMs):
-//   1. market   backfill once, then pull newly CLOSED bars for every symbol (BingX public; synthetic fallback)
+//   1. market   backfill once, then pull newly CLOSED bars for every symbol (BingX public; real data only — an outage is retried with backoff)
 //   2. compute  when a new bar closed: S1–S5 pipeline, walk-forward tapes, 48h simulated run with 20h pre-calc
 //   3. paper    the current hour's selection trades on paper; closes land in paper_trades
 //   4. live     optional gated adapter mirrors fresh paper entries (off by default)
@@ -114,22 +114,25 @@ export class CoreRuntime {
   private lastSnapshot = 0;
   onLive?: (rt: CoreRuntime, intents: LiveIntent[], gen: number) => Promise<void>;
 
-  /** market source: live BingX (with synthetic fallback) or synthetic only (tests / offline) */
+  /** market source: live BingX (the app) or synthetic (automated tests only, explicit opt-in) */
   private market: "bingx" | "synthetic";
   /** market data functions (injectable for recovery tests) */
   private feed: MarketFeed;
   private healer: ReturnType<typeof setInterval> | null = null;
   private errorsInRow = 0;
-  private lastRealTry = 0;
 
   constructor(
     db: CoreDb = coreDb(),
     settings?: Partial<CoreSettings>,
     opts: { market?: "bingx" | "synthetic"; feed?: Partial<MarketFeed> } = {},
   ) {
-    this.feed = { tickers: fetchTickers, history: fetchHistory, klines: fetchKlines, ...(opts.feed ?? {}) };
-    this.market =
-      opts.market ?? (process.env.CTS_CORE_MARKET === "synthetic" ? "synthetic" : "bingx");
+    this.feed = {
+      tickers: fetchTickers,
+      history: fetchHistory,
+      klines: fetchKlines,
+      ...(opts.feed ?? {}),
+    };
+    this.market = opts.market ?? "bingx";
     this.db = db;
     const saved = db.kvGet<Partial<CoreSettings>>("settings");
     this.settings = mergeSettings(DEFAULT_SETTINGS, saved, settings);
@@ -223,8 +226,11 @@ export class CoreRuntime {
     if (this.status.state === "idle") return this.start();
     if (this.stopped) return;
     // a loop that is merely waiting out an error backoff (timer set) is not stale
-    const waitingBackoff = !this.busy && this.timer !== null && this.status.nextCycleAt > Date.now() - 60_000;
-    const stale = !waitingBackoff && Date.now() - this.status.heartbeat > Math.max(180_000, this.settings.cycleMs * 8);
+    const waitingBackoff =
+      !this.busy && this.timer !== null && this.status.nextCycleAt > Date.now() - 60_000;
+    const stale =
+      !waitingBackoff &&
+      Date.now() - this.status.heartbeat > Math.max(180_000, this.settings.cycleMs * 8);
     if (stale) {
       this.db.event("warn", "watchdog: loop stale, starting a new generation");
       this.gen++;
@@ -244,8 +250,6 @@ export class CoreRuntime {
   /**
    * Periodic self-healing (every 30 s, independent of viewers):
    *  - stale loop → new generation (ensureAlive)
-   *  - running on the synthetic fallback while BingX is the configured market → probe BingX every 10 min and
-   *    switch back to real data as soon as it answers
    *  - a lost timer (nothing scheduled while not busy / stopped) → reschedule
    */
   async heal() {
@@ -253,18 +257,6 @@ export class CoreRuntime {
     const beforeGen = this.gen;
     this.ensureAlive();
     if (this.gen !== beforeGen) this.noteHeal("stale loop replaced by a new generation");
-    if (this.market === "bingx" && this.status.source === "synthetic" && Date.now() - this.lastRealTry > 10 * 60_000) {
-      this.lastRealTry = Date.now();
-      try {
-        const t = await this.feed.tickers();
-        if (t.length) {
-          this.noteHeal("BingX reachable again, switching from synthetic to real data");
-          this.requestResync();
-        }
-      } catch {
-        /* still down */
-      }
-    }
     if (!this.busy && !this.timer && !this.stopped && this.status.state !== "idle") {
       this.noteHeal("no cycle scheduled, rescheduling");
       this.schedule(0);
@@ -361,7 +353,8 @@ export class CoreRuntime {
         this.db.snapshot(this.snapshotPath);
       }
       this.db.trim();
-      if (this.errorsInRow > 0) this.noteHeal(`recovered after ${this.errorsInRow} failed cycle(s)`, "info");
+      if (this.errorsInRow > 0)
+        this.noteHeal(`recovered after ${this.errorsInRow} failed cycle(s)`, "info");
       this.errorsInRow = 0;
     } catch (e) {
       if (gen === this.gen) {
@@ -380,7 +373,9 @@ export class CoreRuntime {
         // a compute requested while we were busy runs right away
         this.status.errorsInRow = this.errorsInRow;
         // failures back off exponentially (5 s … 10 min); a compute requested while busy runs right away
-        const backoff = this.errorsInRow ? Math.min(600_000, 5_000 * 2 ** Math.min(7, this.errorsInRow - 1)) : 0;
+        const backoff = this.errorsInRow
+          ? Math.min(600_000, 5_000 * 2 ** Math.min(7, this.errorsInRow - 1))
+          : 0;
         if (!this.stopped) this.schedule(backoff || (this.dirty ? 0 : this.settings.cycleMs));
       }
     }
@@ -403,35 +398,40 @@ export class CoreRuntime {
       this.loadCandlesFromDb();
     }
     if (this.candles.size === 0) {
-      if (this.market === "bingx")
-        try {
-          this.tickers = await this.feed.tickers();
-          const syms = pickUniverse(this.tickers, s.symbols);
-          let done = 0;
-          await mapLimit(syms, 4, async (sym) => {
-            const cs = await this.feed.history(sym, s.tfMin, want, { pauseMs: 60 }).catch(() => []);
-            if (gen !== this.gen) return;
-            if (cs.length >= 200) this.storeCandles(sym, cs);
-            this.setStage("backfill", ++done, syms.length, sym);
-          });
-          if (gen !== this.gen) return false;
-          this.status.source = "bingx";
-          this.db.event(
-            "info",
-            `backfilled ${this.candles.size} symbols × ${want} bars (${s.tfMin}m)`,
-          );
-        } catch (e) {
-          this.db.event(
-            "warn",
-            `BingX unavailable (${e instanceof Error ? e.message : e}); using synthetic feed`,
-          );
-        }
-      if (gen !== this.gen) return false;
-      if (this.candles.size === 0) {
+      // test-only feed (explicit opt-in); the app always runs on real BingX data
+      if (this.market === "synthetic") {
         const end = Date.now();
         for (let i = 0; i < s.symbols; i++)
           this.storeCandles(`SYN${i}-USDT`, syntheticCandles(`SYN${i}`, s.tfMin, want, end));
         this.status.source = "synthetic";
+      } else {
+        // real data only: if BingX does not answer, the cycle fails and is retried with backoff — no mock data
+        try {
+          this.tickers = await this.feed.tickers();
+        } catch (e) {
+          this.status.source = "none";
+          throw new Error(
+            `BingX market unavailable (${e instanceof Error ? e.message : e}) — retrying, no mock data is used`,
+          );
+        }
+        const syms = pickUniverse(this.tickers, s.symbols);
+        let done = 0;
+        await mapLimit(syms, 4, async (sym) => {
+          const cs = await this.feed.history(sym, s.tfMin, want, { pauseMs: 60 }).catch(() => []);
+          if (gen !== this.gen) return;
+          if (cs.length >= 200) this.storeCandles(sym, cs);
+          this.setStage("backfill", ++done, syms.length, sym);
+        });
+        if (gen !== this.gen) return false;
+        if (this.candles.size === 0) {
+          this.status.source = "none";
+          throw new Error("BingX returned no history — retrying, no mock data is used");
+        }
+        this.status.source = "bingx";
+        this.db.event(
+          "info",
+          `backfilled ${this.candles.size} symbols × ${want} bars (${s.tfMin}m)`,
+        );
       }
       this.status.symbols = [...this.candles.keys()];
       this.upsertSymbols();
@@ -444,7 +444,9 @@ export class CoreRuntime {
     if (this.status.source === "synthetic") return false;
     // gap repair: a symbol more than 300 bars behind cannot be caught up incrementally → backfill it again
     const wantBars = Math.round((s.historyDays * 24 * 60) / s.tfMin);
-    const behind = [...this.candles.entries()].filter(([, cs]) => now - (cs[cs.length - 1]?.t ?? 0) > 300 * tfMs);
+    const behind = [...this.candles.entries()].filter(
+      ([, cs]) => now - (cs[cs.length - 1]?.t ?? 0) > 300 * tfMs,
+    );
     if (behind.length) {
       await mapLimit(behind, 4, async ([sym]) => {
         const cs = await this.feed.history(sym, s.tfMin, wantBars, { pauseMs: 60 }).catch(() => []);
@@ -462,7 +464,11 @@ export class CoreRuntime {
     await mapLimit(due, 6, async ([sym, cs]) => {
       const last = cs[cs.length - 1]?.t ?? 0;
       try {
-        const fresh = await this.feed.klines(sym, s.tfMin, { startT: last + 1, limit: 300, nowT: now });
+        const fresh = await this.feed.klines(sym, s.tfMin, {
+          startT: last + 1,
+          limit: 300,
+          nowT: now,
+        });
         const extra = fresh.filter((c) => c.t > last);
         if (extra.length && gen === this.gen && this.candles.has(sym)) {
           this.storeCandles(sym, extra, true);
@@ -619,7 +625,7 @@ export class CoreRuntime {
       gen,
     );
     let step = 0;
-    const steps = Math.max(1, Math.ceil(wf.simH / wf.stepH));
+    const steps = Math.max(1, Math.ceil(wf.simH / Math.max(wf.stepH, s.tfMin / 60)));
     const sim = await this.drive(
       "Simulation",
       walkForwardGen(wu, tapes, wf),
@@ -871,7 +877,19 @@ export class CoreRuntime {
       db.run("DELETE FROM evals WHERE at = ?", o.universe.nowT);
       for (const k of o.ranked) {
         if (!k.evalRes) continue;
-        for (const w of k.evalRes.windows) db.run(evIns, k.id, o.universe.nowT, w.key, w.n, w.pf, w.net, w.ddt, w.wr, w.pass ? 1 : 0);
+        for (const w of k.evalRes.windows)
+          db.run(
+            evIns,
+            k.id,
+            o.universe.nowT,
+            w.key,
+            w.n,
+            w.pf,
+            w.net,
+            w.ddt,
+            w.wr,
+            w.pass ? 1 : 0,
+          );
       }
     });
     db.kvSet("pipeline", {
@@ -1046,7 +1064,7 @@ export function sanitizeWf(o: Partial<WalkForwardOptions>): Partial<WalkForwardO
   };
   num("preH", 1, 240);
   num("simH", 6, 240);
-  num("stepH", 0.25, 48);
+  num("stepH", 1 / 60, 48); // re-evaluation down to 1 minute (BingX has no sub-minute history)
   num("portfolio", 1, 60, true);
   num("lastN", 0, 200, true);
   num("lastNMinPf", 0, 5);
@@ -1061,7 +1079,8 @@ export function sanitizeWf(o: Partial<WalkForwardOptions>): Partial<WalkForwardO
   if (p.rank !== undefined && !["lcb", "score", "net"].includes(String(p.rank))) delete p.rank;
   if (p.mode !== undefined && !["hourly", "durable"].includes(String(p.mode))) delete p.mode;
   if (p.preGate !== undefined) p.preGate = Boolean(p.preGate);
-  if (p.bots !== undefined) p.bots = Array.isArray(p.bots) ? (p.bots as unknown[]).map(String).slice(0, 20) : [];
+  if (p.bots !== undefined)
+    p.bots = Array.isArray(p.bots) ? (p.bots as unknown[]).map(String).slice(0, 20) : [];
   return p as Partial<WalkForwardOptions>;
 }
 
