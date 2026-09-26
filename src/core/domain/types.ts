@@ -79,6 +79,37 @@ export interface StrategyConfig {
 
 export type ExitReason = "tp" | "sl" | "trail" | "time" | "disarm";
 
+/** Sub-strategy that produced a trade. */
+export type StratKind = "normal" | "trailing" | "dca" | "dca-active";
+
+/** Strategy toggles. Intern calculations always cover every kind; toggles only filter execution. */
+export interface StrategyToggles {
+  normal: boolean;
+  trailing: boolean;
+  block: boolean;
+  /** Block Active: execute only positions at Block level >= minActiveLevel (skip normal / lower levels) */
+  blockActive: boolean;
+  dca: boolean;
+  /** DCA Active: skip the base leg; enter only at the first DCA level (limit), i.e. the higher-level position */
+  dcaActive: boolean;
+}
+
+export interface BlockConfig {
+  /** extra volume per passing level (additive) */
+  ratio: number;
+  /** last-N windows 1..maxLevel are checked independently */
+  maxLevel: number;
+  minActiveLevel: number;
+  /** total volume cap as a multiple of the base position */
+  maxMult: number;
+}
+
+export interface DcaConfig {
+  levels: number;
+  /** distance between levels as a fraction of the reference price */
+  step: number;
+}
+
 export interface Trade {
   cfg: string;
   sym: string;
@@ -93,6 +124,12 @@ export interface Trade {
   bars: number;
   mfe: number;
   mae: number;
+  /** sub-strategy (defaults to normal / trailing by protect) */
+  kind?: StratKind;
+  /** notional units held (DCA legs); r already includes all legs */
+  vol?: number;
+  /** Block level at execution (broker) or DCA legs added (sim) */
+  level?: number;
 }
 
 export interface OpenPosition {

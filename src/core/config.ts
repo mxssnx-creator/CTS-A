@@ -1,19 +1,20 @@
 // CTS-A Core v2 — authoritative defaults. Every number the engine uses lives here.
-import type { Gates, Protect } from "./domain/types.ts";
+import type { BlockConfig, DcaConfig, Gates, Protect, StrategyToggles } from "./domain/types.ts";
 
 /** Round-trip position cost: 0.1% per side, doubled = 0.2% of notional per closed trade. */
 export const RT_COST = 0.002;
 /** Profit factor reported when a sample has wins and no losses. */
 export const PF_NO_LOSS = 4;
 
-export const DEFAULT_PROTECT: Protect = { tp: 0.009, sl: 0.009, trail: 0, hold: 36 };
+/** Base-stage protect (15m bars): 2.6% target, 1.5× stop, 8h max hold. Wide targets clear the 0.2% cost. */
+export const DEFAULT_PROTECT: Protect = { tp: 0.026, sl: 0.039, trail: 0, hold: 32 };
 
-/** Stage-2 refinement grid (fractions). SL is expressed relative to TP. */
+/** Main-stage refinement grid (fractions). SL is expressed relative to TP; trail relative to TP (0 = off). */
 export const PROTECT_GRID = {
-  tp: [0.005, 0.008, 0.012, 0.018, 0.026],
-  slOfTp: [0.6, 1, 1.5],
-  trail: [0, 0.004, 0.008],
-  hold: [36],
+  tp: [0.018, 0.026, 0.035, 0.05],
+  slOfTp: [1, 1.5],
+  trail: [0, 0.4],
+  hold: [12, 32],
 } as const;
 
 /** Last-N candidates for the walk-forward gate. */
@@ -27,6 +28,19 @@ export const DEFAULT_GATES: Gates = {
   minTrades: 12,
   quorum: 0.6,
 };
+
+/** Execution toggles. Intern (Base) calculations always cover every sub-strategy. */
+export const DEFAULT_TOGGLES: StrategyToggles = {
+  normal: true,
+  trailing: true,
+  block: true,
+  blockActive: false,
+  dca: true,
+  dcaActive: false,
+};
+
+export const DEFAULT_BLOCK: BlockConfig = { ratio: 0.2, maxLevel: 6, minActiveLevel: 1, maxMult: 2.5 };
+export const DEFAULT_DCA: DcaConfig = { levels: 2, step: 0.008 };
 
 /** Continuous independent eval windows. */
 export const EVAL_TIME_WINDOWS_H = [1, 4, 12, 24, 72] as const;
@@ -50,6 +64,9 @@ export interface CoreSettings {
   armTop: number;
   /** notional per paper trade, USD */
   paperNotional: number;
+  toggles: StrategyToggles;
+  block: BlockConfig;
+  dca: DcaConfig;
   live: LiveSettings;
 }
 
@@ -62,8 +79,8 @@ export interface LiveSettings {
 }
 
 export const DEFAULT_SETTINGS: CoreSettings = {
-  tfMin: 5,
-  historyDays: 7,
+  tfMin: 15,
+  historyDays: 15,
   symbols: 16,
   cycleMs: 20_000,
   cost: RT_COST,
@@ -72,6 +89,9 @@ export const DEFAULT_SETTINGS: CoreSettings = {
   evalTop: 60,
   armTop: 10,
   paperNotional: 100,
+  toggles: DEFAULT_TOGGLES,
+  block: DEFAULT_BLOCK,
+  dca: DEFAULT_DCA,
   live: { enabled: false, connId: "bingx-vst-02", notionalUsd: 6, maxPositions: 3, leverage: 5 },
 };
 

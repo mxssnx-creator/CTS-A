@@ -8,7 +8,7 @@
 // Implemented as a generator so the runtime can time-slice it.
 import { BOTS, comboSignal } from "../bots/bots.ts";
 import { DEFAULT_PROTECT, PROTECT_GRID, type CoreSettings } from "../config.ts";
-import type { Bars, BotType, EvalResult, LastNResult, OpenPosition, Protect, Side, Stats, Trade } from "../domain/types.ts";
+import type { Bars, BotType, EvalResult, LastNResult, OpenPosition, Protect, Side, Stats, StratKind, Trade } from "../domain/types.ts";
 import { evaluateConfig } from "../evals/evaluator.ts";
 import { SeriesCache } from "../indications/cache.ts";
 import { INDICATIONS } from "../indications/registry.ts";
@@ -63,14 +63,21 @@ export function allCombos(): Combo[] {
 }
 
 const pct = (x: number) => Math.round(x * 10000) / 100;
-export function configId(bot: BotType, ind: string, p: Protect): string {
-  return `${bot}|${ind}|tp${pct(p.tp)}|sl${pct(p.sl)}|tr${pct(p.trail)}|h${p.hold}`;
+export function configId(bot: BotType, ind: string, p: Protect, kind?: StratKind): string {
+  const base = `${bot}|${ind}|tp${pct(p.tp)}|sl${pct(p.sl)}|tr${pct(p.trail)}|h${p.hold}`;
+  return kind === "dca" ? `${base}|dca` : kind === "dca-active" ? `${base}|dcaA` : base;
+}
+
+export function kindOfId(id: string): StratKind {
+  if (id.endsWith("|dcaA")) return "dca-active";
+  if (id.endsWith("|dca")) return "dca";
+  return /\|tr0\|/.test(id) ? "normal" : "trailing";
 }
 
 const fromPct = (s: string) => +(Number(s) / 100).toFixed(6);
 
 export function parseConfigId(id: string): { bot: BotType; ind: string; protect: Protect } | null {
-  const m = /^([a-z]+)\|([a-z0-9-]+)\|tp([\d.]+)\|sl([\d.]+)\|tr([\d.]+)\|h(\d+)$/.exec(id);
+  const m = /^([a-z]+)\|([a-z0-9-]+)\|tp([\d.]+)\|sl([\d.]+)\|tr([\d.]+)\|h(\d+)(\|dcaA?)?$/.exec(id);
   if (!m) return null;
   return {
     bot: m[1] as BotType,
@@ -178,8 +185,7 @@ function refineGrid(): Protect[] {
     for (const k of PROTECT_GRID.slOfTp)
       for (const trail of PROTECT_GRID.trail)
         for (const hold of PROTECT_GRID.hold) {
-          if (trail >= tp) continue;
-          out.push({ tp, sl: Math.round(tp * k * 10000) / 10000, trail, hold });
+          out.push({ tp, sl: Math.round(tp * k * 10000) / 10000, trail: Math.round(tp * trail * 10000) / 10000, hold });
         }
   return out;
 }
