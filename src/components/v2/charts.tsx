@@ -111,7 +111,7 @@ export function RadialHours(props: { hours: Array<{ t: number; net: number; n: n
           const a0 = -Math.PI / 2 + (i / n) * Math.PI * 2 + 0.01;
           const a1 = -Math.PI / 2 + ((i + 1) / n) * Math.PI * 2 - 0.01;
           const len = (Math.abs(h.net) / maxAbs) * rMax;
-          const r1 = h.net >= 0 ? r0 + Math.max(1.5, len) : r0 - Math.max(1.5, Math.min(len, r0 * 0.8));
+          const r1 = h.net >= 0 ? r0 + Math.max(1.5, len) : r0 - Math.max(1.5, Math.min(len * 0.5, r0 * 0.3));
           const inner = Math.min(r0, r1);
           const outer = Math.max(r0, r1);
           const p = (r: number, a: number) => `${c + r * Math.cos(a)} ${c + r * Math.sin(a)}`;
@@ -303,8 +303,8 @@ export function SignedBars(props: { data: Array<{ k: string; v: number; tip?: Re
 /** Arc diagram: bots and indications on one baseline, arcs weighted by trade count and colored by PF. */
 export function ArcDiagram(props: { links: Array<{ a: string; b: string; w: number; pf: number; tip?: string }>; left: string[]; right: string[] }) {
   const W = 760;
-  const H = 300;
-  const base = H - 40;
+  const H = 340;
+  const base = H - 84;
   const nodes = [...props.left, ...props.right];
   const gapMid = 30;
   const step = (W - 40 - gapMid) / Math.max(1, nodes.length - 1);

@@ -363,6 +363,7 @@ export class CoreRuntime {
       this.status.lastComputeMs,
       `S1 ${Math.round(this.pipeline.timings.S1 ?? 0)}ms · S2 ${Math.round(this.pipeline.timings.S2 ?? 0)}ms · S3 ${Math.round(this.pipeline.timings.S3 ?? 0)}ms`,
     );
+    console.info(`[core-v2] compute #${this.status.computes} done in ${Math.round(this.status.lastComputeMs)} ms · sim PF ${this.sim.stats.pf.toFixed(2)} n ${this.sim.stats.n}`);
     this.db.event(
       "info",
       `compute #${this.status.computes}: sim PF ${this.sim.stats.pf.toFixed(2)} net ${this.sim.stats.net.toFixed(1)}% n ${this.sim.stats.n} · armed ${this.pipeline.armed.length} · ${Math.round(this.status.lastComputeMs)}ms`,
