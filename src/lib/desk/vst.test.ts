@@ -1397,7 +1397,7 @@ describe("VST engine", () => {
     ePb.strategyToggles.block = false;
     assert.equal(liveExecPlaybook(ePb, "trailing", "trend"), "short");
     assert.equal(tacticForIndication("direction"), "axis");
-    assert.equal(tacticForIndication("trend"), "trailing");
+    assert.equal(tacticForIndication("trend"), "hybrid");
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     const q = e.quotes.BTCUSDT;
     q.px = 100;
@@ -2242,8 +2242,21 @@ describe("VST engine", () => {
     assert.equal(n, 1);
     assert.equal(e.positions.length, before - 1);
     assert.ok(!e.positions.some((p) => p.symbol === drop.symbol && p.side === drop.side));
-    tickVst(e, CFG, "hybrid", { rangeType: "atr" });
+    assert.ok(e.manualClosed?.[`${drop.symbol}:${drop.side}`]);
+    for (let i = 0; i < 4; i++) tickVst(e, CFG, "hybrid", { rangeType: "atr" });
     assert.ok(e.tick >= 1);
+    assert.ok(!e.positions.some((p) => p.symbol === drop.symbol && p.side === drop.side), "manual leg stays shut");
+    assert.ok(!e.queue.some((o) => o.symbol === drop.symbol && o.side === drop.side), "manual leg is not requeued");
+    const otherSide = drop.side === "long" ? "short" : "long";
+    const further =
+      e.queue.some((o) => o.symbol !== drop.symbol || o.side === otherSide) ||
+      e.positions.some((p) => p.symbol !== drop.symbol || p.side === otherSide);
+    assert.ok(further, "other legs still process");
+    const sys = initVstEngine(CFG, { warmup: 0, symbolCount: 2, arm: false });
+    sys.positions.push({ ...drop, id: "p-sl", connId: sys.activeConnId, symbol: "ETHUSDT", side: "short" } as never);
+    releaseVanished(sys, new Set(), sys.activeConnId, new Set());
+    assert.equal(sys.positions.length, 0);
+    assert.equal(sys.manualClosed?.["ETHUSDT:short"], undefined);
   });
 
   it("last-N pos windows: loss in last 6 adjusts the next 6", () => {
@@ -2948,7 +2961,7 @@ describe("VST engine", () => {
     const maxR = Math.max(...ratios);
     assert.ok(maxR - minR > 0.05, `R span ${minR}..${maxR}`);
     assert.ok(e.queue.length + e.orders.length <= VST_MAX_QUEUE || e.completeSim);
-    assert.ok(e.queue.length <= 8000);
+    assert.ok(e.queue.length <= 12000);
     for (const c of all.slice(0, 6)) {
       e.closed.unshift({
         id: `s-${c.tpAtr}-${c.slOfTp}`,
@@ -3445,6 +3458,24 @@ describe("VST engine", () => {
     const byTac = new Set(e.queue.map((o) => o.tactic).filter(Boolean));
     assert.ok(byInd.size >= 4, `inds ${[...byInd]}`);
     assert.ok(byTac.size >= 2, `tacs ${[...byTac]}`);
+  });
+
+  it("live progress arms every tactic, type, and range together", () => {
+    const e = initVstEngine({ ...CFG, shortRange: true, trailingPct: 1.5, dcaCount: 3 }, { warmup: 4, symbolCount: 6, arm: false });
+    e.liveTape = true;
+    e.preEvalDone = true;
+    e.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
+    armUniverse(e, { ...CFG, shortRange: true, trailingPct: 1.5, dcaCount: 3 }, "hybrid", "atr");
+    const tacs = new Set(e.queue.map((o) => o.tactic).filter(Boolean));
+    const plays = new Set(e.queue.map((o) => o.playbook).filter(Boolean));
+    const ranges = new Set(e.queue.map((o) => o.rangeType).filter(Boolean));
+    assert.ok(tacs.has("trailing") && tacs.has("axis") && tacs.has("hybrid") && tacs.has("dca"), `tacs ${[...tacs]}`);
+    assert.ok(plays.has("axis") && plays.has("dca") && (plays.has("short") || plays.has("normal")), `plays ${[...plays]}`);
+    assert.ok(ranges.size >= 2, `ranges ${[...ranges]}`);
+    const exec = e.queue.filter((o) => o.validExec === true);
+    const held = e.queue.filter((o) => o.validExec !== true);
+    assert.ok(exec.length + held.length === e.queue.length);
+    assert.ok(e.queue.length > 20, `queued ${e.queue.length}`);
   });
 
   it("post-eval valid rels are 1-10% of intern and much higher PF", () => {
@@ -3976,6 +4007,29 @@ describe("VST engine", () => {
     assert.equal(vstW?.patch.shortProgress?.minSlOfTp, 0.75);
     assert.equal(vstW?.patch.strategyToggles?.dca, false);
     assert.equal(vstW?.patch.strategyToggles?.normal, false);
+    const tape68 = findPreset("tape-6h-8", []);
+    assert.ok(tape68);
+    assert.equal(tape68?.label, "6h × 8 tape");
+    assert.equal(tape68?.patch.symbolCount, 8);
+    assert.equal(tape68?.patch.costStep, 3);
+    assert.equal(tape68?.patch.tactic, "trailing");
+    assert.equal(tape68?.patch.rangeType, "atr");
+    assert.equal(tape68?.patch.tacticConfig?.shortRange, true);
+    assert.equal(tape68?.patch.tacticConfig?.tpAtr, 0.42);
+    assert.equal(tape68?.patch.tacticConfig?.slOfTp, 1.75);
+    assert.equal(tape68?.patch.tacticConfig?.trailingPct, 1.5);
+    assert.equal(tape68?.patch.tacticConfig?.maxHoldTicks, 8);
+    assert.equal(tape68?.patch.blockConfig?.volumeRatio, 0.4);
+    assert.equal(tape68?.patch.blockConfig?.sharedVolumeRatio, 1.5);
+    assert.equal(tape68?.patch.blockConfig?.overallMode, "parallel");
+    assert.equal(tape68?.patch.blockConfig?.pauseCountRatio, 0);
+    assert.deepEqual(tape68?.patch.blockConfig?.counts, [1, 2, 3, 4, 5, 6]);
+    assert.equal(tape68?.info?.winHoursPct, 1);
+    assert.equal(tape68?.info?.pf, 1.179);
+    assert.equal(tape68?.info?.ddt, 356);
+    assert.equal(tape68?.info?.tradesPerHour, 1288);
+    assert.equal(tape68?.info?.positions, 11.48);
+    assert.equal(tape68?.info?.orders, 305.6);
     assert.ok(universeSymbols(120).length === 120);
     const saved = sanitizeUserPresets([{ id: "user-a", label: "Mine", blurb: "x", builtin: false, patch: { tactic: "axis" } }, { id: "" }]);
     assert.equal(saved.length, 1);

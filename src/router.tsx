@@ -8,7 +8,7 @@ export function getRouter() {
     defaultErrorComponent: AppErrorComponent,
     defaultNotFoundComponent: AppNotFound,
     scrollRestoration: false,
-    defaultPreload: "intent",
+    defaultPreload: false,
     defaultPreloadDelay: 40,
     defaultPreloadStaleTime: Infinity,
     defaultPendingMs: 0,

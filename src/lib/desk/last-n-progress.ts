@@ -482,7 +482,7 @@ export function scoreLastNModeTape(
   const gatedN = gated?.n ?? 0;
   const net = gated?.net ?? st.net;
   const floor = gatedFloorPf(minPf);
-  const tinyNoLoss = gatedPf >= 4 - 1e-9 && net <= 1e-6;
+  const tinyNoLoss = gatedPf >= 4 - 1e-9 && net <= 1e-4;
   const majorityOk = mode !== "majority" || validOk.length >= MAJORITY_MIN_POSITIVE;
   const gatedOk =
     gatedN >= VALID_EXEC_NS[0]! &&
@@ -513,7 +513,7 @@ export function foldOverallProcessing(modes: Record<LastNPassMode, LastNModeScor
     positive >= MAJORITY_MIN_POSITIVE &&
     headline.gatedPf + 1e-9 >= GATED_MIN_PF &&
     headline.gatedN >= VALID_EXEC_NS[0]! &&
-    headline.net > 1e-9;
+    headline.net > 1e-4;
   return {
     pass,
     pf: headline.pf,

@@ -15,6 +15,7 @@ import type {
   StageEvalBundle,
   StrategyKind,
   StrategyToggles,
+  PfCoordToggles,
   TacticConfig,
   TacticKind,
   Thresholds,
@@ -30,6 +31,8 @@ import {
   DEFAULT_BLOCK_CONFIG,
   DEFAULT_ENABLED_KINDS,
   DEFAULT_STRATEGY_TOGGLES,
+  DEFAULT_PF_COORDS,
+  sanitizePfCoords,
   DEFAULT_LAST_N,
   DEFAULT_LAST_N_CONFIG,
   DEFAULT_TACTIC_CONFIG,
@@ -180,6 +183,7 @@ interface DeskStore {
   activePresetId: string;
   userPresets: import("./presets").SettingsPreset[];
   strategyToggles: StrategyToggles;
+  pfCoords: PfCoordToggles;
   shortProgress: ShortProgressConfig;
   intervalStrategy: IntervalStrategyConfig;
   lastNProgress: LastNProgressConfig;
@@ -209,6 +213,7 @@ interface DeskStore {
   setTacticConfig: (p: Partial<TacticConfig>) => void;
   setBlockConfig: (p: Partial<BlockConfig>) => void;
   setStrategyToggles: (p: Partial<StrategyToggles>) => void;
+  setPfCoords: (p: Partial<PfCoordToggles>) => void;
   setShortProgress: (p: Partial<ShortProgressConfig>) => void;
   setIntervalStrategy: (p: Partial<IntervalStrategyConfig>) => void;
   setLastNProgress: (p: Partial<LastNProgressConfig>) => void;
@@ -505,12 +510,12 @@ const boot = initVstEngine(DEFAULT_TACTIC_CONFIG, { warmup: 0, symbolCount: 12, 
   boot.running = true;
   boot.phase = "running";
   boot.activeConnId = "bingx-x01";
-  boot.symbolCount = 40;
+  boot.symbolCount = 30;
   engageLiveBook(boot);
   const three = sanitizeArmed(armed);
   for (let i = 0; i < 6; i++) {
     stepDeskBots(boot, three, sess.configs);
-    tickVst(boot, LIVE_RUN_CFG, "trailing", { symbolCount: 40, rangeType: "atr", block: liveRunBlock() });
+    tickVst(boot, LIVE_RUN_CFG, "trailing", { symbolCount: 30, rangeType: "atr", block: liveRunBlock() });
   }
   const open = boot.positions.filter((p) => p.connId === "bingx-x01" && p.qty > 0).length;
   const progress = [...boot.queue, ...boot.orders].filter((o) => o.connId === "bingx-x01" && !String(o.playbook || "").startsWith("bot:") && (o.status === "queued" || o.status === "open" || o.status === "partial")).length;
@@ -576,6 +581,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   activePresetId: "",
   userPresets: [] as SettingsPreset[],
   strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
+  pfCoords: { ...DEFAULT_PF_COORDS },
   shortProgress: sanitizeShortProgress(DEFAULT_SHORT_PROGRESS),
   intervalStrategy: sanitizeIntervalStrategy(DEFAULT_INTERVAL_STRATEGY),
   lastNProgress: sanitizeLastNProgress(DEFAULT_LAST_N_PROGRESS),
@@ -676,6 +682,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       tacticConfig: { ...DEFAULT_TACTIC_CONFIG },
       blockConfig: { ...DEFAULT_BLOCK_CONFIG },
       strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
+      pfCoords: { ...DEFAULT_PF_COORDS },
       shortProgress: sanitizeShortProgress(DEFAULT_SHORT_PROGRESS),
       intervalStrategy: sanitizeIntervalStrategy(DEFAULT_INTERVAL_STRATEGY),
       lastNProgress: sanitizeLastNProgress(DEFAULT_LAST_N_PROGRESS),
@@ -831,6 +838,12 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.strategyToggles = strategyToggles;
     if (strategyToggles.block === false) e.blockCfg = { ...get().blockConfig, enabled: false };
     else e.blockCfg = { ...get().blockConfig, enabled: true };
+    get().syncSettings();
+  },
+  setPfCoords: (p) => {
+    const pfCoords = sanitizePfCoords({ ...get().pfCoords, ...p });
+    set({ pfCoords });
+    get().vst.pfCoords = pfCoords;
     get().syncSettings();
   },
   setShortProgress: (p) => {
@@ -1044,6 +1057,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const anyBots = runningIds.length > 0;
       e.activeConnId = view;
       if (!get().liveSession || anyBots) engageLiveBook(e);
+      e.pfCoords = get().pfCoords;
       const viewSess = sessions[view];
       e.botMode = anyBots;
       e.x01Progress = view === "bingx-x01";
@@ -1070,7 +1084,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const tickOpts = {
         freezeIds: live ? LIVE_SET : undefined,
         rangeType: "atr" as const,
-        symbolCount: progress ? 40 : get().symbolCount,
+        symbolCount: progress ? 30 : get().symbolCount,
         orderType: progress ? "market" as const : get().orderType,
         block: progress ? liveRunBlock(get().blockConfig) : get().blockConfig,
       };
@@ -1295,6 +1309,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     e.activeConnId = get().activeConnId;
     e.costStep = get().costStep;
     e.strategyToggles = get().strategyToggles;
+    e.pfCoords = get().pfCoords;
     e.minPf = get().thresholds.minPf;
     e.basePf = get().thresholds.basePf;
     e.axisPf = get().thresholds.axisPf;
@@ -1381,8 +1396,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
               counts: [1, 2, 3, 4, 5, 6],
               volumeRatio: 0.4,
               relVolumeRatio: 0.4,
-              sharedVolumeRatio: 3,
-              overallVolumeRatio: 3,
+              sharedVolumeRatio: 1.5,
+              overallVolumeRatio: 1.5,
               maxVolumeMultiplier: 8,
               minActiveLevel: 1,
               pauseCountRatio: 0,
@@ -1530,7 +1545,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const cfg = get().tacticConfig;
     const tactic = get().tactic;
     const range = get().rangeType;
-    const n = 40;
+    const n = 30;
     const order = ["bingx-x01", ...DESK_CONN_IDS.filter((id) => id !== "bingx-x01")];
     for (const id of order) {
       const sess = botByConn[id];
@@ -1932,14 +1947,18 @@ export const useDesk = create<DeskStore>((set, get) => ({
         }
       }
       const elapsed = Number(sess.elapsedMin ?? 0);
-      const mark = Math.round(Number(sess.livePnl ?? sess.net ?? 0) * 1000) + Number(sess.livePos ?? 0) * 17;
+      const mark =
+        Math.round(Number(sess.pf ?? 0) * 10000) +
+        Number(sess.trades ?? 0) +
+        Number(sess.livePos ?? 0) * 17 +
+        Math.round(Number(sess.equity ?? 0) * 100) +
+        Math.round(Number(sess.at ?? 0) / 1000);
       const prevOv = get().liveOverall;
       const ovAt = ov && typeof ov === "object" ? Number((ov as { at?: number }).at) : 0;
       const prevAt = prevOv && typeof prevOv === "object" ? Number((prevOv as { at?: number }).at) : 0;
       const ovChanged = Boolean(ov) && ovAt !== prevAt;
       if (ovChanged || Math.round(elapsed * 2) !== Math.round(Number(get().liveElapsed) * 2) || mark !== get().liveMark) {
         lastLiveMarkAt = Date.now();
-        pinDeskScroll();
         set(ovChanged ? { liveElapsed: elapsed, liveMark: mark, liveOverall: ov } : { liveElapsed: elapsed, liveMark: mark });
       }
       return;
@@ -2080,6 +2099,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       e.orderType = snap.orderType;
       e.activeConnId = activeConnId;
       e.strategyToggles = snap.strategyToggles;
+      e.pfCoords = snap.pfCoords;
       e.blockCfg = { ...snap.blockConfig, enabled: snap.strategyToggles.block && snap.blockConfig.enabled };
       e.minPf = snap.thresholds.minPf;
       e.basePf = snap.thresholds.basePf;
@@ -2107,6 +2127,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
         tacticConfig: snap.tacticConfig,
         blockConfig: snap.blockConfig,
         strategyToggles: snap.strategyToggles,
+        pfCoords: snap.pfCoords,
         shortProgress: snap.shortProgress ?? sanitizeShortProgress(undefined),
         intervalStrategy: snap.intervalStrategy ?? sanitizeIntervalStrategy(undefined),
         lastNProgress: snap.lastNProgress ?? sanitizeLastNProgress(undefined),

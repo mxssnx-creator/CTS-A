@@ -61,7 +61,9 @@ export function PerformanceView() {
   const rangeType = useDesk((s) => s.rangeType);
   const symbolCount = useDesk((s) => s.symbolCount);
   const orderType = useDesk((s) => s.orderType);
-  const vst = useDesk((s) => s.vst);
+  const sim = useDesk((s) => s.vst.sim);
+  const closed = useDesk((s) => s.vst.closed);
+  const engineStats = useDesk((s) => s.vst.stats);
   const liveSnap = useLiveSnapshot();
   const runSim = useDesk((s) => s.runSimHours);
   const autoValidate = useDesk((s) => s.autoValidate);
@@ -110,15 +112,43 @@ export function PerformanceView() {
   const board = useMemo(() => (top.length ? top : rows.slice(0, 16)), [top, rows]);
 
   const btCurve = useMemo(() => withDrawdown(equitySeries(strategyId, symbol)), [strategyId, symbol]);
-  const sim = vst.sim;
   const showSim = curveSrc === "sim" && sim && sim.curve.length > 1;
-  const sessionClosed = vst.closed.slice(0, 12);
+  const sessionClosed = closed.slice(0, 12);
 
   const passRate = bd.total ? bd.both / bd.total : 0;
   const live = liveSnap.hasLive
     ? { equity: liveSnap.equity, pf: liveSnap.pf, wr: liveSnap.wr, net: liveSnap.net, trades: liveSnap.trades }
-    : vst.stats;
-  const book = useMemo(() => bookCounts(vst), [vst]);
+    : engineStats;
+  const book = useMemo(() => {
+    if (liveSnap.hasLive) {
+      const s = (liveSnap.session ?? {}) as Record<string, number>;
+      const working = Number(s.working ?? liveSnap.liveOrd);
+      const queued = Number(s.queued ?? 0);
+      return {
+        positions: {
+          slots: liveSnap.slots || liveSnap.livePos,
+          maxSlots: symbolCount * 2,
+          long: liveSnap.liveLong,
+          short: liveSnap.liveShort,
+          symbols: liveSnap.occupied,
+          legs: liveSnap.livePos,
+          maxLegs: symbolCount * 2,
+        },
+        orders: {
+          placed: Number(s.placed ?? 0),
+          live: queued + working,
+          working,
+          open: Number(s.open ?? working),
+          partial: Number(s.partial ?? 0),
+          filled: Number(s.filled ?? 0),
+          cancelled: Number(s.cancelled ?? 0),
+          rejected: Number(s.rejected ?? 0),
+          queued,
+        },
+      };
+    }
+    return bookCounts(useDesk.getState().vst);
+  }, [liveSnap, symbolCount]);
   const pos = book.positions;
   const ord = book.orders;
   const overall = useMemo(() => {
@@ -133,8 +163,8 @@ export function PerformanceView() {
       occupied: liveSnap.occupied,
       slots: liveSnap.slots,
       open: { net: 0 },
-    } : overallLiveStats(vst));
-  }, [vst, liveSnap]);
+    } : overallLiveStats(useDesk.getState().vst));
+  }, [liveSnap]);
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
@@ -195,7 +225,7 @@ export function PerformanceView() {
           <Kpi
             label="Legs"
             value={liveSnap.hasLive ? `${liveSnap.livePos}/${pos.maxLegs}` : `${pos.legs}/${pos.maxLegs}`}
-            hint={liveSnap.hasLive ? liveSnap.venueLabel : `${vst.stats.partials} partial`}
+            hint={liveSnap.hasLive ? liveSnap.venueLabel : `${engineStats.partials ?? 0} partial`}
           />
           <Kpi
             label="Orders placed"

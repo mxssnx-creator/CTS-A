@@ -262,15 +262,15 @@ export function defaultBotConfig(type: BotTypeId = "sandwich"): BotConfig {
     selectMode: "vol1h",
     minTp: 0.4,
     minSl: 0.4,
-    minTrail: 0.3,
+    minTrail: 0.4,
     volumeFactor: BOT_DEFAULT_VOLUME_FACTOR,
     strategies: { normal: true, trailing: true, axis: true, block: true, dca: true },
     hours: 12,
   };
   if (type === "snap") return { ...base, type, selectMode: "vol1h" };
-  if (type === "pulse") return { ...base, type, minTp: 0.6, minTrail: 0.3, selectMode: "atrRank" };
+  if (type === "pulse") return { ...base, type, minTp: 0.6, selectMode: "atrRank" };
   if (type === "ribbon") return { ...base, type, selectMode: "sessionHeat" };
-  if (type === "sweep") return { ...base, type, minTrail: 0.2, selectMode: "range15" };
+  if (type === "sweep") return { ...base, type, selectMode: "range15" };
   if (type === "clamp") return { ...base, type, selectMode: "vol1h" };
   if (type === "magnet") return { ...base, type, selectMode: "atrRank" };
   if (type === "pivot") return { ...base, type, selectMode: "range15" };
@@ -701,6 +701,9 @@ type OpenPos = {
   peak: number;
   trailOn: boolean;
   liveTrailOn: boolean;
+  /** Price fraction. Never under the configured minimum; ATR may widen it up to 1.25×. */
+  trailFrac: number;
+  liveTrailFrac: number;
   dcaOn: boolean;
   axis: boolean;
   symbol: string;
@@ -848,8 +851,6 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
   const floors = liveBotFloors(cfg);
   const internTpPct = cfg.minTp / 100;
   const internSlPct = cfg.minSl / 100;
-  const internTrPct = cfg.minTrail / 100;
-  const liveTrPct = internTrPct;
   const maxHold = BOT_MAX_HOLD;
   const scanEvery = 1;
   const toggles = cfg.strategies;
@@ -933,15 +934,15 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
       if (pos.side > 0) pos.peak = Math.max(pos.peak, bar.h);
       else pos.peak = Math.min(pos.peak, bar.l);
       const mfe = pos.side > 0 ? (pos.peak - pos.entry) / pos.entry : (pos.entry - pos.peak) / pos.entry;
-      if (!pos.trailOn && mfe + 1e-12 >= Math.max(internTrPct, internTpPct)) pos.trailOn = true;
-      if (!pos.liveTrailOn && mfe + 1e-12 >= Math.max(liveTrPct, internTpPct)) pos.liveTrailOn = true;
+      if (!pos.trailOn && mfe + 1e-12 >= pos.trailFrac) pos.trailOn = true;
+      if (!pos.liveTrailOn && mfe + 1e-12 >= pos.liveTrailFrac) pos.liveTrailOn = true;
       if (mfe >= POSITION_RT_COST_PCT + 0.0006) {
         const be = beLevel(pos.side, pos.entry);
         pos.liveSl = pos.side > 0 ? Math.max(pos.liveSl, be) : Math.min(pos.liveSl, be);
       }
       if (!pos.dcaOn && mfe + 1e-12 >= internTpPct * 0.35) pos.dcaOn = true;
-      const internTrail = pos.trailOn ? trailLevel(pos.side, pos.peak, internTrPct, pos.entry) : null;
-      const liveTrail = pos.liveTrailOn ? trailLevel(pos.side, pos.peak, liveTrPct, pos.entry) : null;
+      const internTrail = pos.trailOn ? trailLevel(pos.side, pos.peak, pos.trailFrac, pos.entry) : null;
+      const liveTrail = pos.liveTrailOn ? trailLevel(pos.side, pos.peak, pos.liveTrailFrac, pos.entry) : null;
       const slN = pessimisticExit(bar, pos.side, pos.sl, pos.tp, null);
       const slT = pessimisticExit(bar, pos.side, pos.sl, pos.tp, internTrail);
       const slLive = pessimisticExit(bar, pos.side, pos.liveSl, pos.liveTp, liveTrail);
@@ -1053,6 +1054,8 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
       const slD = dynamicMinRateDist(px, cfg.minSl, atr, 1.25);
       const liveTpD = dynamicMinRateDist(px, floors.tpAtr, atr, 1.25);
       const liveSlD = dynamicMinRateDist(px, floors.slPct, atr, 1.25);
+      const trailFrac = dynamicMinRateDist(px, cfg.minTrail, atr, 1.25) / px;
+      const liveTrailFrac = dynamicMinRateDist(px, floors.trailPct, atr, 1.25) / px;
       const tp = side > 0 ? px + tpD : px - tpD;
       const sl = side > 0 ? px - slD : px + slD;
       const liveTp = side > 0 ? px + liveTpD : px - liveTpD;
@@ -1065,6 +1068,8 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
         peak: px,
         trailOn: false,
         liveTrailOn: false,
+        trailFrac,
+        liveTrailFrac,
         dcaOn: false,
         axis: sig.axis,
         symbol: id,

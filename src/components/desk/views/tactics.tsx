@@ -20,6 +20,8 @@ export function TacticsView() {
   const exchange = liveSnap.exchange;
   const activeConnId = useDesk((s) => s.activeConnId);
   const costStep = useDesk((s) => s.costStep);
+  const pfCoords = useDesk((s) => s.pfCoords);
+  const setPfCoords = useDesk((s) => s.setPfCoords);
 
   const overall =
     (liveSnap.session?.overall as ReturnType<typeof overallLiveStats> | undefined) ??
@@ -49,6 +51,33 @@ export function TacticsView() {
       </div>
 
       <LiveBookStrip />
+
+      <Panel title="PF coordinations">
+        <p className="mb-3 text-sm text-muted">
+          Same switches as Settings. Hour keep protects the hour. The other four hold ratio PF. They do not shut the book off.
+        </p>
+        <div className="flex flex-wrap gap-1">
+          {(
+            [
+              ["hourKeep", "Hour keep"],
+              ["bankWin", "Bank win"],
+              ["pairAdd", "Pair add"],
+              ["laneCool", "Lane cool"],
+              ["winAgain", "Win again"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={pfCoords[key]}
+              className={`h-8 px-3 text-xs font-medium ${pfCoords[key] ? "bg-primary text-primary-fg" : "bg-surface-muted text-muted"}`}
+              onClick={() => setPfCoords({ [key]: !pfCoords[key] })}
+            >
+              {label} {pfCoords[key] ? "on" : "off"}
+            </button>
+          ))}
+        </div>
+      </Panel>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {best.map((b, i) => (

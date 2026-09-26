@@ -29,6 +29,7 @@ import type {
   StrategyDef,
   StrategyKind,
   StrategyToggles,
+  PfCoordToggles,
   TacticConfig,
   TacticKind,
   Thresholds,
@@ -198,7 +199,7 @@ export function unitClosePnl(side: number, entry: number, exit: number, notional
 
 /** Hard floor — volume factor cannot be gated below this. */
 export const MIN_VOLUME_FACTOR = 1.05;
-/** Price-percent stop floor. Dynamic ATR may widen it, never under this rate. */
+/** Price-percent stop floor. 24h×10 bot grid: 0.4% stayed green; 0.5% pushed sandwich MDD to 14.8%. ATR may widen only to 1.25×. */
 export const SYSTEM_MIN_SL_PCT = 0.4;
 
 /**
@@ -698,6 +699,28 @@ export function sanitizeStrategyToggles(raw: Partial<StrategyToggles> | null | u
     axis: typeof raw.axis === "boolean" ? raw.axis : d.axis,
     block: typeof raw.block === "boolean" ? raw.block : d.block,
     dca: typeof raw.dca === "boolean" ? raw.dca : d.dca,
+  };
+}
+
+/** On by default. Each switch is independent and never replaces the rest of the book. */
+export const DEFAULT_PF_COORDS: PfCoordToggles = {
+  hourKeep: true,
+  bankWin: true,
+  pairAdd: true,
+  laneCool: true,
+  winAgain: true,
+};
+
+export function sanitizePfCoords(raw: Partial<PfCoordToggles> | null | undefined): PfCoordToggles {
+  const d = DEFAULT_PF_COORDS;
+  if (!raw || typeof raw !== "object") return { ...d };
+  const b = (k: keyof PfCoordToggles) => (typeof raw[k] === "boolean" ? Boolean(raw[k]) : d[k]);
+  return {
+    hourKeep: b("hourKeep"),
+    bankWin: b("bankWin"),
+    pairAdd: b("pairAdd"),
+    laneCool: b("laneCool"),
+    winAgain: b("winAgain"),
   };
 }
 
@@ -2908,7 +2931,7 @@ export function indicationQuality(id: IndicationId, pack: IndicationSummary): nu
   if (id === "active") q *= pack.activity >= 0.85 && mag >= 0.12 && Math.abs(pack.break) < 0.8 ? 1.12 : mag >= 0.08 ? 0.7 : 0.48;
   if (id === "direction") q *= mag >= 0.16 ? (mag >= 0.28 ? 1.16 : 0.98) : mag >= 0.08 ? 0.72 : 0.42;
   if (id === "move") q *= mag >= 0.22 && (trendAlign || mag >= 0.3) && (pack.drawdown ?? 0) < 0.45 ? 1.14 : mag >= 0.12 ? 0.78 : 0.46;
-  if (id === "rsi") q *= mag >= 0.28 && Math.abs(pack.trend) < 0.55 ? 1.12 : mag >= 0.16 ? 0.82 : 0.5;
+  if (id === "rsi") q *= mag >= 0.55 && Math.abs(pack.trend) < 0.4 ? 1.08 : 0.28;
   if (id === "bollinger") q *= mag >= 0.18 ? (mag >= 0.32 ? 1.18 : 1.0) : mag >= 0.1 ? 0.78 : 0.48;
   if (id === "ema") q *= mag >= 0.18 && (trendAlign || mag >= 0.28) ? 1.2 : mag >= 0.1 ? 0.82 : 0.48;
   if (id === "macd") q *= mag >= 0.22 && (trendAlign || pack.agree || mag >= 0.32) ? 1.12 : mag >= 0.12 ? 0.76 : 0.46;
@@ -2966,11 +2989,11 @@ export function indicationFromQuote(
   let active = clampDir(side * activeM);
   let direction = clampDir(side * dirM);
   let move = clampDir(side * Math.min(1, Math.max(0, span - 0.9) * 0.7 + Math.abs(chg) * 40));
-  let rsi = clampDir(chg < -0.004 ? 0.7 : chg > 0.004 ? -0.7 : -chg * 80);
+  let rsi = 0;
   let bollinger = clampDir(px <= (q.lo || px) + atr * 0.15 ? 0.75 : px >= (q.hi || px) - atr * 0.15 ? -0.75 : 0);
   let sar = clampDir(side * (aligned ? 0.72 : 0.28));
   let macd = clampDir(side * Math.min(1, Math.abs(chg) * 90 + (aligned ? 0.2 : 0)));
-  let ema = clampDir(side * Math.min(1, axisDist * 0.35 + Math.abs(chg) * 50));
+  let ema = 0;
   let lastPart = clampDir(side * Math.min(1, Math.abs(chg) * 80 + span * 0.12));
   let drawdown = clamp(Math.max(0, axisDist - 0.4) / 2.2, 0, 1);
   let prevRel = clampDir((desk?.direction ?? 0) * 0.55 + direction * 0.45);
@@ -3074,7 +3097,8 @@ export function indicationFromQuote(
     const richMove = moveCont && Math.abs(r3) > 0.0032 && !exhausted && (volX > 1.02 || barAtr >= 1.05)
       ? clampDir(Math.sign(r3) * Math.min(1, Math.abs(r3) * 58 + (volX > 1.08 ? 0.18 : 0) + span * 0.08))
       : 0;
-    const richRsi = rsiV <= 28 ? 0.82 : rsiV >= 72 ? -0.82 : 0;
+    const richRsi = rsiV <= 28 ? 0.84 : rsiV >= 72 ? -0.84 : 0;
+    const rsiAgainst = stacked && richRsi !== 0 && Math.sign(richRsi) !== emaDir && Math.abs(r6) > 0.004;
     const richBb = stacked && ((px >= bbUp * 0.998 && emaDir > 0) || (px <= bbLo * 1.002 && emaDir < 0))
       ? clampDir(emaDir * 0.7)
       : px <= bbLo && Math.abs(r6) < 0.004
@@ -3094,7 +3118,7 @@ export function indicationFromQuote(
     active = mixInd(richActive, active, w);
     direction = richDir !== 0 ? mixInd(richDir, direction, 0.78) : mixInd(direction, 0, 0.62);
     move = richMove !== 0 ? mixInd(richMove, move, 0.72) : mixInd(0, move, 0.85);
-    rsi = mixInd(richRsi, rsi, w);
+    rsi = richRsi !== 0 && !rsiAgainst ? mixInd(richRsi, rsi, 0.82) : mixInd(0, rsi, 0.92);
     bollinger = mixInd(richBb, bollinger, w);
     sar = richSar !== 0 ? mixInd(richSar, sar, 0.7) : mixInd(0, sar, 0.82);
     macd = mixInd(richMacd, macd, w);

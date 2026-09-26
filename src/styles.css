@@ -342,3 +342,168 @@
     transform: none !important;
   }
 }
+
+.desk-design-btn {
+  border: 1px solid color-mix(in srgb, currentColor 38%, transparent);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: inherit;
+}
+.desk-design-btn:hover {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+html[data-skin="lattice"] {
+  font-size: 13px;
+  --color-bg: #f3f1ea;
+  --color-surface: #fbfaf6;
+  --color-surface-muted: #ece8df;
+  --color-fg: #1c1917;
+  --color-muted: #57534e;
+  --color-subtle: #78716c;
+  --color-border: #e7e2d8;
+  --color-border-strong: #a8a29e;
+  --color-primary: #9a3412;
+  --color-primary-hover: #7c2d12;
+  --color-primary-active: #431407;
+  --color-primary-fg: #fffaf5;
+  --color-primary-soft: #ffedd5;
+  --color-header: #1c1917;
+  --color-header-fg: #fafaf9;
+  --color-nav: #292524;
+  --color-nav-fg: #fafaf9;
+  --color-nav-muted: #a8a29e;
+  --color-nav-hover: #44403c;
+  --color-up: #3f6212;
+  --color-up-soft: #ecfccb;
+  --color-down: #9f1239;
+  --color-down-soft: #ffe4e6;
+  --color-warn: #b45309;
+  --color-info: #9a3412;
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius: 0px;
+  --shadow-panel: none;
+}
+html[data-skin="lattice"] main h1 {
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+html[data-skin="lattice"] main section {
+  border-radius: 0;
+  box-shadow: none;
+}
+html[data-skin="lattice"] .desk-header select {
+  background: #44403c;
+  color: #fafaf9;
+}
+
+html[data-skin="pulse"] {
+  font-size: 12.5px;
+  --color-bg: #07090d;
+  --color-surface: #0e1218;
+  --color-surface-muted: #161c26;
+  --color-fg: #e7f6ee;
+  --color-muted: #8aa396;
+  --color-subtle: #6d8578;
+  --color-border: #1e2a24;
+  --color-border-strong: #3d5c4c;
+  --color-primary: #3dffb0;
+  --color-primary-hover: #14c98a;
+  --color-primary-active: #0b7a54;
+  --color-primary-fg: #04140c;
+  --color-primary-soft: #123528;
+  --color-header: #05070a;
+  --color-header-fg: #d9ffe9;
+  --color-nav: #0a0e13;
+  --color-nav-fg: #d7efe4;
+  --color-nav-muted: #6f8a7c;
+  --color-nav-hover: #152018;
+  --color-up: #3dffb0;
+  --color-up-soft: #123528;
+  --color-down: #ff5d73;
+  --color-down-soft: #3a1520;
+  --color-warn: #ffb020;
+  --color-info: #7ee0ff;
+  --radius-xs: 2px;
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+  --radius: 2px;
+  --shadow-panel: none;
+}
+html[data-skin="pulse"] main h1 {
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+}
+html[data-skin="pulse"] main section {
+  border-radius: 2px;
+  box-shadow: none;
+}
+html[data-skin="pulse"] .desk-header select {
+  background: #122018;
+  color: #d9ffe9;
+  border: 1px solid #1e3a2c;
+}
+html[data-skin="pulse"] .desk-foot {
+  background: #05070a;
+  border-color: #1e2a24;
+  color: #8aa396;
+}
+
+html[data-skin="atlas"] {
+  font-size: 13px;
+  --color-bg: #e8edf3;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f4f7fb;
+  --color-fg: #1e293b;
+  --color-muted: #64748b;
+  --color-subtle: #94a3b8;
+  --color-border: #dbe3ec;
+  --color-border-strong: #94a3b8;
+  --color-primary: #3730a3;
+  --color-primary-hover: #312e81;
+  --color-primary-active: #1e1b4b;
+  --color-primary-fg: #ffffff;
+  --color-primary-soft: #e0e7ff;
+  --color-header: #ffffff;
+  --color-header-fg: #1e293b;
+  --color-nav: #ffffff;
+  --color-nav-fg: #1e293b;
+  --color-nav-muted: #64748b;
+  --color-nav-hover: #eef2ff;
+  --color-up: #0f766e;
+  --color-up-soft: #ccfbf1;
+  --color-down: #be123c;
+  --color-down-soft: #ffe4e6;
+  --color-warn: #b45309;
+  --color-info: #4338ca;
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius: 10px;
+  --shadow-panel: 0 8px 24px rgb(30 41 59 / 0.06);
+}
+html[data-skin="atlas"] .desk-header {
+  border-bottom: 1px solid var(--color-border);
+}
+html[data-skin="atlas"] .desk-header select {
+  background: #eef2ff;
+  color: #1e293b;
+}
+html[data-skin="atlas"] .desk-side {
+  border-right: 1px solid var(--color-border);
+}
+html[data-skin="atlas"] main section {
+  border-radius: 12px;
+  overflow: hidden;
+}
+html[data-skin="atlas"] main h1 {
+  font-size: 1.2rem;
+  letter-spacing: -0.03em;
+}

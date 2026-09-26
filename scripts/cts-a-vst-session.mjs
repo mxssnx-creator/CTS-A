@@ -68,7 +68,7 @@ const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 2000);
 const LIVE_MIN_PF = IS_X01
   ? Math.max(DEFAULT_MIN_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_MIN_PF) || DEFAULT_MIN_PF)
   : Math.max(DEFAULT_SHORT_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_SHORT_PF) || DEFAULT_SHORT_PF);
-const LIVE_SYMBOLS = clampLiveSymbolCap(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? X01_DEFAULTS.symbolCount : VST_LIVE_SYMBOLS)));
+const LIVE_SYMBOLS = clampLiveSymbolCap(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? 30 : VST_LIVE_SYMBOLS)));
 const EVAL_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_EVAL_SYMBOLS ?? VST_MAX_SYMBOLS));
 const UNI = new Set(universeSymbols(EVAL_SYMBOLS).map((s) => s.id));
 const PREFERRED_RANGES = new Set(["fibonacci", "geometric", "atr"]);
@@ -182,10 +182,10 @@ const BLOCK = {
   overallDirection: true,
   overallSharedStack: "additive",
   counts: [...LIVE_BLOCK_COUNTS],
-  volumeRatio: IS_X01 ? 0.1 : 0.2,
-  overallVolumeRatio: IS_X01 ? 1 : 1.5,
-  sharedVolumeRatio: IS_X01 ? 1 : 1.5,
-  maxVolumeMultiplier: IS_X01 ? 2.5 : 8,
+  volumeRatio: IS_X01 ? 0.4 : 0.2,
+  overallVolumeRatio: IS_X01 ? 1.5 : 1.5,
+  sharedVolumeRatio: IS_X01 ? 1.5 : 1.5,
+  maxVolumeMultiplier: IS_X01 ? 8 : 8,
   pfRatio: 1.45,
   pauseCountRatio: 0,
   evalPosCount: 6,
@@ -200,7 +200,7 @@ const BLOCK = {
   evalHours: 2,
   autoEval: true,
   relAdditive: true,
-  relVolumeRatio: IS_X01 ? 0.1 : 0.2,
+  relVolumeRatio: IS_X01 ? 0.4 : 0.2,
   minRelPf: 1.05,
   evalLastNs: [...BLOCK_POS_COUNTS],
   liveLastN: 12,
@@ -210,23 +210,20 @@ const BLOCK = {
   lastNProgress: sanitizeLastNProgress(undefined),
 };
 
-const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false };
+const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: true, block: true, dca: true };
 
-/** x01 mainnet: secure TP/SL until balance grows. No short-range, no tight trail, SL ≥ 1.25×TP. */
-const X01_SECURE_TP = [1.0, 1.2, 1.4];
-const X01_SECURE_SL = [1.25];
-const X01_BEST_TACTICS = ["trailing", "hybrid"];
-const X01_BEST_RANGES = ["atr", "fibonacci", "geometric"];
+/** x01 mainnet uses the measured 6h×8 tape: short 0.42/1.7, trail 1.5, hold 8. */
 const X01_LIVE_CFG = {
   trailingPct: 1.5,
   dcaCount: 1,
-  shortRange: false,
-  tpAtr: 1.2,
-  slOfTp: 1.25,
-  slAtr: slAtrOf(1.2, 1.25),
-  tpRatio: tpRatioOf(1.25),
-  maxHoldTicks: 20_000,
-  maxHoldBars: 8,
+  dcaDrawdown: 0.8,
+  shortRange: true,
+  tpAtr: 0.42,
+  slOfTp: 1.7,
+  slAtr: 0.714,
+  tpRatio: 1 / 1.7,
+  maxHoldTicks: 8,
+  maxHoldBars: 3,
   axisLevels: 5,
   axisPartialRatio: AXIS_PARTIAL_RATIO,
   axisSpacing: 0.7,
@@ -254,26 +251,19 @@ function shortGridCombos() {
 }
 
 function x01BestGrid() {
-  return X01_BEST_TACTICS.flatMap((tactic) =>
-    X01_BEST_RANGES.flatMap((range) =>
-      X01_SECURE_TP.flatMap((tpAtr) =>
-        X01_SECURE_SL.map((slOfTp) => ({
-          tactic,
-          range,
-          cfg: {
-            ...DEFAULT_TACTIC_CONFIG,
-            ...X01_LIVE_CFG,
-            tpAtr,
-            slOfTp,
-            slAtr: slAtrOf(tpAtr, slOfTp),
-            tpRatio: tpRatioOf(slOfTp),
-            shortRange: false,
-            trailingPct: 1.5,
-            dcaCount: 1,
-          },
-        })),
-      ),
-    ),
+  const tactics = ["trailing", "axis", "hybrid", "dca"];
+  const ranges = ["atr", "linear", "geometric", "volume", "fibonacci"];
+  return tactics.flatMap((tactic) =>
+    ranges.map((range) => ({
+      tactic,
+      range,
+      cfg: {
+        ...DEFAULT_TACTIC_CONFIG,
+        ...X01_LIVE_CFG,
+        dcaCount: tactic === "dca" ? 3 : 1,
+        trailingPct: 1.5,
+      },
+    })),
   );
 }
 
@@ -292,10 +282,7 @@ const SHORT_GRID = IS_X01 ? [] : buildLiveGrid();
 let GRID = buildLiveGrid();
 function preferWinner(list = GRID) {
   if (IS_X01) {
-    return (
-      list.find((g) => g.tactic === "trailing" && g.range === "atr" && Number(g.cfg.tpAtr) === 1.2 && Number(g.cfg.slOfTp) === 1.25) ||
-      list[0]
-    );
+    return list.find((g) => g.tactic === "trailing" && g.range === "atr" && Number(g.cfg.tpAtr) === 0.42) || list[0];
   }
   return (
     list.find((g) => g.cfg.tpAtr === SHORT_WINNER.tpAtr && g.cfg.slOfTp === SHORT_WINNER.slOfTp && g.tactic === "trailing") ||
@@ -316,6 +303,30 @@ function rebuildShortGrid() {
   }
 }
 const DISABLED_FILE = process.env.CTS_A_DISABLED ?? (IS_X01 ? "/var/lib/cts-a/live-disabled.json" : "/var/lib/cts-a/live-disabled-x02.json");
+const MANUAL_FILE = process.env.CTS_A_MANUAL ?? (IS_X01 ? "/var/lib/cts-a/manual-closed.json" : "/var/lib/cts-a/manual-closed-x02.json");
+const systemClosed = new Set();
+function loadManualClosed() {
+  try {
+    const raw = JSON.parse(readFileSync(MANUAL_FILE, "utf8"));
+    const rows = raw && typeof raw === "object" ? raw : {};
+    const out = {};
+    for (const [k, v] of Object.entries(rows)) {
+      if (!/:(long|short)$/.test(k)) continue;
+      out[k] = Number(v) || 1;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+function saveManualClosed(map) {
+  try {
+    mkdirSync("/var/lib/cts-a", { recursive: true });
+    writeFileSync(MANUAL_FILE, JSON.stringify(map || {}));
+  } catch {
+    /* keep the in-memory hold */
+  }
+}
 
 const PROTECT_FILE = process.env.CTS_A_PROTECT ?? (IS_X01 ? "/var/lib/cts-a/protect-grid.json" : "/var/lib/cts-a/protect-grid-x02.json");
 function loadProtectCells() {
@@ -360,8 +371,17 @@ function liveWinnerProtect() {
   };
 }
 function protectFor(symbol) {
-  if (!IS_X01 && cfgUsesShortRange(currentPick?.cfg ?? LIVE_CFG)) return liveWinnerProtect();
-  const cells = cfgUsesShortRange(currentPick?.cfg) ? shortProtectCells() : protectCells;
+  if (cfgUsesShortRange(currentPick?.cfg ?? LIVE_CFG)) {
+    const cfg = currentPick?.cfg ?? LIVE_CFG;
+    return {
+      slAtr: Number(cfg.slAtr) || 0.714,
+      tpRatio: Number(cfg.tpRatio) || 1 / 1.7,
+      trailPct: Number(cfg.trailingPct) || 1.5,
+      tpAtr: Number(cfg.tpAtr) || 0.42,
+      slOfTp: Number(cfg.slOfTp) || 1.7,
+    };
+  }
+  const cells = protectCells;
   return pickProtectCell(String(symbol || "BTCUSDT"), cells);
 }
 
@@ -384,7 +404,7 @@ function gridLive(e) {
     if (g.tactic !== "trailing" && dis[`tac:${g.tactic}`]) return false;
     if (!g.cfg?.shortRange && dis[`rng:${g.range}`]) return false;
     if (!IS_X01 && g.cfg?.shortRange && (Number(g.cfg.tpAtr) + 1e-9 < minTp || Number(g.cfg.tpAtr) - 1e-9 > shortMaxTp || Number(g.cfg.slOfTp) + 1e-9 < minSl)) return false;
-    if (IS_X01 && (g.cfg?.shortRange || Number(g.cfg?.trailingPct) + 1e-9 < 1.5 || Number(g.cfg?.slOfTp) + 1e-9 < 1.25 || Number(g.cfg?.tpAtr) + 1e-9 < 1.0)) return false;
+    if (IS_X01 && Number(g.cfg?.trailingPct) + 1e-9 < 1.5) return false;
     return true;
   });
   if (filtered.length) return filtered;
@@ -699,7 +719,7 @@ function writeSettingsPick(pick, extra = {}) {
     lastNs: { picks: VALID_EXEC_POS_N, lanes: VALID_EXEC_POS_N, last: VALID_EXEC_POS_N, ongoing: VALID_EXEC_POS_N, next: VALID_EXEC_POS_N, combos: VALID_EXEC_POS_N },
     lastNLinked: true,
     lastNProgress: sanitizeLastNProgress(undefined),
-    costStep: 10,
+    costStep: IS_X01 ? 3 : 10,
     liveTape: true,
     comboOnlyPositive: true,
     comboTactic: "all",
@@ -717,10 +737,10 @@ function writeSettingsPick(pick, extra = {}) {
     useMaxLeverage: true,
     leverage: 0,
     minSizeRatio: 1,
-    shortRange: !IS_X01,
+    shortRange: Boolean(cfg?.shortRange),
     liveGrid: GRID.length,
     shortGrid: SHORT_GRID.length,
-    activePresetId: extra.activePresetId ?? (IS_X01 ? "x01-live" : "vst-working-01"),
+    activePresetId: extra.activePresetId ?? (IS_X01 ? "tape-6h-8" : "vst-working-01"),
     strategyToggles: { ...STRAT },
     shortProgress: sanitizeShortProgress({
       ...DEFAULT_SHORT_PROGRESS,
@@ -894,8 +914,8 @@ async function expandEvalUniverse(network, engine) {
     registerVenueSymbol(id, vs);
     extras.push({ id, base: id.replace(/USDT$/i, "") });
   }
-  const added = absorbEvalSymbols(extras, EVAL_SYMBOLS);
-  engine.symbolCount = EVAL_SYMBOLS;
+  const added = absorbEvalSymbols(extras, IS_X01 ? LIVE_SYMBOLS : EVAL_SYMBOLS);
+  engine.symbolCount = IS_X01 ? LIVE_SYMBOLS : EVAL_SYMBOLS;
   engine.liveSymbolCap = LIVE_SYMBOLS;
   ensureQuotes(engine);
   UNI.clear();
@@ -911,6 +931,14 @@ function rememberLeg(symbol, side, extra = {}) {
 }
 function hintFor(symbol, t) {
   return vanishedLegs.find((v) => v.symbol === symbol && Math.abs((Number(t) || Date.now()) - v.t) < 180_000);
+}
+function deskClosedRecently(symbol) {
+  return lastIncomeOrders.some((o) => {
+    if (o.symbol !== symbol) return false;
+    const age = Date.now() - Number(o.time || o.updateTime || 0);
+    if (!(age >= 0 && age < 180_000)) return false;
+    return /TAKE_PROFIT|STOP|CLOSE|LIQUID|TRAILING/i.test(String(o.type || o.origType || ""));
+  });
 }
 function sideFromOrders(symbol, t) {
   const hits = lastIncomeOrders.filter((o) => o.symbol === symbol && Math.abs(Number(o.time || 0) - Number(t || 0)) < 300_000);
@@ -1161,6 +1189,7 @@ async function flattenBelowMinPf(network, book, e) {
     const r = await closeHit(network, p);
     if (r?.ok) {
       n += 1;
+      systemClosed.add(key);
       openedAt.delete(key);
       mirrored.delete(`own:${key}`);
       mirrored.delete(`live:${key}`);
@@ -1554,7 +1583,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         tp: atEntry.tp,
         sl: atEntry.sl,
         trailPct: Number(cell.trailPct) || Number(cfg?.trailingPct) || 1.5,
-        shortRange: Boolean(cfgUsesShortRange(cfg)) && !IS_X01,
+        shortRange: Boolean(cfgUsesShortRange(cfg)),
       });
       next = snapPx(next, spec);
       const slOrd = (grouped.get(key)?.sl || [])[0];
@@ -1814,7 +1843,16 @@ async function mirrorToExchange(e, network, cfg) {
     const k = `${p.symbol}:${p.side}`;
     if (!ownedOccupied.has(k)) vanished.add(k);
   }
-  const dropped = releaseVanished(e, ownedOccupied, CONN);
+  const dropped = releaseVanished(e, ownedOccupied, CONN, (() => {
+    const manual = new Set();
+    for (const k of vanished) {
+      const [sym, side] = String(k).split(":");
+      if (systemClosed.has(k) || deskClosedRecently(sym)) continue;
+      if (side === "long" || side === "short") manual.add(k);
+    }
+    return manual;
+  })());
+  if (e.manualClosed && Object.keys(e.manualClosed).length) saveManualClosed(e.manualClosed);
   const forget = (key) => {
     mirrored.delete(`own:${key}`);
     mirrored.delete(`live:${key}`);
@@ -1899,6 +1937,7 @@ async function mirrorToExchange(e, network, cfg) {
       continue;
     }
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
+    if (e.manualClosed?.[`${f.symbol}:${f.side}`]) continue;
     if (deadSymbols.has(f.symbol)) continue;
     if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 1))) {
       skippedFills.add(f.id);
@@ -2088,11 +2127,11 @@ function applyPfGates(engine, remote) {
   engine.blockPf = blockPf;
   engine.shortPf = shortPf;
   engine.shortBasePf = shortBase;
-  engine.shortRange = IS_X01 ? false : remote?.tacticConfig?.shortRange !== false;
+  engine.shortRange = remote?.tacticConfig?.shortRange !== false;
   if (IS_X01) {
-    shortMinTp = 1.0;
-    shortMinSl = 1.25;
-    shortMaxTp = 1.6;
+    shortMinTp = 0.42;
+    shortMinSl = 1.7;
+    shortMaxTp = 0.42;
     shortEvalPositive = true;
     rebuildShortGrid();
   } else {
@@ -2111,7 +2150,7 @@ function applyPfGates(engine, remote) {
   const ln = sanitizeLastNProgress(remote?.lastNProgress ?? remote?.blockConfig?.lastNProgress ?? DEFAULT_LAST_N_PROGRESS);
   engine.lastNProgress = ln;
   const vol = IS_X01
-    ? { volumeRatio: 0.1, relVolumeRatio: 0.1, sharedVolumeRatio: 1, overallVolumeRatio: 1 }
+    ? { volumeRatio: 0.4, relVolumeRatio: 0.4, sharedVolumeRatio: 1.5, overallVolumeRatio: 1.5 }
     : x02VolFromRemote(bc);
   engine.blockCfg = {
     ...(engine.blockCfg || BLOCK),
@@ -2137,12 +2176,13 @@ async function main() {
   const ends = started + HOURS * 3600 * 1000;
   let pick = pickFromSweep();
   currentPick = pick;
-  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: EVAL_SYMBOLS, liveSymbolCap: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK, costStep: IS_X01 ? 10 : 3 });
+  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: IS_X01 ? LIVE_SYMBOLS : EVAL_SYMBOLS, liveSymbolCap: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK, costStep: IS_X01 ? 3 : 3 });
+  engine.manualClosed = loadManualClosed();
   const seededOff = loadDisabled(engine);
   engine.running = true;
   engine.phase = "running";
   engine.activeConnId = CONN;
-  engine.symbolCount = EVAL_SYMBOLS;
+  engine.symbolCount = IS_X01 ? LIVE_SYMBOLS : EVAL_SYMBOLS;
   engine.liveSymbolCap = LIVE_SYMBOLS;
   engine.minPf = LIVE_MIN_PF;
   engine.basePf = DEFAULT_BASE_PF;
@@ -2150,10 +2190,10 @@ async function main() {
   engine.blockPf = DEFAULT_BLOCK_PF;
   engine.shortPf = DEFAULT_SHORT_PF;
   engine.shortBasePf = DEFAULT_SHORT_BASE_PF;
-  engine.shortRange = !IS_X01;
+  engine.shortRange = true;
   engine.liveTape = true;
   engine.strategyToggles = { ...STRAT };
-  pick.cfg = { ...pick.cfg, axisPartialRatio: AXIS_PARTIAL_RATIO, dcaCount: 1, shortRange: !IS_X01, trailingPct: 1.5 };
+  pick.cfg = { ...pick.cfg, axisPartialRatio: AXIS_PARTIAL_RATIO, dcaCount: 1, shortRange: true, trailingPct: 1.5 };
   engine.blockCfg = { ...BLOCK, liveDisableMinPf: DEFAULT_BLOCK_PF, minRelPf: DEFAULT_BLOCK_PF, enabled: STRAT.block };
   let seededLosers = 0;
   try {
@@ -2196,8 +2236,8 @@ async function main() {
   applyExecFromSettings(readSettingsPick());
   applyPfGates(engine, readSettingsPick());
   if (IS_X01) {
-    engine.shortRange = false;
-    pick.cfg = { ...pick.cfg, ...X01_LIVE_CFG, shortRange: false, trailingPct: 1.5, dcaCount: 1 };
+    engine.shortRange = true;
+    pick.cfg = { ...pick.cfg, ...X01_LIVE_CFG, shortRange: true, trailingPct: 1.5, dcaCount: 1 };
     currentPick = pick;
   }
   writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
@@ -2348,7 +2388,7 @@ async function main() {
     tickBusy = true;
     try {
       engine.liveOpenN = lastBook.pos || 0;
-      engine.strategyToggles = { ...STRAT, dca: false };
+      engine.strategyToggles = { ...STRAT };
       engine.blockCfg = {
         ...BLOCK,
         ...(engine.blockCfg || {}),
@@ -2357,14 +2397,14 @@ async function main() {
         minRelPf: engine.blockPf || DEFAULT_BLOCK_PF,
         liveDisableMinPf: engine.blockPf || DEFAULT_BLOCK_PF,
       };
-      pick.cfg = { ...pick.cfg, shortRange: !IS_X01, dcaCount: 1, axisPartialRatio: AXIS_PARTIAL_RATIO, trailingPct: Math.max(1.5, Number(pick.cfg.trailingPct) || 1.5) };
+      pick.cfg = { ...pick.cfg, shortRange: true, dcaCount: 3, axisPartialRatio: AXIS_PARTIAL_RATIO, trailingPct: Math.max(1.5, Number(pick.cfg.trailingPct) || 1.5) };
       mergeLivePositions(engine, lastBook);
       tickVst(engine, pick.cfg, pick.tactic, {
         freezeIds: freeze,
         skipWalk: true,
         skipMatch: lastBook.pos >= liveMaxPos(),
         rangeType: pick.range,
-        symbolCount: EVAL_SYMBOLS,
+        symbolCount: IS_X01 ? LIVE_SYMBOLS : EVAL_SYMBOLS,
         orderType: "limit",
         block: engine.blockCfg,
       });
@@ -2745,7 +2785,7 @@ async function main() {
         }
         if (remote.blockConfig) {
           const vol = IS_X01
-            ? { volumeRatio: 0.1, relVolumeRatio: 0.1, sharedVolumeRatio: 1, overallVolumeRatio: 1 }
+            ? { volumeRatio: 0.4, relVolumeRatio: 0.4, sharedVolumeRatio: 1.5, overallVolumeRatio: 1.5 }
             : x02VolFromRemote(remote.blockConfig);
           Object.assign(BLOCK, remote.blockConfig, {
             enabled: STRAT.block,

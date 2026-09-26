@@ -21,6 +21,8 @@ import {
   DEFAULT_LAST_N_PROGRESS,
   sanitizeLastNProgress,
   DEFAULT_STRATEGY_TOGGLES,
+  DEFAULT_PF_COORDS,
+  sanitizePfCoords,
   LANE_EVAL_NS,
   MIN_VOLUME_FACTOR,
   sanitizeStrategyToggles,
@@ -65,6 +67,7 @@ import type {
   TacticKind,
   Thresholds,
   StrategyToggles,
+  PfCoordToggles,
 } from "./types";
 import { sanitizeUserPresets } from "./presets.ts";
 import { defaultBotsPersist, sanitizeBotsPersist, type BotsPersist } from "./bots.ts";
@@ -121,6 +124,7 @@ export interface DeskSettingsSnap {
   activePresetId: string;
   userPresets: import("./presets.ts").SettingsPreset[];
   strategyToggles: StrategyToggles;
+  pfCoords: PfCoordToggles;
   shortProgress: import("./types").ShortProgressConfig;
   intervalStrategy: import("./types").IntervalStrategyConfig;
   lastNProgress: import("./types").LastNProgressConfig;
@@ -186,6 +190,7 @@ export function defaultDeskSettings(): DeskSettingsSnap {
     activePresetId: "",
     userPresets: [],
     strategyToggles: { ...DEFAULT_STRATEGY_TOGGLES },
+    pfCoords: { ...DEFAULT_PF_COORDS },
     shortProgress: { ...DEFAULT_SHORT_PROGRESS, indications: [...DEFAULT_SHORT_PROGRESS.indications], lastParts: [...DEFAULT_SHORT_PROGRESS.lastParts], activityWindows: [...DEFAULT_SHORT_PROGRESS.activityWindows] },
     intervalStrategy: { ...DEFAULT_INTERVAL_STRATEGY },
     lastNProgress: { ...DEFAULT_LAST_N_PROGRESS, evalNs: [...DEFAULT_LAST_N_PROGRESS.evalNs], validNs: [...DEFAULT_LAST_N_PROGRESS.validNs], disableNs: [...DEFAULT_LAST_N_PROGRESS.disableNs] },
@@ -375,6 +380,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     activePresetId: typeof (raw as { activePresetId?: string }).activePresetId === "string" ? String((raw as { activePresetId?: string }).activePresetId).slice(0, 48) : "",
     userPresets: sanitizeUserPresets((raw as { userPresets?: unknown }).userPresets),
     strategyToggles: sanitizeStrategyToggles((raw as { strategyToggles?: Partial<StrategyToggles> }).strategyToggles),
+    pfCoords: sanitizePfCoords((raw as { pfCoords?: Partial<PfCoordToggles> }).pfCoords),
     shortProgress: sanitizeShortProgress((raw as { shortProgress?: Partial<import("./types").ShortProgressConfig> }).shortProgress),
     intervalStrategy: sanitizeIntervalStrategy((raw as { intervalStrategy?: Partial<import("./types").IntervalStrategyConfig> }).intervalStrategy),
     lastNProgress: sanitizeLastNProgress((raw as { lastNProgress?: Partial<import("./types").LastNProgressConfig> }).lastNProgress),
@@ -419,6 +425,7 @@ export function collectDeskSettings(s: {
   activePresetId?: string;
   userPresets?: import("./presets.ts").SettingsPreset[];
   strategyToggles?: StrategyToggles;
+  pfCoords?: PfCoordToggles;
   shortProgress?: import("./types").ShortProgressConfig;
   intervalStrategy?: import("./types").IntervalStrategyConfig;
   lastNProgress?: import("./types").LastNProgressConfig;
@@ -457,6 +464,7 @@ export function collectDeskSettings(s: {
     activePresetId: s.activePresetId,
     userPresets: s.userPresets,
     strategyToggles: s.strategyToggles,
+    pfCoords: sanitizePfCoords(s.pfCoords),
     shortProgress: sanitizeShortProgress((s as { shortProgress?: Partial<import("./types").ShortProgressConfig> }).shortProgress),
     intervalStrategy: sanitizeIntervalStrategy((s as { intervalStrategy?: Partial<import("./types").IntervalStrategyConfig> }).intervalStrategy),
     lastNProgress: sanitizeLastNProgress((s as { lastNProgress?: Partial<import("./types").LastNProgressConfig> }).lastNProgress),

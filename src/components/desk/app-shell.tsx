@@ -33,6 +33,8 @@ import { cn, clsPnl, fmtPct, fmtPx, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { controlClass, Segmented } from "./widgets";
 import { ClickFx } from "./click-fx";
+import { DesignBoard, DesignSwitch } from "./design-board";
+import { useDesignSkin } from "@/lib/desk/design-skin";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard },
@@ -62,13 +64,15 @@ const navClass =
 const NavLinks = memo(function NavLinks({
   onNavigate,
   inverse,
+  mode = "stack",
 }: {
   onNavigate?: () => void;
   inverse?: boolean;
+  mode?: "stack" | "rail" | "row";
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
-    <nav className="flex flex-col gap-0.5 p-2">
+    <nav className={cn("gap-0.5", mode === "row" ? "flex overflow-x-auto px-2 py-1" : "flex flex-col p-2")}>
       {NAV.map((item) => {
         const active =
           item.to === "/"
@@ -79,11 +83,18 @@ const NavLinks = memo(function NavLinks({
           <Link
             key={item.to}
             to={item.to}
-            preload="intent"
+            preload={false}
+            title={item.label}
+            aria-label={item.label}
             aria-current={active ? "page" : undefined}
             onClick={onNavigate}
             className={cn(
-              navClass,
+              "press items-center transition-[transform,background-color,color] duration-150 ease-out active:scale-[0.96]",
+              mode === "row"
+                ? "flex h-7 shrink-0 gap-1.5 px-2 text-[11px] font-medium"
+                : mode === "rail"
+                  ? "flex h-9 justify-center px-0"
+                  : navClass,
               inverse
                 ? active
                   ? "bg-primary text-primary-fg"
@@ -93,8 +104,8 @@ const NavLinks = memo(function NavLinks({
                   : "text-muted hover:bg-surface-muted hover:text-fg",
             )}
           >
-            <Icon className="size-4 shrink-0" strokeWidth={1.75} />
-            {item.label}
+            <Icon className={mode === "row" ? "size-3.5 shrink-0" : "size-4 shrink-0"} strokeWidth={1.75} />
+            {mode === "rail" ? <span className="sr-only">{item.label}</span> : item.label}
           </Link>
         );
       })}
@@ -127,7 +138,7 @@ function DeskRuntime() {
   useEffect(() => {
     const id = window.setInterval(() => {
       void pullLiveDesk();
-    }, 12000);
+    }, 4000);
     void pullLiveDesk();
     return () => window.clearInterval(id);
   }, [pullLiveDesk]);
@@ -232,7 +243,7 @@ function DeskRuntime() {
   return null;
 }
 
-function DeskSidebar() {
+function DeskSidebar({ rail }: { rail?: boolean }) {
   const connected = useDesk((s) => s.connections.filter((c) => c.status === "connected").length);
   const activeConnId = useDesk((s) => s.activeConnId);
   const bookPos = useDesk((s) => s.vst.positions.filter((p) => p.connId === s.activeConnId && p.qty > 0).length);
@@ -248,28 +259,37 @@ function DeskSidebar() {
   const venueLabel = liveSnap.venueLabel;
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col bg-nav text-nav-fg lg:flex">
-      <div className="flex h-12 items-center gap-2 px-4">
+    <aside
+      className={cn(
+        "desk-side sticky top-0 hidden h-dvh shrink-0 flex-col bg-nav text-nav-fg lg:flex",
+        rail ? "w-14" : "w-56",
+      )}
+    >
+      <div className={cn("flex h-9 items-center gap-2", rail ? "justify-center px-0" : "px-4")}>
         <AxisMark />
-        <div className="leading-tight">
-          <div className="text-sm font-semibold tracking-wide">AXIS</div>
-          <div className="text-xs uppercase tracking-widest text-nav-muted">Desk</div>
-        </div>
+        {rail ? null : (
+          <div className="leading-tight">
+            <div className="text-sm font-semibold tracking-wide">AXIS</div>
+            <div className="text-[10px] uppercase tracking-widest text-nav-muted">Desk</div>
+          </div>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto">
-        <NavLinks inverse />
+        <NavLinks inverse mode={rail ? "rail" : "stack"} />
       </div>
-      <div className="border-t border-white/10 px-4 py-3 text-xs text-nav-muted">
-        <div className="flex items-center gap-2">
+      <div className={cn("border-t border-white/10 text-[10px] text-nav-muted", rail ? "px-1 py-2 text-center" : "px-4 py-3")}>
+        <div className={cn("flex items-center gap-2", rail && "justify-center")}>
           <span className={cn("size-1.5 rounded-full", pingOk || feed.state === "live" ? "bg-up" : armed ? "bg-down" : "bg-up")} />
-          {hasLive ? `${venueLabel} live` : feed.state === "live" ? "BingX live tape" : `${connected} BingX sessions`}
+          {rail ? null : hasLive ? `${venueLabel} live` : feed.state === "live" ? "BingX live tape" : `${connected} BingX sessions`}
         </div>
-        <div className="mt-1">
-          {hasLive
-            ? `desk ${bookPos} pos · exch ${livePos} · ${activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : "vst-02"}`
-            : `${bookPos} pos · ${bookOrd} wrk · ${activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : "vst-02"}`}
-        </div>
-        {liveTape && !hasLive ? <div className="mt-1">tape on</div> : null}
+        {rail ? null : (
+          <div className="mt-1">
+            {hasLive
+              ? `desk ${bookPos} pos · exch ${livePos} · ${activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : "vst-02"}`
+              : `${bookPos} pos · ${bookOrd} wrk · ${activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : "vst-02"}`}
+          </div>
+        )}
+        {liveTape && !hasLive && !rail ? <div className="mt-1">tape on</div> : null}
       </div>
     </aside>
   );
@@ -290,6 +310,7 @@ function DeskHeader({ onMenu }: { onMenu: () => void }) {
   const px = quote?.px ?? lastPrice(symbol);
   const chg = quote?.chg ?? priceChange(symbol);
   const liveSnap = useLiveSnapshot();
+  const skin = useDesignSkin();
   const connections = useDesk((s) => s.connections);
   const activeConnId = useDesk((s) => s.activeConnId);
   const setActiveConn = useDesk((s) => s.setActiveConn);
@@ -299,7 +320,7 @@ function DeskHeader({ onMenu }: { onMenu: () => void }) {
     activeConnId === "bingx-x01" ? "Live mainnet x01" : connections.find((c) => c.id === activeConnId)?.label ?? activeConnId;
 
   return (
-    <header className="sticky top-0 z-30 flex h-12 items-center gap-2 bg-header px-3 text-header-fg sm:px-4">
+    <header className={cn("desk-header sticky top-0 z-30 flex items-center gap-2 bg-header px-2 text-header-fg sm:px-3", skin === "desk" ? "h-12" : "h-9")}>
       <Button
         variant="inverse"
         size="iconSm"
@@ -307,20 +328,21 @@ function DeskHeader({ onMenu }: { onMenu: () => void }) {
         aria-label="Open menu"
         onClick={onMenu}
       >
-        <Menu className="size-5" />
+        <Menu className="size-4" />
       </Button>
-      <div className="flex items-center gap-2 lg:hidden">
+      <div className="flex items-center gap-1.5 lg:hidden">
         <AxisMark />
-        <span className="text-sm font-semibold">AXIS</span>
+        <span className="text-xs font-semibold">AXIS</span>
       </div>
-      <div className="hidden items-center gap-2 text-sm md:flex">
-        <Activity className="size-4" />
+      <DesignSwitch />
+      <div className="hidden items-center gap-2 text-[11px] md:flex">
+        <Activity className="size-3.5" />
         <span className="font-medium">
           {connLabel}
           {armed ? " · armed" : hasLive ? " · live" : vstRunning ? " · running" : ""}
         </span>
       </div>
-      <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
+      <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-2">
         <select
           aria-label="Connection"
           className="h-8 max-w-[9.5rem] border-0 bg-primary-hover px-2 text-sm text-header-fg sm:max-w-none"
@@ -461,7 +483,7 @@ function SystemStrip() {
   const conn =
     activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : activeConnId === "bingx-vst-02" ? "x02 off" : activeConnId;
   return (
-    <footer className="shrink-0 border-t border-border bg-surface px-3 py-1.5 text-[11px] leading-4 text-muted">
+    <footer className="desk-foot shrink-0 border-t border-border bg-surface px-3 py-1.5 text-[11px] leading-4 text-muted">
       <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono tabular">
         <span>cpu {host ? `${host.cpuPct.toFixed(0)}%` : "—"}</span>
         <span>mem {host ? `${fmtBytes(host.memUsed)}/${fmtBytes(host.memTotal)}` : "—"}</span>
@@ -491,6 +513,7 @@ export function AppShell() {
   const [pane, setPane] = useState<HTMLElement | null>(null);
   useDeskPaneScroll(pane);
   const [open, setOpen] = useState(false);
+  const skin = useDesignSkin();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -504,10 +527,15 @@ export function AppShell() {
     <div className="flex h-dvh overflow-hidden bg-bg text-fg">
       <ClickFx />
       <DeskRuntime />
-      <DeskSidebar />
+      {skin === "pulse" ? null : <DeskSidebar rail={skin === "lattice"} />}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-12 lg:pb-0">
         <DeskHeader onMenu={() => setOpen(true)} />
+        {skin === "pulse" ? (
+          <div className="hidden border-b border-border bg-nav text-nav-fg lg:block">
+            <NavLinks inverse mode="row" />
+          </div>
+        ) : null}
         <DeskToolbar />
 
         <main
@@ -517,8 +545,12 @@ export function AppShell() {
             bindDeskScroll(el);
             if (el && el !== pane) setPane(el);
           }}
-          className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4 lg:px-6"
+          className={cn(
+            "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain",
+            skin === "desk" ? "px-3 py-4 sm:px-4 lg:px-6" : "px-2 py-2 sm:px-3 lg:px-3",
+          )}
         >
+          <DesignBoard />
           <Outlet />
         </main>
         <SystemStrip />
@@ -576,7 +608,7 @@ function MobileTab({
   return (
     <Link
       to={to}
-      preload="intent"
+      preload={false}
       aria-current={active ? "page" : undefined}
       className={cn(
         "press flex h-14 flex-col items-center justify-center gap-0.5 text-xs font-medium leading-none transition-[transform,color] duration-150 ease-out active:scale-[0.96]",
@@ -591,7 +623,7 @@ function MobileTab({
 
 function AxisMark() {
   return (
-    <svg viewBox="0 0 24 24" className="size-6 text-primary-fg" aria-hidden="true">
+    <svg viewBox="0 0 24 24" className="size-5 text-current" aria-hidden="true">
       <path
         d="M4 20 L12 4 L20 20"
         fill="none"

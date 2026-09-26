@@ -160,7 +160,8 @@ export function LogisticsCampus({
   pfGate: number;
   pf: number;
 }) {
-  const lanesOn = pf + 1e-9 >= pfGate;
+  const sampled = live.trades >= 4;
+  const lanesOn = live.pingOk && (!sampled || pf + 1e-9 >= pfGate);
   const posH = Math.max(1.2, Math.min(8, (live.livePos / 12) * vol + expand * 0.35));
   const qH = Math.max(1.4, Math.min(7, (live.liveOrd / 40) * flow + 1.6));
   const holdH = Math.max(0.8, hold / 12);

@@ -81,6 +81,7 @@ export function OverviewView() {
     [lastNs.lanes, cfg, th, enabledKinds],
   );
   const live = liveDeskBook(useDesk.getState().vst, activeConnId, lastNs.last);
+  const engineStamp = Math.floor(vstTick / 8);
   const engineBook = useMemo(() => {
     const e = useDesk.getState().vst;
     const stats = overallLiveStats(e, { seed: false });
@@ -91,7 +92,7 @@ export function OverviewView() {
       posCurves: Object.fromEntries(OVERVIEW_POS_NS.map((n) => [String(n), tapeWindowCurve(tape, n)])),
       hourCurves: Object.fromEntries(OVERVIEW_HOUR_NS.map((h) => [String(h), overviewHourCurve(e, h, tape)])),
     };
-  }, [vstTick, vstTrades, activeConnId]);
+  }, [engineStamp, vstTrades, activeConnId]);
   const botsOn = useDesk((s) => s.botsRunning || Boolean(s.botByConn[s.activeConnId]?.running));
   const exPos = botsOn ? [] : exchangeAsPositions(exchange);
   const lastPos = live.last;
@@ -126,23 +127,32 @@ export function OverviewView() {
   const stName = STRATEGIES.find((s) => s.id === strategyId)?.name ?? strategyId;
   const remoteOverall = (session?.overall as LiveOverview | undefined) ?? (overallFile?.live as LiveOverview | undefined);
   const remoteN = Number(remoteOverall?.overall?.n ?? remoteOverall?.trades ?? 0);
-  const engineN = Number(engineBook.stats.trades ?? engineBook.stats.overall?.n ?? 0);
-  const useRemote = remoteN > 0 && engineN === 0 && liveSnap.hasLive;
-  const overall = ((useRemote ? remoteOverall : engineBook.stats) ?? {}) as LiveOverview;
+  const useRemote = liveSnap.hasLive && (liveSnap.pingOk || remoteN > 0 || Number(session?.trades ?? 0) > 0);
+  const overall = ((useRemote ? remoteOverall ?? engineBook.stats : engineBook.stats) ?? {}) as LiveOverview;
   const sweepCells = (overallFile?.sweep as { cells?: { ok?: boolean; pf?: number }[] } | undefined)?.cells ?? [];
   const validated = sweepCells.filter((c) => c.ok).length;
-  const sessPf = Number(overall.pf ?? overall.overall?.pf ?? 0);
-  const sessWr = Number(overall.wr ?? overall.overall?.wr ?? 0);
-  const sessNet = Number(overall.net ?? overall.overall?.net ?? 0);
-  const sessTrades = Number(overall.trades ?? overall.overall?.n ?? 0);
+  const sessPf = useRemote
+    ? Number(liveSnap.pf || overall.pf || overall.overall?.pf || 0)
+    : Number(overall.pf ?? overall.overall?.pf ?? 0);
+  const sessWr = useRemote
+    ? Number(liveSnap.wr || overall.wr || overall.overall?.wr || 0)
+    : Number(overall.wr ?? overall.overall?.wr ?? 0);
+  const sessNet = useRemote
+    ? Number(liveSnap.net || overall.net || overall.overall?.net || 0)
+    : Number(overall.net ?? overall.overall?.net ?? 0);
+  const sessTrades = useRemote
+    ? Number(liveSnap.trades || overall.trades || overall.overall?.n || 0)
+    : Number(overall.trades ?? overall.overall?.n ?? 0);
   const enginePf = useDesk((s) => s.vst.stats.pf);
   const ratioGp = useDesk((s) => s.vst.ledger.ratioProfit ?? 0);
   const ratioGl = useDesk((s) => s.vst.ledger.ratioLoss ?? 0);
   const ratioWins = useDesk((s) => s.vst.ledger.ratioWins ?? 0);
-  const realBook = ratioWins > 0 || ratioGl > 1e-12;
-  const livePf = realBook ? enginePf : sessPf;
-  const liveTradesN = realBook ? Number(engineBook.stats.trades ?? sessTrades) : sessTrades;
-  const computeHint = !realBook
+  const realBook = !useRemote && (ratioWins > 0 || ratioGl > 1e-12);
+  const livePf = useRemote ? sessPf : realBook ? enginePf : sessPf;
+  const liveTradesN = useRemote ? sessTrades : realBook ? Number(engineBook.stats.trades ?? sessTrades) : sessTrades;
+  const computeHint = useRemote
+    ? liveSnap.lastMsg || `${liveTradesN} live closes`
+    : !realBook
     ? sessTrades > 0
       ? `${sessTrades} tape closes`
       : "no closes yet"
@@ -740,13 +750,13 @@ function VstStrip() {
   const engineN = useDesk((s) => s.vst.ledger.trades);
   const engineWr = useDesk((s) => s.vst.stats.wr);
   const tpRatio = useDesk((s) => s.tacticConfig.tpRatio);
-  const pf = live.trades > 0 ? live.pf : enginePf;
-  const equity = live.equity > 0 ? live.equity : engineEq;
-  const trades = live.trades > 0 ? live.trades : engineN;
-  const wr = live.trades > 0 ? live.wr : engineWr;
+  const pf = live.hasLive ? live.pf : enginePf;
+  const equity = live.hasLive && live.equity > 0 ? live.equity : engineEq;
+  const trades = live.hasLive ? live.trades : engineN;
+  const wr = live.hasLive ? live.wr : engineWr;
   return (
     <Panel
-      title="BingX VST ×02"
+      title={live.venueLabel || "Live book"}
       action={
         <Link to="/engine" className="text-sm font-medium text-primary hover:underline">
           Open engine

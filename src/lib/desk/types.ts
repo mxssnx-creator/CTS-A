@@ -35,6 +35,28 @@ export interface StrategyToggles {
   block: boolean;
   dca: boolean;
 }
+
+/** Deactivate-able PF coordinations. Off skips that tactic only — other lanes keep arming. */
+export interface PfCoordToggles {
+  /** Scratch a close that would drop this hour's ratio PF under 1.08. Does not cancel new orders. */
+  hourKeep: boolean;
+  /** Lock a green stop once the move clears cost and then gives some back. */
+  bankWin: boolean;
+  /** One extra ladder when 2+ indications agree on the same side. Singles still arm. */
+  pairAdd: boolean;
+  /** After 2 real losses, pause that symbol × indication × tactic for the rest of the hour. */
+  laneCool: boolean;
+  /** Re-arm the same side after a real win (capped per hour) so paying lanes keep filling. */
+  winAgain: boolean;
+}
+
+export interface PfCoordHits {
+  pair: number;
+  bank: number;
+  cool: number;
+  again: number;
+  scratch: number;
+}
 export type IndicationId =
   | "trend"
   | "break"
@@ -1379,7 +1401,7 @@ export interface VstEngine {
   /** Per-symbol hour open/high/low for skip-one-way on the complete open tape. */
   hourAnchor?: Record<string, { hour: number; o: number; h: number; l: number }>;
   /** Live gated hour accumulator (hour-protect: intern a flipping loser, keep the hour green). */
-  hourLive?: { hour: number; p: number; l: number; n: number };
+  hourLive?: { hour: number; p: number; l: number; n: number; rp?: number; rl?: number };
   /** Lock arming to cfg.tpAtr×slOfTp so independent combo sims do not mix the GRID. */
   shortComboOnly?: boolean;
   /** Pre-historic eval finished — valid-execute (last 15) and disable (last 12) gates apply. Real counted + Live run from valid. */
@@ -1394,6 +1416,9 @@ export interface VstEngine {
   botHistTick?: number;
   shortRange?: boolean;
   strategyToggles?: StrategyToggles;
+  /** PF coordinations. Missing = hour-keep only (older books). */
+  pfCoords?: PfCoordToggles;
+  pfCoordHits?: PfCoordHits;
   /** Indication/playbook/tactic keys that passed PF on the pre-eval tape. */
   prePassKeys?: Record<string, number>;
   /** Owned live exchange position count — used to allow a restart when the book is empty. */
@@ -1410,6 +1435,8 @@ export interface VstEngine {
   shortRelPreTape?: Record<string, { pnl: number }[]>;
   /** Frozen intern relations that passed post-eval (1–10% of intern n, much higher PF). */
   validRelKeys?: Record<string, number>;
+  /** symbol:side legs closed on the exchange by hand. Do not reopen that leg; other legs continue. */
+  manualClosed?: Record<string, number>;
   validRelShare?: number;
 }
 

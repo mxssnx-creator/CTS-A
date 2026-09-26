@@ -108,6 +108,7 @@ const SECTIONS = [
   { id: "stages", label: "Stages" },
   { id: "playbook", label: "Playbook" },
   { id: "strategy", label: "Strategy" },
+  { id: "pf-coords", label: "PF coords" },
   { id: "trailing", label: "Trailing" },
   { id: "axis", label: "Axis" },
   { id: "gates", label: "Gates" },
@@ -198,6 +199,44 @@ function RangeKnob({
         className="h-11 sm:h-8"
       />
     </Field>
+  );
+}
+
+const PF_COORD_SWITCHES = [
+  ["hourKeep", "Hour keep", "Scratch a close that would drop this hour under PF 1.08. New orders stay queued."],
+  ["bankWin", "Bank win", "Lock a green stop after the move clears cost and gives some back."],
+  ["pairAdd", "Pair add", "Extra order when 2+ indications agree. Single lanes still arm."],
+  ["laneCool", "Lane cool", "After 2 real losses, pause only that symbol × indication × tactic for the hour."],
+  ["winAgain", "Win again", "Re-arm a winner, up to 4 times per symbol and side each hour."],
+] as const;
+
+function PfCoordPanel() {
+  const pfCoords = useDesk((s) => s.pfCoords);
+  const setPfCoords = useDesk((s) => s.setPfCoords);
+  const hits = useDesk((s) => s.vst.pfCoordHits);
+  return (
+    <Panel title="PF coordinations">
+      <p className="mb-3 text-sm text-muted">
+        Each switch is independent. Hour keep is what stops a green hour from turning red. Bank win, pair add, lane cool and win again are what hold the ratio PF. Turn one off and the rest of the book keeps placing.
+      </p>
+      <div className="flex flex-wrap gap-1">
+        {PF_COORD_SWITCHES.map(([key, label, hint]) => (
+          <button
+            key={key}
+            type="button"
+            title={hint}
+            aria-pressed={pfCoords[key]}
+            className={`${chip} ${pfCoords[key] ? chipOn : chipOff}`}
+            onClick={() => setPfCoords({ [key]: !pfCoords[key] })}
+          >
+            {label} {pfCoords[key] ? "on" : "off"}
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-subtle">
+        Hits · pair {hits?.pair ?? 0} · bank {hits?.bank ?? 0} · again {hits?.again ?? 0} · cool {hits?.cool ?? 0} · scratch {hits?.scratch ?? 0}
+      </p>
+    </Panel>
   );
 }
 
@@ -457,6 +496,33 @@ export function SettingsView() {
         <p className="mt-2 text-xs text-subtle">
           {allPresets(userPresets).find((p) => p.id === activePresetId)?.blurb || "No preset selected — current live values stay as-is until you apply or save."}
         </p>
+        {allPresets(userPresets).some((p) => p.info) ? (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {allPresets(userPresets)
+              .filter((p) => p.info)
+              .map((p) => {
+                const info = p.info!;
+                const posOrd = info.orders > 0 ? info.positions / info.orders : 0;
+                return (
+                  <div key={p.id} className="border border-border bg-bg px-3 py-2">
+                    <p className="text-xs font-semibold">{p.label}</p>
+                    <p className="mt-1 text-[11px] leading-4 text-muted">
+                      Positions are one per symbol and side. Orders count every partial on its own, not merged into the position.
+                    </p>
+                    <div className="mt-2 grid grid-cols-2 gap-x-4">
+                      <StatLine k="Winning hours" v={`${(info.winHoursPct * 100).toFixed(0)}%`} />
+                      <StatLine k="PF" v={info.pf.toFixed(3)} />
+                      <StatLine k="DDT" v={`${info.ddt} ticks`} />
+                      <StatLine k="Trades / hour" v={info.tradesPerHour.toFixed(0)} />
+                      <StatLine k="Positions" v={info.positions.toFixed(2)} />
+                      <StatLine k="Orders" v={info.orders.toFixed(1)} />
+                      <StatLine k="Positions / orders" v={posOrd.toFixed(3)} />
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        ) : null}
         </Panel>
       </div>
 
@@ -917,6 +983,10 @@ export function SettingsView() {
             {strategyToggles.dca ? " · DCA" : " · DCA calc-only"}
           </p>
         </Panel>
+      </div>
+
+      <div id="pf-coords" className="scroll-mt-24">
+        <PfCoordPanel />
       </div>
 
       <div id="trailing" className="scroll-mt-24">

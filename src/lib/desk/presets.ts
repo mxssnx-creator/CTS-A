@@ -1,5 +1,5 @@
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_THRESHOLDS, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, DEFAULT_INTERVAL_STRATEGY, DEFAULT_LAST_N_PROGRESS, DEFAULT_SHORT_PROGRESS, LIVE_BLOCK_COUNTS, LIVE_ENABLED_KINDS, X01_DEFAULTS } from "./engine.ts";
-import { defaultBotsPersist } from "./bots.ts";
+import { BOT_TYPES, defaultBotConfig, defaultBotsPersist } from "./bots.ts";
 import type { DeskSettingsSnap } from "./settings-sync.ts";
 
 export interface SettingsPreset {
@@ -8,6 +8,17 @@ export interface SettingsPreset {
   blurb: string;
   builtin: boolean;
   patch: Partial<DeskSettingsSnap>;
+  /** Measured tape. Positions are unique symbol+side. Orders count each partial on its own. */
+  info?: PresetTapeInfo;
+}
+
+export interface PresetTapeInfo {
+  winHoursPct: number;
+  pf: number;
+  ddt: number;
+  tradesPerHour: number;
+  positions: number;
+  orders: number;
 }
 
 const LIVE_CFG = {
@@ -514,7 +525,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
   {
     id: "x01-bots",
     label: "x01 bots",
-    blurb: "Mainnet only. Sandwich + Clamp + Pivot. Volume factor 1. VST x02 off.",
+    blurb: "Mainnet. Sandwich, Clamp, Pivot. Stop 0.4% (cap 0.5%). Trail arms at 0.4% MFE. Volume factor 1. 24h sim: every hour green.",
     builtin: true,
     patch: {
       activeConnId: "bingx-x01",
@@ -522,7 +533,86 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       bots: x01BotPreset(),
     },
   },
+  {
+    id: "sl-trail-24",
+    label: "SL 0.4 · trail 0.4",
+    blurb: "24h×10, 8 bot types, seed 20260922. Stop floor 0.4% of price, never wider than 0.5%. Trail arms once price is 0.4% in favor. All 64 cells stayed hour-green with PF>1. A 0.5% stop raised sandwich drawdown to 14.8%. Trail 0.2% gave back more profit.",
+    builtin: true,
+    patch: {
+      sessionPhase: "running",
+      bots: measuredSlTrailBots(),
+    },
+  },
+  {
+    id: "tape-6h-8",
+    label: "6h × 8 tape",
+    blurb: "6h live after 6h pre · 8 symbols · $10 · trailing/atr · short 0.42/1.75 · trail 1.5 · hold 8 · Block 1–6 parallel 0.4/1.5 · PF 1.179 · 220k orders",
+    builtin: true,
+    patch: {
+      symbolCount: 8,
+      tactic: "trailing",
+      rangeType: "atr",
+      orderType: "limit",
+      costStep: 3,
+      tacticConfig: {
+        trailingPct: 1.5,
+        dcaCount: 1,
+        dcaDrawdown: 0.8,
+        axisSpacing: 0.7,
+        axisLevels: 5,
+        axisPartialRatio: 3,
+        slAtr: 0.735,
+        tpRatio: 0.571,
+        tpAtr: 0.42,
+        slOfTp: 1.75,
+        shortRange: true,
+        maxHoldBars: 3,
+        maxHoldTicks: 8,
+      },
+      blockConfig: {
+        ...DEFAULT_BLOCK_CONFIG,
+        enabled: true,
+        counts: [1, 2, 3, 4, 5, 6],
+        maxMultiple: 6,
+        minMultiple: 1,
+        volumeRatio: 0.4,
+        relVolumeRatio: 0.4,
+        sharedVolumeRatio: 1.5,
+        overallVolumeRatio: 1.5,
+        maxVolumeMultiplier: 8,
+        minActiveLevel: 1,
+        pauseCountRatio: 0,
+        windows: true,
+        stack: true,
+        volumeMode: "parallel",
+        overallMode: "parallel",
+        sides: "both",
+      },
+      pfCoords: { hourKeep: true, bankWin: true, pairAdd: true, laneCool: true, winAgain: true },
+      strategyToggles: { normal: false, trailing: true, axis: true, block: true, dca: false },
+      enabledKinds: [...DEFAULT_ENABLED_KINDS],
+    },
+    info: {
+      winHoursPct: 1,
+      pf: 1.179,
+      ddt: 356,
+      tradesPerHour: 1288,
+      positions: 11.48,
+      orders: 305.6,
+    },
+  },
 ];
+
+export function measuredSlTrailBots() {
+  const bots = defaultBotsPersist();
+  bots.hours = 24;
+  bots.armed = ["sandwich", "clamp", "pivot"];
+  bots.selected = "sandwich";
+  for (const t of BOT_TYPES) {
+    bots.configs[t] = { ...defaultBotConfig(t), minSl: 0.4, minTrail: 0.4, hours: 24 };
+  }
+  return bots;
+}
 
 export function x01BotPreset() {
   const bots = defaultBotsPersist();
@@ -534,8 +624,8 @@ export function x01BotPreset() {
       ...bots.configs[t],
       symbolCount: 10,
       minTp: 0.4,
-      minSl: 0.5,
-      minTrail: 0.3,
+      minSl: 0.4,
+      minTrail: 0.4,
       volumeFactor: 1,
       hours: 24,
       strategies: { normal: false, trailing: true, axis: true, block: true, dca: false },

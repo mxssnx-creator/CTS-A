@@ -28,7 +28,7 @@ import {
   stepDeskBots,
 } from "./bots.ts";
 import { GATED_MIN_PF } from "./last-n-progress.ts";
-import { DEFAULT_TACTIC_CONFIG, closePnl } from "./engine.ts";
+import { DEFAULT_TACTIC_CONFIG, closePnl, dynamicMinRateDist } from "./engine.ts";
 import { engageLiveBook, initVstEngine, tickVst } from "./vst.ts";
 
 describe("sandwich bots — config + volume", () => {
@@ -75,7 +75,7 @@ describe("sandwich bots — config + volume", () => {
     assert.ok(f.slOfTp + 1e-9 >= 0.75);
     assert.ok(f.slPct <= 0.8);
     assert.equal(f.slPct, 0.4);
-    assert.equal(f.trailPct, 0.3);
+    assert.equal(f.trailPct, 0.4);
     const wide = liveBotFloors({ ...defaultBotConfig("sandwich"), minSl: 0.8 });
     assert.equal(wide.slPct, 0.8);
   });
@@ -333,7 +333,14 @@ describe("best 3 parallel bots — independent process + results", () => {
     assert.ok(f.tpAtr >= 0.48);
     assert.ok(f.slOfTp + 1e-9 >= 0.75);
     assert.ok(f.slPct >= 0.4);
-    assert.equal(f.trailPct, 0.3);
+    assert.equal(f.trailPct, 0.4);
+    const px = 100;
+    const tight = dynamicMinRateDist(px, 0.4, 0.01, 1.25);
+    const capped = dynamicMinRateDist(px, 0.4, 80, 1.25);
+    assert.ok(tight + 1e-9 >= px * 0.004, `floor ${tight}`);
+    assert.ok(capped <= px * 0.005 + 1e-9, `cap ${capped}`);
+    const trail = dynamicMinRateDist(px, 0.4, 0.01, 1.25);
+    assert.ok(trail + 1e-9 >= px * 0.004);
     const r = runBotBacktest(defaultBotConfig("sandwich"), 12, 20260922);
     assert.ok(r.liveFills.length >= 120);
     assert.ok(r.hourly.every((h) => h.green));
