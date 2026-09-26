@@ -1959,7 +1959,8 @@ async function mirrorToExchange(e, network, cfg) {
   let placed = 0;
   let failed = 0;
   const fillJobs = [];
-  const queueIntents = (e.queue ?? [])
+  const engineResting = (e.orders ?? []).filter((o) => o && (o.status === "open" || o.status === "queued" || o.status === "partial") && (o.type === "limit" || o.type === "market"));
+  const queueIntents = [...(e.queue ?? []), ...engineResting]
     .filter((o) => {
       if (!o) return false;
       if (o.playbook === "dca" || o.tactic === "dca" || /^DCA/i.test(String(o.note || ""))) return true;
@@ -2137,7 +2138,7 @@ function intenseCheck(e, pick) {
   }
   const book = bookCounts(e);
   const resting = (book.orders.live || 0) + e.positions.length;
-  if (e.running && lastBook.pos < liveMaxPos() && resting < 12) {
+  if (!IS_X01 && e.running && lastBook.pos < liveMaxPos() && resting < 12) {
     requeueFree(e, pick.cfg, pick.tactic, pick.range, CONN);
     return "rearm empty book";
   }
