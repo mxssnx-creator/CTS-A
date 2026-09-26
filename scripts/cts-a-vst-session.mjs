@@ -1018,6 +1018,7 @@ let lastApiError = "";
 const cancelFailed = new Set();
 const skipUntil = new Map();
 const skippedFills = new Set();
+let hedgeBlocked = false;
 const deadSymbols = new Set();
 function markDeadSymbol(symbol, err) {
   const id = String(symbol || "");
@@ -1976,6 +1977,9 @@ async function mirrorToExchange(e, network, cfg) {
       mirrored.add(f.id);
       continue;
     }
+    const otherSide = f.side === "long" ? "short" : "long";
+    const otherOpen = exchangeOccupied.has(`${f.symbol}:${otherSide}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === otherSide);
+    if (otherOpen && (hedgeBlocked || IS_X01)) continue;
     if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side)) continue;
     if (isBlockAdd && fillJobs.filter((x) => /Block/i.test(String(x.note || x._rel?.note || ""))).length >= budget.maxNew) continue;
     if (!isBlockAdd && openN + fillJobs.length >= budget.maxPos) break;
@@ -2015,6 +2019,11 @@ async function mirrorToExchange(e, network, cfg) {
     if (!r?.ok) {
       skippedFills.add(f.id);
       const err = String(r?.error ?? "err");
+      if (/trial fund|long and short position concurrent/i.test(err)) {
+        hedgeBlocked = true;
+        notes.push(`one side ${f.symbol}`);
+        continue;
+      }
       const dead = markDeadSymbol(f.symbol, err);
       if (!dead && isMarginFail(err)) {
         skipUntil.set(f.symbol, Date.now() + 12_000);
