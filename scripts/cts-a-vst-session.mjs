@@ -1362,10 +1362,8 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const key = `${o.symbol}:${o.side}`;
     const k = kindOf(o.type);
     if (!k) continue;
-    if (o.closePosition === true) {
-      if (k === "sl") hasSl.add(key);
-      else hasTp.add(key);
-    }
+    if (k === "sl") hasSl.add(key);
+    else hasTp.add(key);
     const cur = grouped.get(key) ?? { sl: [], tp: [] };
     cur[k].push(o);
     grouped.set(key, cur);
@@ -1440,11 +1438,6 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const side = pos?.side === "short" ? "short" : "long";
     for (const kind of ["sl", "tp"]) {
       const list = (g[kind] || []).filter((o) => mayCancelOrder(o));
-      const partials = list.filter((o) => o.closePosition !== true);
-      if (partials.length && list.length === partials.length) {
-        for (const extra of partials) extraJobs.push({ tk: `${key}:${kind}`, kind, extra });
-        continue;
-      }
       if (!list || list.length <= 1) continue;
       const tk = `${key}:${kind}`;
       if ((trimHits.get(tk) || 0) >= 3) continue;
@@ -1522,7 +1515,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         symbol: p.symbol,
         side: p.side === "long" ? "SELL" : "BUY",
         positionSide: p.side === "long" ? "LONG" : "SHORT",
-        quantity: 0,
+        quantity: qty > 0 ? qty : p.qty,
         type,
         price: px,
         stopPrice: type === "STOP_MARKET" ? prot.sl : prot.tp,
@@ -1533,7 +1526,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         attachProtect: false,
         closePosition: true,
         reduceOnly: false,
-        exactQty: false,
+        exactQty: true,
       };
       const r = await withLiveBusy(() => placeSwapOrder(body));
       n += 1;
