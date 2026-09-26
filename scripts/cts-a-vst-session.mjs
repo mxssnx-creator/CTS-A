@@ -1990,6 +1990,9 @@ async function mirrorToExchange(e, network, cfg) {
     }));
   const entryIntents = IS_X01 ? diversifyLiveIntents(queueIntents) : queueIntents;
   const entryCap = IS_X01 ? 8 : 16;
+  let skipQuiet = 0;
+  let skipTaken = 0;
+  let skipUni = 0;
   for (const f of [...e.fills, ...entryIntents]) {
     if (fillJobs.length >= entryCap) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
@@ -2027,6 +2030,7 @@ async function mirrorToExchange(e, network, cfg) {
       f._rel = rel;
     }
     if (!isUniverseSymbol(f.symbol)) {
+      skipUni += 1;
       mirrored.add(f.id);
       continue;
     }
@@ -2045,7 +2049,10 @@ async function mirrorToExchange(e, network, cfg) {
       [...exchangeOccupied].some((k) => String(k).startsWith(`${f.symbol}:`)) ||
       fillJobs.some((x) => x.symbol === f.symbol) ||
       restingEntry;
-    if (symbolTaken) continue;
+    if (symbolTaken) {
+      skipTaken += 1;
+      continue;
+    }
     const otherSide = f.side === "long" ? "short" : "long";
     const otherOpen = exchangeOccupied.has(`${f.symbol}:${otherSide}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === otherSide);
     if (otherOpen && (hedgeBlocked || IS_X01)) continue;
@@ -2054,7 +2061,10 @@ async function mirrorToExchange(e, network, cfg) {
     if (!isBlockAdd && openN + fillJobs.length >= budget.maxPos) break;
     if (IS_X01 && !x01CanAfford(f.symbol, book.equity) && !X01_GROWTH.has(f.symbol)) continue;
     if (IS_X01 && (Number(book.equity) || 0) < 8 && !X01_GROWTH.has(f.symbol) && fillJobs.length >= 1) continue;
-    if (apiQuiet()) break;
+    if (apiQuiet()) {
+      skipQuiet += 1;
+      break;
+    }
     fillJobs.push(f);
   }
   if (IS_X01) fillJobs.sort((a, b) => Number(X01_GROWTH.has(b.symbol)) - Number(X01_GROWTH.has(a.symbol)));
@@ -2127,7 +2137,7 @@ async function mirrorToExchange(e, network, cfg) {
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
   }
-  if (IS_X01) notes.push(`q ${queueIntents.length} jobs ${fillJobs.length} ok ${placed}`);
+  if (IS_X01) notes.push(`q ${queueIntents.length} jobs ${fillJobs.length} ok ${placed} uni ${skipUni} taken ${skipTaken} quiet ${skipQuiet} sym ${queueIntents[0]?.symbol || "-"}`);
   return notes.length ? notes.slice(-4).join(" · ") : null;
 }
 
