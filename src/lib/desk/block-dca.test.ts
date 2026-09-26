@@ -127,7 +127,7 @@ describe("Block and DCA", () => {
     tickVst(e, CFG, "trailing", { skipWalk: true, rangeType: "atr" });
     assert.equal([...e.queue, ...e.orders].some((o) => /^DCA/.test(o.note)), false);
 
-    const lane = seedLong(e, 0.9);
+    const lane = seedLong(e, 0.975);
     lane.pos.tactic = "dca";
     tickVst(e, CFG, "dca", { skipWalk: true, rangeType: "atr" });
     assert.ok([...e.queue, ...e.orders].some((o) => /^DCA/.test(o.note)), "tactic dca still adds when the switch is off");

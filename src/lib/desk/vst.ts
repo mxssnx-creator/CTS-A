@@ -1507,10 +1507,10 @@ function axisLadders(q: VstQuote, cfg: TacticConfig): { rangeType: RangeType; sp
   const atr = Math.max(q.atr, q.px * 0.0025, 1e-9);
   const atrStep = atr * Math.max(0.55, cfg.axisSpacing);
   const lin = q.px * (cfg.axisSpacing / 100) * 1.8 + atr * 0.35;
-  const geoBase = Math.max(atr * 0.95, q.px * 0.0032);
+  const geoBase = Math.max(atr * 0.55, q.px * 0.0022);
   const vol = Math.max(atr * (1.15 - Math.min(q.vol * 8, 0.45)), atr * 0.7);
-  const fibSwing = Math.max(atr * 1.65, q.px * 0.005);
-  const fibRatios = [0.618, 0.786, 1, 1.272, 1.618, 2.618];
+  const fibSwing = Math.max(atr * 1.15, q.px * 0.0038);
+  const fibRatios = [0.5, 0.618, 0.786, 1, 1.272];
   const seq = (step: (i: number) => number) => {
     const levels: number[] = [];
     for (let i = 1; i <= n; i++) levels.push(Math.max(step(i), atr * 0.35));
@@ -1904,12 +1904,22 @@ function occupiedSymbols(e: VstEngine, connId?: string): Set<string> {
   for (const o of e.queue) if (on(o.connId) && !isBotPlay(o.playbook)) s.add(o.symbol);
   return s;
 }
+function laneBusyKey(row: { symbol: string; side: string; indication?: string; tactic?: string; tpAtr?: number; slOfTp?: number; calc?: string; controllingRange?: string; rangeType?: string }): string {
+  const combo = row.tpAtr != null && row.slOfTp != null ? shortComboKey(row.tpAtr, row.slOfTp) : "x";
+  const range = row.controllingRange || row.rangeType || "";
+  return `${row.symbol}:${row.side}:${row.indication || ""}:${row.tactic || ""}:${combo}:${row.calc || "base"}:${range}`;
+}
 function occupiedLegs(e: VstEngine, connId?: string): Set<string> {
   const s = new Set<string>();
   const on = (id: string) => (connId ? id === connId : isDeskConn(id));
-  for (const p of e.positions) if (on(p.connId) && !isBotPlay(p.playbook)) s.add(`${p.symbol}:${p.side}`);
-  for (const o of e.orders) if (on(o.connId) && !isBotPlay(o.playbook) && (o.status === "open" || o.status === "partial")) s.add(`${o.symbol}:${o.side}`);
-  for (const o of e.queue) if (on(o.connId) && !isBotPlay(o.playbook)) s.add(`${o.symbol}:${o.side}`);
+  const mark = (row: { connId: string; symbol: string; side: string; playbook?: string; indication?: string; tactic?: string; tpAtr?: number; slOfTp?: number; calc?: string; controllingRange?: string; rangeType?: string }) => {
+    if (!on(row.connId) || isBotPlay(row.playbook)) return;
+    s.add(`${row.symbol}:${row.side}`);
+    s.add(laneBusyKey(row));
+  };
+  for (const p of e.positions) mark(p);
+  for (const o of e.orders) if (o.status === "open" || o.status === "partial") mark(o);
+  for (const o of e.queue) mark(o);
   return s;
 }
 function isTerminal(status: LiveOrder['status']): boolean {
@@ -1947,10 +1957,10 @@ function markTerminal(e: VstEngine, o: LiveOrder, status: 'filled' | 'cancelled'
   if (status === "filled") o.remaining = 0;
   else o.remaining = Math.max(0, o.qty - o.filled);
   if (status !== "filled" && o.remaining > 1e-12 && o.filled > 1e-12) {
-    const pos = e.positions.find((p) => p.connId === o.connId && p.symbol === o.symbol && p.side === o.side && sameProtectLane(p, o, Boolean(e.completeSim)));
+    const pos = e.positions.find((p) => p.connId === o.connId && p.symbol === o.symbol && p.side === o.side && sameProtectLane(p, o, splitBookLanes(e)));
     if (pos && pos.legs.some((l) => l.orderId === o.id)) {
       pos.plannedQty = Math.max(pos.qty, (pos.plannedQty || 0) - o.remaining);
-      const complete = Boolean(e.completeSim);
+      const complete = splitBookLanes(e);
       const mapped = ensureLaneMap(e);
       const pool = mapped ? mapped.get(bookKey(o.connId, o.symbol, o.side)) ?? [] : e.orders;
       const working = pool.some(
@@ -2651,7 +2661,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         (DEFAULT_LOSING_HOUR_INDS as readonly string[]).includes(ind) ||
         ind === "break" ||
         ind === "active";
-      const fadeSide = (tac === "axis" || tac === "dca" ? [meanSide] : sides).filter(
+      const fadeSide = (tac === "axis" || tac === "dca" ? [direction(q)] : sides).filter(
         (side) => !e.manualClosed?.[`${s.id}:${side}`],
       );
       for (const side of fadeSide) {
@@ -2839,7 +2849,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             if (px <= 0) return;
             const baseQty = notional / px;
             const qty = axisInd ? baseQty * axisPartial : baseQty;
-            const lv = (axisInd && !short) || book === "dca"
+            const lv = !short && (axisInd || book === "dca")
               ? axisProtect(px, side, q, hi.spacing, cfg, hi.rangeType)
               : protectLevels(px, side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
             e.queue.push({
@@ -3463,6 +3473,15 @@ export function pickIndicationRange(e: VstEngine, id: IndicationId, fallback?: R
   if (fallback) return fallback;
   return pref[0] ?? "atr";
 }
+function splitBookLanes(e: { completeSim?: boolean; liveTape?: boolean } | null | undefined): boolean {
+  return Boolean(e?.completeSim || e?.liveTape);
+}
+function laneTactic(row: { tactic?: string } | null | undefined): string {
+  return String(row?.tactic || "");
+}
+function laneRange(row: { controllingRange?: string; rangeType?: string } | null | undefined): string {
+  return String(row?.controllingRange || row?.rangeType || "");
+}
 export function playbookOf(e: VstEngine, o: LiveOrder): string {
   if (o.playbook && o.playbook !== "normal") return o.playbook;
   if (/^Block\b/i.test(o.note || "") || /Overall Block/i.test(o.note || "")) return "block";
@@ -3470,12 +3489,18 @@ export function playbookOf(e: VstEngine, o: LiveOrder): string {
   if (e.lastTactic === "axis" || /^axis\b/i.test(o.note || "")) return "axis";
   return "normal";
 }
-function sameProtectLane(p: { indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; calc?: string }, o: { indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; note?: string; calc?: string }, complete: boolean) {
+function sameProtectLane(
+  p: { indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string },
+  o: { indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; note?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string },
+  complete: boolean,
+) {
   const botP = String(p.playbook || "");
   const botO = String(o.playbook || "");
   if (botP.startsWith("bot:") || botO.startsWith("bot:")) return botP !== "" && botP === botO;
   if (complete && (p.indication || "") !== (o.indication || p.indication || "")) return false;
   if (complete && (p.calc || "base") !== (o.calc || "base")) return false;
+  if (complete && laneTactic(p) && laneTactic(o) && laneTactic(p) !== laneTactic(o)) return false;
+  if (complete && laneRange(p) && laneRange(o) && laneRange(p) !== laneRange(o)) return false;
   const oBlock = o.playbook === "block" || /Block/i.test(o.note || "");
   if (p.tpAtr != null && p.slOfTp != null && o.tpAtr != null && o.slOfTp != null) {
     return shortComboKey(p.tpAtr, p.slOfTp) === shortComboKey(o.tpAtr, o.slOfTp);
@@ -3497,10 +3522,10 @@ type BookBuckets = {
   released: WeakSet<LiveOrder>;
 };
 
-function protectIdentity(row: { playbook?: string; indication?: string; calc?: string; tpAtr?: number; slOfTp?: number }, complete: boolean): string {
+function protectIdentity(row: { playbook?: string; indication?: string; calc?: string; tpAtr?: number; slOfTp?: number; tactic?: string; controllingRange?: string; rangeType?: string }, complete: boolean): string {
   const bot = String(row.playbook || "");
   if (bot.startsWith("bot:")) return `bot:${bot}`;
-  const head = complete ? `${row.indication || ""}|${row.calc || "base"}|` : "";
+  const head = complete ? `${row.indication || ""}|${row.calc || "base"}|${laneTactic(row)}|${laneRange(row)}|` : "";
   if (row.tpAtr != null && row.slOfTp != null) return head + shortComboKey(row.tpAtr, row.slOfTp);
   return head + "plain";
 }
@@ -3527,7 +3552,7 @@ function rowKeyExact(row: { playbook?: string; indication?: string; tpAtr?: numb
 }
 
 function buildBookBuckets(e: VstEngine): BookBuckets {
-  const complete = Boolean(e.completeSim);
+  const complete = splitBookLanes(e);
   const pos = new Map<string, LivePosition>();
   const posList = new Map<string, LivePosition[]>();
   const combo = new Map<string, number>();
@@ -3597,7 +3622,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
   o.filled += take;
   o.remaining = Math.max(0, o.qty - o.filled);
   const done = o.remaining <= 1e-12;
-  const complete = Boolean(e.completeSim);
+  const complete = splitBookLanes(e);
   const laneKey = bookKey(o.connId, o.symbol, o.side);
   let pos: LivePosition | undefined;
   if (buckets) {
@@ -3611,7 +3636,12 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       (p) => p.connId === o.connId && p.symbol === o.symbol && p.side === o.side && sameProtectLane(p, o, complete),
     );
   }
-  const created = !pos;
+  let created = !pos;
+  if (!pos && /^DCA/i.test(o.note || "") && o.batchId) {
+    const tag = o.batchId;
+    pos = e.positions.find((p) => tag.startsWith(`pos:${p.id}:`) && p.symbol === o.symbol && p.side === o.side);
+    if (pos) created = false;
+  }
   if (!pos) {
     if (e.positions.length >= maxPositions(e)) {
       o.filled -= take;
@@ -3690,6 +3720,10 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     if (!pos.tactic) pos.tactic = "dca";
   }
   if (!created) {
+    if (/^DCA/i.test(o.note || "")) {
+      pos.slDist = Math.abs(pos.sl - pos.avgEntry);
+      pos.tpDist = Math.abs(pos.tp - pos.avgEntry);
+    } else {
     const sameCombo = o.tpAtr == null || pos.tpAtr == null || shortComboKey(pos.tpAtr, pos.slOfTp ?? 0) === shortComboKey(o.tpAtr, o.slOfTp ?? 0);
     if (sameCombo) {
       const slUse = Math.max(Number(o.slDist) || 0, Number(pos.slDist) || 0, 1e-12);
@@ -3709,6 +3743,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
         pos.slDist = pos.tpDist * slOf;
         pos.sl = pos.side === "long" ? entry - pos.slDist : entry + pos.slDist;
       }
+    }
     }
   }
   let otherWorking = false;
@@ -3768,7 +3803,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
 }
 function matchOrders(e: VstEngine) {
   const buckets = e.orders.length + e.positions.length > 48 ? buildBookBuckets(e) : undefined;
-  const complete = Boolean(e.completeSim);
+  const complete = splitBookLanes(e);
   for (const o of e.orders) {
     if (!ownedByDesk(o, e.activeConnId)) continue;
     if (o.status !== "open" && o.status !== "partial") continue;
@@ -3813,7 +3848,7 @@ function matchOrders(e: VstEngine) {
   }
 }
 function cancelLane(e: VstEngine, p: LivePosition) {
-  const complete = Boolean(e.completeSim);
+  const complete = splitBookLanes(e);
   const mapped = ensureLaneMap(e);
   const pool = mapped ? mapped.get(bookKey(p.connId, p.symbol, p.side)) ?? [] : e.orders;
   for (const o of pool) {
@@ -4018,8 +4053,11 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   if (ddPct + 1e-12 < need || ddPct <= 0) return;
   if (ddPct > Math.max(need * 3.2, 2.4)) return;
   const axis = q.axis > 0 ? q.axis : p.avgEntry;
-  const stillFade = p.side === "long" ? q.px <= axis * 1.004 : q.px >= axis * 0.996;
-  if (!stillFade) return;
+  const fading = p.side === "long" ? p.avgEntry <= axis : p.avgEntry >= axis;
+  const stillOk = fading
+    ? p.side === "long" ? q.px <= axis * 1.004 : q.px >= axis * 0.996
+    : p.side === "long" ? q.px > p.sl : q.px < p.sl;
+  if (!stillOk) return;
   const tag = `DCA L${p.legs.length + 1}`;
   const pending = [...e.queue, ...e.orders].some(
     (o) =>
@@ -4037,7 +4075,10 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   const qty = Math.max((positionNotional(paperSizeEquity(e), e.costStep || 10) / px) * scale, 1e-8);
   const nextQty = Math.max(p.qty, 0) + qty;
   const nextAvg = nextQty > 0 ? (p.avgEntry * Math.max(p.qty, 0) + px * qty) / nextQty : px;
-  const lv = axisProtect(nextAvg, p.side, q, p.rangeSpacing || q.atr, cfg, p.controllingRange);
+  const shortLeg = p.tpAtr != null && p.slOfTp != null && p.slDist > 0 && p.tpDist > 0;
+  const lv = shortLeg
+    ? { sl: p.sl, tp: p.tp, slDist: Math.abs(p.sl - nextAvg), tpDist: Math.abs(p.tp - nextAvg) }
+    : axisProtect(nextAvg, p.side, q, p.rangeSpacing || q.atr, cfg, p.controllingRange);
   e.queue.push({
     id: nextId(e, "d"),
     connId: p.connId,
@@ -4055,7 +4096,7 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
     tp: lv.tp,
     slDist: lv.slDist,
     tpDist: lv.tpDist,
-    batchId: p.id,
+    batchId: `pos:${p.id}:dca`,
     note: tag,
     tactic: "dca",
     indication: p.indication,
@@ -4071,11 +4112,14 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
 }
 
 function axisProtect(entry: number, side: Side, q: VstQuote, spacing: number, _cfg: TacticConfig, range?: RangeType) {
-  const step = Math.max(spacing * 0.5, q.atr * 0.75, entry * 0.0018);
+  const fib = range === "fibonacci";
+  const step = fib
+    ? Math.max(spacing * 0.55, q.atr * 0.55, entry * 0.0015)
+    : Math.max(spacing * 0.5, q.atr * 0.75, entry * 0.0018);
   const axis = q.axis > 0 ? q.axis : q.px;
   const sl0 = step;
   const toAxis = Math.abs(axis - entry);
-  const minR = range === "fibonacci" ? 1.22 : 1.45;
+  const minR = fib ? 1.35 : 1.45;
   const tp0 = Math.max(toAxis, sl0 * minR);
   const ratio = snapTpRatio(Math.min(2.2, Math.max(minR, tp0 / Math.max(sl0, 1e-12))));
   return protectLevels(entry, side, sl0, Math.max(tp0, sl0 * ratio), ratio);
