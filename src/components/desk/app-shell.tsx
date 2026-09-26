@@ -35,6 +35,7 @@ import { controlClass, Segmented } from "./widgets";
 import { ClickFx } from "./click-fx";
 
 const NAV = [
+  { to: "/v2", label: "Core v2", icon: Radar },
   { to: "/", label: "Overview", icon: LayoutDashboard },
   { to: "/bots", label: "Bots", icon: Bot },
   { to: "/strategies", label: "Strategies", icon: LineChart },

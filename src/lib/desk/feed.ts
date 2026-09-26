@@ -517,6 +517,7 @@ export const placeBingxOrder = createServerFn({ method: "POST" })
       tpRatio?: number;
       attachProtect?: boolean;
       clientOrderId?: string;
+      equity?: number;
     }) => {
       if (!d?.confirmLive) throw new Error("Live confirm required");
       if (d.network !== "mainnet" && d.network !== "testnet") throw new Error("Invalid network");

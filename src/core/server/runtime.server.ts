@@ -6,7 +6,7 @@
 //   3. paper    the current hour's selection trades on paper; closes land in paper_trades
 //   4. live     optional gated adapter mirrors fresh paper entries (off by default)
 // Heavy work is time-sliced (yields every ~12 ms) so the web server stays responsive.
-import { DEFAULT_SETTINGS, type CoreSettings } from "../config.ts";
+import { DEFAULT_SETTINGS, STRATEGY_PRESETS, type CoreSettings } from "../config.ts";
 import type { Candle, OpenPosition, Protect, Trade } from "../domain/types.ts";
 import { barsFromCandles, syntheticCandles, tailBars } from "../market/bars.ts";
 import { fetchHistory, fetchKlines, fetchTickers, pickUniverse, type Ticker } from "../market/bingx.ts";
@@ -15,6 +15,7 @@ import {
   buildTapesGen,
   defaultWalkForward,
   selectAt,
+  selectDurable,
   walkForward,
   type ConfigTape,
   type WalkForwardOptions,
@@ -78,9 +79,7 @@ export class CoreRuntime {
     this.db = db;
     const saved = db.kvGet<Partial<CoreSettings>>("settings");
     this.settings = mergeSettings(DEFAULT_SETTINGS, saved, settings);
-    this.wf = { ...defaultWalkForward(this.settings), ...(db.kvGet<Partial<WalkForwardOptions>>("wf") ?? {}) };
-    this.wf.gates = this.settings.gates;
-    this.wf.cost = this.settings.cost;
+    this.wf = { ...defaultWalkForward(this.settings), ...pickWf(db.kvGet<Partial<WalkForwardOptions>>("wf") ?? {}) };
     const now = Date.now();
     this.status = {
       state: "idle",
@@ -132,9 +131,9 @@ export class CoreRuntime {
   updateSettings(patch: Partial<CoreSettings>, wfPatch?: Partial<WalkForwardOptions>) {
     const prevUniverse = `${this.settings.symbols}|${this.settings.tfMin}|${this.settings.historyDays}`;
     this.settings = mergeSettings(this.settings, patch);
-    this.wf = { ...this.wf, ...(wfPatch ?? {}), gates: this.settings.gates, cost: this.settings.cost };
+    this.wf = { ...defaultWalkForward(this.settings), ...pickWf(this.wf), ...(wfPatch ?? {}), gates: this.settings.gates, cost: this.settings.cost, toggles: this.settings.toggles, block: this.settings.block, dca: this.settings.dca };
     this.db.kvSet("settings", this.settings);
-    this.db.kvSet("wf", { ...this.wf, protects: undefined });
+    this.db.kvSet("wf", pickWf(this.wf));
     if (prevUniverse !== `${this.settings.symbols}|${this.settings.tfMin}|${this.settings.historyDays}`) {
       this.candles.clear();
       this.db.run("DELETE FROM candles");
@@ -327,18 +326,32 @@ export class CoreRuntime {
     if (!u.bars.length) return;
 
     // S1–S5 on the full history
-    this.pipeline = await this.drive(runPipeline(u, s), (p: PipelineProgress) => this.setStage(p.stage, p.done, p.total, p.label));
+    const stageName: Record<string, string> = { S1: "Base", S2: "Main", S3: "Main", S4: "Real", S5: "Real" };
+    this.pipeline = await this.drive(runPipeline(u, s), (p: PipelineProgress) => this.setStage(stageName[p.stage] ?? p.stage, p.done, p.total, p.label));
     this.persistPipeline(this.pipeline);
 
     // walk-forward tapes on the recent tail: warm-up + pre-calc + simulated run
-    const tailN = Math.round(((24 + this.wf.preH + this.wf.simH) * 60) / s.tfMin);
+    const tailN = Math.round(((24 + Math.max(this.wf.preH, this.wf.longH) + this.wf.simH) * 60) / s.tfMin);
     const wu = makeUniverse(allBars.map((b) => tailBars(b, tailN)));
-    this.tapes = await this.drive(buildTapesGen(wu, this.wf.protects, s.cost), (p) => this.setStage("WF", p.done, p.total, "walk-forward tapes"));
-    this.setStage("SIM", 0, 1, `${this.wf.simH}h simulated run, ${this.wf.preH}h pre-calc`);
+    this.tapes = await this.drive(buildTapesGen(wu, this.wf.protects, s.cost, { protects: this.wf.dcaProtects, dca: this.wf.dca }), (p) =>
+      this.setStage("Base", p.done, p.total, "strategy tapes (normal · trailing · DCA · DCA Active)"),
+    );
+    this.setStage("Real", 0, 1, `${this.wf.simH}h simulated run, ${this.wf.preH}h pre-calc`);
     await yieldNow();
     this.sim = walkForward(wu, this.tapes, this.wf);
     this.persistSim(this.sim);
-    this.setStage("SIM", 1, 1, "done");
+    // every preset on the same tapes: with / without Block, DCA and Active, side by side
+    const presets: Record<string, unknown> = {};
+    const names = Object.keys(STRATEGY_PRESETS);
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i];
+      this.setStage("Compare", i, names.length, name);
+      await yieldNow();
+      const r = walkForward(wu, this.tapes, { ...this.wf, toggles: STRATEGY_PRESETS[name].toggles });
+      presets[name] = { label: STRATEGY_PRESETS[name].label, toggles: STRATEGY_PRESETS[name].toggles, stats: r.stats, hourly: r.hourly, byKind: r.byKind, skips: r.skips, blocks: r.blocks, stable: r.stable };
+    }
+    this.db.kvSet("presetSims", { at: Date.now(), startT: this.sim.startT, endT: this.sim.endT, presets });
+    this.setStage("Real", 1, 1, "done");
     this.status.computes++;
     this.status.lastComputeMs = performance.now() - t0;
     this.db.run(
@@ -415,7 +428,9 @@ export class CoreRuntime {
   private stepPaper() {
     if (!this.tapes.length || !this.sim) return;
     const nowT = Math.floor(Date.now() / H) * H;
-    const { picks, eligible } = selectAt(this.tapes, Math.min(nowT, this.sim.endT), this.wf);
+    const t = Math.min(nowT, this.sim.endT);
+    const held = new Set(this.sim.steps[this.sim.steps.length - 1]?.real ?? []);
+    const { picks, eligible } = this.wf.mode === "durable" ? selectDurable(this.tapes, t, this.wf, held) : selectAt(this.tapes, t, this.wf);
     const sel = new Set(picks.map((p) => p.id));
     const positions: OpenPosition[] = [];
     const perSym = new Map<string, number>();
@@ -476,18 +491,42 @@ export interface LiveIntent {
   barT: number;
 }
 
+/** The walk-forward knobs that are user settings (grids, toggles and gates come from CoreSettings). */
+export const WF_KEYS = ["preH", "simH", "stepH", "portfolio", "lastN", "lastNMinPf", "maxPerSymbol", "maxPerSide", "maxOpen", "guardPct", "longH", "robustFrac", "rank", "bots", "preGate", "mode", "durableSplits", "durableFrac"] as const;
+function pickWf(o: Partial<WalkForwardOptions>): Partial<WalkForwardOptions> {
+  const out: Record<string, unknown> = {};
+  for (const k of WF_KEYS) if (o[k] !== undefined) out[k] = o[k];
+  return out as Partial<WalkForwardOptions>;
+}
+
 function mergeSettings(base: CoreSettings, ...patches: Array<Partial<CoreSettings> | undefined>): CoreSettings {
-  let out = { ...base, gates: { ...base.gates }, live: { ...base.live } };
+  let out = { ...base, gates: { ...base.gates }, live: { ...base.live }, toggles: { ...base.toggles }, block: { ...base.block }, dca: { ...base.dca }, grid: { ...base.grid } };
   for (const p of patches) {
     if (!p) continue;
-    out = { ...out, ...p, gates: { ...out.gates, ...(p.gates ?? {}) }, live: { ...out.live, ...(p.live ?? {}) } };
+    out = {
+      ...out,
+      ...p,
+      gates: { ...out.gates, ...(p.gates ?? {}) },
+      live: { ...out.live, ...(p.live ?? {}) },
+      toggles: { ...out.toggles, ...(p.toggles ?? {}) },
+      block: { ...out.block, ...(p.block ?? {}) },
+      dca: { ...out.dca, ...(p.dca ?? {}) },
+      grid: { ...out.grid, ...(p.grid ?? {}) },
+    };
   }
   return out;
 }
 
 const G = globalThis as unknown as { __ctsCoreRuntime?: CoreRuntime };
 export function coreRuntime(): CoreRuntime {
-  if (!G.__ctsCoreRuntime) G.__ctsCoreRuntime = new CoreRuntime();
+  if (!G.__ctsCoreRuntime) {
+    const rt = new CoreRuntime();
+    rt.onLive = async (r, intents) => {
+      const { stepLive } = await import("./live.server.ts");
+      await stepLive(r, intents);
+    };
+    G.__ctsCoreRuntime = rt;
+  }
   G.__ctsCoreRuntime.ensureAlive();
   return G.__ctsCoreRuntime;
 }

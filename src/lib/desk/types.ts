@@ -1400,13 +1400,13 @@ export interface VstEngine {
   liveOpenN?: number;
   liveLegHint?: Record<string, { side?: Side; indication?: IndicationId; tactic?: TacticKind; playbook?: string; kind?: string; rangeType?: RangeType; tpAtr?: number; slOfTp?: number }>;
   /** Independent last-N PnL ring per short TP×SL (intern scoring). Never mixed with other combos. */
-  shortComboTape?: Record<string, { pnl: number }[]>;
+  shortComboTape?: Record<string, { pnl: number; ratio?: number }[]>;
   /** Snapshot of intern independent tapes at preEvalDone. Live start uses this, not post-pre intern. */
   shortComboPreTape?: Record<string, { pnl: number }[]>;
   /** Live validExec independent last-N per combo. Disable/continue uses this only. */
-  shortComboLiveTape?: Record<string, { pnl: number }[]>;
+  shortComboLiveTape?: Record<string, { pnl: number; ratio?: number }[]>;
   /** Intern last-N per indication:tactic:combo. Eval picks 1–10% valid from this. */
-  shortRelTape?: Record<string, { pnl: number }[]>;
+  shortRelTape?: Record<string, { pnl: number; ratio?: number }[]>;
   shortRelPreTape?: Record<string, { pnl: number }[]>;
   /** Frozen intern relations that passed post-eval (1–10% of intern n, much higher PF). */
   validRelKeys?: Record<string, number>;

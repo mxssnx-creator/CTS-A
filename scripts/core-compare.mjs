@@ -5,7 +5,7 @@
 //   --presets a,b,c   limit to presets · --variants '<json array of option patches>'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { DEFAULT_SETTINGS } from "../src/core/config.ts";
+import { DEFAULT_SETTINGS, STRATEGY_PRESETS } from "../src/core/config.ts";
 import { barsFromCandles, resample } from "../src/core/market/bars.ts";
 import { fetchHistory, fetchTickers, pickUniverse } from "../src/core/market/bingx.ts";
 import { statsOf } from "../src/core/metrics/stats.ts";
@@ -21,17 +21,6 @@ const H = 3_600_000;
 const tf = Number(arg("tf", 15));
 const warmDays = Number(arg("warm", 8));
 
-export const PRESETS = {
-  "all-on": {},
-  normal: { toggles: { normal: true, trailing: false, block: false, blockActive: false, dca: false, dcaActive: false } },
-  trailing: { toggles: { normal: false, trailing: true, block: false, blockActive: false, dca: false, dcaActive: false } },
-  block: { toggles: { normal: true, trailing: true, block: true, blockActive: false, dca: false, dcaActive: false } },
-  "block-active": { toggles: { normal: true, trailing: true, block: true, blockActive: true, dca: false, dcaActive: false } },
-  "normal-off+block": { toggles: { normal: false, trailing: true, block: true, blockActive: false, dca: true, dcaActive: false } },
-  dca: { toggles: { normal: false, trailing: false, block: false, blockActive: false, dca: true, dcaActive: false } },
-  "dca-active": { toggles: { normal: false, trailing: false, block: false, blockActive: false, dca: true, dcaActive: true } },
-  "block-active+dca-active": { toggles: { normal: true, trailing: true, block: true, blockActive: true, dca: true, dcaActive: true } },
-};
 
 async function loadCandles() {
   const cache = arg("cache");
@@ -53,6 +42,7 @@ console.error(`Base tapes: ${tapes.length} (${u.bars.length} symbols, ${tf}m) in
 
 const f2 = (x) => (Number.isFinite(x) ? x.toFixed(2) : "–");
 const pc = (x) => `${Math.round(x * 100)}%`;
+const PRESETS = STRATEGY_PRESETS;
 const selected = arg("presets") ? arg("presets").split(",") : Object.keys(PRESETS);
 const variants = JSON.parse(arg("variants", "[{}]"));
 const rows = [];

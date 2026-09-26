@@ -232,3 +232,16 @@ export interface Gates {
   minTrades: number;
   quorum: number;
 }
+
+export interface ProtectGridSpec {
+  tp: readonly number[];
+  /** SL as a multiple of TP (max ratio e.g. 2 or 2.5) */
+  slOfTp: readonly number[];
+  /** trailing distance as a share of TP (0 = no trail) */
+  trailOfTp: readonly number[];
+  /** minimum absolute trailing distance (fraction) */
+  minTrail: number;
+  /** minimum absolute SL distance (fraction) */
+  minSl: number;
+  holdH: readonly number[];
+}

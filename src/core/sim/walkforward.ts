@@ -16,7 +16,7 @@ import { allCombos, configId } from "../pipeline/pipeline.ts";
 import type { Universe } from "../pipeline/pipeline.ts";
 import { comboSignal } from "../bots/bots.ts";
 import { DEFAULT_BLOCK, DEFAULT_DCA, DEFAULT_TOGGLES, PF_NEUTRAL, type CoreSettings } from "../config.ts";
-import type { BlockConfig, BotType, DcaConfig, Gates, OpenPosition, Protect, Stats, StratKind, StrategyToggles, Trade } from "../domain/types.ts";
+import type { BlockConfig, BotType, ProtectGridSpec, DcaConfig, Gates, OpenPosition, Protect, Stats, StratKind, StrategyToggles, Trade } from "../domain/types.ts";
 import { hourlyNet, profitFactor, scoreStats, statsOf } from "../metrics/stats.ts";
 import { simulate } from "./backtest.ts";
 import { simulateDca } from "./dca.ts";
@@ -40,7 +40,23 @@ export interface WalkForwardOptions {
   longH: number;
   /** share of a pair's variants that must pass the long window */
   robustFrac: number;
-  rank: "score" | "lcb";
+  rank: "score" | "lcb" | "net";
+  /**
+   * Selection mode.
+   *  hourly  — re-rank every step on the long + pre-historic windows
+   *  durable — keep durable winners: a config must be positive in >= durableFrac of `durableSplits`
+   *            sub-windows of the long window (PF >= min overall); once held it stays until its long-window
+   *            PF drops below neutral 1.0 (sticky, low churn)
+   */
+  mode: "hourly" | "durable";
+  durableSplits: number;
+  durableFrac: number;
+  /** require the pre-historic window to still work (PF >= neutral) */
+  preGate: boolean;
+  /** restrict Main to these bot types (empty = all) */
+  bots: readonly BotType[];
+  /** max open positions per side (long / short) across the book: limits correlated stop-outs */
+  maxPerSide: number;
   toggles: StrategyToggles;
   block: BlockConfig;
   dca: DcaConfig;
@@ -50,13 +66,35 @@ export interface WalkForwardOptions {
   dcaProtects: readonly Protect[];
 }
 
-/** Normal + trailing protect variants (hold in bars). */
-export function protectGrid(tfMin: number): Protect[] {
-  const hold = Math.max(4, Math.round(480 / tfMin)); // 8h
+export const DEFAULT_GRID: ProtectGridSpec = {
+  tp: [0.018, 0.026, 0.035, 0.05],
+  slOfTp: [1, 1.5, 2, 2.5],
+  trailOfTp: [0, 0.25, 0.4],
+  minTrail: 0.006,
+  minSl: 0.01,
+  holdH: [3, 8],
+};
+
+/** Every protect variant of a grid (hold converted to bars). Each variant is computed independently. */
+export function protectGrid(tfMin: number, g: ProtectGridSpec = DEFAULT_GRID): Protect[] {
   const out: Protect[] = [];
-  for (const tp of [0.018, 0.026, 0.035, 0.05])
-    for (const k of [1, 1.5])
-      for (const trail of [0, 0.4]) out.push({ tp, sl: +(tp * k).toFixed(4), trail: trail ? +(tp * trail).toFixed(4) : 0, hold });
+  const seen = new Set<string>();
+  for (const tp of g.tp)
+    for (const k of g.slOfTp)
+      for (const tr of g.trailOfTp)
+        for (const h of g.holdH) {
+          const p: Protect = {
+            tp,
+            sl: +Math.max(g.minSl, tp * k).toFixed(4),
+            trail: tr > 0 ? +Math.max(g.minTrail, tp * tr).toFixed(4) : 0,
+            hold: Math.max(2, Math.round((h * 60) / tfMin)),
+          };
+          const key = `${p.tp}|${p.sl}|${p.trail}|${p.hold}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            out.push(p);
+          }
+        }
   return out;
 }
 
@@ -65,7 +103,6 @@ export function dcaProtectGrid(tfMin: number): Protect[] {
   return [0.026, 0.035].map((tp) => ({ tp, sl: +(tp * 1.5).toFixed(4), trail: 0, hold }));
 }
 
-export const WF_PROTECTS: readonly Protect[] = protectGrid(15);
 
 export function defaultWalkForward(s: CoreSettings): WalkForwardOptions {
   return {
@@ -75,18 +112,24 @@ export function defaultWalkForward(s: CoreSettings): WalkForwardOptions {
     portfolio: 12,
     lastN: 12,
     lastNMinPf: PF_NEUTRAL,
-    maxPerSymbol: 2,
+    maxPerSymbol: 3,
     maxOpen: 60,
     guardPct: 1,
-    longH: 168,
+    longH: 336,
     robustFrac: 0.6,
     rank: "lcb",
+    bots: [],
+    mode: "durable",
+    durableSplits: 4,
+    durableFrac: 0.75,
+    preGate: true,
+    maxPerSide: 16,
     toggles: { ...DEFAULT_TOGGLES, ...(s.toggles ?? {}) },
     block: { ...DEFAULT_BLOCK, ...(s.block ?? {}) },
     dca: { ...DEFAULT_DCA, ...(s.dca ?? {}) },
     gates: s.gates,
     cost: s.cost,
-    protects: protectGrid(s.tfMin),
+    protects: protectGrid(s.tfMin, s.grid ?? DEFAULT_GRID),
     dcaProtects: dcaProtectGrid(s.tfMin),
   };
 }
@@ -97,18 +140,130 @@ export interface ConfigTape {
   ind: string;
   protect: Protect;
   kind: StratKind;
-  /** by exit time */
-  trades: Trade[];
+  /** number of closed trades; columns below are ordered by exit time */
+  n: number;
+  syms: readonly string[];
   exitT: Float64Array;
+  entryT: Float64Array;
+  r: Float64Array;
+  entry: Float64Array;
+  exit: Float64Array;
+  symI: Uint16Array;
+  side: Int8Array;
+  reason: Uint8Array;
+  bars: Uint16Array;
+  vol: Float32Array;
+  level: Uint8Array;
+  /** prefix sums over trades (length n+1): gross profit, gross loss, r, r² */
+  gp: Float64Array;
+  gl: Float64Array;
+  rs: Float64Array;
+  r2: Float64Array;
   /** positions still open at the last bar (normal / trailing only) */
   open: OpenPosition[];
   /** signals on the last closed bar (enter at the next open) */
   pending: Array<{ sym: string; side: 1 | -1 }>;
 }
 
-function finish(id: string, bot: BotType, ind: string, protect: Protect, kind: StratKind, trades: Trade[], open: OpenPosition[], pending: ConfigTape["pending"]): ConfigTape {
+const REASONS: Trade["reason"][] = ["tp", "sl", "trail", "time", "disarm"];
+
+export function makeTape(
+  id: string,
+  bot: BotType,
+  ind: string,
+  protect: Protect,
+  kind: StratKind,
+  syms: readonly string[],
+  trades: Trade[],
+  open: OpenPosition[],
+  pending: ConfigTape["pending"],
+): ConfigTape {
   trades.sort((a, b) => a.exitT - b.exitT || a.entryT - b.entryT);
-  return { id, bot, ind, protect, kind, trades, exitT: Float64Array.from(trades, (t) => t.exitT), open, pending };
+  const n = trades.length;
+  const symIdx = new Map(syms.map((s, i) => [s, i]));
+  const tp: ConfigTape = {
+    id, bot, ind, protect, kind, n, syms,
+    exitT: new Float64Array(n), entryT: new Float64Array(n), r: new Float64Array(n), entry: new Float64Array(n), exit: new Float64Array(n),
+    symI: new Uint16Array(n), side: new Int8Array(n), reason: new Uint8Array(n), bars: new Uint16Array(n), vol: new Float32Array(n), level: new Uint8Array(n),
+    gp: new Float64Array(n + 1), gl: new Float64Array(n + 1), rs: new Float64Array(n + 1), r2: new Float64Array(n + 1),
+    open, pending,
+  };
+  for (let i = 0; i < n; i++) {
+    const t = trades[i];
+    tp.exitT[i] = t.exitT;
+    tp.entryT[i] = t.entryT;
+    tp.r[i] = t.r;
+    tp.entry[i] = t.entry;
+    tp.exit[i] = t.exit;
+    tp.symI[i] = symIdx.get(t.sym) ?? 0;
+    tp.side[i] = t.side;
+    tp.reason[i] = Math.max(0, REASONS.indexOf(t.reason));
+    tp.bars[i] = Math.min(65535, t.bars);
+    tp.vol[i] = t.vol ?? 1;
+    tp.level[i] = Math.min(255, t.level ?? 0);
+    const r = t.r;
+    tp.gp[i + 1] = tp.gp[i] + (r > 0 ? r : 0);
+    tp.gl[i + 1] = tp.gl[i] + (r < 0 ? -r : 0);
+    tp.rs[i + 1] = tp.rs[i] + r;
+    tp.r2[i + 1] = tp.r2[i] + r * r;
+  }
+  return tp;
+}
+
+/** Materialise one trade of a compact tape. */
+export function tradeAt(tp: ConfigTape, i: number): Trade {
+  return {
+    cfg: tp.id,
+    sym: tp.syms[tp.symI[i]],
+    side: tp.side[i] as 1 | -1,
+    entryT: tp.entryT[i],
+    exitT: tp.exitT[i],
+    entry: tp.entry[i],
+    exit: tp.exit[i],
+    r: tp.r[i],
+    reason: REASONS[tp.reason[i]],
+    bars: tp.bars[i],
+    mfe: 0,
+    mae: 0,
+    kind: tp.kind,
+    vol: tp.vol[i],
+    level: tp.level[i],
+  };
+}
+
+export function tapeTrades(tp: ConfigTape, from = 0, to = tp.n): Trade[] {
+  const out: Trade[] = [];
+  for (let i = from; i < to; i++) out.push(tradeAt(tp, i));
+  return out;
+}
+
+/** O(1) window numbers from prefix sums (net in percent). */
+function win(tp: ConfigTape, a: number, b: number) {
+  const gp = tp.gp[b] - tp.gp[a];
+  const gl = tp.gl[b] - tp.gl[a];
+  return { n: b - a, net: (tp.rs[b] - tp.rs[a]) * 100, pf: profitFactor(gp, gl) };
+}
+
+/** Longest time under the running peak inside [a, b), counting an open dip up to nowT (hours). */
+function winDdt(tp: ConfigTape, a: number, b: number, nowT: number): number {
+  if (b <= a) return 0;
+  let cum = 0;
+  let peak = 0;
+  let peakT = tp.entryT[a];
+  let dipped = false;
+  let ddt = 0;
+  for (let i = a; i < b; i++) {
+    cum += tp.r[i];
+    if (cum < peak) dipped = true;
+    else {
+      if (dipped && tp.exitT[i] - peakT > ddt) ddt = tp.exitT[i] - peakT;
+      dipped = false;
+      peak = cum;
+      peakT = tp.exitT[i];
+    }
+  }
+  if (dipped && nowT - peakT > ddt) ddt = nowT - peakT;
+  return ddt / H;
 }
 
 /** Base: causal tapes for every combo × protect × sub-strategy. Generator so callers can time-slice. */
@@ -119,6 +274,7 @@ export function* buildTapesGen(
   dcaOpt?: { protects: readonly Protect[]; dca: DcaConfig },
 ): Generator<{ done: number; total: number }, ConfigTape[]> {
   const combos = allCombos();
+  const syms = u.bars.map((b) => b.sym);
   const out: ConfigTape[] = [];
   const per = protects.length + (dcaOpt ? dcaOpt.protects.length * 2 : 0);
   const total = combos.length * per;
@@ -144,7 +300,7 @@ export function* buildTapesGen(
         if (res.open) open.push(res.open);
         if (res.pending) pending.push({ sym: u.bars[s].sym, side: res.pending });
       }
-      out.push(finish(id, c.bot, c.ind, p, kind, trades, open, pending));
+      out.push(makeTape(id, c.bot, c.ind, p, kind, syms, trades, open, pending));
       done++;
       if (done % 8 === 0) yield { done, total };
     }
@@ -160,7 +316,7 @@ export function* buildTapesGen(
             for (const tr of res.trades) trades.push(tr);
             if (res.pending) pending.push({ sym: u.bars[s].sym, side: res.pending });
           }
-          out.push(finish(id, c.bot, c.ind, p, kind, trades, [], pending));
+          out.push(makeTape(id, c.bot, c.ind, p, kind, syms, trades, [], pending));
           done++;
           if (done % 8 === 0) yield { done, total };
         }
@@ -215,7 +371,7 @@ export function blockLevel(tp: ConfigTape, entryT: number, b: BlockConfig): numb
   let level = 0;
   let sum = 0;
   for (let n = 1; n <= b.maxLevel && n <= end; n++) {
-    sum += tp.trades[end - n].r;
+    sum += tp.r[end - n];
     if (sum > 0) level++;
   }
   return level;
@@ -249,19 +405,15 @@ export interface WalkForwardResult {
 export interface Selection {
   id: string;
   score: number;
-  window: Stats;
+  window: { n: number; net: number; pf: number; ddt: number };
 }
 
-/** Lower confidence bound (≈ 1σ) of the summed return: mean·n − sd·√n, in percent. */
-function lcb(trades: readonly Trade[], a: number, b: number): number {
+/** Lower confidence bound (≈ 1σ) of the summed return over [a, b): mean·n − sd·√n, in percent. */
+function lcbFast(tp: ConfigTape, a: number, b: number): number {
   const n = b - a;
   if (n < 2) return 0;
-  let s = 0;
-  let s2 = 0;
-  for (let i = a; i < b; i++) {
-    s += trades[i].r;
-    s2 += trades[i].r * trades[i].r;
-  }
+  const s = tp.rs[b] - tp.rs[a];
+  const s2 = tp.r2[b] - tp.r2[a];
   const m = s / n;
   const sd = Math.sqrt(Math.max(0, (s2 - n * m * m) / (n - 1)));
   return (m * n - sd * Math.sqrt(n)) * 100;
@@ -282,22 +434,26 @@ export function selectAt(tapes: readonly ConfigTape[], t: number, o: WalkForward
   const pairTotal = new Map<string, number>();
   const pairOk = new Map<string, number>();
   const cand: Array<Selection & { pair: string }> = [];
+  const botOk = o.bots.length ? new Set<string>(o.bots) : null;
   for (const tp of tapes) {
+    if (botOk && !botOk.has(tp.bot)) continue;
     const a = lowerBound(tp.exitT, fromLong);
     const b = lowerBound(tp.exitT, t);
     if (b - a < minLong) continue;
     const pair = `${tp.bot}|${tp.ind}`;
     pairTotal.set(pair, (pairTotal.get(pair) ?? 0) + 1);
-    const w = statsOf(tp.trades.slice(a, b), t);
-    if (w.net <= 0 || w.pf < o.gates.minPf || w.ddt > ddtMax) continue;
+    const w = win(tp, a, b);
+    if (w.net <= 0 || w.pf < o.gates.minPf) continue;
+    const ddt = winDdt(tp, a, b, t);
+    if (ddt > ddtMax) continue;
     pairOk.set(pair, (pairOk.get(pair) ?? 0) + 1);
     if (!kindExecutable(tp.kind, o.toggles)) continue;
     const pa = lowerBound(tp.exitT, fromPre);
-    const pre = statsOf(tp.trades.slice(pa, b), t);
-    if (pre.n >= 3 && (pre.pf < PF_NEUTRAL || pre.net < 0)) continue;
-    const score = o.rank === "lcb" ? lcb(tp.trades, a, b) : scoreStats(w, minLong);
+    const pre = win(tp, pa, b);
+    if (o.preGate && pre.n >= 3 && (pre.pf < PF_NEUTRAL || pre.net < 0)) continue;
+    const score = o.rank === "lcb" ? lcbFast(tp, a, b) : o.rank === "net" ? w.net : scoreStats(statsOf(tapeTrades(tp, a, b), t), minLong);
     if (!(score > 0)) continue;
-    cand.push({ id: tp.id, score, window: w, pair });
+    cand.push({ id: tp.id, score, window: { ...w, ddt }, pair });
   }
   const robust = (pair: string) => (pairOk.get(pair) ?? 0) / Math.max(1, pairTotal.get(pair) ?? 0) >= o.robustFrac;
   const scored = cand.filter((c) => robust(c.pair)).sort((x, y) => y.score - x.score);
@@ -312,18 +468,63 @@ export function selectAt(tapes: readonly ConfigTape[], t: number, o: WalkForward
   return { picks, eligible: scored.length };
 }
 
+/** Durable winners at t: consistent across sub-windows of the long window. */
+export function selectDurable(tapes: readonly ConfigTape[], t: number, o: WalkForwardOptions, held: ReadonlySet<string>): { picks: Selection[]; eligible: number } {
+  const longH = Math.max(o.longH, o.preH);
+  const from = t - longH * H;
+  const minLong = Math.max(8, o.gates.minTrades);
+  const k = Math.max(2, o.durableSplits);
+  const span = (longH * H) / k;
+  const botOk = o.bots.length ? new Set<string>(o.bots) : null;
+  const keep: Array<Selection & { pair: string }> = [];
+  const cand: Array<Selection & { pair: string }> = [];
+  for (const tp of tapes) {
+    if (botOk && !botOk.has(tp.bot)) continue;
+    if (!kindExecutable(tp.kind, o.toggles)) continue;
+    const a = lowerBound(tp.exitT, from);
+    const b = lowerBound(tp.exitT, t);
+    const w = win(tp, a, b);
+    const pair = `${tp.bot}|${tp.ind}`;
+    if (held.has(tp.id)) {
+      // sticky: stay while the long window still pays (PF >= neutral)
+      if (w.n >= 3 && w.pf >= PF_NEUTRAL && w.net > 0) keep.push({ id: tp.id, score: w.net, window: { ...w, ddt: 0 }, pair });
+      continue;
+    }
+    if (w.n < minLong || w.net <= 0 || w.pf < o.gates.minPf) continue;
+    let pos = 0;
+    for (let i = 0; i < k; i++) {
+      const sa = lowerBound(tp.exitT, from + i * span);
+      const sb = lowerBound(tp.exitT, from + (i + 1) * span);
+      if (sb > sa && tp.rs[sb] - tp.rs[sa] > 0) pos++;
+    }
+    if (pos / k < o.durableFrac) continue;
+    if (o.preGate) {
+      const pre = win(tp, lowerBound(tp.exitT, t - o.preH * H), b);
+      if (pre.n >= 3 && (pre.pf < PF_NEUTRAL || pre.net < 0)) continue;
+    }
+    cand.push({ id: tp.id, score: lcbFast(tp, a, b), window: { ...w, ddt: 0 }, pair });
+  }
+  const pairs = new Set<string>();
+  const picks: Selection[] = [];
+  for (const s of keep.sort((x, y) => y.score - x.score)) {
+    if (pairs.has(s.pair) || picks.length >= o.portfolio) continue;
+    pairs.add(s.pair);
+    picks.push(s);
+  }
+  for (const s of cand.sort((x, y) => y.score - x.score)) {
+    if (picks.length >= o.portfolio) break;
+    if (pairs.has(s.pair)) continue;
+    pairs.add(s.pair);
+    picks.push(s);
+  }
+  return { picks, eligible: keep.length + cand.length };
+}
+
 function lastNOk(tp: ConfigTape, entryT: number, n: number, minPf: number): boolean {
   if (n <= 0) return true;
   const b = lowerBound(tp.exitT, entryT + 1); // closed at or before entry
   if (b < n) return false;
-  let gp = 0;
-  let gl = 0;
-  for (let i = b - n; i < b; i++) {
-    const r = tp.trades[i].r;
-    if (r > 0) gp += r;
-    else gl -= r;
-  }
-  return profitFactor(gp, gl) >= minPf;
+  return profitFactor(tp.gp[b] - tp.gp[b - n], tp.gl[b] - tp.gl[b - n]) >= minPf;
 }
 
 export type ExecDecision = { ok: true; level: number; vol: number } | { ok: false; why: string };
@@ -359,12 +560,17 @@ export function walkForward(u: Universe, tapes: readonly ConfigTape[], o: WalkFo
     }
   };
 
+  let held = new Set<string>();
   for (let t = startT; t < stopT; t += o.stepH * H) {
-    const { picks, eligible } = selectAt(tapes, t, o);
+    const { picks, eligible } = o.mode === "durable" ? selectDurable(tapes, t, o, held) : selectAt(tapes, t, o);
+    held = new Set(picks.map((p) => p.id));
     const cands: Array<{ tr: Trade; tp: ConfigTape }> = [];
     for (const p of picks) {
       const tp = byId.get(p.id)!;
-      for (const tr of tp.trades) if (tr.entryT >= t && tr.entryT < t + o.stepH * H && tr.entryT < stopT) cands.push({ tr, tp });
+      for (let i = 0; i < tp.n; i++) {
+        const e = tp.entryT[i];
+        if (e >= t && e < t + o.stepH * H && e < stopT) cands.push({ tr: tradeAt(tp, i), tp });
+      }
     }
     cands.sort((a, b) => a.tr.entryT - b.tr.entryT || a.tr.cfg.localeCompare(b.tr.cfg));
     let taken = 0;
@@ -378,6 +584,7 @@ export function walkForward(u: Universe, tapes: readonly ConfigTape[], o: WalkFo
       else if (open.some((x) => x.sym === tr.sym && x.cfg === tr.cfg)) why = "dupe";
       else if (open.reduce((a, x) => a + (x.sym === tr.sym ? 1 : 0), 0) >= o.maxPerSymbol) why = "perSymbol";
       else if (open.length >= o.maxOpen) why = "maxOpen";
+      else if (open.reduce((a, x) => a + (x.side === tr.side ? 1 : 0), 0) >= o.maxPerSide) why = "perSide";
       const dec = why ? null : execDecision(tp, tr.entryT, o);
       if (dec && !dec.ok) why = dec.why;
       if (why || !dec || !dec.ok) {

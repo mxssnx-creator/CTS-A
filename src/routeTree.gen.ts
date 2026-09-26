@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as DeskRouteImport } from './routes/_desk'
+import { Route as V2RouteImport } from './routes/v2'
 import { Route as DeskIndexRouteImport } from './routes/_desk/index'
 import { Route as DeskSplatRouteImport } from './routes/_desk/$'
 import { Route as DeskBotsRouteImport } from './routes/_desk/bots'
@@ -30,9 +31,25 @@ import { Route as DeskStatisticsRouteImport } from './routes/_desk/statistics'
 import { Route as DeskStrategiesRouteImport } from './routes/_desk/strategies'
 import { Route as DeskSystemRouteImport } from './routes/_desk/system'
 import { Route as DeskTacticsRouteImport } from './routes/_desk/tactics'
+import { Route as V2IndexRouteImport } from './routes/v2/index'
+import { Route as V2CompareRouteImport } from './routes/v2/compare'
+import { Route as V2EngineRouteImport } from './routes/v2/engine'
+import { Route as V2HourlyRouteImport } from './routes/v2/hourly'
+import { Route as V2MarketRouteImport } from './routes/v2/market'
+import { Route as V2MatrixRouteImport } from './routes/v2/matrix'
+import { Route as V2ResultsRouteImport } from './routes/v2/results'
+import { Route as V2SettingsRouteImport } from './routes/v2/settings'
+import { Route as V2StagesRouteImport } from './routes/v2/stages'
+import { Route as V2TradingRouteImport } from './routes/v2/trading'
+import { Route as V2ConfigIdRouteImport } from './routes/v2/config.$id'
 
 const DeskRoute = DeskRouteImport.update({
   id: '/_desk',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V2Route = V2RouteImport.update({
+  id: '/v2',
+  path: '/v2',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DeskIndexRoute = DeskIndexRouteImport.update({
@@ -135,9 +152,65 @@ const DeskTacticsRoute = DeskTacticsRouteImport.update({
   path: '/tactics',
   getParentRoute: () => DeskRoute,
 } as any)
+const V2IndexRoute = V2IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => V2Route,
+} as any)
+const V2CompareRoute = V2CompareRouteImport.update({
+  id: '/compare',
+  path: '/compare',
+  getParentRoute: () => V2Route,
+} as any)
+const V2EngineRoute = V2EngineRouteImport.update({
+  id: '/engine',
+  path: '/engine',
+  getParentRoute: () => V2Route,
+} as any)
+const V2HourlyRoute = V2HourlyRouteImport.update({
+  id: '/hourly',
+  path: '/hourly',
+  getParentRoute: () => V2Route,
+} as any)
+const V2MarketRoute = V2MarketRouteImport.update({
+  id: '/market',
+  path: '/market',
+  getParentRoute: () => V2Route,
+} as any)
+const V2MatrixRoute = V2MatrixRouteImport.update({
+  id: '/matrix',
+  path: '/matrix',
+  getParentRoute: () => V2Route,
+} as any)
+const V2ResultsRoute = V2ResultsRouteImport.update({
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => V2Route,
+} as any)
+const V2SettingsRoute = V2SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => V2Route,
+} as any)
+const V2StagesRoute = V2StagesRouteImport.update({
+  id: '/stages',
+  path: '/stages',
+  getParentRoute: () => V2Route,
+} as any)
+const V2TradingRoute = V2TradingRouteImport.update({
+  id: '/trading',
+  path: '/trading',
+  getParentRoute: () => V2Route,
+} as any)
+const V2ConfigIdRoute = V2ConfigIdRouteImport.update({
+  id: '/config/$id',
+  path: '/config/$id',
+  getParentRoute: () => V2Route,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof DeskIndexRoute
+  '/v2': typeof V2RouteWithChildren
   '/$': typeof DeskSplatRoute
   '/bots': typeof DeskBotsRoute
   '/combinations': typeof DeskCombinationsRoute
@@ -157,6 +230,17 @@ export interface FileRoutesByFullPath {
   '/strategies': typeof DeskStrategiesRoute
   '/system': typeof DeskSystemRoute
   '/tactics': typeof DeskTacticsRoute
+  '/v2/compare': typeof V2CompareRoute
+  '/v2/engine': typeof V2EngineRoute
+  '/v2/hourly': typeof V2HourlyRoute
+  '/v2/market': typeof V2MarketRoute
+  '/v2/matrix': typeof V2MatrixRoute
+  '/v2/results': typeof V2ResultsRoute
+  '/v2/settings': typeof V2SettingsRoute
+  '/v2/stages': typeof V2StagesRoute
+  '/v2/trading': typeof V2TradingRoute
+  '/v2/': typeof V2IndexRoute
+  '/v2/config/$id': typeof V2ConfigIdRoute
 }
 export interface FileRoutesByTo {
   '/$': typeof DeskSplatRoute
@@ -178,11 +262,23 @@ export interface FileRoutesByTo {
   '/strategies': typeof DeskStrategiesRoute
   '/system': typeof DeskSystemRoute
   '/tactics': typeof DeskTacticsRoute
+  '/v2/compare': typeof V2CompareRoute
+  '/v2/engine': typeof V2EngineRoute
+  '/v2/hourly': typeof V2HourlyRoute
+  '/v2/market': typeof V2MarketRoute
+  '/v2/matrix': typeof V2MatrixRoute
+  '/v2/results': typeof V2ResultsRoute
+  '/v2/settings': typeof V2SettingsRoute
+  '/v2/stages': typeof V2StagesRoute
+  '/v2/trading': typeof V2TradingRoute
   '/': typeof DeskIndexRoute
+  '/v2': typeof V2IndexRoute
+  '/v2/config/$id': typeof V2ConfigIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_desk': typeof DeskRouteWithChildren
+  '/v2': typeof V2RouteWithChildren
   '/_desk/$': typeof DeskSplatRoute
   '/_desk/bots': typeof DeskBotsRoute
   '/_desk/combinations': typeof DeskCombinationsRoute
@@ -202,12 +298,24 @@ export interface FileRoutesById {
   '/_desk/strategies': typeof DeskStrategiesRoute
   '/_desk/system': typeof DeskSystemRoute
   '/_desk/tactics': typeof DeskTacticsRoute
+  '/v2/compare': typeof V2CompareRoute
+  '/v2/engine': typeof V2EngineRoute
+  '/v2/hourly': typeof V2HourlyRoute
+  '/v2/market': typeof V2MarketRoute
+  '/v2/matrix': typeof V2MatrixRoute
+  '/v2/results': typeof V2ResultsRoute
+  '/v2/settings': typeof V2SettingsRoute
+  '/v2/stages': typeof V2StagesRoute
+  '/v2/trading': typeof V2TradingRoute
   '/_desk/': typeof DeskIndexRoute
+  '/v2/': typeof V2IndexRoute
+  '/v2/config/$id': typeof V2ConfigIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/v2'
     | '/$'
     | '/bots'
     | '/combinations'
@@ -227,6 +335,17 @@ export interface FileRouteTypes {
     | '/strategies'
     | '/system'
     | '/tactics'
+    | '/v2/compare'
+    | '/v2/engine'
+    | '/v2/hourly'
+    | '/v2/market'
+    | '/v2/matrix'
+    | '/v2/results'
+    | '/v2/settings'
+    | '/v2/stages'
+    | '/v2/trading'
+    | '/v2/'
+    | '/v2/config/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/$'
@@ -248,10 +367,22 @@ export interface FileRouteTypes {
     | '/strategies'
     | '/system'
     | '/tactics'
+    | '/v2/compare'
+    | '/v2/engine'
+    | '/v2/hourly'
+    | '/v2/market'
+    | '/v2/matrix'
+    | '/v2/results'
+    | '/v2/settings'
+    | '/v2/stages'
+    | '/v2/trading'
     | '/'
+    | '/v2'
+    | '/v2/config/$id'
   id:
     | '__root__'
     | '/_desk'
+    | '/v2'
     | '/_desk/$'
     | '/_desk/bots'
     | '/_desk/combinations'
@@ -271,11 +402,23 @@ export interface FileRouteTypes {
     | '/_desk/strategies'
     | '/_desk/system'
     | '/_desk/tactics'
+    | '/v2/compare'
+    | '/v2/engine'
+    | '/v2/hourly'
+    | '/v2/market'
+    | '/v2/matrix'
+    | '/v2/results'
+    | '/v2/settings'
+    | '/v2/stages'
+    | '/v2/trading'
     | '/_desk/'
+    | '/v2/'
+    | '/v2/config/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   DeskRoute: typeof DeskRouteWithChildren
+  V2Route: typeof V2RouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -285,6 +428,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof DeskRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v2': {
+      id: '/v2'
+      path: '/v2'
+      fullPath: '/v2'
+      preLoaderRoute: typeof V2RouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_desk/': {
@@ -427,6 +577,83 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DeskTacticsRouteImport
       parentRoute: typeof DeskRoute
     }
+    '/v2/': {
+      id: '/v2/'
+      path: '/'
+      fullPath: '/v2/'
+      preLoaderRoute: typeof V2IndexRouteImport
+      parentRoute: typeof V2Route
+    }
+    '/v2/compare': {
+      id: '/v2/compare'
+      path: '/compare'
+      fullPath: '/v2/compare'
+      preLoaderRoute: typeof V2CompareRouteImport
+      parentRoute: typeof V2Route
+    }
+    '/v2/engine': {
+      id: '/v2/engine'
+      path: '/engine'
+      fullPath: '/v2/engine'
+      preLoaderRoute: typeof V2EngineRouteImport
+      parentRoute: typeof V2Route
+    }
+    '/v2/hourly': {
+      id: '/v2/hourly'
+      path: '/hourly'
+      fullPath: '/v2/hourly'
+      preLoaderRoute: typeof V2HourlyRouteImport
+      parentRoute: typeof V2Route
+    }
+    '/v2/market': {
+      id: '/v2/market'
+      path: '/market'
+      fullPath: '/v2/market'
+      preLoaderRoute: typeof V2MarketRouteImport
+      parentRoute: typeof V2Route
+    }
+    '/v2/matrix': {
+      id: '/v2/matrix'
+      path: '/matrix'
+      fullPath: '/v2/matrix'
+      preLoaderRoute: typeof V2MatrixRouteImport
+      parentRoute: typeof V2Route
+    }
+    '/v2/results': {
+      id: '/v2/results'
+      path: '/results'
+      fullPath: '/v2/results'
+      preLoaderRoute: typeof V2ResultsRouteImport
+      parentRoute: typeof V2Route
+    }
+    '/v2/settings': {
+      id: '/v2/settings'
+      path: '/settings'
+      fullPath: '/v2/settings'
+      preLoaderRoute: typeof V2SettingsRouteImport
+      parentRoute: typeof V2Route
+    }
+    '/v2/stages': {
+      id: '/v2/stages'
+      path: '/stages'
+      fullPath: '/v2/stages'
+      preLoaderRoute: typeof V2StagesRouteImport
+      parentRoute: typeof V2Route
+    }
+    '/v2/trading': {
+      id: '/v2/trading'
+      path: '/trading'
+      fullPath: '/v2/trading'
+      preLoaderRoute: typeof V2TradingRouteImport
+      parentRoute: typeof V2Route
+    }
+    '/v2/config/$id': {
+      id: '/v2/config/$id'
+      path: '/config/$id'
+      fullPath: '/v2/config/$id'
+      preLoaderRoute: typeof V2ConfigIdRouteImport
+      parentRoute: typeof V2Route
+    }
   }
 }
 
@@ -478,8 +705,39 @@ const DeskRouteChildren: DeskRouteChildren = {
 
 const DeskRouteWithChildren = DeskRoute._addFileChildren(DeskRouteChildren)
 
+interface V2RouteChildren {
+  V2CompareRoute: typeof V2CompareRoute
+  V2EngineRoute: typeof V2EngineRoute
+  V2HourlyRoute: typeof V2HourlyRoute
+  V2MarketRoute: typeof V2MarketRoute
+  V2MatrixRoute: typeof V2MatrixRoute
+  V2ResultsRoute: typeof V2ResultsRoute
+  V2SettingsRoute: typeof V2SettingsRoute
+  V2StagesRoute: typeof V2StagesRoute
+  V2TradingRoute: typeof V2TradingRoute
+  V2IndexRoute: typeof V2IndexRoute
+  V2ConfigIdRoute: typeof V2ConfigIdRoute
+}
+
+const V2RouteChildren: V2RouteChildren = {
+  V2CompareRoute: V2CompareRoute,
+  V2EngineRoute: V2EngineRoute,
+  V2HourlyRoute: V2HourlyRoute,
+  V2MarketRoute: V2MarketRoute,
+  V2MatrixRoute: V2MatrixRoute,
+  V2ResultsRoute: V2ResultsRoute,
+  V2SettingsRoute: V2SettingsRoute,
+  V2StagesRoute: V2StagesRoute,
+  V2TradingRoute: V2TradingRoute,
+  V2IndexRoute: V2IndexRoute,
+  V2ConfigIdRoute: V2ConfigIdRoute,
+}
+
+const V2RouteWithChildren = V2Route._addFileChildren(V2RouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   DeskRoute: DeskRouteWithChildren,
+  V2Route: V2RouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

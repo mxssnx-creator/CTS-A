@@ -2463,7 +2463,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           : short
             ? shortProtectGrid(e, cfg)
             : [null];
-        let grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : [null];
+        let grid: Array<ReturnType<typeof shortProtectGrid>[number] | null> = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : [null];
         if (performingLive(e) && short && grid.length > 1) {
           const indPf = typeGateMem.get(e)?.indications?.[ind]?.pf ?? 1;
           const breadth = Math.max(1, Math.min(grid.length, 1 + Math.floor((Math.min(indPf, 2) - 1) / 0.15)));

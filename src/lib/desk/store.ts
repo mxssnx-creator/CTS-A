@@ -1099,7 +1099,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
         const owner = liveLane.get(`${o.connId}:${o.symbol}`);
         const mine = o.bot ? "bot" : "progress";
         if (owner && owner !== mine) continue;
-        const heldLive = get().exchange?.connId === o.connId && get().exchange.positions.some((p) => p.symbol === o.symbol && p.qty > 0);
+        const heldLive = get().exchange?.connId === o.connId && !!get().exchange?.positions.some((p) => p.symbol === o.symbol && p.qty > 0);
         if (heldLive && owner !== mine) continue;
         liveBotSent.add(o.id);
         liveBotAt[lane] = nowLive;
@@ -2170,7 +2170,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
         const botByConn = { ...get().botByConn, "bingx-vst-02": { ...x02, running: false } };
         set({
           botByConn,
-          connections: get().connections.map((c) => ({ ...c, armed: c.id === "bingx-vst-02" ? false : Boolean(botByConn[c.id]?.running) })),
+          connections: get().connections.map((c) => ({ ...c, armed: c.id === "bingx-vst-02" ? false : Boolean((botByConn as Record<string, { running?: boolean } | undefined>)[c.id]?.running) })),
         });
       }
       connLocked = true;
