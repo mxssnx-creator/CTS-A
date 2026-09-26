@@ -128,7 +128,8 @@ export function registerVenueSymbol(id: string, venue: string) {
 
 /** BingX clientOrderID prefix that marks CTS-A tickets for a connection. */
 export const DESK_CLIENT_PREFIX = "CTSA";
-export type DeskClientKind = "E" | "S" | "T" | "C" | "L" | "X";
+/** E entry · S stop · T take-profit/trail · C close · L limit · X other · O Overall Block control order. */
+export type DeskClientKind = "E" | "S" | "T" | "C" | "L" | "X" | "O";
 
 export function connClientTag(connId: string | undefined | null): string {
   if (connId === "bingx-vst-01") return "V1";
@@ -155,13 +156,62 @@ export function isDeskClientOrderId(id: string | undefined | null, connId?: stri
   return /^CTSA(V1|V2|X1|XX)_/.test(s);
 }
 
-export function clientOrderKindOf(type: string | undefined, closePosition?: boolean): DeskClientKind {
+export function clientOrderKindOf(type: string | undefined, closePosition?: boolean, overall?: boolean): DeskClientKind {
   if (closePosition) return "C";
   const u = String(type || "").toUpperCase();
   if (u.includes("STOP") && !u.includes("TAKE_PROFIT")) return "S";
   if (u.includes("TAKE_PROFIT") || u.includes("TRAILING")) return "T";
+  if (overall) return "O";
   if (u.includes("LIMIT")) return "L";
   return "E";
+}
+
+/** Kind letter of a desk clientOrderID (`CTSA<conn>_<kind>…`), or null for foreign ids. */
+export function deskClientKindOf(id: string | undefined | null): DeskClientKind | null {
+  const m = /^CTSA(?:V1|V2|X1|XX)_([ESTCLXO])/.exec(String(id || "").toUpperCase());
+  return m ? (m[1] as DeskClientKind) : null;
+}
+
+/** FNV-1a 32-bit over a string → 8 hex chars. Stable across server/runner/browser. */
+export function fnv1a(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+type HashPos = { symbol?: string; side?: string; qty?: number };
+type HashOrd = { id?: string; orderId?: string; type?: string; stopPrice?: number; price?: number; qty?: number };
+const hNum = (x: unknown) => {
+  const n = Number(x);
+  return Number.isFinite(n) ? String(Math.round(n * 1e8) / 1e8) : "0";
+};
+
+/**
+ * Stable hash of an exchange book (positions symbol:side:qty + orders id:type:stopPrice:qty).
+ * Equal-count replacements (cancel + re-place, amended stops) change it; row order does not.
+ */
+export function bookHash(positions: HashPos[] | null | undefined, orders: HashOrd[] | null | undefined): string {
+  const ps = (positions ?? []).map((p) => `${p.symbol ?? ""}:${p.side ?? ""}:${hNum(p.qty)}`).sort();
+  const os = (orders ?? [])
+    .map((o) => `${o.id ?? o.orderId ?? ""}:${o.type ?? ""}:${hNum(o.stopPrice ?? o.price)}:${hNum(o.qty)}`)
+    .sort();
+  return fnv1a(`P${ps.join("|")}#O${os.join("|")}`);
+}
+
+/** Connection identity hash: conn id + network only (never keys or secrets). */
+export function connHash(connId: string | undefined | null, network: string | undefined | null): string {
+  return fnv1a(`${String(connId || "")}@${String(network || "")}`);
+}
+
+/** Overall control state hash (per key orderId/target/filled) so control-order swaps propagate. */
+export function controlHash(ctl: Record<string, { orderId?: string; target?: number; filled?: number }> | null | undefined): string {
+  const rows = Object.entries(ctl ?? {})
+    .map(([k, c]) => `${k}:${c?.orderId ?? ""}:${hNum(c?.target)}:${hNum(c?.filled)}`)
+    .sort();
+  return fnv1a(rows.join("|"));
 }
 
 export function isOwnedExchangeOrder(

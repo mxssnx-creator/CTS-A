@@ -105,6 +105,7 @@ import {
 } from "./bots";
 import {
   applyLiveTape,
+  bookHash,
   LIVE_SET,
   MAX_LIVE_NOTIONAL,
   makeClientOrderId,
@@ -1915,7 +1916,12 @@ export const useDesk = create<DeskStore>((set, get) => ({
       prevSess &&
       prevSess.livePos === sess.livePos &&
       prevSess.liveOrd === sess.liveOrd &&
-      prevSess.pingOk === sess.pingOk;
+      prevSess.pingOk === sess.pingOk &&
+      // Equal counts are not enough: a replaced order / swapped position changes the hashes.
+      prevSess.bookHash === sess.bookHash &&
+      prevSess.connHash === sess.connHash &&
+      prevSess.ctlHash === sess.ctlHash &&
+      (!book?.ok || !get().exchange?.ok || bookHash(book.positions, book.orders) === bookHash(get().exchange!.positions, get().exchange!.orders));
     if (sameShape && prevSess && sess) {
       Object.assign(prevSess, sess);
       const heldEx = get().exchange;
@@ -1955,9 +1961,9 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const sameEx =
       prevEx &&
       nextBook &&
-      prevEx.positions.length === nextBook.positions.length &&
-      prevEx.orders.length === nextBook.orders.length &&
-      prevEx.equity === nextBook.equity;
+      prevEx.connId === nextBook.connId &&
+      prevEx.equity === nextBook.equity &&
+      bookHash(prevEx.positions, prevEx.orders) === bookHash(nextBook.positions, nextBook.orders);
     const liveId = String((sess as { conn?: string } | null)?.conn || get().activeConnId || "bingx-vst-02");
     const liveNet =
       String((sess as { network?: string } | null)?.network || "") === "mainnet" || liveId === "bingx-x01" ? "mainnet" : "testnet";

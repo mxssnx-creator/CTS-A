@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, deskClientPrefix, filterDeskRealized, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, systemProcessedNet } from "./feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, bookHash, clientOrderKindOf, connHash, controlHash, deskClientKindOf, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, deskClientPrefix, filterDeskRealized, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, systemProcessedNet } from "./feed.ts";
 import {
   buildCanonical,
   configureLiveExecution,
@@ -135,6 +135,45 @@ describe("live feed", () => {
     assert.equal(remOnly?.remaining, 0.15);
     assert.ok(Math.abs((remOnly?.qty ?? 0) - 0.2) < 1e-9);
     assert.equal(remOnly?.status, "partial");
+  });
+
+  it("tags Overall control orders with a distinct clientOrderId kind", () => {
+    assert.equal(clientOrderKindOf("MARKET", false, true), "O");
+    assert.equal(clientOrderKindOf("MARKET"), "E");
+    assert.equal(clientOrderKindOf("STOP_MARKET", false, true), "S");
+    assert.equal(clientOrderKindOf("MARKET", true, true), "C");
+    const id = makeClientOrderId("bingx-vst-02", "O");
+    assert.equal(isDeskClientOrderId(id, "bingx-vst-02"), true);
+    assert.equal(deskClientKindOf(id), "O");
+    assert.equal(deskClientKindOf(makeClientOrderId("bingx-x01", "E")), "E");
+    assert.equal(deskClientKindOf("manual-1"), null);
+  });
+
+  it("bookHash / connHash / controlHash change on equal-count replacements, not on row order", () => {
+    const pos = [
+      { symbol: "BTCUSDT", side: "long", qty: 0.01 },
+      { symbol: "ETHUSDT", side: "short", qty: 0.2 },
+    ];
+    const ord = [
+      { id: "1", type: "STOP_MARKET", stopPrice: 60000, qty: 0.01 },
+      { id: "2", type: "TAKE_PROFIT_MARKET", stopPrice: 2500, qty: 0.2 },
+    ];
+    const h = bookHash(pos, ord);
+    assert.match(h, /^[0-9a-f]{8}$/);
+    assert.equal(bookHash([...pos].reverse(), [...ord].reverse()), h, "row order is irrelevant");
+    // Same counts, replaced order id → new hash.
+    assert.notEqual(bookHash(pos, [ord[0]!, { ...ord[1]!, id: "3" }]), h);
+    // Same counts, moved stop → new hash.
+    assert.notEqual(bookHash(pos, [{ ...ord[0]!, stopPrice: 60100 }, ord[1]!]), h);
+    // Same counts, swapped position side/qty → new hash.
+    assert.notEqual(bookHash([pos[0]!, { ...pos[1]!, side: "long" }], ord), h);
+    assert.notEqual(bookHash([pos[0]!, { ...pos[1]!, qty: 0.3 }], ord), h);
+    assert.equal(connHash("bingx-vst-02", "testnet"), connHash("bingx-vst-02", "testnet"));
+    assert.notEqual(connHash("bingx-vst-02", "testnet"), connHash("bingx-vst-02", "mainnet"));
+    assert.notEqual(connHash("bingx-vst-01", "testnet"), connHash("bingx-vst-02", "testnet"));
+    const c1 = controlHash({ "BTCUSDT:long": { orderId: "ob1", target: 1.5, filled: 0 } });
+    assert.notEqual(controlHash({ "BTCUSDT:long": { orderId: "ob2", target: 1.5, filled: 0 } }), c1);
+    assert.notEqual(controlHash({ "BTCUSDT:long": { orderId: "ob1", target: 1.5, filled: 0.5 } }), c1);
   });
 
   it("tags desk clientOrderId per connection and ignores foreign exchange orders", () => {

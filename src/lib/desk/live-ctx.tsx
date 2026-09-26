@@ -2,6 +2,7 @@ import { createContext, useContext, useLayoutEffect, useRef } from "react";
 import { useRouterState } from "@tanstack/react-router";
 import type { ExchangeBook } from "@/lib/desk/types";
 import { useDesk } from "@/lib/desk/store";
+import { bookHash, connHash } from "@/lib/desk/feed";
 import { bindDeskScroll, restoreDeskScroll, saveDeskScroll } from "./scroll-pane";
 
 export type LiveDeskPayload = {
@@ -50,6 +51,12 @@ export type LiveNumbers = {
   conn: string;
   network: string;
   venueLabel: string;
+  /** Book (positions + orders) hash — changes on equal-count replacements. */
+  bookHash: string;
+  /** Connection identity hash (conn id + network). */
+  connHash: string;
+  /** Overall control-order state hash from the session runner. */
+  ctlHash: string;
 };
 
 export function venueLabelFor(conn?: string, network?: string): string {
@@ -171,6 +178,9 @@ export function liveNumbers(
     conn,
     network,
     venueLabel,
+    bookHash: exchange?.ok ? bookHash(exchange.positions, exchange.orders) : str(session?.bookHash, ""),
+    connHash: str(session?.connHash, connHash(conn, network)),
+    ctlHash: str(session?.ctlHash, ""),
   };
 }
 
@@ -216,7 +226,11 @@ function sameSnap(a: LiveNumbers, b: LiveNumbers) {
     a.at === b.at &&
     a.overall === b.overall &&
     a.session === b.session &&
-    a.exchange === b.exchange
+    a.exchange === b.exchange &&
+    // Sessions are merged in place; hashes catch equal-count book / connection / control swaps.
+    a.bookHash === b.bookHash &&
+    a.connHash === b.connHash &&
+    a.ctlHash === b.ctlHash
   );
 }
 

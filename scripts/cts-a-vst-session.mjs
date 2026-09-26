@@ -5,7 +5,7 @@
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
-import { applyLiveTape, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, bookHash, connHash, controlHash, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
@@ -674,6 +674,10 @@ function snapshot(e, extra) {
       }
       return mix;
     })(),
+    // Change-detection hashes: book (positions + orders), connection identity, Overall control state.
+    bookHash: bookHash(lastBook.positions, lastBook.orders),
+    connHash: connHash(e.activeConnId || CONN, extra?.network || NETWORK_PREF),
+    ctlHash: controlHash(e.overallCtl?.[e.activeConnId || CONN]),
     at: Date.now(),
     tick: e.tick,
   };
@@ -1017,14 +1021,35 @@ function liveNotional(e, f, equity, rel) {
   const base = sizeNotional(equity) * liveVolMul(e);
   if (!blockHit) return base;
   const n = Math.max(1, Number(rel?.blockLevel) || 1);
+  // Overall first: its note also carries "shared"/"additive", which must not pick the Shared ratio.
   const overall = /Overall Block/i.test(note);
-  const shared = /shared/i.test(note);
+  const shared = !overall && /shared/i.test(note);
   let vr = 0.1;
-  if (shared) vr = Math.min(3, Math.max(0.4, Number(BLOCK.sharedVolumeRatio) || 1));
-  else if (overall) vr = Math.min(3, Math.max(0.4, Number(BLOCK.overallVolumeRatio) || 1));
+  if (overall) {
+    // Engine control qty relative to the parent base (paper qty × px units differ from live equity sizing).
+    const q = Number(rel?.ovQty);
+    const b = Number(rel?.baseQty);
+    vr = q > 0 && b > 0 ? Math.min(3, q / b) : clampOverallVol(BLOCK.overallVolumeRatio);
+  } else if (shared) vr = Math.min(3, Math.max(0.4, Number(BLOCK.sharedVolumeRatio) || 1));
   else vr = Math.min(1, Math.max(0.1, Number(BLOCK.volumeRatio) || 0.1)) * n;
   return base * vr;
 }
+
+/** Overall intent sizing + reconcile against the exchange position for this key. */
+function overallLiveNotional(e, f, book) {
+  const base = sizeNotional(book?.equity) * liveVolMul(e);
+  const want = liveNotional(e, f, book?.equity, f._rel);
+  const ctl = e.overallCtl?.[e.activeConnId || CONN]?.[`${f.symbol}:${f.side}`];
+  const b = Number(f._rel?.baseQty);
+  const tgtRatio = ctl && b > 0 ? Math.max(0, Number(ctl.target) || 0) / b : clampOverallVol(BLOCK.overallVolumeRatio);
+  const ex = (book?.positions ?? []).find((p) => p.symbol === f.symbol && p.side === f.side);
+  const exN = ex ? Math.abs(Number(ex.qty) || 0) * (Number(ex.mark) || Number(ex.entry) || 0) : 0;
+  const gap = base * (1 + tgtRatio) - exN;
+  return { notional: Math.max(0, Math.min(want, gap)), covered: gap <= base * 0.05 };
+}
+/** key → `${orderId}:${target}` of the engine control order; a change frees its skipped intents. */
+const overallSig = new Map();
+const overallSkipped = new Map();
 
 function mergeLivePositions(e, book) {
   const conn = e.activeConnId || CONN;
@@ -1890,6 +1915,19 @@ async function mirrorToExchange(e, network, cfg) {
       note: o.note,
       _fromQueue: true,
     }));
+  {
+    // Engine Overall control order changed (new id / target) → its earlier failed intents may retry.
+    const ctlNow = e.overallCtl?.[e.activeConnId || CONN] ?? {};
+    for (const key of new Set([...overallSig.keys(), ...Object.keys(ctlNow)])) {
+      const c = ctlNow[key];
+      const sig = c ? `${c.orderId ?? ""}:${Number(c.target || 0).toFixed(8)}` : "";
+      if (overallSig.get(key) === sig) continue;
+      for (const id of overallSkipped.get(key) ?? []) skippedFills.delete(id);
+      overallSkipped.delete(key);
+      if (sig) overallSig.set(key, sig);
+      else overallSig.delete(key);
+    }
+  }
   for (const f of [...e.fills, ...queueIntents]) {
     if (fillJobs.length >= 16) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
@@ -1924,12 +1962,31 @@ async function mirrorToExchange(e, network, cfg) {
         rangeType,
         tpAtr: Number(order?.tpAtr ?? pos?.tpAtr ?? currentPick?.cfg?.tpAtr ?? LIVE_CFG.tpAtr),
         slOfTp: Number(order?.slOfTp ?? pos?.slOfTp ?? currentPick?.cfg?.slOfTp ?? LIVE_CFG.slOfTp),
+        ovQty: Number(order?.qty) || 0,
+        baseQty: Number(pos?.legs?.[0]?.qty) || 0,
       };
       if (!liveShouldExecute(e, rel) || liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType })) {
         skippedFills.add(f.id);
         continue;
       }
       f._rel = rel;
+      f._ov = /Overall Block/i.test(String(rel.note || f.note || ""));
+    }
+    if (f._ov) {
+      // One Overall control order per symbol+direction: the engine order id is placed at most once.
+      const ovId = `ov:${f.orderId || f.id}`;
+      if (mirrored.has(ovId) || fillJobs.some((x) => x._ov && x.symbol === f.symbol && x.side === f.side)) {
+        mirrored.add(f.id);
+        continue;
+      }
+      const ovSize = overallLiveNotional(e, f, book);
+      if (ovSize.covered || !(ovSize.notional > 0)) {
+        // Exchange position already holds base + Overall target for this key.
+        mirrored.add(f.id);
+        mirrored.add(ovId);
+        continue;
+      }
+      f._ovNotional = ovSize.notional;
     }
     if (!isUniverseSymbol(f.symbol)) {
       mirrored.add(f.id);
@@ -1962,7 +2019,8 @@ async function mirrorToExchange(e, network, cfg) {
           quantity: 0,
           type: "MARKET",
           price: f.px,
-          notional: liveNotional(e, f, book.equity, f._rel),
+          notional: f._ov ? f._ovNotional : liveNotional(e, f, book.equity, f._rel),
+          overall: Boolean(f._ov),
           confirmLive: true,
           slAtr: protectFor(f.symbol).slAtr,
           tpRatio: protectFor(f.symbol).tpRatio,
@@ -1979,6 +2037,12 @@ async function mirrorToExchange(e, network, cfg) {
     const { f, r, threw } = row;
     if (!r?.ok) {
       skippedFills.add(f.id);
+      if (f._ov) {
+        const k = `${f.symbol}:${f.side}`;
+        const bag = overallSkipped.get(k) ?? new Set();
+        bag.add(f.id);
+        overallSkipped.set(k, bag);
+      }
       const err = String(r?.error ?? "err");
       const dead = markDeadSymbol(f.symbol, err);
       if (!dead && isMarginFail(err)) {
@@ -1995,6 +2059,7 @@ async function mirrorToExchange(e, network, cfg) {
       continue;
     }
     mirrored.add(f.id);
+    if (f._ov) mirrored.add(`ov:${f.orderId || f.id}`);
     mirrored.add(`own:${f.symbol}:${f.side}`);
     mirrored.add(`live:${f.symbol}:${f.side}`);
     taggedKeys.add(`${f.symbol}:${f.side}`);

@@ -838,6 +838,8 @@ export async function placeSwapOrder(input: {
   attachProtect?: boolean;
   equity?: number;
   clientOrderId?: string;
+  /** Overall Block control order → clientOrderID kind "O". */
+  overall?: boolean;
 }): Promise<LiveOrderResult> {
   if (!input.confirmLive) return { ok: false, error: "Live confirm required" };
   const { apiKey, secret } = resolveKeys(input.connId, input.apiKey, input.secret);
@@ -941,7 +943,7 @@ export async function placeSwapOrder(input: {
     const tagged =
       input.clientOrderId && isDeskClientOrderId(input.clientOrderId, input.connId)
         ? input.clientOrderId
-        : makeClientOrderId(input.connId, clientOrderKindOf(input.type, input.closePosition));
+        : makeClientOrderId(input.connId, clientOrderKindOf(input.type, input.closePosition, input.overall));
     params.clientOrderID = tagged;
     try {
       const url = signedUrl(HOSTS[input.network][0], "/openApi/swap/v2/trade/order", secret, params);

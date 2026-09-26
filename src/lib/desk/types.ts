@@ -304,9 +304,9 @@ export interface BlockConfig {
   overallVolumeRatio?: number;
   /** Shared (old split) volume ratio. Default 1.5. */
   sharedVolumeRatio?: number;
-  /** Extra Overall layer per symbol (independent of book Overall). Default true. */
+  /** Overall gate: the per-symbol window must pass before the position's control order is placed. Default true. */
   overallSymbol?: boolean;
-  /** Extra Overall layer per direction long/short (independent). Default true. */
+  /** Overall gate: the per-direction (long/short) window must pass as well. Default true. */
   overallDirection?: boolean;
   /** Shared Overall: stack book+symbol+dir additively (default) vs split one cap. */
   overallSharedStack?: "additive" | "split";
@@ -452,6 +452,19 @@ export interface Connection {
   unlimitedOrders: boolean;
   lastPingMs: number;
   equity?: number;
+}
+
+/** One Overall Block control order per position key (symbol + direction). */
+export interface OverallCtlState {
+  /** Live engine order id (undefined once filled/cancelled). */
+  orderId?: string;
+  /** Total Overall extra qty wanted for this position. */
+  target: number;
+  /** Overall extra qty already filled. Never re-added past `target`. */
+  filled: number;
+  /** Σ lane base × ratio when `target` was planned (re-plan only when this moves). */
+  desired?: number;
+  level?: number;
 }
 
 export interface ExchangePosition {
@@ -1333,6 +1346,8 @@ export interface VstEngine {
   lastRange: RangeType;
   lastBlockAt: number;
   blockLanes: Record<string, BlockLaneState>;
+  /** Overall Block control: ONE order per connection → `${symbol}:${side}` (target/filled extra qty). */
+  overallCtl?: Record<string, Record<string, OverallCtlState>>;
   blockWindows: Record<number, BlockPosWindow>;
   blockWindowsBySymbol: Record<string, Record<number, BlockPosWindow>>;
   blockWindowsBySide?: Record<string, Record<number, BlockPosWindow>>;

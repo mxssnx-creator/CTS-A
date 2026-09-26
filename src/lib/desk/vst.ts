@@ -3347,6 +3347,10 @@ function cancelLane(e: VstEngine, p: LivePosition) {
     markTerminal(e, o, "cancelled");
   }
   cancelQueued(e, (o) => o.symbol === p.symbol && o.side === p.side && o.connId === p.connId && sameProtectLane(p, o, complete));
+  // Overall control is per position key: clear it once no other leg holds this symbol/side.
+  if (!e.positions.some((x) => x !== p && x.connId === p.connId && x.symbol === p.symbol && x.side === p.side && x.qty > 0)) {
+    clearOverallCtl(e, p.connId, p.symbol, p.side);
+  }
 }
 function bookRealized(e: VstEngine, pnl: number, reason: "sl" | "tp" | "time" | "partial") {
   const x = Number.isFinite(pnl) ? pnl : 0;
@@ -4208,9 +4212,11 @@ function overallVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
 
 function blockModeOf(o: { note?: string }): "shared" | "additive" {
   const n = o.note || "";
+  // Overall control orders are one per position key; check before the mode words in the note.
+  if (/Overall Block/i.test(n)) return "additive";
   if (/additive/i.test(n)) return "additive";
   if (/shared/i.test(n)) return "shared";
-  return /Overall Block/i.test(n) ? "additive" : "shared";
+  return "shared";
 }
 
 function liveBlockCounts(block: BlockConfig) {
@@ -5812,19 +5818,38 @@ function isOverallBlockOrder(o: LiveOrder) {
   return /Overall Block/i.test(o.note || "") || /^ob/i.test(o.id || "");
 }
 type OverallScope = "book" | "symbol" | "dir";
-function overallScopes(block?: BlockConfig): OverallScope[] {
-  if (block?.overall === false) return [];
-  const xs: OverallScope[] = ["book"];
-  if (block?.overallSymbol !== false) xs.push("symbol");
-  if (block?.overallDirection !== false) xs.push("dir");
-  return xs;
+/** Overall control state is keyed per connection, then per position `${symbol}:${side}`. */
+function overallKey(symbol: string, side: Side) {
+  return `${symbol}:${side}`;
 }
-function overallScopeOf(o: { note?: string }): OverallScope | null {
-  if (!isOverallBlockOrder(o as LiveOrder)) return null;
-  const n = o.note || "";
-  if (/Overall Block symbol/i.test(n)) return "symbol";
-  if (/Overall Block dir/i.test(n)) return "dir";
-  return "book";
+function overallCtlOf(e: VstEngine, conn: string, symbol: string, side: Side) {
+  return e.overallCtl?.[conn]?.[overallKey(symbol, side)];
+}
+function isLiveOrder(o: LiveOrder) {
+  return o.status === "open" || o.status === "partial" || o.status === "queued";
+}
+/** Cancel one engine order wherever it sits (queue or working book). */
+function cancelEngineOrder(e: VstEngine, o: LiveOrder): boolean {
+  if (e.queue.includes(o)) {
+    cancelQueued(e, (x) => x === o);
+    return true;
+  }
+  if (isLiveOrder(o)) {
+    markTerminal(e, o, "cancelled");
+    return true;
+  }
+  return false;
+}
+/** Position went flat (or Overall is off): cancel its Overall control order(s) and drop the state. */
+function clearOverallCtl(e: VstEngine, conn: string, symbol: string, side: Side): number {
+  let n = 0;
+  for (const o of [...e.queue, ...e.orders]) {
+    if (o.connId !== conn || o.symbol !== symbol || o.side !== side || !isOverallBlockOrder(o)) continue;
+    if (cancelEngineOrder(e, o)) n += 1;
+  }
+  const map = e.overallCtl?.[conn];
+  if (map) delete map[overallKey(symbol, side)];
+  return n;
 }
 function overallWindowOk(
   e: VstEngine,
@@ -5895,7 +5920,15 @@ function syncBlockParents(e: VstEngine, conn: string, block?: BlockConfig) {
 
 function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
   if (!isBlockOrder(o)) return;
-  if (isOverallBlockOrder(o)) return;
+  if (isOverallBlockOrder(o)) {
+    // Overall fills count against the per-position target so the control order is never re-added past it.
+    const ctl = overallCtlOf(e, o.connId, o.symbol, o.side);
+    if (ctl) {
+      ctl.filled += Math.max(0, take);
+      if (o.remaining <= 1e-12 && ctl.orderId === o.id) ctl.orderId = undefined;
+    }
+    return;
+  }
   e.blockLanes = e.blockLanes ?? {};
   const k = blockLaneKey(o.symbol, o.side, blockModeOf(o));
   const lane = e.blockLanes[k];
@@ -6082,8 +6115,10 @@ export function adjustActiveBlocks(
   }
 
   for (const b of blocks) {
-    if (b.multiple <= maxM) continue;
-    for (const o of b.orders.slice(maxM)) dropOrder(o);
+    // Overall control orders are one per position key and never count toward the N-rung cap.
+    const rungs = b.orders.filter((o) => !isOverallBlockOrder(o));
+    if (rungs.length <= maxM) continue;
+    for (const o of rungs.slice(maxM)) dropOrder(o);
   }
 
   syncBlockParents(e, conn, block);
@@ -6102,6 +6137,24 @@ export function adjustActiveBlocks(
   const overall = block.overall !== false;
   const overallPause = !overall && block.windows !== false && blockPosPaused(e, evalN);
   const volModes = liveVolumeModes(block);
+  const ovModes = overall ? overallVolumeModes(block) : [];
+
+  // Overall control: drop state + orders for keys that went flat (or when Overall is off).
+  {
+    const openKeys = new Set(
+      e.positions.filter((p) => p.connId === conn && p.qty > 0).map((p) => overallKey(p.symbol, p.side)),
+    );
+    const stale = new Set<string>();
+    for (const k of Object.keys(e.overallCtl?.[conn] ?? {})) if (!overall || !openKeys.has(k)) stale.add(k);
+    for (const o of collectBlockOrders(e, conn)) {
+      const k = overallKey(o.symbol, o.side);
+      if (isOverallBlockOrder(o) && (!overall || !openKeys.has(k))) stale.add(k);
+    }
+    for (const k of stale) {
+      const [symbol, side] = k.split(":") as [string, Side];
+      cancelled += clearOverallCtl(e, conn, symbol, side);
+    }
+  }
 
   // Last-N / relation PF / indication sets must be current before Overall Block sizes extra volume.
   if ((e.lastRelEvalTick || 0) !== e.tick && (e.progressEval?.at || 0) !== e.tick) {
@@ -6115,6 +6168,7 @@ export function adjustActiveBlocks(
       maxQueue(e) - 8,
       Math.max(counts.length * volModes.length * Math.max(8, e.positions.length), 48),
     );
+    const ovSeen = new Set<string>();
     for (const p of e.positions) {
       if (adds >= addCap) break;
       if (!ownedByDesk(p, conn)) continue;
@@ -6136,38 +6190,26 @@ export function adjustActiveBlocks(
         if (o.symbol === p.symbol && o.side === p.side) usedQty += Math.max(0, o.remaining || 0);
       }
       const plannedRel: {
-        overallKind: boolean;
         next: number;
         qty: number;
-        scope: OverallScope;
         mode: "additive" | "shared";
         lane: BlockLaneState;
         relExtra?: boolean;
       }[] = [];
-      const plannedOv: typeof plannedRel = [];
       let parentBase = Math.max(p.legs[0]?.qty || 0, 1e-12);
-      const plannedCount = () => plannedRel.length + plannedOv.length;
       let relExtraAttached = false;
       for (const mode of volModes) {
-        if (adds + plannedCount() >= addCap) break;
+        if (adds + plannedRel.length >= addCap) break;
         const k = blockLaneKey(p.symbol, p.side, mode);
         const lane = e.blockLanes[k];
         if (!lane || !lane.active || lane.baseQty <= 0) continue;
         if (lane.baseQty > 0) parentBase = Math.min(parentBase, lane.baseQty);
-        const liveBlock = collectBlockOrders(e, conn).filter((o) => o.symbol === p.symbol && o.side === p.side && blockModeOf(o) === mode);
-        const liveRelLevels = new Set(liveBlock.filter((o) => !isOverallBlockOrder(o)).map((o) => Math.max(1, o.level || 1)));
-        const scopes = overallVolumeModes(block).includes(mode) ? overallScopes(block) : [];
-        const liveOvLevels: Record<OverallScope, Set<number>> = { book: new Set(), symbol: new Set(), dir: new Set() };
-        const ovQty: Record<OverallScope, number> = { book: 0, symbol: 0, dir: 0 };
-        for (const o of liveBlock.filter(isOverallBlockOrder)) {
-          const sc = overallScopeOf(o) ?? "book";
-          liveOvLevels[sc].add(Math.max(1, o.level || 1));
-          ovQty[sc] += Math.max(0, o.qty || 0);
-        }
-        let relQty = liveBlock.filter((o) => !isOverallBlockOrder(o)).reduce((s, o) => s + Math.max(0, o.qty || 0), 0);
+        const liveBlock = collectBlockOrders(e, conn).filter(
+          (o) => o.symbol === p.symbol && o.side === p.side && !isOverallBlockOrder(o) && blockModeOf(o) === mode,
+        );
+        const liveRelLevels = new Set(liveBlock.map((o) => Math.max(1, o.level || 1)));
+        let relQty = liveBlock.reduce((s, o) => s + Math.max(0, o.qty || 0), 0);
         let modeAdds = 0;
-        const stackAdd = block.overallSharedStack !== "split";
-        const ovVrScale = !stackAdd && mode === "shared" && scopes.length > 1 ? 1 / scopes.length : 1;
         const extraCap = Math.max(0, maxMul - 1);
         const relVol =
           block.relAdditive === false
@@ -6182,34 +6224,23 @@ export function adjustActiveBlocks(
                 playbook: p.playbook,
               });
         const extraOnce = Math.max(0, relVol) * lane.baseQty;
-        const relPlannedAt = () => plannedRel.length;
-        const plan = (kind: "relation" | "overall", next: number, vr: number, extraQty: number, scope: OverallScope = "book", relExtra = false) => {
-          const overallKind = kind === "overall";
-          const stepMode: "additive" | "shared" = overallKind && stackAdd ? "additive" : mode;
-          const step = relExtra ? 0 : blockStepQty(lane.baseQty, next, vr, maxMul, 1, 0, stepMode);
+        const plan = (next: number, vr: number, extraQty: number, relExtra = false) => {
+          const step = relExtra ? 0 : blockStepQty(lane.baseQty, next, vr, maxMul, 1, 0, mode);
           const qty = step + Math.max(0, extraQty);
           if (!(qty > 0)) return false;
-          (overallKind ? plannedOv : plannedRel).push({ overallKind, next, qty, scope, mode, lane, relExtra });
-          if (overallKind) {
-            liveOvLevels[scope].add(next);
-            ovQty[scope] += qty;
-          } else if (!relExtra) {
+          plannedRel.push({ next, qty, mode, lane, relExtra });
+          if (!relExtra) {
             lane.pending = next;
             liveRelLevels.add(next);
-            relQty += qty;
-          } else {
-            relQty += qty;
           }
+          relQty += qty;
           modeAdds += 1;
           return true;
         };
-        const nBefore = relPlannedAt();
+        const nBefore = plannedRel.length;
         for (const next of counts) {
-          if (adds + plannedCount() >= addCap || modeAdds >= counts.length * (1 + scopes.length)) break;
+          if (adds + plannedRel.length >= addCap || modeAdds >= counts.length) break;
           if (next < minM || next > maxM) continue;
-          if (block.windows !== false && !blockCountPositive(e, next, minPf)) {
-            /* relation still gated by book window; overall scopes use their own */
-          }
           if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
           const vrModeRel = mode === "shared" ? vrShared : vrRel;
           const relCap = lane.baseQty * (mode === "additive" ? Math.min(next * vrModeRel, extraCap) : blockMaxAdditionalRatio(next, vrModeRel, maxMul, mode));
@@ -6223,95 +6254,160 @@ export function adjustActiveBlocks(
             (block.windows === false || blockCountPositive(e, next, minPf))
           ) {
             // Independent N step only. Winning-rel extra is applied once after all N=1–6.
-            plan("relation", next, vrModeRel, 0);
+            plan(next, vrModeRel, 0);
           }
         }
         if (extraOnce > 0 && !relExtraAttached && plannedRel.length > nBefore) {
-          plan("relation", counts[0] ?? 1, 0, extraOnce, "book", true);
+          plan(counts[0] ?? 1, 0, extraOnce, true);
           relExtraAttached = true;
         }
-        // Overall Block after relation/set plans for this mode so last-N extras are already in usedQty/relQty.
-        if (overall && overallVolumeModes(block).includes(mode)) {
-          for (const next of counts) {
-            if (adds + plannedCount() >= addCap) break;
-            if (next < minM || next > maxM) continue;
-            if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
-            const vrModeOv = mode === "shared" ? vrShared : vrOv;
-            for (const scope of scopes) {
-              if (adds + plannedCount() >= addCap) break;
-              if (!overallWindowOk(e, scope, p, next, minPf)) continue;
-              if (liveOvLevels[scope].has(next)) continue;
-              const vrThis = vrModeOv * ovVrScale;
-              const ovCap = lane.baseQty * Math.min(next * vrThis, extraCap);
-              if (ovQty[scope] + 1e-12 < ovCap) plan("overall", next, vrThis, 0, scope);
-            }
-          }
-        }
       }
-      const flushPlanned = (planned: typeof plannedRel) => {
-        const capQty = parentBase * maxMul;
-        const room = capQty - (parentBase + usedQty);
-        if (!(room > 1e-12) || !planned.length) return;
-        const raw = planned.reduce((s, x) => s + x.qty, 0);
-        const scale = raw > room ? room / raw : 1;
+      const levelsFor = () => {
         const hi = pickRange(q, cfg, rangeType);
         const sl0 = p.slDist > 1e-12 ? p.slDist : slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg));
         const tp0 = p.tpDist > 1e-12 ? p.tpDist : tpDistFromSl(sl0, cfg.tpRatio, cfgUsesShortRange(cfg));
         const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
-        if (!(px > 0)) return;
+        if (!(px > 0)) return null;
         const lv = protectLevels(px, p.side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
-        for (const item of planned) {
-          if (adds >= addCap) break;
-          const qty = item.qty * scale;
-          if (!(qty > 0)) continue;
-          const tag = item.relExtra
-            ? "Block extra"
-            : !item.overallKind
-              ? "Block"
-              : item.scope === "symbol"
-                ? "Overall Block symbol"
-                : item.scope === "dir"
-                  ? "Overall Block dir"
-                  : "Overall Block";
-          const oid = nextId(e, item.overallKind ? (item.scope === "symbol" ? "obs" : item.scope === "dir" ? "obd" : "ob") : "b");
-          e.queue.push({
-            id: oid,
-            connId: conn,
-            symbol: p.symbol,
-            side: p.side,
-            type: e.orderType,
-            qty,
-            filled: 0,
-            price: px,
-            remaining: qty,
-            status: "queued",
-            rangeType: hi.rangeType,
-            level: item.next,
-            sl: lv.sl,
-            tp: lv.tp,
-            slDist: lv.slDist,
-            tpDist: lv.tpDist,
-            batchId: `${p.id}:${item.scope}:${item.next}`,
-            tactic: p.tactic ?? tactic,
-            indication: p.indication,
-            kind: "block",
-            playbook: "block",
-            validExec: internAllPhase(e) ? false : p.validExec === true,
-            tpAtr: p.tpAtr,
-            slOfTp: p.slOfTp,
-            trailPct: p.trailPct,
-            note: `${tag} ${item.mode} #${item.next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
-          });
-          countPlaced(e);
-          usedQty += qty;
-          added += 1;
-          adds += 1;
-          e.lastBlockAt = e.tick;
-        }
+        return { hi, px, lv };
       };
-      // Sets / relation Block first, then Overall Block uses leftover room (additional, not share-scaled).
-      flushPlanned(plannedRel);
-      flushPlanned(plannedOv);
+      const pushOrder = (qty: number, level: number, tag: string, mode: string, oid: string, batchId: string) => {
+        const at = levelsFor();
+        if (!at) return false;
+        const { hi, px, lv } = at;
+        e.queue.push({
+          id: oid,
+          connId: conn,
+          symbol: p.symbol,
+          side: p.side,
+          type: e.orderType,
+          qty,
+          filled: 0,
+          price: px,
+          remaining: qty,
+          status: "queued",
+          rangeType: hi.rangeType,
+          level,
+          sl: lv.sl,
+          tp: lv.tp,
+          slDist: lv.slDist,
+          tpDist: lv.tpDist,
+          batchId,
+          tactic: p.tactic ?? tactic,
+          indication: p.indication,
+          kind: "block",
+          playbook: "block",
+          validExec: internAllPhase(e) ? false : p.validExec === true,
+          tpAtr: p.tpAtr,
+          slOfTp: p.slOfTp,
+          trailPct: p.trailPct,
+          note: `${tag} ${mode} #${level} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
+        });
+        countPlaced(e);
+        usedQty += qty;
+        added += 1;
+        adds += 1;
+        e.lastBlockAt = e.tick;
+        return true;
+      };
+      // Sets / relation Block first (full qty, room-capped). The cap counts the relation volume that already
+      // FILLED as well as what is still working — otherwise every cadence refills and the position outgrows
+      // base × maxVolumeMultiplier. Overall control orders are not relation volume (their own budget below).
+      let relFilledCap = 0;
+      for (const m of volModes) {
+        const l = e.blockLanes[blockLaneKey(p.symbol, p.side, m)];
+        if (l?.active) relFilledCap += Math.max(0, l.confirmedAdd || 0);
+      }
+      let ovWorking = 0;
+      for (const o of collectBlockOrders(e, conn))
+        if (o.symbol === p.symbol && o.side === p.side && isOverallBlockOrder(o)) ovWorking += Math.max(0, o.remaining || 0);
+      // parallel: the Overall control order keeps its share of the cap (up to half of the extra room), so it
+      // is never starved by the relation stream; the total still stays ≤ base × maxVolumeMultiplier.
+      const ovReserve =
+        block.overallMode === "parallel" && ovModes.length
+          ? Math.min(parentBase * vrOv * ovModes.length, (parentBase * (maxMul - 1)) / 2)
+          : 0;
+      {
+        const capQty = parentBase * maxMul;
+        const room = capQty - (parentBase + relFilledCap + usedQty - ovWorking) - ovReserve;
+        if (room > 1e-12 && plannedRel.length) {
+          const raw = plannedRel.reduce((s, x) => s + x.qty, 0);
+          const scale = raw > room ? room / raw : 1;
+          for (const item of plannedRel) {
+            if (adds >= addCap) break;
+            const qty = item.qty * scale;
+            if (!(qty > 0)) continue;
+            const oid = nextId(e, "b");
+            if (!pushOrder(qty, item.next, item.relExtra ? "Block extra" : "Block", item.mode, oid, `${p.id}:book:${item.next}`)) break;
+          }
+        }
+      }
+      // Overall Block: exactly ONE control order per position key (symbol + direction) on this connection.
+      const key = overallKey(p.symbol, p.side);
+      if (!ovModes.length || ovSeen.has(key)) continue;
+      ovSeen.add(key);
+      // Base per enabled Overall mode: the relation lane's base when that lane exists, else the parent's
+      // first leg — so Overall does not depend on volumeMode lanes (additive Overall works with shared volume).
+      const legBase = Math.max(0, p.legs[0]?.qty || p.qty || 0);
+      const laneBase = (m: "shared" | "additive") => {
+        const l = e.blockLanes[blockLaneKey(p.symbol, p.side, m)];
+        return l && l.active && l.baseQty > 0 ? l.baseQty : legBase;
+      };
+      const ovBases = ovModes.map(laneBase).filter((x) => x > 0);
+      if (!ovBases.length) continue;
+      const base = Math.min(...ovBases);
+      const sumBase = ovBases.reduce((s, x) => s + x, 0);
+      let relFilled = 0;
+      for (const m of volModes) {
+        const l = e.blockLanes[blockLaneKey(p.symbol, p.side, m)];
+        if (l?.active) relFilled += Math.max(0, l.confirmedAdd || 0);
+      }
+      const keyOrders = collectBlockOrders(e, conn).filter((o) => o.symbol === p.symbol && o.side === p.side);
+      const relLive = keyOrders.filter((o) => !isOverallBlockOrder(o)).reduce((s, o) => s + Math.max(0, o.remaining || 0), 0);
+      // Total position ≤ base × maxMul: Overall takes the room left after the relation extras (filled + working);
+      // in parallel mode the relation stream left the reserved share for it.
+      const capExtra = Math.max(0, base * (maxMul - 1) - relFilled - relLive);
+      const desired = sumBase * vrOv;
+      const byConn = ((e.overallCtl ??= {})[conn] ??= {});
+      const ctl = (byConn[key] ??= { target: 0, filled: 0 });
+      // Target is fixed once per key; re-plan only when the lane set / ratio moves the desired size (>2%),
+      // so relation fills do not churn the control order every cadence.
+      if (ctl.desired == null || Math.abs(desired - ctl.desired) > Math.max(1e-9, ctl.desired * 0.02)) {
+        ctl.desired = desired;
+        ctl.target = Math.max(ctl.filled, Math.min(desired, capExtra));
+      }
+      let cur = keyOrders.find((o) => isOverallBlockOrder(o) && o.id === ctl.orderId);
+      for (const o of keyOrders) {
+        if (isOverallBlockOrder(o) && o !== cur && cancelEngineOrder(e, o)) cancelled += 1;
+      }
+      if (!cur) ctl.orderId = undefined;
+      const want = Math.max(0, ctl.target - ctl.filled);
+      const minLvl = Math.max(1, Math.round(block.minActiveLevel || 1), minM);
+      const level = counts.find((n) => n >= minLvl && n <= maxM);
+      // Symbol / direction windows are gates on the one control order, not separate orders.
+      const gateOk =
+        level != null &&
+        overallWindowOk(e, "book", p, level, minPf) &&
+        (block.overallSymbol === false || overallWindowOk(e, "symbol", p, level, minPf)) &&
+        (block.overallDirection === false || overallWindowOk(e, "dir", p, level, minPf));
+      const tol = Math.max(1e-9, want * 0.02);
+      if (cur) {
+        const rem = Math.max(0, cur.remaining || 0);
+        const drift = Math.abs(rem - want) > tol;
+        if (want <= 1e-9 || (drift && (gateOk || rem > want))) {
+          if (cancelEngineOrder(e, cur)) cancelled += 1;
+          cur = undefined;
+          ctl.orderId = undefined;
+        }
+      }
+      if (!cur && want > 1e-9 && gateOk && adds < addCap) {
+        const oid = nextId(e, "ob");
+        const tag = ovModes.length > 1 ? "parallel" : ovModes[0]!;
+        if (pushOrder(want, level!, "Overall Block", tag, oid, `${p.id}:overall:${level}`)) {
+          ctl.orderId = oid;
+          ctl.level = level;
+        }
+      }
     }
   }
 

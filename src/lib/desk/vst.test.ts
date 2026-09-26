@@ -392,8 +392,10 @@ describe("VST engine", () => {
 
   it("linear and geometric ranges produce finite non-collapsed trade tests", () => {
     for (const range of ["linear", "geometric"] as const) {
+      // 12 symbols: at 8 the gated-stage PF hinges on a handful of trades and flips with Block sizing
+      // (Overall is now capped at base × maxVolumeMultiplier instead of refilling past it).
       const { report } = simulateHours(8, { ...CFG, slAtr: 1.05, maxHoldTicks: 20000, tpRatio: 2.5 }, "hybrid", {
-        symbolCount: 8,
+        symbolCount: 12,
         orderType: "limit",
         rangeType: range,
       });
@@ -2039,7 +2041,36 @@ describe("VST engine", () => {
     assert.ok(ovQty > 0.5, `overall leftover ${ovQty}`);
   });
 
-  it("Overall Block stacks book + symbol + direction additively on shared", () => {
+  const ovPos = (e: ReturnType<typeof initVstEngine>, id: string, symbol: string, side: "long" | "short", qty = 1) => {
+    const q = e.quotes[symbol]!;
+    const s = side === "long" ? 1 : -1;
+    e.positions.push({
+      id,
+      connId: e.activeConnId,
+      symbol,
+      side,
+      qty,
+      plannedQty: qty,
+      avgEntry: q.px,
+      mark: q.px,
+      sl: q.px * (1 - 0.1 * s),
+      tp: q.px * (1 + 0.1 * s),
+      slDist: q.px * 0.1,
+      tpDist: q.px * 0.1,
+      realized: 0,
+      unrealized: 0.02,
+      legs: [{ orderId: `leg-${id}`, qty, px: q.px }],
+      controllingRange: "atr",
+      rangeSpacing: q.atr,
+      status: "open",
+      openedTick: 0,
+      tactic: "trailing",
+      indication: "trend",
+      kind: "short",
+      playbook: "short",
+    });
+  };
+  const ovEngine = (block: Partial<typeof DEFAULT_BLOCK_CONFIG>) => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     e.running = true;
     e.phase = "running";
@@ -2047,132 +2078,174 @@ describe("VST engine", () => {
       ...DEFAULT_BLOCK_CONFIG,
       enabled: true,
       overall: true,
-      overallSymbol: true,
-      overallDirection: true,
-      overallSharedStack: "additive",
       sets: false,
       stack: true,
       windows: false,
-      volumeMode: "shared",
-      overallMode: "shared",
-      sharedVolumeRatio: 1.5,
       relAdditive: false,
       addOnWin: false,
       cadence: 1,
-      counts: [1],
+      counts: [1, 2],
       maxMultiple: 6,
       minMultiple: 1,
       minActiveLevel: 1,
+      maxVolumeMultiplier: 2.5,
+      ...block,
     };
-    const q = e.quotes.BTCUSDT!;
-    e.positions.push({
-      id: "p-ov-stack",
-      connId: e.activeConnId,
-      symbol: "BTCUSDT",
-      side: "long",
-      qty: 1,
-      plannedQty: 1,
-      avgEntry: q.px,
-      mark: q.px,
-      sl: q.px * 0.99,
-      tp: q.px * 1.01,
-      slDist: q.px * 0.01,
-      tpDist: q.px * 0.01,
-      realized: 0,
-      unrealized: 0.02,
-      legs: [{ orderId: "leg-ov-stack", qty: 1, px: q.px }],
-      controllingRange: "atr",
-      rangeSpacing: q.atr,
-      status: "open",
-      openedTick: 0,
-      tactic: "trailing",
-      indication: "trend",
-      kind: "short",
-      playbook: "short",
-    });
-    for (let i = 0; i < 8; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
-    const ov = [...e.queue, ...e.orders].filter((o) => /Overall Block/i.test(o.note || "") && o.level === 1);
-    const book = ov.filter((o) => /Overall Block shared #1/.test(o.note || "") && !/symbol|dir/.test(o.note || ""));
-    const sym = ov.filter((o) => /Overall Block symbol/.test(o.note || ""));
-    const dir = ov.filter((o) => /Overall Block dir/.test(o.note || ""));
-    assert.ok(book.length >= 1, `book ${ov.map((o) => o.note).join(" | ")}`);
-    assert.ok(sym.length >= 1, "symbol overall");
-    assert.ok(dir.length >= 1, "direction overall");
-    finiteNum(book[0]!.qty, sym[0]!.qty, dir[0]!.qty);
-    assert.ok(Math.abs(sym[0]!.qty - book[0]!.qty) < 1e-6, `symbol qty ${sym[0]!.qty} vs book ${book[0]!.qty}`);
-    assert.ok(Math.abs(dir[0]!.qty - book[0]!.qty) < 1e-6, `dir qty ${dir[0]!.qty}`);
-    const stacked = book[0]!.qty + sym[0]!.qty + dir[0]!.qty;
-    assert.ok(stacked > 0, `stacked ${stacked}`);
-    assert.ok(stacked <= 1.5 + 1e-6, `overall extra ${stacked} exceeds 1.5× cap`);
-    e.blockCfg = { ...e.blockCfg, counts: [1, 2], maxMultiple: 6 };
-    for (let i = 0; i < 8; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
-    const n2 = [...e.queue, ...e.orders].filter((o) => /Overall Block shared #2/.test(o.note || "") && !/symbol|dir/.test(o.note || ""));
-    const extra2 = n2.reduce((s, o) => s + o.qty, 0);
-    assert.ok(stacked + extra2 <= 1.5 + 1e-6, `N=2 must not inflate past 1.5× extra, got ${stacked + extra2}`);
+    return e;
+  };
+  const liveOv = (e: ReturnType<typeof initVstEngine>, symbol: string, side: string) =>
+    [...e.queue, ...e.orders].filter(
+      (o) =>
+        /Overall Block/i.test(o.note || "") &&
+        o.symbol === symbol &&
+        o.side === side &&
+        (o.status === "queued" || o.status === "open" || o.status === "partial"),
+    );
+  const tickN = (e: ReturnType<typeof initVstEngine>, n: number, fill = false) => {
+    for (let i = 0; i < n; i++) {
+      tickVst(e, CFG, "trailing", {
+        rangeType: "atr",
+        block: e.blockCfg,
+        skipWalk: true,
+        skipMatch: !fill,
+        orderType: fill ? "market" : undefined,
+      });
+    }
+  };
+
+  it("Overall Block places exactly ONE control order per symbol + direction across the mode/scope matrix", () => {
+    const modes = ["shared", "additive", "parallel"] as const;
+    for (const volumeMode of modes) {
+      for (const overallMode of modes) {
+        for (const [overallSymbol, overallDirection] of [[true, true], [true, false], [false, true], [false, false]] as const) {
+          for (const overallSharedStack of ["additive", "split"] as const) {
+            const e = ovEngine({ volumeMode, overallMode, overallSymbol, overallDirection, overallSharedStack, overallVolumeRatio: 0.5 });
+            ovPos(e, "p-mx-l", "BTCUSDT", "long");
+            ovPos(e, "p-mx-s", "BTCUSDT", "short");
+            ovPos(e, "p-mx-e", "ETHUSDT", "long");
+            tickN(e, 6);
+            const tag = `${volumeMode}/${overallMode}/${overallSymbol}/${overallDirection}/${overallSharedStack}`;
+            // parallel Overall sums both lane bases (2 × 1 × 0.5); single mode is 1 × 0.5.
+            const want = overallMode === "parallel" ? 1 : 0.5;
+            for (const [sym, side] of [["BTCUSDT", "long"], ["BTCUSDT", "short"], ["ETHUSDT", "long"]] as const) {
+              const ov = liveOv(e, sym, side);
+              assert.equal(ov.length, 1, `${tag} ${sym} ${side}: ${ov.map((o) => o.note).join(" | ")}`);
+              assert.ok(/^ob/.test(ov[0]!.id));
+              assert.ok(!/Overall Block (symbol|dir)/.test(ov[0]!.note || ""), `scopes are gates, not orders: ${ov[0]!.note}`);
+              assert.ok(Math.abs(ov[0]!.qty - want) < 1e-6, `${tag} qty ${ov[0]!.qty} want ${want}`);
+              const ctl = e.overallCtl?.[e.activeConnId]?.[`${sym}:${side}`];
+              assert.equal(ctl?.orderId, ov[0]!.id);
+            }
+          }
+        }
+      }
+    }
   });
 
-  it("parallel Block keeps shared + additive + overall as independent volume streams", () => {
-    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
-    e.running = true;
-    e.phase = "running";
-    e.blockCfg = {
-      ...DEFAULT_BLOCK_CONFIG,
-      enabled: true,
-      overall: true,
-      stack: true,
-      windows: false,
+  it("Overall Block never re-adds after fill: total position ≤ base × maxVolumeMultiplier", () => {
+    const e = ovEngine({ volumeMode: "additive", overallMode: "additive", overallVolumeRatio: 3, maxVolumeMultiplier: 2.5 });
+    ovPos(e, "p-cap", "BTCUSDT", "long");
+    tickN(e, 30, true);
+    const p = e.positions.find((x) => x.symbol === "BTCUSDT" && x.side === "long")!;
+    assert.ok(p.qty <= 2.5 + 1e-6, `position ${p.qty} must stay ≤ 2.5 × base`);
+    assert.ok(p.qty > 1 + 1e-6, `Overall must add volume, got ${p.qty}`);
+    const ctl = e.overallCtl?.[e.activeConnId]?.["BTCUSDT:long"];
+    assert.ok(ctl && Math.abs(ctl.target - 1.5) < 1e-6, `target ${ctl?.target}`);
+    assert.ok(Math.abs(ctl!.filled - 1.5) < 1e-6, `filled ${ctl?.filled}`);
+    assert.equal(liveOv(e, "BTCUSDT", "long").length, 0, "filled control order is not re-added");
+    const ovFills = new Set(e.fills.filter((f) => /^ob/.test(String(f.orderId || "")) && f.symbol === "BTCUSDT" && f.side === "long").map((f) => f.orderId));
+    assert.equal(ovFills.size, 1, `exactly one Overall order filled over the life of the position: ${[...ovFills].join(",")}`);
+  });
+
+  it("Overall Block with shared volume + additive overall still creates the control order", () => {
+    const e = ovEngine({ volumeMode: "shared", overallMode: "additive", overallVolumeRatio: 1.5, sharedVolumeRatio: 0.5, sets: true, counts: [1] });
+    ovPos(e, "p-sh-add", "BTCUSDT", "long");
+    tickN(e, 6);
+    const ov = liveOv(e, "BTCUSDT", "long");
+    assert.equal(ov.length, 1, "additive Overall runs even when relation Block is shared-only");
+    assert.ok(/Overall Block additive/.test(ov[0]!.note || ""));
+    const rel = [...e.queue, ...e.orders].filter((o) => /^Block shared/.test(o.note || "") && o.symbol === "BTCUSDT" && o.side === "long");
+    const relQty = rel.reduce((s, o) => s + o.remaining, 0);
+    assert.ok(relQty + ov[0]!.qty <= 1.5 + 1e-6, `relation ${relQty} + overall ${ov[0]!.qty} must fit 1.5 extra`);
+  });
+
+  it("Overall Block resizes to Σ lane base × ratio when a second lane joins the key", () => {
+    const e = ovEngine({ volumeMode: "additive", overallMode: "additive", overallVolumeRatio: 0.5, maxVolumeMultiplier: 3 });
+    ovPos(e, "p-two", "BTCUSDT", "long");
+    tickN(e, 4);
+    const first = liveOv(e, "BTCUSDT", "long");
+    assert.equal(first.length, 1);
+    assert.ok(Math.abs(first[0]!.qty - 0.5) < 1e-6, `single lane ${first[0]!.qty}`);
+    e.blockCfg = { ...e.blockCfg!, overallMode: "parallel", volumeMode: "parallel" };
+    tickN(e, 4);
+    const second = liveOv(e, "BTCUSDT", "long");
+    assert.equal(second.length, 1, `still one control order: ${second.map((o) => o.note).join(" | ")}`);
+    assert.ok(Math.abs(second[0]!.qty - 1) < 1e-6, `Σ(1 + 1) × 0.5 = 1, got ${second[0]!.qty}`);
+    assert.notEqual(second[0]!.id, first[0]!.id, "resize replaces the control order");
+    assert.equal(first[0]!.status, "cancelled");
+    assert.equal(e.overallCtl?.[e.activeConnId]?.["BTCUSDT:long"]?.orderId, second[0]!.id);
+  });
+
+  it("Overall Block cancels its control order and clears state when the position goes flat", () => {
+    const e = ovEngine({ volumeMode: "additive", overallMode: "additive", overallVolumeRatio: 1 });
+    ovPos(e, "p-flat", "BTCUSDT", "long");
+    ovPos(e, "p-gone", "ETHUSDT", "long");
+    tickN(e, 4);
+    const btc = liveOv(e, "BTCUSDT", "long");
+    const eth = liveOv(e, "ETHUSDT", "long");
+    assert.equal(btc.length, 1);
+    assert.equal(eth.length, 1);
+    // Close path: releaseVanished → cancelLane clears the key.
+    releaseVanished(e, new Set(["ETHUSDT:long"]), e.activeConnId);
+    assert.equal(liveOv(e, "BTCUSDT", "long").length, 0, "control order cancelled when flat");
+    assert.equal(btc[0]!.status, "cancelled");
+    assert.equal(e.overallCtl?.[e.activeConnId]?.["BTCUSDT:long"], undefined, "state cleared");
+    // Position dropped without a close path: the next Block pass sweeps the stale key.
+    e.positions = e.positions.filter((p) => p.id !== "p-gone");
+    adjustActiveBlocks(e, CFG, "trailing", e.blockCfg!, "atr", { endStage: true });
+    assert.equal(liveOv(e, "ETHUSDT", "long").length, 0);
+    assert.equal(eth[0]!.status, "cancelled");
+    assert.equal(e.overallCtl?.[e.activeConnId]?.["ETHUSDT:long"], undefined);
+  });
+
+  it("parallel Block keeps shared + additive relation streams plus one Overall control order", () => {
+    const e = ovEngine({
       volumeMode: "parallel",
       overallMode: "parallel",
+      sets: true,
       volumeRatio: 0.4,
       overallVolumeRatio: 1,
       sharedVolumeRatio: 1,
-      relAdditive: false,
-      addOnWin: false,
-      cadence: 1,
       counts: [1],
-      maxMultiple: 6,
-      minMultiple: 1,
-      minActiveLevel: 1,
-    };
-    const q = e.quotes.BTCUSDT!;
-    e.positions.push({
-      id: "p-par",
-      connId: e.activeConnId,
-      symbol: "BTCUSDT",
-      side: "long",
-      qty: 1,
-      plannedQty: 1,
-      avgEntry: q.px,
-      mark: q.px,
-      sl: q.px * 0.99,
-      tp: q.px * 1.01,
-      slDist: q.px * 0.01,
-      tpDist: q.px * 0.01,
-      realized: 0,
-      unrealized: 0.02,
-      legs: [{ orderId: "leg-par", qty: 1, px: q.px }],
-      controllingRange: "atr",
-      rangeSpacing: q.atr,
-      status: "open",
-      openedTick: 0,
-      tactic: "trailing",
-      indication: "trend",
-      kind: "short",
-      playbook: "short",
     });
-    for (let i = 0; i < 10; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
-    const rungs = [...e.queue, ...e.orders].filter((o) => /Block/i.test(o.note || ""));
+    ovPos(e, "p-par", "BTCUSDT", "long");
+    tickN(e, 10);
+    const rungs = [...e.queue, ...e.orders].filter((o) => /Block/i.test(o.note || "") && o.status !== "cancelled");
     const notes = rungs.map((o) => o.note || "");
     assert.ok(notes.some((n) => /Block shared #1/.test(n) && !/Overall/.test(n)), `rel shared ${notes.join(" | ")}`);
     assert.ok(notes.some((n) => /Block additive #1/.test(n) && !/Overall/.test(n)), "rel additive");
-    assert.ok(notes.some((n) => /Overall Block shared/.test(n)), "overall shared");
-    assert.ok(notes.some((n) => /Overall Block additive/.test(n)), "overall additive");
+    const ov = liveOv(e, "BTCUSDT", "long");
+    assert.equal(ov.length, 1, `one Overall control order ${notes.join(" | ")}`);
     const extra = rungs.reduce((s, o) => s + Math.max(0, o.qty || 0), 0);
     assert.ok(extra <= 1.5 + 1e-6, `parallel extra ${extra} exceeds 1.5× cap`);
     const relAdd = rungs.find((o) => /Block additive #1/.test(o.note || "") && !/Overall/.test(o.note || ""));
-    const ovShare = rungs.find((o) => /Overall Block shared #1/.test(o.note || ""));
-    assert.ok(relAdd && ovShare, `rel add + overall shared ${notes.join(" | ")}`);
-    assert.ok(relAdd!.qty > 0, `rel qty ${relAdd!.qty}`);
+    assert.ok(relAdd && relAdd.qty > 0, `rel qty ${relAdd?.qty}`);
+  });
+
+  it("default parallel config: the relation stream no longer starves Overall, and fills stay within the cap", () => {
+    const e = ovEngine({ volumeMode: "parallel", overallMode: "parallel", sets: true, counts: [1] });
+    ovPos(e, "p-def", "BTCUSDT", "long");
+    const maxMul = e.blockCfg!.maxVolumeMultiplier ?? 2.5;
+    let sawOverall = false;
+    let maxQty = 0;
+    for (let i = 0; i < 40; i++) {
+      tickN(e, 1, true);
+      if (liveOv(e, "BTCUSDT", "long").length || (e.overallCtl?.[e.activeConnId]?.["BTCUSDT:long"]?.filled ?? 0) > 0) sawOverall = true;
+      const pos = e.positions.find((x) => x.symbol === "BTCUSDT" && x.side === "long");
+      if (pos) maxQty = Math.max(maxQty, pos.qty);
+    }
+    assert.ok(sawOverall, "Overall places its control order with the default parallel config");
+    assert.ok(maxQty <= maxMul + 1e-6, `position ${maxQty} exceeds base × ${maxMul}`);
   });
 
   it("Block N=1 PF uses a lookback, not a single loss", () => {
@@ -2321,8 +2394,9 @@ describe("VST engine", () => {
   });
 
   it("mixed overall book has long-only, short-only, and both-side symbols", () => {
+    // 20 symbols: with 12 the long-only bucket is 0–1 symbols and flips on any order-id / seed shift.
     const { report, engine } = simulateHours(12, CFG, "hybrid", {
-      symbolCount: 12,
+      symbolCount: 20,
       rangeType: "fibonacci",
       block: { ...DEFAULT_BLOCK_CONFIG, sides: "mixed", stack: true, windows: true, volumeMode: "shared" },
     });
