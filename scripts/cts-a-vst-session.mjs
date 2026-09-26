@@ -68,7 +68,7 @@ const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 2000);
 const LIVE_MIN_PF = IS_X01
   ? Math.max(DEFAULT_MIN_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_MIN_PF) || DEFAULT_MIN_PF)
   : Math.max(DEFAULT_SHORT_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_SHORT_PF) || DEFAULT_SHORT_PF);
-const LIVE_SYMBOLS = clampLiveSymbolCap(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? 30 : VST_LIVE_SYMBOLS)));
+const LIVE_SYMBOLS = clampLiveSymbolCap(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? 40 : VST_LIVE_SYMBOLS)));
 const EVAL_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_EVAL_SYMBOLS ?? VST_MAX_SYMBOLS));
 const UNI = new Set(universeSymbols(EVAL_SYMBOLS).map((s) => s.id));
 const PREFERRED_RANGES = new Set(["fibonacci", "geometric", "atr"]);
@@ -2843,13 +2843,14 @@ async function main() {
       gridCursor = (gridIndex(pick, live) + 1) % live.length;
       pick = live[gridCursor];
       currentPick = pick;
+      // Add the next seed on top of the book. Do not requeueFree — that cancelled every resting order.
       try {
-        requeueFree(engine, pick.cfg, pick.tactic, pick.range, CONN);
+        armUniverse(engine, pick.cfg, pick.tactic, pick.range);
       } catch {
         /* keep */
       }
       const short = cfgUsesShortRange(pick.cfg) ? ` short ${pick.cfg.tpAtr}/${pick.cfg.slOfTp}` : "";
-      adjustments.push(`cycle ${gridCursor + 1}/${live.length} ${pick.tactic}/${pick.range}${short}`);
+      adjustments.push(`configs ${live.length} held · seed ${gridCursor + 1}/${live.length} ${pick.tactic}/${pick.range}${short}`);
       writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
     }
 

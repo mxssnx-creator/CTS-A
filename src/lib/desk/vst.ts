@@ -2563,10 +2563,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     if (pn >= pMax) return;
     if ((symLoad.get(s.id) || 0) >= symCap) return;
     const mode = e.blockCfg?.sides ?? "both";
-    const axisTactic = e.lastTactic === "axis";
     const atr = Math.max(q.atr, q.px * 0.0008, 1e-9);
     const disp = Math.abs(q.px - (q.axis || q.px)) / atr;
-    if (axisTactic && (disp < 0.35 || disp > 2.6)) return;
     const meanSide: Side = q.px >= (q.axis || q.px) ? "short" : "long";
     const pack = symbolIndications(s.id);
     const symbolBands = openTape || performingLive(e) || internAll0 ? rangeBands(q, cfg) : undefined;
@@ -2585,9 +2583,12 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     }
     // Screenshot 20h comboOnly: winner indication + last tactic (independent TP×SL tape).
     // Intern-all / intern-eval / liveTape: all lanes best-first, no exclusive lock.
-    const allLanes = internAll0 || internSlot || (complete && !e.shortComboOnly) || Boolean(e.liveTape);
+    const allLanes = internAll0 || internSlot || (complete && !e.shortComboOnly) || Boolean(e.liveTape) || Boolean(e.x01Progress);
+    // Axis-only books still require a stretch. Parallel books must not drop trailing/DCA because the seed tactic is axis.
+    const axisOnly = !allLanes && e.lastTactic === "axis";
+    if (axisOnly && (disp < 0.35 || disp > 2.6)) return;
     const inds = allLanes ? rankIndications(e, pack, liveInd) : [liveInd];
-    let trySides = axisTactic ? [meanSide] : symbolSideSet(s.id, mode, direction(q));
+    let trySides = axisOnly ? [meanSide] : symbolSideSet(s.id, mode, direction(q));
     trySides = trySides.filter((side) => !e.manualClosed?.[`${s.id}:${side}`]);
     if (!trySides.length) return;
     const dual = trySides.length === 2;
@@ -2612,7 +2613,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     }>();
     for (const ind of inds) {
       let sides = trySides;
-      if (!complete && !axisTactic && ind === "break") {
+      if (!complete && !axisOnly && ind === "break") {
         const spanNow = (q.hi - q.lo) / atr;
         const weak = Math.abs(pack.break) < 0.08 && spanNow < 1.08 && Math.abs(q.chg) < 0.0022;
         if (weak) continue;
@@ -2630,9 +2631,11 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       }
       const tacs = allLanes ? rankTactics(e, pickLiveTactic(e, ind, e.lastTactic)) : [e.lastTactic];
       for (const tac of tacs) {
-      if ((openTape || performingLive(e)) && laneCooled(e, s.id, ind, tac)) continue;
-      if ((openTape || performingLive(e)) && !liveIndStillPays(e, ind)) continue;
-      if (performingLive(e)) {
+      const liveQuality = openTape || performingLive(e) || Boolean(e.liveTape);
+      if (tac === "axis" && (disp < 0.35 || disp > 2.6)) continue;
+      if (liveQuality && laneCooled(e, s.id, ind, tac)) continue;
+      if (liveQuality && !liveIndStillPays(e, ind)) continue;
+      if (performingLive(e) || e.liveTape) {
         const gate = typeGateMem.get(e);
         const indRow = gate?.indications?.[ind];
         const tacRow = gate?.tactics?.[tac];
@@ -2756,7 +2759,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const bands = livePace || dirExam ? symbolBands : undefined;
           const useCalc = openTape || dirExam;
           const parallelRanges = allLanes ? expandPayRanges(ind, range) : [range];
-          const legs: IndCalcLeg[] = !useCalc
+          let legs: IndCalcLeg[] = !useCalc
             ? parallelRanges.map((r, i) => ({
                 kind: i === 0 ? "base" as const : "rng" as const,
                 range: r,
@@ -2777,6 +2780,14 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                   relAlign,
                   bands,
                 }).map((leg) => ({ ...leg, sizeMul: leg.sizeMul * ddCut }));
+          if (allLanes && (e.liveTape || e.x01Progress)) {
+            const have = new Set(legs.map((l) => l.range));
+            for (const r of RANGE_TYPES) {
+              if (have.has(r)) continue;
+              legs.push({ kind: "rng", range: r, spaceMul: 1, sizeMul: 0.55, near: 0.11 });
+              have.add(r);
+            }
+          }
           for (const leg of legs) {
           const legKey = exclusiveLeg
             ? `${s.id}:${side}`
@@ -7037,14 +7048,16 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   const qArm = e.completeSim ? Math.max(80, maxQueue(e) * 0.55) : Math.max(320, maxQueue(e) * 0.4);
   const workN = e.orders.filter((o) => o.connId === e.activeConnId && !isBotPlay(o.playbook) && (o.status === "open" || o.status === "partial")).length;
   const workArm = e.completeSim ? Math.floor(maxWorking(e) * 0.85) : maxWorking(e);
+  const posN = e.positions.filter((p) => p.connId === e.activeConnId && !isBotPlay(p.playbook)).length;
+  const emptyLive = Boolean(e.liveTape) && qn === 0 && workN === 0 && posN === 0;
   if (
-    !opts?.skipWalk &&
+    (!opts?.skipWalk || e.liveTape) &&
     (!e.botMode || progressLane) &&
-    e.tick % armEvery === 0 &&
+    (e.tick % armEvery === 0 || emptyLive) &&
     !over() &&
     qn < qArm &&
     workN < workArm &&
-    e.positions.filter((p) => p.connId === e.activeConnId && !isBotPlay(p.playbook)).length < maxPositions(e)
+    posN < maxPositions(e)
   ) {
     safeStage(e, "arm", () => armUniverse(e, cfg, tactic, opts?.rangeType));
   }

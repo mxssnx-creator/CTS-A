@@ -510,12 +510,14 @@ const boot = initVstEngine(DEFAULT_TACTIC_CONFIG, { warmup: 0, symbolCount: 12, 
   boot.running = true;
   boot.phase = "running";
   boot.activeConnId = "bingx-x01";
-  boot.symbolCount = 30;
+  boot.symbolCount = 40;
+  boot.liveSymbolCap = 40;
+  boot.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
   engageLiveBook(boot);
   const three = sanitizeArmed(armed);
   for (let i = 0; i < 6; i++) {
     stepDeskBots(boot, three, sess.configs);
-    tickVst(boot, LIVE_RUN_CFG, "trailing", { symbolCount: 30, rangeType: "atr", block: liveRunBlock() });
+    tickVst(boot, LIVE_RUN_CFG, "trailing", { symbolCount: 40, rangeType: "atr", block: liveRunBlock() });
   }
   const open = boot.positions.filter((p) => p.connId === "bingx-x01" && p.qty > 0).length;
   const progress = [...boot.queue, ...boot.orders].filter((o) => o.connId === "bingx-x01" && !String(o.playbook || "").startsWith("bot:") && (o.status === "queued" || o.status === "open" || o.status === "partial")).length;
@@ -1061,6 +1063,10 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const viewSess = sessions[view];
       e.botMode = anyBots;
       e.x01Progress = view === "bingx-x01";
+      if (e.x01Progress) {
+        e.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
+        e.liveSymbolCap = 40;
+      }
       const born: { id: string; connId: string; symbol: string; side: "long" | "short"; price: number; qty: number; sl: number; tp: number; bot: boolean }[] = [];
       const takeBorn = () => {
         for (const o of e.queue) {
@@ -1084,7 +1090,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const tickOpts = {
         freezeIds: live ? LIVE_SET : undefined,
         rangeType: "atr" as const,
-        symbolCount: progress ? 30 : get().symbolCount,
+        symbolCount: progress ? 40 : get().symbolCount,
         orderType: progress ? "market" as const : get().orderType,
         block: progress ? liveRunBlock(get().blockConfig) : get().blockConfig,
       };
@@ -1545,7 +1551,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const cfg = get().tacticConfig;
     const tactic = get().tactic;
     const range = get().rangeType;
-    const n = 30;
+    const n = 40;
     const order = ["bingx-x01", ...DESK_CONN_IDS.filter((id) => id !== "bingx-x01")];
     for (const id of order) {
       const sess = botByConn[id];
@@ -1553,6 +1559,11 @@ export const useDesk = create<DeskStore>((set, get) => ({
       e.activeConnId = id;
       e.botMode = true;
       e.x01Progress = id === "bingx-x01";
+      if (e.x01Progress) {
+        e.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
+        e.liveSymbolCap = 40;
+        e.symbolCount = n;
+      }
       const tickCfg = e.x01Progress ? LIVE_RUN_CFG : cfg;
       const tickTac = e.x01Progress ? "trailing" : tactic;
       for (let i = 0; i < 8; i++) {
