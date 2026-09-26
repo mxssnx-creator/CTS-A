@@ -299,6 +299,8 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         overall: asBool(b.overall, d.blockConfig.overall ?? true),
         overallSymbol: asBool((b as { overallSymbol?: boolean }).overallSymbol, d.blockConfig.overallSymbol ?? true),
         overallDirection: asBool((b as { overallDirection?: boolean }).overallDirection, d.blockConfig.overallDirection ?? true),
+        overallIndication: asBool((b as { overallIndication?: boolean }).overallIndication, d.blockConfig.overallIndication ?? true),
+        overallType: asBool((b as { overallType?: boolean }).overallType, d.blockConfig.overallType ?? true),
         overallSharedStack:
           (b as { overallSharedStack?: string }).overallSharedStack === "split" ? "split" : "additive",
         counts: sanitizeBlockCounts(

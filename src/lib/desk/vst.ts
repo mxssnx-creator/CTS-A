@@ -1727,6 +1727,8 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.blockWindows = e.blockWindows ?? {};
   e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
   e.blockWindowsBySide = e.blockWindowsBySide ?? {};
+  e.blockWindowsByIndication = e.blockWindowsByIndication ?? {};
+  e.blockWindowsByType = e.blockWindowsByType ?? {};
   e.blockRelWindows = e.blockRelWindows ?? {};
   e.blockRelBest = e.blockRelBest ?? {};
   e.lastRelEvalTick = e.lastRelEvalTick ?? 0;
@@ -1768,6 +1770,8 @@ export function ensureEngine(e: VstEngine): VstEngine {
     if (e.blockCfg.overallMode !== "additive" && e.blockCfg.overallMode !== "parallel") e.blockCfg.overallMode = "shared";
     if (e.blockCfg.overallSymbol !== false) e.blockCfg.overallSymbol = true;
     if (e.blockCfg.overallDirection !== false) e.blockCfg.overallDirection = true;
+    if (e.blockCfg.overallIndication !== false) e.blockCfg.overallIndication = true;
+    if (e.blockCfg.overallType !== false) e.blockCfg.overallType = true;
     if (e.blockCfg.overallSharedStack !== "split") e.blockCfg.overallSharedStack = "additive";
     e.blockCfg.counts = sanitizeBlockCounts(e.blockCfg.counts);
   }
@@ -1832,6 +1836,8 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     blockWindows: {},
     blockWindowsBySymbol: {},
     blockWindowsBySide: {},
+    blockWindowsByIndication: {},
+    blockWindowsByType: {},
     blockRelWindows: {},
     blockRelBest: {},
     lastRelEvalTick: 0,
@@ -4905,6 +4911,8 @@ export function noteBlockPosClose(
   e.blockWindows = e.blockWindows ?? {};
   e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
   e.blockWindowsBySide = e.blockWindowsBySide ?? {};
+  e.blockWindowsByIndication = e.blockWindowsByIndication ?? {};
+  e.blockWindowsByType = e.blockWindowsByType ?? {};
   e.blockRelWindows = e.blockRelWindows ?? {};
   const ns = evalBlockNs(block);
   const pauseRatio = Math.max(0, block.pauseCountRatio ?? 1);
@@ -4915,6 +4923,16 @@ export function noteBlockPosClose(
     by[n] = tickBlockWindow(by[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
     const sideMap = (e.blockWindowsBySide[side] ??= {});
     sideMap[n] = tickBlockWindow(sideMap[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
+    const indication = rel?.indication;
+    if (indication) {
+      const indMap = (e.blockWindowsByIndication[indication] ??= {});
+      indMap[n] = tickBlockWindow(indMap[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
+    }
+    const tactic = rel?.tactic;
+    if (tactic) {
+      const typeMap = (e.blockWindowsByType[tactic] ??= {});
+      typeMap[n] = tickBlockWindow(typeMap[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
+    }
   }
   const keys = blockRelationKeys({ symbol, side, ...rel });
   for (const key of keys) {
@@ -6384,12 +6402,14 @@ function isBlockOrder(o: LiveOrder) {
 function isOverallBlockOrder(o: LiveOrder) {
   return /Overall Block/i.test(o.note || "") || /^ob/i.test(o.id || "");
 }
-type OverallScope = "book" | "symbol" | "dir";
+type OverallScope = "book" | "symbol" | "dir" | "indication" | "type";
 function overallScopes(block?: BlockConfig): OverallScope[] {
   if (block?.overall === false) return [];
   const xs: OverallScope[] = ["book"];
   if (block?.overallSymbol !== false) xs.push("symbol");
   if (block?.overallDirection !== false) xs.push("dir");
+  if (block?.overallIndication !== false) xs.push("indication");
+  if (block?.overallType !== false) xs.push("type");
   return xs;
 }
 function overallScopeOf(o: { note?: string }): OverallScope | null {
@@ -6397,24 +6417,37 @@ function overallScopeOf(o: { note?: string }): OverallScope | null {
   const n = o.note || "";
   if (/Overall Block symbol/i.test(n)) return "symbol";
   if (/Overall Block dir/i.test(n)) return "dir";
+  if (/Overall Block indication/i.test(n)) return "indication";
+  if (/Overall Block type/i.test(n)) return "type";
   return "book";
+}
+function emptyOvLevels(): Record<OverallScope, Set<number>> {
+  return { book: new Set(), symbol: new Set(), dir: new Set(), indication: new Set(), type: new Set() };
+}
+function emptyOvQty(): Record<OverallScope, number> {
+  return { book: 0, symbol: 0, dir: 0, indication: 0, type: 0 };
 }
 function overallWindowOk(
   e: VstEngine,
   scope: OverallScope,
-  p: { symbol: string; side: Side },
+  p: { symbol: string; side: Side; indication?: string; tactic?: string },
   next: number,
   minPf: number,
 ) {
   if (internAllPhase(e)) return true;
   if (e.blockCfg?.windows === false) return true;
   const need = Math.max(8, next);
-  if (scope === "book") return blockCountPositive(e, next, minPf);
-  const w =
-    scope === "symbol" ? e.blockWindowsBySymbol?.[p.symbol]?.[next] : e.blockWindowsBySide?.[p.side]?.[next];
-  if (!w || w.closed < need) return true;
   const floor = next <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.min(1.05, minPf || 1.05);
-  return w.lastPf + 1e-9 >= floor;
+  const pass = (w?: { closed?: number; lastPf?: number }) => !w || (w.closed || 0) < need || (Number(w.lastPf) || 0) + 1e-9 >= floor;
+  if (scope === "book") return blockCountPositive(e, next, minPf);
+  if (scope === "symbol") return pass(e.blockWindowsBySymbol?.[p.symbol]?.[next]);
+  if (scope === "dir") return pass(e.blockWindowsBySide?.[p.side]?.[next]);
+  if (scope === "indication") {
+    if (!p.indication) return false;
+    return pass(e.blockWindowsByIndication?.[p.indication]?.[next]);
+  }
+  if (!p.tactic) return false;
+  return pass(e.blockWindowsByType?.[p.tactic]?.[next]);
 }
 
 function collectBlockOrders(e: VstEngine, conn: string) {
@@ -6701,7 +6734,8 @@ export function adjustActiveBlocks(
       if (adds >= addCap) break;
       if (!ownedByDesk(p, conn)) continue;
       if (p.qty <= 0) continue;
-      if (e.preEvalDone && !internAllPhase(e) && p.validExec !== true) continue;
+      const realStage = Boolean(e.liveTape);
+      if (e.preEvalDone && !internAllPhase(e) && !realStage && p.validExec !== true) continue;
       if (!overall) {
         const allow = symbolSideSet(p.symbol, block.sides, p.side);
         if (!allow.includes(p.side)) continue;
@@ -6752,8 +6786,8 @@ export function adjustActiveBlocks(
         );
         const liveRelLevels = new Set(liveBlock.filter((o) => !isOverallBlockOrder(o)).map((o) => Math.max(1, o.level || 1)));
         const scopes = overallVolumeModes(block).includes(mode) ? overallScopes(block) : [];
-        const liveOvLevels: Record<OverallScope, Set<number>> = { book: new Set(), symbol: new Set(), dir: new Set() };
-        const ovQty: Record<OverallScope, number> = { book: 0, symbol: 0, dir: 0 };
+        const liveOvLevels = emptyOvLevels();
+        const ovQty = emptyOvQty();
         for (const o of liveBlock.filter(isOverallBlockOrder)) {
           const sc = overallScopeOf(o) ?? "book";
           liveOvLevels[sc].add(Math.max(1, o.level || 1));
@@ -6867,8 +6901,25 @@ export function adjustActiveBlocks(
                 ? "Overall Block symbol"
                 : item.scope === "dir"
                   ? "Overall Block dir"
-                  : "Overall Block";
-          const oid = nextId(e, item.overallKind ? (item.scope === "symbol" ? "obs" : item.scope === "dir" ? "obd" : "ob") : "b");
+                  : item.scope === "indication"
+                    ? "Overall Block indication"
+                    : item.scope === "type"
+                      ? "Overall Block type"
+                      : "Overall Block";
+          const oid = nextId(
+            e,
+            item.overallKind
+              ? item.scope === "symbol"
+                ? "obs"
+                : item.scope === "dir"
+                  ? "obd"
+                  : item.scope === "indication"
+                    ? "obi"
+                    : item.scope === "type"
+                      ? "obt"
+                      : "ob"
+              : "b",
+          );
           e.queue.push({
             id: oid,
             connId: conn,

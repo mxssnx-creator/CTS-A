@@ -2111,6 +2111,97 @@ describe("VST engine", () => {
     assert.ok(stacked + extra2 <= 1.5 + 1e-6, `N=2 must not inflate past 1.5× extra, got ${stacked + extra2}`);
   });
 
+  it("Real stage Overall adjusts book, symbol, direction, indication, and type independently", () => {
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.running = true;
+    e.phase = "running";
+    e.liveTape = true;
+    e.preEvalDone = true;
+    e.blockCfg = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      overall: true,
+      overallSymbol: true,
+      overallDirection: true,
+      overallIndication: true,
+      overallType: true,
+      overallSharedStack: "additive",
+      sets: false,
+      stack: true,
+      windows: true,
+      volumeMode: "shared",
+      overallMode: "shared",
+      sharedVolumeRatio: 1.5,
+      relAdditive: false,
+      addOnWin: false,
+      autoEval: false,
+      cadence: 1,
+      counts: [1],
+      maxMultiple: 6,
+      minMultiple: 1,
+      minActiveLevel: 1,
+      evalPosCount: 6,
+    };
+    const bad = {
+      n: 1,
+      ring: [],
+      closed: 8,
+      pauseLeft: 0,
+      lastAvg: -1,
+      lastNet: -1,
+      lastPf: 0.4,
+      windows: 1,
+      lossWindows: 1,
+      adjusted: 0,
+      losers: ["BTCUSDT"],
+      batchNets: [-1],
+    };
+    e.blockWindowsBySymbol = { BTCUSDT: { 1: bad } };
+    const q = e.quotes.BTCUSDT!;
+    e.positions.push({
+      id: "p-real-ov",
+      connId: e.activeConnId,
+      symbol: "BTCUSDT",
+      side: "long",
+      qty: 1,
+      plannedQty: 1,
+      avgEntry: q.px,
+      mark: q.px,
+      sl: q.px * 0.99,
+      tp: q.px * 1.01,
+      slDist: q.px * 0.01,
+      tpDist: q.px * 0.01,
+      realized: 0,
+      unrealized: 0.02,
+      legs: [{ orderId: "leg-real-ov", qty: 1, px: q.px }],
+      controllingRange: "atr",
+      rangeSpacing: q.atr,
+      status: "open",
+      openedTick: 0,
+      tactic: "trailing",
+      indication: "trend",
+      kind: "short",
+      playbook: "short",
+    });
+    for (let i = 0; i < 8; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
+    const ov = [...e.queue, ...e.orders].filter((o) => /Overall Block/i.test(o.note || "") && o.level === 1);
+    const notes = ov.map((o) => o.note || "");
+    const book = ov.filter((o) => /Overall Block shared #1/.test(o.note || "") && !/symbol|dir|indication|type/.test(o.note || ""));
+    const sym = ov.filter((o) => /Overall Block symbol/.test(o.note || ""));
+    const dir = ov.filter((o) => /Overall Block dir/.test(o.note || ""));
+    const ind = ov.filter((o) => /Overall Block indication/.test(o.note || ""));
+    const typ = ov.filter((o) => /Overall Block type/.test(o.note || ""));
+    assert.equal(sym.length, 0, `symbol pause must not add ${notes.join(" | ")}`);
+    assert.ok(book.length >= 1, `book overall missing ${notes.join(" | ")}`);
+    assert.ok(dir.length >= 1, "direction overall");
+    assert.ok(ind.length >= 1, "indication overall");
+    assert.ok(typ.length >= 1, "type overall");
+    assert.ok(Math.abs(dir[0]!.qty - book[0]!.qty) < 1e-6, "direction qty independent and equal");
+    assert.ok(Math.abs(ind[0]!.qty - book[0]!.qty) < 1e-6, "indication qty independent and equal");
+    assert.ok(Math.abs(typ[0]!.qty - book[0]!.qty) < 1e-6, "type qty independent and equal");
+    assert.ok(ind[0]!.indication === "trend" && typ[0]!.tactic === "trailing");
+  });
+
   it("parallel Block keeps shared + additive + overall as independent volume streams", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     e.running = true;

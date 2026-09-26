@@ -180,6 +180,8 @@ const BLOCK = {
   overall: true,
   overallSymbol: true,
   overallDirection: true,
+  overallIndication: true,
+  overallType: true,
   overallSharedStack: "additive",
   counts: [...LIVE_BLOCK_COUNTS],
   volumeRatio: IS_X01 ? 0.4 : 0.2,
