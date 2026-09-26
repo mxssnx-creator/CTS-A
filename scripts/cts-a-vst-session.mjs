@@ -1815,7 +1815,14 @@ async function mirrorToExchange(e, network, cfg) {
     foreignPos: foreignPosN,
     foreignOrd: foreignOrdN,
     positions: deskPos.map((p) => {
-      const remembered = legCfg.get(`${p.symbol}:${p.side}`);
+      const enginePos = (e?.positions || []).find((x) => x.symbol === p.symbol && x.side === p.side);
+      const remembered = legCfg.get(`${p.symbol}:${p.side}`) || (enginePos?.tactic ? {
+        tactic: enginePos.tactic,
+        range: enginePos.controllingRange,
+        indication: enginePos.indication,
+        playbook: enginePos.playbook,
+        kind: enginePos.kind,
+      } : null);
       const indication = remembered?.indication || (e ? classifyIndication(e, p.symbol) : "trend");
       const tactic = remembered?.tactic || (e ? tacticForIndication(indication, e.strategyToggles ?? STRAT) : "trailing");
       const playbook = remembered?.playbook || openPlaybook(tactic, indication);
@@ -1924,10 +1931,11 @@ async function mirrorToExchange(e, network, cfg) {
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
   if (openN >= budget.maxPos) return notes.length ? notes.join(" · ") : null;
-  if (protectGap > 0) {
+  if (protectGap > 2) {
     notes.push(`protect gap ${protectGap}`);
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
+  if (protectGap > 0) notes.push(`protect gap ${protectGap}`);
 
   let placed = 0;
   let failed = 0;
