@@ -1906,7 +1906,7 @@ async function mirrorToExchange(e, network, cfg) {
   const queueIntents = (e.queue ?? [])
     .filter((o) => {
       if (!o) return false;
-      if (o.playbook === "dca" || o.tactic === "dca" || /dca/i.test(String(o.note || ""))) return false;
+      if (o.playbook === "dca" || o.tactic === "dca" || /^DCA/i.test(String(o.note || ""))) return true;
       if (IS_X01) return true;
       if (o.validExec === false) return false;
       return (
@@ -1932,10 +1932,6 @@ async function mirrorToExchange(e, network, cfg) {
     if (fillJobs.length >= 16) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
-    if (e.lastTactic === "dca" || /dca/i.test(String(f.playbook || f.note || ""))) {
-      mirrored.add(f.id);
-      continue;
-    }
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
     if (e.manualClosed?.[`${f.symbol}:${f.side}`]) continue;
     if (deadSymbols.has(f.symbol)) continue;
@@ -2051,12 +2047,8 @@ function intenseCheck(e, pick) {
     return "heal nan";
   }
   const book = bookCounts(e);
-  if (e.running && lastBook.pos < liveMaxPos() && book.orders.queued < 12) {
-    requeueFree(e, pick.cfg, pick.tactic, pick.range, CONN);
-    return lastBook.pos > 0 ? "rearm short" : "rearm empty book";
-  }
-  if (lastBook.pos > 0) return null;
-  if (e.running && book.orders.live + book.orders.queued === 0 && e.positions.length === 0) {
+  const resting = (book.orders.live || 0) + e.positions.length;
+  if (e.running && lastBook.pos < liveMaxPos() && resting < 12) {
     requeueFree(e, pick.cfg, pick.tactic, pick.range, CONN);
     return "rearm empty book";
   }
