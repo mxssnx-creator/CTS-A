@@ -2,7 +2,6 @@ import { Link } from "@tanstack/react-router";
 import { coreOverview, coreResults } from "@/core/api";
 import { Empty, ErrorNote, fmt, Line, Panel, pfTone, Pill, tone, usePoll } from "../ui";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 export function StagesPage() {

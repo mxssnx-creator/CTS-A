@@ -2,7 +2,6 @@ import { coreConfig } from "@/core/api";
 import { EquityChart, NCurve } from "../charts";
 import { downloadFile, Empty, ErrorNote, fmt, Kpi, Panel, pfTone, Pill, toCsv, tone, usePoll } from "../ui";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 export function ConfigPage(props: { id: string }) {
@@ -17,7 +16,8 @@ export function ConfigPage(props: { id: string }) {
   const isRows = ln.filter((x) => x.part === "is").sort((a, b) => a.n - b.n);
   const oosRows = ln.filter((x) => x.part === "oos").sort((a, b) => a.n - b.n);
   const latestAt = d.evals?.[0]?.at;
-  const evals = (d.evals ?? []).filter((e: Any) => e.at === latestAt);
+  const seenWin = new Set<string>();
+  const evals = (d.evals ?? []).filter((e: Any) => e.at === latestAt && !seenWin.has(e.win) && seenWin.add(e.win));
   return (
     <>
       <ErrorNote error={error} />

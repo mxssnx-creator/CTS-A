@@ -59,12 +59,28 @@ export function applyHourGuard(tape: readonly Trade[], stopPct: number): Trade[]
   return taken.sort((a, b) => a.exitT - b.exitT);
 }
 
+/** Merge two exit-ordered tapes (statsOf needs exit order for DDT / MDD). */
+function mergeByExit(a: readonly Trade[], b: readonly Trade[]): Trade[] {
+  const out: Trade[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (j >= b.length || (i < a.length && a[i].exitT <= b[j].exitT)) out.push(a[i++]);
+    else out.push(b[j++]);
+  }
+  return out;
+}
+
 const GUARD_OPTIONS = [0, 0.3, 0.6, 1.0];
 
 function split(tape: readonly Trade[], splitT: number) {
   const is: Trade[] = [];
   const oos: Trade[] = [];
-  for (const t of tape) (t.entryT < splitT ? is : oos).push(t);
+  // in-sample = closed before the split; out-of-sample = entered after it; straddlers belong to neither
+  for (const t of tape) {
+    if (t.exitT <= splitT) is.push(t);
+    else if (t.entryT >= splitT) oos.push(t);
+  }
   return { is, oos };
 }
 
@@ -87,7 +103,7 @@ export function buildPortfolio(
     let bestTape: Trade[] = combo;
     for (let i = 0; i < gated.length; i++) {
       if (used.has(i) || gated[i].tape.length === 0) continue;
-      const tape = combo.concat(gated[i].tape);
+      const tape = mergeByExit(combo, gated[i].tape);
       const r = isScore(tape);
       const accept = members.length === 0 ? r.j > bestRes.j : r.j >= Math.max(bestRes.j, cur.j * (o.tolerance ?? 0.97)) && r.s.gh >= cur.s.gh - (o.ghSlack ?? 0.02);
       if (accept && (best < 0 || r.j > bestRes.j)) {

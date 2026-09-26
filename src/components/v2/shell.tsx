@@ -1,7 +1,7 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { Activity, BarChart3, Cpu, Gauge, Layers, LineChart, Menu, Settings2, SlidersHorizontal, Store, Table2, Wallet } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { coreOverview } from "@/core/api";
+import { coreStatus } from "@/core/api";
 import { fmt, Pill, Seg, usePoll } from "./ui";
 
 export type Design = "studio" | "graphite" | "terminal" | "aurora";
@@ -60,15 +60,17 @@ export function V2Shell() {
   const [design, setDesign] = useState<Design>("graphite");
   const [density, setDensity] = useState<Density>("comfortable");
   const [open, setOpen] = useState(false);
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
   useEffect(() => {
     setDesign(readPref("cts-v2-design", ["studio", "graphite", "terminal", "aurora"] as const, "graphite"));
     setDensity(readPref("cts-v2-density", ["comfortable", "compact"] as const, "comfortable"));
   }, []);
   const path = useRouterState({ select: (s) => s.location.pathname });
   useEffect(() => setOpen(false), [path]);
-  const { data } = usePoll(() => coreOverview(), 5000);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const st = (data as any)?.status;
+  const { data, error } = usePoll(() => coreStatus(), 3000);
+   
+  const st = data as any;
   const title = NAV.flatMap((g) => g.items).find((i) => (i.exact ? path === i.to || path === `${i.to}/` : path.startsWith(i.to)))?.label ?? "Core v2";
   const stateKind = st?.state === "error" ? "bad" : st?.state === "running" || st?.state === "computing" ? "ok" : undefined;
   return (
@@ -100,21 +102,25 @@ export function V2Shell() {
             </a>
           </div>
         </nav>
+        {open && <div className="v2-nav-backdrop" onClick={() => setOpen(false)} aria-hidden />}
         <div className="v2-main">
           <header className="v2-top">
-            <button type="button" className="v2-btn v2-mobile-toggle" aria-label="Menu" onClick={() => setOpen((o) => !o)}>
+            <button type="button" className="v2-btn v2-mobile-toggle" aria-label="Menu" aria-expanded={open} disabled={!ready} onClick={() => setOpen((o) => !o)}>
               <Menu size={15} />
             </button>
             <h1>{title}</h1>
+            {error && <Pill kind="bad">server unreachable</Pill>}
             {st && (
               <>
                 <Pill kind={stateKind}>
                   {st.state}
                   {st.state === "computing" || st.state === "backfill" ? ` · ${st.stage} ${Math.round(st.progress * 100)}%` : ""}
                 </Pill>
+                {st.pending && st.state !== "computing" && <Pill kind="acc">compute queued</Pill>}
                 <Pill>{st.source}</Pill>
+                {st.live && <Pill kind="bad">live on</Pill>}
                 <span className="v2-muted" style={{ fontSize: "var(--v-fs-xs)" }}>
-                  bar {fmt.time(st.lastBarT)} · {st.symbols.length} sym
+                  bar {fmt.time(st.lastBarT)} · {st.symbols} sym
                 </span>
               </>
             )}

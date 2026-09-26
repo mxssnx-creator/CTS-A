@@ -77,11 +77,13 @@ export function gatePasses(tape: Tape, p: number, nN: number, g: Gates, nowT: nu
 }
 
 function takenStats(tape: Tape, taken: Uint8Array, from: number, to: number) {
-  // taken is indexed by byEntry position; stats need exit order
+  // taken is indexed by byEntry position; stats need exit order.
+  // in-sample part (from = -∞): closed by `to`; out-of-sample part (to = +∞): entered at/after `from`.
   const sel: Trade[] = [];
   for (let k = 0; k < tape.byEntry.length; k++) {
     const tr = tape.byEntry[k];
-    if (taken[k] && tr.entryT >= from && tr.entryT < to) sel.push(tr);
+    const inWin = from === -Infinity ? tr.exitT <= to : to === Infinity ? tr.entryT >= from : tr.entryT >= from && tr.exitT <= to;
+    if (taken[k] && inWin) sel.push(tr);
   }
   sel.sort((a, b) => a.exitT - b.exitT);
   return statsOf(sel);

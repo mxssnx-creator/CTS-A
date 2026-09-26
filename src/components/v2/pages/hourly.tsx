@@ -4,7 +4,6 @@ import { STRATEGY_PRESETS } from "@/core/config";
 import { EquityChart, RadialHours, SignedBars } from "../charts";
 import { downloadFile, Empty, ErrorNote, fmt, Kpi, Line, Panel, pfTone, Pill, toCsv, tone, usePoll } from "../ui";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const H = 3_600_000;
 
@@ -15,8 +14,8 @@ export function HourlyPage() {
   const sim = d?.sim;
   const presets = d?.presets?.presets ?? {};
   const view = preset === "current" ? sim : presets[preset];
-  const hours = (view?.hourly ?? []) as Array<{ t: number; net: number; n: number; pf: number }>;
-  const steps = new Map(((sim?.steps ?? []) as Any[]).map((s) => [s.t, s]));
+  const hours = useMemo(() => (view?.hourly ?? []) as Array<{ t: number; net: number; n: number; pf: number }>, [view]);
+  const steps = useMemo(() => new Map(((sim?.steps ?? []) as Any[]).map((s) => [s.t, s])), [sim]);
   const startT = sim?.startT ?? 0;
   const endT = sim?.endT ?? 0;
   const lines = useMemo(() => {

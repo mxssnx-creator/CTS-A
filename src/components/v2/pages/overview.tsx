@@ -3,7 +3,6 @@ import { coreOverview } from "@/core/api";
 import { ArcShare, EquityChart, MultiArcGauge, RadialHours, SignedBars } from "../charts";
 import { Empty, ErrorNote, fmt, Kpi, Line, Panel, pfTone, Pill, tone, usePoll } from "../ui";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 export function OverviewPage() {

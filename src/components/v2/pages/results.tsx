@@ -3,9 +3,8 @@ import { useState } from "react";
 import { coreResults } from "@/core/api";
 import { BOTS } from "@/core/bots/bots";
 import { INDICATIONS } from "@/core/indications/registry";
-import { downloadFile, Empty, ErrorNote, fmt, Panel, pfTone, Pill, Seg, toCsv, tone, usePoll } from "../ui";
+import { downloadFile, Empty, ErrorNote, fmt, Panel, pfTone, Pill, Seg, toCsv, tone, useDebounced, usePoll } from "../ui";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 export function ResultsPage() {
@@ -14,14 +13,15 @@ export function ResultsPage() {
   const [ind, setInd] = useState("");
   const [sort, setSort] = useState("score");
   const [q, setQ] = useState("");
-  const { data, error } = usePoll(() => coreResults({ data: { stage, bot: bot || undefined, ind: ind || undefined, sort, q: q || undefined, limit: 400 } }), 10000, [stage, bot, ind, sort, q]);
+  const dq = useDebounced(q, 300);
+  const { data, error, loading } = usePoll(() => coreResults({ data: { stage, bot: bot || undefined, ind: ind || undefined, sort, q: dq || undefined, limit: 400 } }), 10000, [stage, bot, ind, sort, dq]);
   const rows = ((data as Any)?.rows ?? []) as Any[];
   return (
     <>
       <ErrorNote error={error} />
       <Panel
         title="Configs"
-        sub={`${fmt.num((data as Any)?.total)} rows · every indication × bot × protect, calculated independently`}
+        sub={`${loading ? "loading… · " : ""}${fmt.num((data as Any)?.total)} rows · every indication × bot × protect, calculated independently`}
         right={
           <button type="button" className="v2-btn" onClick={() => downloadFile(`cts-configs-stage${stage}.csv`, toCsv(rows), "text/csv")}>
             CSV

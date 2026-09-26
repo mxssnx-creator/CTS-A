@@ -33,7 +33,7 @@ async function loadCandles() {
 }
 
 const candles = await loadCandles();
-const u = makeUniverse(Object.entries(candles).map(([s, c]) => barsFromCandles(s, tf, resample(c, 5, tf))));
+const u = makeUniverse(Object.entries(candles).map(([s, c]) => barsFromCandles(s, tf, resample(c, Number(arg("srctf", 5)), tf))));
 const settings = { ...DEFAULT_SETTINGS, tfMin: tf };
 const base = defaultWalkForward(settings);
 const t0 = performance.now();

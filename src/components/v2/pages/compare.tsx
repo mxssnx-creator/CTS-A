@@ -2,7 +2,6 @@ import { coreSim } from "@/core/api";
 import { EquityChart, HeatGrid, SERIES } from "../charts";
 import { Empty, ErrorNote, fmt, Panel, pfTone, Pill, tone, usePoll } from "../ui";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const H = 3_600_000;
 

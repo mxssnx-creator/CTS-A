@@ -90,6 +90,24 @@ export class CoreDb {
     this.run("DELETE FROM runs WHERE id <= (SELECT MAX(id) - 500 FROM runs)");
     this.run("DELETE FROM sim_runs WHERE id <= (SELECT MAX(id) - 200 FROM sim_runs)");
   }
+  /** Create empty shadow copies (same DDL) of tables, e.g. results → results_next. */
+  shadowCreate(tables: readonly string[]) {
+    for (const t of tables) {
+      const m = new RegExp(`CREATE TABLE IF NOT EXISTS ${t} \\(([\\s\\S]*?)\\)( WITHOUT ROWID)?;`).exec(SCHEMA);
+      if (!m) throw new Error(`no DDL for ${t}`);
+      this.db.exec(`DROP TABLE IF EXISTS ${t}_next; CREATE TABLE ${t}_next (${m[1]})${m[2] ?? ""};`);
+    }
+  }
+  /** Atomically replace tables with their shadow copies (readers see old or new, never half). */
+  shadowSwap(tables: readonly string[]) {
+    this.tx(() => {
+      for (const t of tables) {
+        this.db.exec(`DROP TABLE ${t}; ALTER TABLE ${t}_next RENAME TO ${t};`);
+      }
+      this.db.exec(SCHEMA);
+    });
+    this.stmts.clear();
+  }
   snapshot(path: string): boolean {
     try {
       mkdirSync(dirname(path), { recursive: true });

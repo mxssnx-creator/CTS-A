@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { isOwnCoid, makeCoid, planLive, type LiveIntentLite } from "./live.ts";
+import { isOwnCoid, makeCoid, ownSymbols, planLive, type LiveIntentLite } from "./live.ts";
 import { DEFAULT_SETTINGS } from "../config.ts";
 
 const S = { ...DEFAULT_SETTINGS.live, enabled: true, maxPositions: 2 };
@@ -46,5 +46,32 @@ describe("live planner", () => {
     const again = planLive({ ...base, sent: new Set(["c|BTC-USDT|1"]) });
     assert.equal(again.entries.length, 0);
     assert.ok(makeCoid("bingx-x01", "E").length <= 40);
+  });
+
+  it("drops a signal from a symbol whose newest bar lags the universe", () => {
+    const p = planLive({ ...base, intents: [{ ...intent("BTC-USDT"), barT: 100 }, { ...intent("ETH-USDT"), barT: 200 }], newestBarT: 200 });
+    assert.deepEqual(p.entries.map((e) => e.sym), ["ETH-USDT"]);
+    assert.match(p.skipped[0].why, /stale/);
+  });
+});
+
+describe("ownership", () => {
+  it("own = own-tagged orders, or a recent own entry position without foreign orders", () => {
+    const own = ownSymbols(
+      {
+        positions: [
+          { symbol: "A", venueSymbol: "A-USDT", side: "long", qty: 1 },
+          { symbol: "B", venueSymbol: "B-USDT", side: "long", qty: 1 },
+          { symbol: "C", venueSymbol: "C-USDT", side: "long", qty: 1 },
+        ],
+        orders: [
+          { symbol: "B", venueSymbol: "B-USDT", clientOrderId: "CTSAX1_S1" },
+          { symbol: "D", venueSymbol: "D-USDT", clientOrderId: "CTSBV2_S1" },
+        ],
+      },
+      "bingx-vst-02",
+      new Set(["A-USDT", "B-USDT"]),
+    );
+    assert.deepEqual([...own].sort(), ["A-USDT", "D-USDT"]);
   });
 });

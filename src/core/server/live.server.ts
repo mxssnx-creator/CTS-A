@@ -1,30 +1,64 @@
 // Live stage executor (BingX perpetual swap). Uses the desk's signing helpers but its OWN CTSB tags, so the
 // existing CTSA sessions never see these tickets as theirs and this adapter never touches theirs.
+//
+// Safety:
+//  - one live step at a time (module mutex); abandoned when the runtime generation changes (stop / watchdog)
+//  - every request has a timeout; an entry is recorded as `pending` BEFORE it is sent, so a hung / retried
+//    cycle can never send the same intent twice
+//  - size never exceeds the configured notional (entry skipped if the exchange minimum is larger)
+//  - SL/TP are priced from a fresh ticker; if protection cannot be placed, the position is closed at market
+//  - own stop/target orders left behind on a flat symbol are cancelled
 import type { CoreRuntime, LiveIntent } from "./runtime.server.ts";
-import { liveNetwork, makeCoid, planLive, type BookView } from "./live.ts";
+import { isOwnCoid, liveNetwork, makeCoid, ownSymbols, planLive, type BookView } from "./live.ts";
 
 export interface LiveStatus {
   at: number;
   enabled: boolean;
   reason: string;
   placed: number;
+  closed: number;
+  cancelled: number;
   skipped: Array<{ sym: string; why: string }>;
   error: string | null;
 }
 
-async function signedPost(network: "mainnet" | "testnet", connId: string, path: string, params: Record<string, string | number>) {
+const TIMEOUT_MS = 10_000;
+let running: Promise<LiveStatus> | null = null;
+
+async function signed(network: "mainnet" | "testnet", connId: string, method: "POST" | "DELETE", path: string, params: Record<string, string | number>) {
   const { HOSTS, resolveKeys, signedUrl } = await import("../../lib/desk/feed.server.ts");
   const { apiKey, secret } = resolveKeys(connId, undefined, undefined);
   const url = signedUrl(HOSTS[network][0], path, secret, { ...params, recvWindow: 5000, timestamp: Date.now() });
-  const res = await fetch(url, { method: "POST", headers: { "X-BX-APIKEY": apiKey } });
-  const body = (await res.json()) as { code?: number; msg?: string; data?: unknown };
-  if (body.code !== 0) throw new Error(body.msg || `BingX ${body.code ?? res.status}`);
-  return body.data;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { method, headers: { "X-BX-APIKEY": apiKey }, signal: ctl.signal });
+    const body = (await res.json()) as { code?: number; msg?: string; data?: unknown };
+    if (body.code !== 0) throw new Error(body.msg || `BingX ${body.code ?? res.status}`);
+    return body.data;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-export async function stepLive(rt: CoreRuntime, intents: LiveIntent[]): Promise<LiveStatus> {
+/** Serialised entry point: overlapping calls wait for the running step instead of racing it. */
+export function stepLive(rt: CoreRuntime, intents: LiveIntent[], gen: number): Promise<LiveStatus> {
+  const next = (running ?? Promise.resolve(null as unknown as LiveStatus)).then(() => runStep(rt, intents, gen));
+  running = next.finally(() => {
+    if (running === next) running = null;
+  });
+  return next;
+}
+
+async function runStep(rt: CoreRuntime, intents: LiveIntent[], gen: number): Promise<LiveStatus> {
   const s = rt.settings.live;
-  const status: LiveStatus = { at: Date.now(), enabled: false, reason: "", placed: 0, skipped: [], error: null };
+  const status: LiveStatus = { at: Date.now(), enabled: false, reason: "", placed: 0, closed: 0, cancelled: 0, skipped: [], error: null };
+  const alive = () => rt.generation === gen;
+  const record = (coid: string, cfg: string, sym: string, side: number, kind: string, qty: number, px: number, st: string, key: string) =>
+    rt.db.run(
+      "INSERT OR REPLACE INTO live_orders (coid, cfg, sym, side, kind, qty, px, status, msg, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      coid, cfg, sym, side, kind, qty, px, st, key, Date.now(),
+    );
   try {
     const feed = await import("../../lib/desk/feed.server.ts");
     const network = liveNetwork(s.connId);
@@ -36,9 +70,6 @@ export async function stepLive(rt: CoreRuntime, intents: LiveIntent[]): Promise<
       const b = await feed.fetchExchangeBook({ network, connId: s.connId });
       if (b.ok) book = { positions: b.positions, orders: b.orders };
     }
-    const own = rt.db.all<{ sym: string }>("SELECT DISTINCT sym FROM live_orders WHERE kind = 'E' AND status = 'ok'");
-    const ownSyms = new Set(own.map((r) => r.sym).filter((sym) => book?.positions.some((p) => p.venueSymbol === sym)));
-    const sent = new Set(rt.db.all<{ k: string }>("SELECT msg AS k FROM live_orders WHERE kind = 'E'").map((r) => r.k));
     const sim = rt.sim;
     const minPf = rt.settings.gates.minPf;
     const ready = !sim
@@ -46,52 +77,99 @@ export async function stepLive(rt: CoreRuntime, intents: LiveIntent[]): Promise<
       : sim.stats.pf < minPf || !sim.stable
         ? { ok: false, why: `simulated run PF ${sim.stats.pf.toFixed(2)} (min ${minPf})${sim.stable ? "" : ", not stable"}` }
         : { ok: true, why: "" };
+    const dayAgo = Date.now() - 24 * 3_600_000;
+    const recent = new Set(rt.db.all<{ sym: string }>("SELECT DISTINCT sym FROM live_orders WHERE kind = 'E' AND status IN ('ok', 'pending') AND at > ?", dayAgo).map((r) => r.sym));
+    const own = book ? ownSymbols(book, s.connId, recent) : new Set<string>();
+    // every intent ever recorded (pending, ok or error) is never sent again
+    const sent = new Set(rt.db.all<{ k: string }>("SELECT msg AS k FROM live_orders WHERE kind = 'E'").map((r) => r.k));
     const plan = planLive({
       ready,
       settings: s,
       envArmed,
       hasKeys,
       book,
-      ownSyms,
+      ownSyms: own,
       sent,
+      newestBarT: rt.status.lastBarT,
       intents: intents.map((i) => ({ cfg: i.cfg, sym: i.sym, side: i.side, tp: i.protect.tp, sl: i.protect.sl, barT: i.barT })),
     });
     status.enabled = plan.enabled;
     status.reason = plan.reason;
     status.skipped = plan.skipped;
-    if (!plan.enabled) return status;
+    if (!plan.enabled || !book) return status;
+
+    // clean-up: own stop/target orders on symbols that are flat now
+    for (const o of book.orders) {
+      if (!alive()) break;
+      if (!isOwnCoid(o.clientOrderId, s.connId)) continue;
+      if (!o.id || book.positions.some((p) => p.venueSymbol === o.venueSymbol)) continue;
+      const r = await feed.cancelSwapOrder({ network, connId: s.connId, symbol: o.venueSymbol, orderId: o.id });
+      if (r.ok) status.cancelled++;
+    }
+
+    if (!plan.entries.length || !alive()) return status;
     const specs = await feed.fetchContractMap(network);
+    const fresh = new Map((await rt.freshTickers()).map((t) => [t.sym, t.last]));
     for (const e of plan.entries) {
+      if (!alive()) break;
       const spec = specs.get(e.sym) ?? null;
-      const tick = rt.tickers.find((t) => t.sym === e.sym);
-      const px = tick?.last ?? 0;
-      if (!(px > 0)) continue;
-      const qty = feed.snapQty(Math.max(s.notionalUsd, feed.exchangeMinNotional(spec, px)) / px, spec);
+      const px = fresh.get(e.sym) ?? 0;
+      if (!(px > 0)) {
+        status.skipped.push({ sym: e.sym, why: "no fresh price" });
+        continue;
+      }
+      const minNotional = feed.exchangeMinNotional(spec, px);
+      if (minNotional > s.notionalUsd) {
+        status.skipped.push({ sym: e.sym, why: `exchange minimum $${minNotional.toFixed(2)} > notional $${s.notionalUsd}` });
+        continue;
+      }
+      const qty = feed.snapQtyDown(s.notionalUsd / px, spec);
+      if (!(qty > 0) || qty * px > s.notionalUsd * 1.0001) {
+        status.skipped.push({ sym: e.sym, why: "size rounds outside the notional cap" });
+        continue;
+      }
       const side = e.side === 1 ? "BUY" : "SELL";
       const exitSide = e.side === 1 ? "SELL" : "BUY";
       const positionSide = e.side === 1 ? "LONG" : "SHORT";
       const key = `${e.cfg}|${e.sym}|${e.barT}`;
       const coid = makeCoid(s.connId, "E");
+      record(coid, e.cfg, e.sym, e.side, "E", qty, px, "pending", key);
       try {
-        await signedPost(network, s.connId, "/openApi/swap/v2/trade/order", { symbol: e.sym, side, positionSide, type: "MARKET", quantity: qty, clientOrderID: coid });
-        rt.db.run("INSERT INTO live_orders (coid, cfg, sym, side, kind, qty, px, status, msg, at) VALUES (?, ?, ?, ?, 'E', ?, ?, 'ok', ?, ?)", coid, e.cfg, e.sym, e.side, qty, px, key, Date.now());
+        await signed(network, s.connId, "POST", "/openApi/swap/v2/trade/order", { symbol: e.sym, side, positionSide, type: "MARKET", quantity: qty, clientOrderID: coid });
+        record(coid, e.cfg, e.sym, e.side, "E", qty, px, "ok", key);
         status.placed++;
-        const sl = feed.snapPx(e.side === 1 ? px * (1 - e.sl) : px * (1 + e.sl), spec);
-        const tp = feed.snapPx(e.side === 1 ? px * (1 + e.tp) : px * (1 - e.tp), spec);
-        for (const [kind, type, stopPrice] of [["S", "STOP_MARKET", sl], ["T", "TAKE_PROFIT_MARKET", tp]] as const) {
-          const c = makeCoid(s.connId, kind);
-          try {
-            await signedPost(network, s.connId, "/openApi/swap/v2/trade/order", {
-              symbol: e.sym, side: exitSide, positionSide, type, stopPrice, closePosition: "true", workingType: "MARK_PRICE", clientOrderID: c,
-            });
-            rt.db.run("INSERT INTO live_orders (coid, cfg, sym, side, kind, qty, px, status, msg, at) VALUES (?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?)", c, e.cfg, e.sym, e.side, kind, qty, stopPrice, key, Date.now());
-          } catch (err) {
-            rt.db.event("error", `live ${kind} ${e.sym}: ${err instanceof Error ? err.message : err}`);
-          }
-        }
       } catch (err) {
-        rt.db.run("INSERT INTO live_orders (coid, cfg, sym, side, kind, qty, px, status, msg, at) VALUES (?, ?, ?, ?, 'E', ?, ?, 'error', ?, ?)", coid, e.cfg, e.sym, e.side, qty, px, key, Date.now());
+        record(coid, e.cfg, e.sym, e.side, "E", qty, px, "error", key);
         rt.db.event("error", `live entry ${e.sym}: ${err instanceof Error ? err.message : err}`);
+        continue;
+      }
+      const sl = feed.snapPx(e.side === 1 ? px * (1 - e.sl) : px * (1 + e.sl), spec);
+      const tp = feed.snapPx(e.side === 1 ? px * (1 + e.tp) : px * (1 - e.tp), spec);
+      let protectedOk = true;
+      for (const [kind, type, stopPrice] of [["S", "STOP_MARKET", sl], ["T", "TAKE_PROFIT_MARKET", tp]] as const) {
+        const c = makeCoid(s.connId, kind);
+        try {
+          await signed(network, s.connId, "POST", "/openApi/swap/v2/trade/order", {
+            symbol: e.sym, side: exitSide, positionSide, type, stopPrice, closePosition: "true", workingType: "MARK_PRICE", clientOrderID: c,
+          });
+          record(c, e.cfg, e.sym, e.side, kind, qty, stopPrice, "ok", key);
+        } catch (err) {
+          protectedOk = false;
+          record(c, e.cfg, e.sym, e.side, kind, qty, stopPrice, "error", key);
+          rt.db.event("error", `live ${kind} ${e.sym}: ${err instanceof Error ? err.message : err}`);
+        }
+      }
+      if (!protectedOk) {
+        // never leave an unprotected position: close it at market (own qty only)
+        const c = makeCoid(s.connId, "C");
+        try {
+          await signed(network, s.connId, "POST", "/openApi/swap/v2/trade/order", { symbol: e.sym, side: exitSide, positionSide, type: "MARKET", quantity: qty, clientOrderID: c });
+          record(c, e.cfg, e.sym, e.side, "C", qty, px, "ok", key);
+          status.closed++;
+        } catch (err) {
+          record(c, e.cfg, e.sym, e.side, "C", qty, px, "error", key);
+          rt.db.event("error", `live protective close ${e.sym} FAILED: ${err instanceof Error ? err.message : err}`);
+        }
       }
     }
   } catch (err) {

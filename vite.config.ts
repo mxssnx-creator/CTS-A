@@ -168,6 +168,22 @@ function pgliteBootstrapPlugin(): Plugin {
   };
 }
 
+/** Core v2: start the continuous engine together with the dev / desk server (CTS_CORE_AUTOSTART=0 to disable). */
+function coreV2BootPlugin(): Plugin {
+  return {
+    name: "cts-a:core-v2-boot",
+    apply: "serve",
+    configureServer(server) {
+      server.httpServer?.once("listening", () => {
+        server
+          .ssrLoadModule("/src/core/server/boot.server.ts")
+          .then((m) => console.info(`[core-v2] ${(m as { bootCore: () => string }).bootCore()}`))
+          .catch((err) => console.error("[core-v2] boot failed:", err));
+      });
+    },
+  };
+}
+
 /**
  * Live-preview OAuth popup — handled HERE so the agent never has to create a
  * `/auth/popup` route (and cannot break it by scaffolding a React page that
@@ -293,6 +309,7 @@ export default defineConfig(({ command, isPreview }) => ({
   resolve: { tsconfigPaths: true },
   plugins: [
     liveJsonPlugin(),
+    coreV2BootPlugin(),
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),

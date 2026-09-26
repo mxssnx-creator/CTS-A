@@ -3,7 +3,6 @@ import { coreMarket, coreTrading } from "@/core/api";
 import { Sparkline } from "../charts";
 import { Empty, ErrorNote, fmt, Kpi, Line, Panel, Pill, tone, usePoll } from "../ui";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 export function TradingPage() {

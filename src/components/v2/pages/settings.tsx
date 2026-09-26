@@ -1,9 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { coreSettings, saveCoreSettings } from "@/core/api";
+import { coreSettings, coreStatus, saveCoreSettings } from "@/core/api";
 import { GATE_PRESETS, STRATEGY_PRESETS } from "@/core/config";
-import { downloadFile, Empty, ErrorNote, Panel, Pill, Switch } from "../ui";
+import { Confirm, downloadFile, Empty, ErrorNote, Panel, Pill, Switch, usePoll } from "../ui";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 function Field(props: { label: string; hint?: string; children: ReactNode }) {
@@ -17,18 +16,35 @@ function Field(props: { label: string; hint?: string; children: ReactNode }) {
 }
 
 function Num(props: { value: number; onChange: (v: number) => void; step?: number; min?: number; max?: number; pct?: boolean }) {
-  const shown = props.pct ? +(props.value * 100).toFixed(4) : props.value;
+  const toText = (v: number) => String(props.pct ? +(v * 100).toFixed(4) : v);
+  const [text, setText] = useState(toText(props.value));
+  const [focus, setFocus] = useState(false);
+  // follow external changes (presets, import, reload) unless the user is typing
+  useEffect(() => {
+    if (!focus) setText(toText(props.value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.value, props.pct, focus]);
+  const bad = text.trim() === "" || !Number.isFinite(Number(text)) || (props.min !== undefined && Number(text) < props.min) || (props.max !== undefined && Number(text) > props.max);
   return (
     <input
       className="v2-input"
       type="number"
+      inputMode="decimal"
       step={props.step ?? (props.pct ? 0.01 : 1)}
       min={props.min}
       max={props.max}
-      value={Number.isFinite(shown) ? shown : 0}
+      value={text}
+      aria-invalid={bad}
+      style={bad ? { borderColor: "var(--v-down)" } : undefined}
+      onFocus={() => setFocus(true)}
+      onBlur={() => {
+        setFocus(false);
+        if (bad) setText(toText(props.value));
+      }}
       onChange={(e) => {
+        setText(e.target.value);
         const v = Number(e.target.value);
-        if (Number.isFinite(v)) props.onChange(props.pct ? v / 100 : v);
+        if (e.target.value.trim() !== "" && Number.isFinite(v)) props.onChange(props.pct ? v / 100 : v);
       }}
     />
   );
@@ -65,17 +81,26 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [base, setBase] = useState<string>("");
+  const [ask, setAsk] = useState<null | "live" | "reset">(null);
+  const [savedAt, setSavedAt] = useState(0);
+  const { data: st } = usePoll(() => coreStatus(), 2500);
+  const status = st as Any;
   const load = () =>
     coreSettings()
       .then((d: Any) => {
         setS(d.settings);
         setWf(d.wf);
+        setBase(JSON.stringify({ settings: d.settings, wf: d.wf }));
       })
       .catch((e) => setError(String(e?.message ?? e)));
   useEffect(() => {
     void load();
   }, []);
   if (!s || !wf) return <>{error ? <ErrorNote error={error} /> : <Empty>Loading…</Empty>}</>;
+  const dirty = base !== "" && JSON.stringify({ settings: s, wf }) !== base;
+  const applied = savedAt > 0 && status && status.appliedSettingsAt >= status.settingsAt && status.lastComputeAt >= savedAt && !status.pending;
+  const applyState = !savedAt ? null : applied ? `applied in compute #${status.computes}` : status?.state === "computing" ? `applying… ${status.stage} ${Math.round((status.progress ?? 0) * 100)}%` : "applying…";
   const set = (path: string[], v: unknown) => {
     setS((prev: Any) => {
       const next = structuredClone(prev);
@@ -95,7 +120,9 @@ export function SettingsPage() {
     setError(null);
     try {
       await saveCoreSettings({ data: { settings: s, wf } });
-      setSaved("Saved · recomputing with the new settings");
+      setSavedAt(Date.now());
+      setSaved("Saved");
+      await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -116,19 +143,42 @@ export function SettingsPage() {
   return (
     <>
       <ErrorNote error={error} />
+      <Confirm
+        open={ask !== null}
+        title={ask === "live" ? `Enable the Live stage on ${s.live.connId}?` : "Discard unsaved changes?"}
+        danger={ask === "live"}
+        confirm={ask === "live" ? "Enable Live" : "Discard"}
+        body={
+          ask === "live" ? (
+            <>
+              {s.live.connId === "bingx-x01" ? <p className="v2-down" style={{ fontWeight: 600 }}>This is the MAINNET account — real money.</p> : null}
+              <p>Orders are only sent when the host also has CTS_CORE_LIVE=1 and API keys, and only while the rolling simulated run holds PF ≥ {s.gates.minPf} and is stable. Up to {s.live.maxPositions} positions of ${s.live.notionalUsd} each. Takes effect after Save.</p>
+            </>
+          ) : (
+            "Your edits on this page are lost and the saved settings are loaded again."
+          )
+        }
+        onCancel={() => setAsk(null)}
+        onConfirm={() => {
+          if (ask === "live") set(["live", "enabled"], true);
+          else void load();
+          setAsk(null);
+        }}
+      />
       <Panel
         title="Settings"
         sub="stored in the in-memory SQLite (kv) and applied on the next compute"
         right={
           <>
-            {saved && <Pill kind="ok">{saved}</Pill>}
+            {dirty && <Pill kind="acc">unsaved changes</Pill>}
+            {!dirty && saved && <Pill kind={applied ? "ok" : undefined}>{saved} · {applyState}</Pill>}
             <label className="v2-btn">
               Import
               <input type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
             </label>
             <button type="button" className="v2-btn" onClick={() => downloadFile("cts-core-settings.json", JSON.stringify({ settings: s, wf }, null, 2))}>Export</button>
-            <button type="button" className="v2-btn" onClick={() => void load()}>Reset</button>
-            <button type="button" className="v2-btn primary" disabled={busy} onClick={save}>Save</button>
+            <button type="button" className="v2-btn" disabled={!dirty} onClick={() => setAsk("reset")}>Discard</button>
+            <button type="button" className="v2-btn primary" disabled={busy || !dirty} onClick={save}>{busy ? "Saving…" : "Save"}</button>
           </>
         }
       >
@@ -236,7 +286,7 @@ export function SettingsPage() {
         <Panel title="Live stage" sub="off by default · also requires CTS_CORE_LIVE=1 on the host">
           <div className="v2-grid v2-cols-2">
             <Field label="Enabled">
-              <Switch label="Live enabled" checked={!!s.live.enabled} onChange={(v) => set(["live", "enabled"], v)} />
+              <Switch label="Live enabled" checked={!!s.live.enabled} onChange={(v) => (v ? setAsk("live") : set(["live", "enabled"], false))} />
             </Field>
             <Field label="Connection">
               <select className="v2-select" value={s.live.connId} onChange={(e) => set(["live", "connId"], e.target.value)}>

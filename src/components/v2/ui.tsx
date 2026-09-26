@@ -1,39 +1,108 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-/** Poll a server function; data is replaced in place (no reload, no scroll jump). */
+/**
+ * Poll a server function; data is replaced in place (no reload, no scroll jump).
+ * - never more than one request in flight (a slow server is not flooded)
+ * - responses from an older dependency set are dropped (no stale overwrite after a filter change)
+ * - pauses while the tab is hidden; backs off on errors
+ */
 export function usePoll<T>(fn: () => Promise<T>, ms: number, deps: unknown[] = []): { data: T | null; error: string | null; refresh: () => void; loading: boolean } {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const fnRef = useRef(fn);
   fnRef.current = fn;
-  const alive = useRef(true);
-  const run = useCallback(async () => {
+  const epoch = useRef(0);
+  const inFlight = useRef(false);
+  const fails = useRef(0);
+  const seq = useRef(0);
+  const applied = useRef(0);
+  const run = useCallback(async (force = false) => {
+    if (inFlight.current && !force) return;
+    const my = epoch.current;
+    const n = ++seq.current;
+    inFlight.current = true;
     try {
       const d = await fnRef.current();
-      if (!alive.current) return;
+      // drop responses from an old dependency set, and any response older than one already shown
+      if (my !== epoch.current || n < applied.current) return;
+      applied.current = n;
+      fails.current = 0;
       setData(d);
       setError(null);
     } catch (e) {
-      if (alive.current) setError(e instanceof Error ? e.message : String(e));
+      if (my !== epoch.current) return;
+      fails.current++;
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      if (alive.current) setLoading(false);
+      if (my === epoch.current) {
+        inFlight.current = false;
+        setLoading(false);
+      }
     }
   }, []);
   useEffect(() => {
-    alive.current = true;
+    epoch.current++;
+    inFlight.current = false;
     setLoading(true);
-    void run();
-    const id = setInterval(() => {
-      if (typeof document === "undefined" || document.visibilityState === "visible") void run();
-    }, ms);
+    void run(true);
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const wait = ms * Math.min(8, 2 ** fails.current);
+      timer = setTimeout(() => {
+        if (typeof document === "undefined" || document.visibilityState === "visible") void run();
+        tick();
+      }, wait);
+    };
+    tick();
+    const onVis = () => document.visibilityState === "visible" && void run();
+    document.addEventListener("visibilitychange", onVis);
     return () => {
-      alive.current = false;
-      clearInterval(id);
+      // invalidate responses of this dependency set (intentionally the live ref)
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      epoch.current++;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVis);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ms, run, ...deps]);
-  return { data, error, refresh: run, loading };
+  return { data, error, refresh: () => void run(true), loading };
+}
+
+/** Debounced copy of a value (typing in filters does not fire a request per key). */
+export function useDebounced<T>(value: T, ms = 300): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return v;
+}
+
+/** Accessible confirm dialog. Escape / backdrop cancel; focus goes to the confirm button. */
+export function Confirm(props: { open: boolean; title: string; body: ReactNode; confirm: string; danger?: boolean; onConfirm: () => void; onCancel: () => void }) {
+  const btn = useRef<HTMLButtonElement>(null);
+  const { open, onCancel } = props;
+  useEffect(() => {
+    if (!open) return;
+    btn.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onCancel]);
+  if (!props.open) return null;
+  return (
+    <div className="v2-dialog-backdrop" onClick={props.onCancel}>
+      <div className="v2-dialog" role="dialog" aria-modal="true" aria-labelledby="v2-dialog-title" onClick={(e) => e.stopPropagation()}>
+        <h3 id="v2-dialog-title">{props.title}</h3>
+        <div className="v2-dialog-body">{props.body}</div>
+        <div className="v2-dialog-actions">
+          <button type="button" className="v2-btn" onClick={props.onCancel}>Cancel</button>
+          <button ref={btn} type="button" className={`v2-btn ${props.danger ? "danger" : "primary"}`} onClick={props.onConfirm}>{props.confirm}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export const fmt = {

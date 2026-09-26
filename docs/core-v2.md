@@ -34,11 +34,32 @@ untouched). UI at `/v2`. Everything here is honest by construction:
 - In-memory SQLite (`node:sqlite`, `:memory:`) — tables: candles, symbols, results, lastn, evals, tapes,
   sim_runs, paper_trades, paper_positions, live_orders, events, runs, kv. Optional snapshot with
   `CTS_CORE_SNAPSHOT=/path/core.sqlite` (VACUUM INTO every 10 min, restored on boot).
-- Continuous loop (20 s): pull newly closed BingX bars (public API, no keys; synthetic fallback), on a new
-  bar run Base → Main → Real, a 48 h simulated run with 20 h pre-calc, every preset on the same tapes, the
-  paper book and the Live stage. Heavy work is time-sliced (yields every 12 ms); a watchdog restarts a
-  stale loop.
-- A compute over 40 symbols × 18 days of 15 m bars takes ~30–60 s.
+- Starts with the server (`vite dev` plugin `cts-a:core-v2-boot`; `CTS_CORE_AUTOSTART=0` disables) and runs
+  without any viewer. Loop every 20 s: pull newly closed BingX bars (public API, no keys; 4–6 requests in
+  flight), on a new bar run Base → Main → Real, a 48 h simulated run with 20 h pre-calc, every preset on the
+  same tapes, the paper book and the Live stage.
+- Base covers all 377 combos; Main expands the top 140 Base combos (`mainTop`) into every protect variant ×
+  sub-strategy (≈ 14,000 tapes). A compute over 40 symbols × 18 days of 15 m bars takes ~12 s.
+
+## Reliability audit (all verified by tests)
+
+| Area | Behaviour | Evidence |
+|---|---|---|
+| Event loop | every heavy stage is a generator driven in 12 ms slices; persistence is chunked | worst stall 1,666 ms → ≤ 77 ms; per-phase max slice ≤ 53 ms (Engine page shows it live) |
+| Memory | compact typed-array tapes, one buffer per tape; Main pre-screen | RSS 2.4 GB → 0.8 GB |
+| Consistent reads | results / lastn / tapes written to shadow tables and swapped atomically | a viewer never sees half-written tables |
+| Races | loop generation token: an abandoned cycle never publishes; settings snapshot per compute; universe reset applied at the next cycle | `runtime.test.ts` (stop mid-compute, settings mid-compute, resync while busy, watchdog) |
+| Stop | aborts the running compute at its next slice | `stop during a compute` test |
+| Self-healing | 30 s healer independent of viewers: stale loop → new generation; lost timer → reschedule; synthetic fallback → back to BingX when reachable; symbols > 300 bars behind → re-backfilled; failing cycles back off 5 s…10 min and recover | `heal.test.ts` |
+| Settings | validated server-side (ranges, lists, grid size ≤ 240, walk-forward knobs clamped); UI shows unsaved / applying / applied in compute #n | e2e |
+| Live path | module mutex, 10 s request timeouts, `pending` row before send (no duplicate on retry), generation check per order, size never above the notional cap, fresh price for SL/TP, market close if protection fails, orphan own orders cancelled, stale-symbol signals dropped, own `CTSB` tags only | `live.test.ts` |
+| UI | one request in flight per view, stale responses dropped, backoff on errors, paused while hidden, debounced filters, confirm dialogs (Live, Stop, Resync, Discard), hydration-safe mobile menu | 22-check Playwright e2e, twice, also while computing (p95 ≤ 280 ms) |
+
+An independent code review found 11 issues (live duplicates on hang, unvalidated walk-forward settings that
+could loop forever, stale-symbol re-entry, unsorted portfolio tape, unprotected positions, stale SL/TP prices,
+size cap, orphan orders, mid-backfill timeframe change, watchdog vs backoff, in-sample split leak, UI
+refresh race); all are fixed. Remaining known limitation: the control endpoints have no authentication
+(same as the existing desk) — Live additionally requires `CTS_CORE_LIVE=1` on the host.
 
 ## UI (`/v2`)
 
@@ -57,45 +78,39 @@ npm run core:sweep -- --cache candles.json         # last-N × N-eval PF × SL r
 npm run core:hourly -- --cache candles.json --out docs/core-hourly   # hour-by-hour report, all presets
 ```
 
-## Results on real data (40 symbols, BingX perpetuals, 30 days to 2026-09-26, 15 m, 0.2 % cost)
+## Results on real data (0.2 % round-trip cost)
 
-**Edge before cost is tiny.** Per trade gross (before the 0.2 %): trend-following entries −0.09…+0.06 %,
-fade bots mostly ±0.06 %; only magnet / snap / pulse fades reach +0.16…+0.20 %. High-frequency entries
-therefore lose mainly to cost: more orders ≠ more profit. 5 m bars: 5 % of training winners held up out of
-sample (noise). 15 m with wide targets (TP 3.5–5 %) was the only setting with durable winners.
+**Edge before cost is tiny.** Per trade gross: trend-following entries −0.09…+0.06 %, fade bots mostly
+±0.06 %; only magnet / snap / pulse fades reach +0.16…+0.20 %. More orders mainly add cost.
 
-**Walk-forward, 7 separate 2-day runs, 20 h pre-calc before every hour** (days 15–29):
+**90 days, complete and causal** (`docs/core-longrun.md`): 40 symbols, 15 m, 37 separate 2-day runs
+(2026-07-13 → 09-25), Base scored only on the lookback before each block, Main = top 140 × every protect ×
+sub-strategy, durable selection, 20 h pre-calc:
 
-| Preset | Hourly re-selection PF | Durable 14 d PF | Durable runs positive | Orders/day |
-|---|---:|---:|---:|---:|
-| Normal only | 0.69 | 0.82 | 3/7 | 74 |
-| Trailing only | 0.58 | 0.84 | 2/7 | 82 |
-| Block | 0.71 | 0.85 | 2/7 | 79 |
-| Block Active | 0.71 | 0.88 | 2/7 | 77 |
-| DCA | 0.77 | 0.86 | 2/7 | 65 |
-| DCA Active | 0.78 | 0.99 | 4/7 | 72 |
-| **Block Active + DCA Active** (default) | 0.69 | **1.08** | **5/7** | **82** |
+| Preset | PF | Runs positive | Orders/day | Green hours | Worst hour |
+|---|---:|---:|---:|---:|---:|
+| DCA Active | **0.92** | 13/37 | 34 | 50 % | −28 % |
+| Block Active + DCA Active (default) | 0.89 | **19/37** | 34 | 52 % | −75 % |
+| Normal only | 0.86 | 14/37 | 36 | 50 % | −74 % |
+| Block Active | 0.86 | 15/37 | 33 | 50 % | −75 % |
+| Normal + Trailing + Block | 0.84 | 12/37 | 35 | 50 % | −61 % |
+| Trailing only | 0.82 | 12/37 | 36 | 53 % | −34 % |
 
-Parameter sweep (≈ 300 combos: last-N 0/5/8/12/20/30 × N-eval PF 1.0/1.1 × SL 1/1.5/2/2.5 × TP ×
-trailing 0/0.25/0.4 × TP) under hourly re-selection: best PF 0.93 (SL 2.5 × TP, trail 0.4 × TP, last-N 8,
-PF ≥ 1.1). SL ratios 2–2.5 and trailing helped; no combination reached PF 1.
+Same test on 30 m and 1 h bars: PF 0.78–0.94 and 0.75–0.91 (DCA Active best in both).
 
-Latest 48 h (2026-09-24 12h → 09-26 12h), durable mode: see `docs/core-hourly.md` — line-by-line hours
-for every preset (orders, wins, PF, net, cumulative, per sub-strategy, Block level, DCA legs, skips).
+Earlier, shorter tests (30 days) looked better — durable Block Active + DCA Active PF 1.08 over the last
+15 days — but that did **not** hold over 90 days. Parameter sweeps (≈ 300 combos of last-N, N-eval PF, SL
+1–2.5 × TP, trailing) never reached PF 1 either.
 
 ### Honest status
 
-- The durable default is the first setting that is positive over the tested out-of-sample period
-  (PF 1.08, +220 % summed per-trade net, 5/7 runs green) but it is **below the 1.10 floor and not stable
-  hour by hour** (≈ 55 % green hours; worst hour −59 %). It was chosen from ~36 compared options, so part of
-  it may be selection luck.
-- "Every hour positive with a high order count" was **not** achieved: with 0.2 % cost the measured
-  signals do not carry enough edge, and hours with many concurrent positions are correlated (one market
-  move stops many positions at once).
-- Therefore the Live stage stays off and additionally refuses to trade until the rolling simulated run is
-  PF ≥ min and stable.
+- No tested configuration is consistently profitable after the 0.2 % round-trip cost; "every hour
+  positive with a high order count" is not achievable with these signal families on this data.
+- The engine, the selection and the reports are built to show this truthfully and keep searching
+  continuously; the Live stage stays off and refuses to trade unless the rolling simulated run is PF ≥ min
+  (1.10) and stable.
 
 ### Next levers
 
-More history (60–90 days) for the 14-day durable window; maker-fee execution (limit entries cut cost);
-correlation-aware caps (net exposure per side); new signal families with gross edge > 0.3 %/trade.
+Maker (limit) execution to cut the cost; correlation-aware exposure per side; new signal families with a
+gross edge > 0.3 % per trade; more history for the durable window.

@@ -6,7 +6,6 @@ import { INDICATIONS } from "@/core/indications/registry";
 import { ArcDiagram, HeatGrid } from "../charts";
 import { Empty, ErrorNote, fmt, Panel, Seg, usePoll } from "../ui";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 export function MatrixPage() {
@@ -14,7 +13,7 @@ export function MatrixPage() {
   const [metric, setMetric] = useState<"pf" | "is_pf" | "gh">("pf");
   const nav = useNavigate();
   const d = data as Any;
-  const rows = (d?.rows ?? []) as Any[];
+  const rows = useMemo(() => (d?.rows ?? []) as Any[], [d]);
   const byKey = useMemo(() => new Map(rows.map((r) => [`${r.bot}|${r.ind}`, r])), [rows]);
   const bots = BOTS.map((b) => b.type);
   const inds = ["none", ...INDICATIONS.map((i) => i.id)];

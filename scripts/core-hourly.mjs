@@ -9,7 +9,7 @@ import { dirname } from "node:path";
 import { DEFAULT_SETTINGS, STRATEGY_PRESETS } from "../src/core/config.ts";
 import { barsFromCandles, resample } from "../src/core/market/bars.ts";
 import { fetchHistory, fetchTickers, pickUniverse } from "../src/core/market/bingx.ts";
-import { profitFactor, statsOf } from "../src/core/metrics/stats.ts";
+import { profitFactor } from "../src/core/metrics/stats.ts";
 import { makeUniverse } from "../src/core/pipeline/pipeline.ts";
 import { buildTapes, defaultWalkForward, walkForward } from "../src/core/sim/walkforward.ts";
 
@@ -33,7 +33,7 @@ async function loadCandles() {
 }
 
 const candles = await loadCandles();
-let u = makeUniverse(Object.entries(candles).map(([s, c]) => barsFromCandles(s, tf, resample(c, 5, tf))));
+let u = makeUniverse(Object.entries(candles).map(([s, c]) => barsFromCandles(s, tf, resample(c, Number(arg("srctf", 5)), tf))));
 const settings = { ...DEFAULT_SETTINGS, tfMin: tf };
 const patch = JSON.parse(arg("patch", "{}"));
 const base = { ...defaultWalkForward(settings), ...patch };

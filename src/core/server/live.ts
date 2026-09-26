@@ -24,9 +24,17 @@ export function isOwnCoid(coid: string | undefined, connId: LiveSettings["connId
   return !!coid && coid.toUpperCase().startsWith(LIVE_TAG[connId]);
 }
 
+/** Symbols we own on the exchange: own-tagged open orders, or a position that one of our recent entries opened. */
+export function ownSymbols(book: BookView, connId: LiveSettings["connId"], recentEntrySyms: ReadonlySet<string>): Set<string> {
+  const own = new Set<string>();
+  for (const o of book.orders) if (isOwnCoid(o.clientOrderId, connId)) own.add(o.venueSymbol);
+  for (const p of book.positions) if (recentEntrySyms.has(p.venueSymbol) && !book.orders.some((o) => o.venueSymbol === p.venueSymbol && !isOwnCoid(o.clientOrderId, connId))) own.add(p.venueSymbol);
+  return own;
+}
+
 export interface BookView {
   positions: Array<{ symbol: string; venueSymbol: string; side: "long" | "short"; qty: number }>;
-  orders: Array<{ symbol: string; venueSymbol: string; clientOrderId?: string }>;
+  orders: Array<{ id?: string; symbol: string; venueSymbol: string; clientOrderId?: string }>;
 }
 
 export interface LiveIntentLite {
@@ -35,6 +43,7 @@ export interface LiveIntentLite {
   side: 1 | -1;
   tp: number;
   sl: number;
+  /** open time of the bar the signal was decided on (the symbol's own newest bar) */
   barT: number;
 }
 
@@ -57,6 +66,8 @@ export function planLive(input: {
   sent: ReadonlySet<string>;
   /** readiness: the rolling simulated run must be PF >= min and stable, otherwise Live stays off */
   ready?: { ok: boolean; why: string };
+  /** newest bar open time across the universe: a signal on an older bar (lagging symbol) is stale */
+  newestBarT?: number;
 }): LivePlan {
   const { settings, intents, book } = input;
   const off = (reason: string): LivePlan => ({ enabled: false, reason, entries: [], skipped: [] });
@@ -75,6 +86,10 @@ export function planLive(input: {
   for (const it of intents) {
     const key = `${it.cfg}|${it.sym}|${it.barT}`;
     if (input.sent.has(key)) continue;
+    if (input.newestBarT !== undefined && it.barT < input.newestBarT) {
+      skipped.push({ sym: it.sym, why: "stale signal (symbol not updated)" });
+      continue;
+    }
     if (foreign.has(it.sym)) {
       skipped.push({ sym: it.sym, why: "foreign position/order on symbol" });
       continue;

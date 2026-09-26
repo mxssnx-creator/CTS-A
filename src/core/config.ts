@@ -59,6 +59,8 @@ export interface CoreSettings {
   gates: Gates;
   /** stage-1 winners refined in stage 2 */
   refineTop: number;
+  /** Base combos promoted to Main (expanded into every protect variant × sub-strategy) */
+  mainTop: number;
   /** configs taken to last-N + continuous evals */
   evalTop: number;
   /** max bots in the armed portfolio */
@@ -78,7 +80,6 @@ export interface LiveSettings {
   connId: "bingx-x01" | "bingx-vst-01" | "bingx-vst-02";
   notionalUsd: number;
   maxPositions: number;
-  leverage: number;
 }
 
 export const DEFAULT_SETTINGS: CoreSettings = {
@@ -90,6 +91,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
   cost: RT_COST,
   gates: DEFAULT_GATES,
   refineTop: 24,
+  mainTop: 140,
   evalTop: 60,
   armTop: 10,
   paperNotional: 100,
@@ -97,7 +99,7 @@ export const DEFAULT_SETTINGS: CoreSettings = {
   block: DEFAULT_BLOCK,
   dca: DEFAULT_DCA,
   grid: { tp: [0.018, 0.026, 0.035, 0.05], slOfTp: [1, 1.5, 2, 2.5], trailOfTp: [0, 0.25, 0.4], minTrail: 0.006, minSl: 0.01, holdH: [3, 8] },
-  live: { enabled: false, connId: "bingx-vst-02", notionalUsd: 6, maxPositions: 3, leverage: 5 },
+  live: { enabled: false, connId: "bingx-vst-02", notionalUsd: 6, maxPositions: 3 },
 };
 
 export const GATE_PRESETS: Record<string, Gates> = {

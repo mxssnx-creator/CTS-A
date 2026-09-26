@@ -12,6 +12,28 @@ type Json = string | number | boolean | null | Json[] | { [k: string]: Json };
 /** Server-function payloads must be serializable; this also strips typed arrays and undefined. */
 const ser = (x: unknown): Json => JSON.parse(JSON.stringify(x ?? null)) as Json;
 
+/** Light status for the header (polled often). */
+export const coreStatus = createServerFn({ method: "GET" }).handler(async () => {
+  const r = await rt();
+  const st = r.status;
+  return ser({
+    state: st.state,
+    stage: st.stage,
+    progress: st.progress,
+    label: st.label,
+    source: st.source,
+    symbols: st.symbols.length,
+    lastBarT: st.lastBarT,
+    computes: st.computes,
+    pending: st.pending,
+    settingsAt: st.settingsAt,
+    appliedSettingsAt: st.appliedSettingsAt,
+    lastComputeAt: st.lastComputeAt,
+    error: st.error,
+    live: r.settings.live.enabled,
+  });
+});
+
 export const coreOverview = createServerFn({ method: "GET" }).handler(async () => {
   const r = await rt();
   const db = r.db;
@@ -170,6 +192,7 @@ export const saveCoreSettings = createServerFn({ method: "POST" })
     num(s.cycleMs, 5_000, 600_000, "cycleMs");
     num(s.cost, 0, 0.02, "cost");
     num(s.armTop, 1, 40, "armTop");
+    num(s.mainTop, 10, 377, "mainTop");
     if (s.tfMin !== undefined && ![5, 15, 30, 60].includes(s.tfMin)) throw new Error("tfMin must be 5, 15, 30 or 60");
     if (s.gates) {
       num(s.gates.minPf, 0.5, 5, "minPf");
@@ -177,7 +200,38 @@ export const saveCoreSettings = createServerFn({ method: "POST" })
       num(s.gates.minTrades, 1, 500, "minTrades");
       num(s.gates.quorum, 0, 1, "quorum");
     }
-    if (s.live) num(s.live.notionalUsd, 1, 500, "notionalUsd");
+    if (s.live) {
+      num(s.live.notionalUsd, 1, 500, "notionalUsd");
+      num(s.live.maxPositions, 1, 20, "maxPositions");
+      if (s.live.connId !== undefined && !["bingx-x01", "bingx-vst-01", "bingx-vst-02"].includes(s.live.connId)) throw new Error("unknown connection");
+      if (s.live.enabled !== undefined && typeof s.live.enabled !== "boolean") throw new Error("live.enabled must be boolean");
+    }
+    if (s.toggles) for (const [k, v] of Object.entries(s.toggles)) if (typeof v !== "boolean") throw new Error(`toggle ${k} must be boolean`);
+    if (s.block) {
+      num(s.block.ratio, 0, 2, "block ratio");
+      num(s.block.maxLevel, 1, 12, "block max level");
+      num(s.block.minActiveLevel, 1, 12, "block active level");
+      num(s.block.maxMult, 1, 10, "block max multiple");
+    }
+    if (s.dca) {
+      num(s.dca.levels, 1, 6, "dca levels");
+      num(s.dca.step, 0.001, 0.1, "dca step");
+    }
+    if (s.grid) {
+      const list = (xs: unknown, lo: number, hi: number, name: string) => {
+        if (xs === undefined) return;
+        if (!Array.isArray(xs) || xs.length < 1 || xs.length > 12) throw new Error(`${name}: 1–12 values`);
+        for (const x of xs) num(x, lo, hi, name);
+      };
+      list(s.grid.tp, 0.002, 0.2, "grid TP");
+      list(s.grid.slOfTp, 0.2, 5, "grid SL×TP");
+      list(s.grid.trailOfTp, 0, 1, "grid trail share");
+      list(s.grid.holdH, 0.25, 72, "grid hold");
+      num(s.grid.minTrail, 0, 0.1, "min trail");
+      num(s.grid.minSl, 0, 0.2, "min SL");
+      const n = (s.grid.tp?.length ?? 4) * (s.grid.slOfTp?.length ?? 4) * (s.grid.trailOfTp?.length ?? 3) * (s.grid.holdH?.length ?? 2);
+      if (n > 240) throw new Error(`protect grid too large (${n} variants, max 240)`);
+    }
     return d;
   })
   .handler(async ({ data }) => {
@@ -195,10 +249,7 @@ export const coreControl = createServerFn({ method: "POST" })
     const r = await rt();
     if (data.action === "stop") r.stop();
     else if (data.action === "start") r.start();
-    else if (data.action === "resync") {
-      r.candles.clear();
-      r.db.run("DELETE FROM candles");
-      r.kick();
-    } else r.kick();
+    else if (data.action === "resync") r.requestResync();
+    else r.kick();
     return ser({ ok: true, state: r.status.state });
   });

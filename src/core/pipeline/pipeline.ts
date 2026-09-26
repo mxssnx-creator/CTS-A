@@ -126,7 +126,8 @@ export function runCombo(u: Universe, bot: BotType, ind: string, protect: Protec
     }
   }
   trades.sort((a, b) => a.exitT - b.exitT || a.entryT - b.entryT);
-  const isTrades = trades.filter((t) => t.entryT < u.splitT);
+  // in-sample = closed before the split (a trade straddling the split is not in-sample)
+  const isTrades = trades.filter((t) => t.exitT <= u.splitT);
   const is = statsOf(isTrades, u.splitT);
   return {
     id,
@@ -210,7 +211,7 @@ export function* runPipeline(u: Universe, s: CoreSettings): Generator<PipelinePr
     const c = combos[i];
     const r = runCombo(u, c.bot, c.ind, DEFAULT_PROTECT, cost, 1);
     if (r) s1.push(slim(r));
-    if (i % 4 === 3) yield { stage: "S1", done: i + 1, total: combos.length, label: `${c.bot} × ${c.ind}` };
+    yield { stage: "S1", done: i + 1, total: combos.length, label: `${c.bot} × ${c.ind}` };
   }
   s1.sort((a, b) => b.score - a.score);
   timings.S1 = performance.now() - t0;
@@ -229,7 +230,7 @@ export function* runPipeline(u: Universe, s: CoreSettings): Generator<PipelinePr
       done2++;
       if (!r) continue;
       s2.push(r);
-      if (done2 % 12 === 0) yield { stage: "S2", done: done2, total: total2, label: r.id };
+      if (done2 % 2 === 0) yield { stage: "S2", done: done2, total: total2, label: r.id };
     }
   }
   s2.sort((a, b) => b.score - a.score);
@@ -269,7 +270,7 @@ export function* runPipeline(u: Universe, s: CoreSettings): Generator<PipelinePr
       rank: 0,
       armed: false,
     });
-    if (i % 3 === 2) yield { stage: "S3", done: i + 1, total: chosen.length, label: r.id };
+    yield { stage: "S3", done: i + 1, total: chosen.length, label: r.id };
   }
   timings.S3 = performance.now() - t0;
 

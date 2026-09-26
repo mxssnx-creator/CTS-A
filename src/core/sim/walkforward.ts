@@ -146,8 +146,8 @@ export interface ConfigTape {
   exitT: Float64Array;
   entryT: Float64Array;
   r: Float64Array;
-  entry: Float64Array;
-  exit: Float64Array;
+  entry: Float32Array;
+  exit: Float32Array;
   symI: Uint16Array;
   side: Int8Array;
   reason: Uint8Array;
@@ -181,13 +181,32 @@ export function makeTape(
   trades.sort((a, b) => a.exitT - b.exitT || a.entryT - b.entryT);
   const n = trades.length;
   const symIdx = new Map(syms.map((s, i) => [s, i]));
-  const tp: ConfigTape = {
-    id, bot, ind, protect, kind, n, syms,
-    exitT: new Float64Array(n), entryT: new Float64Array(n), r: new Float64Array(n), entry: new Float64Array(n), exit: new Float64Array(n),
-    symI: new Uint16Array(n), side: new Int8Array(n), reason: new Uint8Array(n), bars: new Uint16Array(n), vol: new Float32Array(n), level: new Uint8Array(n),
-    gp: new Float64Array(n + 1), gl: new Float64Array(n + 1), rs: new Float64Array(n + 1), r2: new Float64Array(n + 1),
-    open, pending,
+  // one backing buffer per tape: 9 float64 columns (5 × n, 4 × n+1) then float32, uint16 ×2, int8/uint8 ×3
+  const f64 = 3 * n + 4 * (n + 1);
+  const buf = new ArrayBuffer(f64 * 8 + n * 4 * 3 + n * 2 * 2 + n * 3);
+  let off = 0;
+  const F = (len: number) => {
+    const a = new Float64Array(buf, off, len);
+    off += len * 8;
+    return a;
   };
+  const exitT = F(n), entryT = F(n), r = F(n), gp = F(n + 1), gl = F(n + 1), rs = F(n + 1), r2 = F(n + 1);
+  const entry = new Float32Array(buf, off, n);
+  off += n * 4;
+  const exit = new Float32Array(buf, off, n);
+  off += n * 4;
+  const vol = new Float32Array(buf, off, n);
+  off += n * 4;
+  const symI = new Uint16Array(buf, off, n);
+  off += n * 2;
+  const bars = new Uint16Array(buf, off, n);
+  off += n * 2;
+  const side = new Int8Array(buf, off, n);
+  off += n;
+  const reason = new Uint8Array(buf, off, n);
+  off += n;
+  const level = new Uint8Array(buf, off, n);
+  const tp: ConfigTape = { id, bot, ind, protect, kind, n, syms, exitT, entryT, r, entry, exit, symI, side, reason, bars, vol, level, gp, gl, rs, r2, open, pending };
   for (let i = 0; i < n; i++) {
     const t = trades[i];
     tp.exitT[i] = t.exitT;
@@ -272,15 +291,22 @@ export function* buildTapesGen(
   protects: readonly Protect[],
   cost: number,
   dcaOpt?: { protects: readonly Protect[]; dca: DcaConfig },
+  /** Main candidates as "bot|ind"; undefined = every combo */
+  only?: ReadonlySet<string>,
 ): Generator<{ done: number; total: number }, ConfigTape[]> {
-  const combos = allCombos();
+  const combos = allCombos().filter((c) => !only || only.has(`${c.bot}|${c.ind}`));
   const syms = u.bars.map((b) => b.sym);
   const out: ConfigTape[] = [];
   const per = protects.length + (dcaOpt ? dcaOpt.protects.length * 2 : 0);
   const total = combos.length * per;
   let done = 0;
   for (const c of combos) {
-    const sigs = u.caches.map((k) => comboSignal(c.bot, c.ind, k));
+    const sigs: Array<Int8Array | null> = [];
+    for (const k of u.caches) {
+      sigs.push(comboSignal(c.bot, c.ind, k));
+      // signal series for one symbol can be heavy on first use; let the caller yield per symbol
+      yield { done, total };
+    }
     if (sigs.some((x) => x === null)) {
       done += per;
       continue;
@@ -302,7 +328,7 @@ export function* buildTapesGen(
       }
       out.push(makeTape(id, c.bot, c.ind, p, kind, syms, trades, open, pending));
       done++;
-      if (done % 8 === 0) yield { done, total };
+      yield { done, total };
     }
     if (dcaOpt) {
       for (const p of dcaOpt.protects) {
@@ -318,7 +344,7 @@ export function* buildTapesGen(
           }
           out.push(makeTape(id, c.bot, c.ind, p, kind, syms, trades, [], pending));
           done++;
-          if (done % 8 === 0) yield { done, total };
+          yield { done, total };
         }
       }
     }
@@ -331,8 +357,9 @@ export function buildTapes(
   protects: readonly Protect[],
   cost: number,
   dcaOpt?: { protects: readonly Protect[]; dca: DcaConfig },
+  only?: ReadonlySet<string>,
 ): ConfigTape[] {
-  const gen = buildTapesGen(u, protects, cost, dcaOpt);
+  const gen = buildTapesGen(u, protects, cost, dcaOpt, only);
   for (;;) {
     const r = gen.next();
     if (r.done) return r.value;
@@ -541,7 +568,16 @@ export function execDecision(tp: ConfigTape, entryT: number, o: WalkForwardOptio
   return { ok: true, level, vol };
 }
 
+/** Synchronous wrapper (CLI / tests). The runtime drives walkForwardGen so it can yield between hours. */
 export function walkForward(u: Universe, tapes: readonly ConfigTape[], o: WalkForwardOptions): WalkForwardResult {
+  const gen = walkForwardGen(u, tapes, o);
+  for (;;) {
+    const r = gen.next();
+    if (r.done) return r.value;
+  }
+}
+
+export function* walkForwardGen(u: Universe, tapes: readonly ConfigTape[], o: WalkForwardOptions): Generator<number, WalkForwardResult> {
   const byId = new Map(tapes.map((t) => [t.id, t]));
   const endT = u.nowT;
   const startT = o.startT ?? Math.floor((endT - o.simH * H) / H) * H;
@@ -605,6 +641,7 @@ export function walkForward(u: Universe, tapes: readonly ConfigTape[], o: WalkFo
       open[j] = x;
     }
     steps.push({ t, main: eligible, real: picks.map((p) => p.id), taken, skipped, net });
+    yield t;
   }
 
   trades.sort((a, b) => a.exitT - b.exitT);
