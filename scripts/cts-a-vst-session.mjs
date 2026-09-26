@@ -1996,8 +1996,7 @@ async function mirrorToExchange(e, network, cfg) {
     if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
     if (e.manualClosed?.[`${f.symbol}:${f.side}`]) continue;
     if (deadSymbols.has(f.symbol)) continue;
-    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 1))) {
-      skippedFills.add(f.id);
+    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 1)) && !(IS_X01 && openN < 30)) {
       continue;
     }
     {
@@ -2021,10 +2020,9 @@ async function mirrorToExchange(e, network, cfg) {
         tpAtr: Number(order?.tpAtr ?? pos?.tpAtr ?? currentPick?.cfg?.tpAtr ?? LIVE_CFG.tpAtr),
         slOfTp: Number(order?.slOfTp ?? pos?.slOfTp ?? currentPick?.cfg?.slOfTp ?? LIVE_CFG.slOfTp),
       };
-      if (!liveShouldExecute(e, rel) || liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType })) {
-        skippedFills.add(f.id);
-        continue;
-      }
+      const allowed = liveShouldExecute(e, rel) && !liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType });
+      const needBook = IS_X01 && (openN + fillJobs.length) < 30;
+      if (!allowed && !needBook) continue;
       f._rel = rel;
     }
     if (!isUniverseSymbol(f.symbol)) {
