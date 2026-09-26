@@ -1990,10 +1990,24 @@ async function mirrorToExchange(e, network, cfg) {
     }));
   const entryIntents = IS_X01 ? diversifyLiveIntents(queueIntents) : queueIntents;
   const entryCap = IS_X01 ? 8 : 16;
+  const occupiedSymbols = new Set([...exchangeOccupied].map((k) => String(k).split(":")[0]));
+  const scanIntents = IS_X01
+    ? (() => {
+        const seen = new Set();
+        const slim = [];
+        for (const f of entryIntents) {
+          if (!f?.symbol || seen.has(f.symbol) || occupiedSymbols.has(f.symbol)) continue;
+          seen.add(f.symbol);
+          slim.push(f);
+          if (slim.length >= 12) break;
+        }
+        return slim;
+      })()
+    : entryIntents;
   let skipQuiet = 0;
   let skipTaken = 0;
   let skipUni = 0;
-  for (const f of [...e.fills, ...entryIntents]) {
+  for (const f of [...e.fills, ...scanIntents]) {
     if (fillJobs.length >= entryCap) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
     if (f.kind !== "entry" && f.kind !== "partial") continue;
@@ -2035,7 +2049,7 @@ async function mirrorToExchange(e, network, cfg) {
       continue;
     }
     const isBlockAdd = /Block/i.test(String(f.note || f._rel?.note || f.playbook || ""));
-    if (isBlockAdd && !budget.block) continue;
+    if (isBlockAdd && !budget.block && occupiedSymbols.has(f.symbol)) continue;
     if (!isBlockAdd && (exchangeOccupied.has(`${f.symbol}:${f.side}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side))) {
       mirrored.add(f.id);
       continue;
