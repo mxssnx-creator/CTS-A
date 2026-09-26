@@ -2007,14 +2007,34 @@ async function mirrorToExchange(e, network, cfg) {
   let skipQuiet = 0;
   let skipTaken = 0;
   let skipUni = 0;
+  let firstWhy = "";
+  const markWhy = (f, w) => {
+    if (!firstWhy && f && !occupiedSymbols.has(f.symbol)) firstWhy = `${f.symbol}:${w}`;
+  };
   for (const f of [...e.fills, ...scanIntents]) {
     if (fillJobs.length >= entryCap) break;
-    if (mirrored.has(f.id) || skippedFills.has(f.id)) continue;
-    if (f.kind !== "entry" && f.kind !== "partial") continue;
-    if ((skipUntil.get(f.symbol) || 0) > Date.now()) continue;
-    if (e.manualClosed?.[`${f.symbol}:${f.side}`]) continue;
-    if (deadSymbols.has(f.symbol)) continue;
+    if (mirrored.has(f.id) || skippedFills.has(f.id)) {
+      markWhy(f, "mir");
+      continue;
+    }
+    if (f.kind !== "entry" && f.kind !== "partial") {
+      markWhy(f, "kind");
+      continue;
+    }
+    if ((skipUntil.get(f.symbol) || 0) > Date.now()) {
+      markWhy(f, "until");
+      continue;
+    }
+    if (e.manualClosed?.[`${f.symbol}:${f.side}`]) {
+      markWhy(f, "manual");
+      continue;
+    }
+    if (deadSymbols.has(f.symbol)) {
+      markWhy(f, "dead");
+      continue;
+    }
     if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 1)) && !(IS_X01 && openN < 30)) {
+      markWhy(f, "symskip");
       continue;
     }
     {
@@ -2040,16 +2060,23 @@ async function mirrorToExchange(e, network, cfg) {
       };
       const allowed = liveShouldExecute(e, rel) && !liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType });
       const needBook = IS_X01 && (openN + fillJobs.length) < 30;
-      if (!allowed && !needBook) continue;
+      if (!allowed && !needBook) {
+        markWhy(f, "gate");
+        continue;
+      }
       f._rel = rel;
     }
     if (!isUniverseSymbol(f.symbol)) {
       skipUni += 1;
+      markWhy(f, "uni");
       mirrored.add(f.id);
       continue;
     }
     const isBlockAdd = /Block/i.test(String(f.note || f._rel?.note || f.playbook || ""));
-    if (isBlockAdd && !budget.block && occupiedSymbols.has(f.symbol)) continue;
+    if (isBlockAdd && !budget.block && occupiedSymbols.has(f.symbol)) {
+      markWhy(f, "block");
+      continue;
+    }
     if (!isBlockAdd && (exchangeOccupied.has(`${f.symbol}:${f.side}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side))) {
       mirrored.add(f.id);
       continue;
@@ -2073,7 +2100,10 @@ async function mirrorToExchange(e, network, cfg) {
     if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side)) continue;
     if (isBlockAdd && fillJobs.filter((x) => /Block/i.test(String(x.note || x._rel?.note || ""))).length >= budget.maxNew) continue;
     if (!isBlockAdd && openN + fillJobs.length >= budget.maxPos) break;
-    if (IS_X01 && !x01CanAfford(f.symbol, book.equity) && !X01_GROWTH.has(f.symbol)) continue;
+    if (IS_X01 && !x01CanAfford(f.symbol, book.equity) && !X01_GROWTH.has(f.symbol)) {
+      markWhy(f, "afford");
+      continue;
+    }
     if (IS_X01 && (Number(book.equity) || 0) < 8 && !X01_GROWTH.has(f.symbol) && fillJobs.length >= 1) continue;
     if (apiQuiet()) {
       skipQuiet += 1;
@@ -2151,7 +2181,7 @@ async function mirrorToExchange(e, network, cfg) {
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
   }
-  if (IS_X01) notes.push(`q ${queueIntents.length} jobs ${fillJobs.length} ok ${placed} uni ${skipUni} taken ${skipTaken} quiet ${skipQuiet} sym ${queueIntents[0]?.symbol || "-"}`);
+  if (IS_X01) notes.push(`q ${queueIntents.length} scan ${scanIntents.length} jobs ${fillJobs.length} ok ${placed} ${firstWhy || "sent"}`);
   return notes.length ? notes.slice(-4).join(" · ") : null;
 }
 
