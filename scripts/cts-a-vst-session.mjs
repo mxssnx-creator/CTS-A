@@ -1950,7 +1950,7 @@ async function mirrorToExchange(e, network, cfg) {
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
   if (openN >= budget.maxPos) return notes.length ? notes.join(" · ") : null;
-  if (protectGap > 2) {
+  if (protectGap > 2 && openN >= 20) {
     notes.push(`protect gap ${protectGap}`);
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
