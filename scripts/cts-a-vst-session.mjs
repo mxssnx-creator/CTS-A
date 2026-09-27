@@ -4,7 +4,7 @@
  * Keys from env — never printed.
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, fetchPrehistory, loadLeverageCaps, cachedMaxLeverage } from "../src/lib/desk/feed.server.ts";
+import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, fetchPrehistory, loadLeverageCaps, cachedMaxLeverage, MIN_LIVE_SL_PCT } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, seedPreAtr, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts, seedIndicationHistory } from "../src/lib/desk/engine.ts";
 import {
@@ -1122,6 +1122,20 @@ function liveNotional(e, f, equity, rel) {
   return base * vr;
 }
 
+function exchangeStop(book, symbol, side, kind) {
+  for (const o of book?.orders || []) {
+    if (o.symbol !== symbol || o.side !== side) continue;
+    const t = String(o.type || "").toUpperCase();
+    const isSl = t.includes("STOP") && !t.includes("TAKE_PROFIT") && !t.includes("TRAILING");
+    const isTp = t.includes("TAKE_PROFIT") || t.includes("TRAILING");
+    if (kind === "sl" && !isSl) continue;
+    if (kind === "tp" && !isTp) continue;
+    const px = Number(o.stopPrice || o.price || 0);
+    if (px > 0) return px;
+  }
+  return 0;
+}
+
 function mergeLivePositions(e, book) {
   const conn = e.activeConnId || CONN;
   const byKey = new Map();
@@ -1136,12 +1150,23 @@ function mergeLivePositions(e, book) {
     const mark = Number(p.mark) || entry;
     if (!(entry > 0)) continue;
     const cur = byKey.get(key);
+    const slPx = exchangeStop(book, p.symbol, p.side, "sl");
+    const tpPx = exchangeStop(book, p.symbol, p.side, "tp");
+    const floor = Math.max(entry * MIN_LIVE_SL_PCT, 1e-8);
     if (cur) {
       cur.qty = p.qty;
       cur.plannedQty = Math.max(cur.plannedQty || 0, p.qty);
       cur.avgEntry = entry;
       cur.mark = mark;
       cur.unrealized = Number(p.pnl) || cur.unrealized || 0;
+      if (p.side === "long" ? slPx > 0 && slPx < mark : slPx > mark) {
+        cur.sl = slPx;
+        cur.slDist = Math.abs(entry - slPx);
+      }
+      if (p.side === "long" ? tpPx > mark : tpPx > 0 && tpPx < mark) {
+        cur.tp = tpPx;
+        cur.tpDist = Math.abs(tpPx - entry);
+      }
       if (!cur.playbook || cur.playbook === "normal") {
         cur.playbook = e.strategyToggles?.normal === false && e.strategyToggles?.block ? "block" : "short";
         if (cur.kind === "trend" || cur.kind === "normal") cur.kind = "short";
@@ -1151,7 +1176,9 @@ function mergeLivePositions(e, book) {
       e.liveLegHint[p.symbol] = { side: p.side, indication: cur.indication, tactic: cur.tactic, playbook: cur.playbook, kind: cur.kind, rangeType: cur.controllingRange };
       continue;
     }
-    const slDist = Math.max(mark * 0.002, 1e-8);
+    const slDist = floor;
+    const slUse = p.side === "long" ? (slPx > 0 && slPx < mark ? slPx : entry - slDist) : (slPx > mark ? slPx : entry + slDist);
+    const tpUse = p.side === "long" ? (tpPx > mark ? tpPx : entry + slDist * 2) : (tpPx > 0 && tpPx < mark ? tpPx : entry - slDist * 2);
     e.positions.push({
       id: `ex:${key}`,
       connId: conn,
@@ -1161,10 +1188,10 @@ function mergeLivePositions(e, book) {
       plannedQty: p.qty,
       avgEntry: entry,
       mark,
-      sl: p.side === "long" ? entry - slDist : entry + slDist,
-      tp: p.side === "long" ? entry + slDist * 2 : entry - slDist * 2,
-      slDist,
-      tpDist: slDist * 2,
+      sl: slUse,
+      tp: tpUse,
+      slDist: Math.abs(entry - slUse),
+      tpDist: Math.abs(tpUse - entry),
       realized: 0,
       unrealized: Number(p.pnl) || 0,
       legs: [{ orderId: `ex:${key}`, qty: p.qty, px: entry }],
@@ -1460,8 +1487,11 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const tk = `${key}:${kind}`;
       if ((trimHits.get(tk) || 0) >= 3) continue;
       list.sort((a, b) => {
-        const da = Math.abs(Number(a.stopPrice || a.price || 0) - entry);
-        const db = Math.abs(Number(b.stopPrice || b.price || 0) - entry);
+        const pa = Number(a.stopPrice || a.price || 0);
+        const pb = Number(b.stopPrice || b.price || 0);
+        if (kind === "sl") return side === "long" ? pb - pa : pa - pb;
+        const da = Math.abs(pa - entry);
+        const db = Math.abs(pb - entry);
         return db - da;
       });
       for (const extra of list.slice(1)) extraJobs.push({ tk, kind, extra });
@@ -1541,16 +1571,6 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (!(q > 0) && !(availUsdt > 0)) q = snapQtyDown(p.qty, spec);
       return q;
     };
-    if (driftSl || driftTp) {
-      const g = grouped.get(key);
-      const drop = [];
-      if (driftSl) drop.push(...(g?.sl || []));
-      if (driftTp) drop.push(...(g?.tp || []));
-      await mapLimit(drop, 4, cancelOne);
-      if (driftSl) hasSl.delete(key);
-      if (driftTp) hasTp.delete(key);
-      n += drop.length;
-    }
     const placeProtect = async (type, qty) => {
       const body = {
         network,
@@ -1590,6 +1610,43 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       else hasTp.add(key);
       return `${kind} ${p.symbol}`;
     };
+    if (driftSl || driftTp) {
+      const g = grouped.get(key);
+      const qty = protectQty();
+      const qPlace = qty > 0 ? qty : snapQtyDown(p.qty, spec);
+      const replaceKind = async (kind, type, list) => {
+        const r = await placeProtect(type, qPlace);
+        if (r.ok) {
+          await mapLimit(list || [], 2, cancelOne);
+          if (kind === "sl") hasSl.add(key);
+          else hasTp.add(key);
+          lastProtectQty.set(key, qPlace);
+          local.push(`${kind} ${p.symbol}`);
+          return;
+        }
+        noteApiFail(r);
+        const err = String(r.error ?? "err");
+        if (/exist|already|duplicate|stop/i.test(err) && (list || []).length) {
+          await mapLimit(list, 2, cancelOne);
+          if (kind === "sl") hasSl.delete(key);
+          else hasTp.delete(key);
+          const r2 = await placeProtect(type, qPlace);
+          if (r2.ok) {
+            if (kind === "sl") hasSl.add(key);
+            else hasTp.add(key);
+            lastProtectQty.set(key, qPlace);
+            local.push(`${kind} ${p.symbol}`);
+            return;
+          }
+          noteApiFail(r2);
+          local.push(`${kind} skip ${p.symbol} ${String(r2.error ?? err).slice(0, 60)}`);
+          return;
+        }
+        local.push(`${kind} skip ${p.symbol} ${err.slice(0, 60)}`);
+      };
+      if (driftSl && !apiQuiet()) await replaceKind("sl", "STOP_MARKET", g?.sl || []);
+      if (driftTp && !apiQuiet()) await replaceKind("tp", "TAKE_PROFIT_MARKET", g?.tp || []);
+    }
     if (!hasSl.has(key) && !apiQuiet()) {
       local.push(await attach("sl", "STOP_MARKET", `sl:${key}`));
       await sleep(120);
@@ -1671,35 +1728,51 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         trailPct: Number(cell.trailPct) || Number(cfg?.trailingPct) || 1.5,
         shortRange: Boolean(cfgUsesShortRange(cfg)),
       });
+      const minGap = mark * 0.003;
+      next = p.side === "long" ? Math.min(next, mark - minGap) : Math.max(next, mark + minGap);
       next = snapPx(next, spec);
       const slOrd = (grouped.get(key)?.sl || [])[0];
       const cur = Number(lastPostedSl.get(key) || slOrd?.stopPrice || 0);
+      const curGap = cur > 0 ? (p.side === "long" ? mark - cur : cur - mark) : Infinity;
+      if (cur > 0 && curGap < minGap * 0.92) {
+        next = p.side === "long" ? mark - minGap : mark + minGap;
+        next = snapPx(next, spec);
+      }
       const tick = spec?.pxPrec != null ? Math.pow(10, -Math.max(0, spec.pxPrec)) : mark * 1e-4;
       const minMove = Math.max(tick * 3, mark * 0.0004);
       const improved = p.side === "long" ? next > cur + minMove : next < cur - minMove;
-      if (!improved || !(next > 0)) continue;
+      const tooTight = cur > 0 && curGap < minGap * 0.92 && (p.side === "long" ? next < cur - minMove : next > cur + minMove);
+      if (!(next > 0) || (!improved && !tooTight)) continue;
       if (p.side === "long" && !(next < mark)) continue;
       if (p.side === "short" && !(next > mark)) continue;
       trailNeed.push({ p, key, spec, cell, mark, next, slOrd });
     }
     const trailOut = await mapLimit(trailNeed.slice(0, 12), 3, async (row) => {
-      const { p, key, spec, cell, mark, next, slOrd } = row;
+      const { p, key, spec, mark, next, slOrd } = row;
       const slId = String(slOrd?.id || "");
-      if (slId) {
-        if (!mayCancelOrder(slOrd)) return null;
-        const c = await cancelOne(slOrd);
-        if (!c.ok && !/not exist|filled|nothing to cancel|no need/i.test(String(c.error || ""))) {
-          return null;
-        }
-        hasSl.delete(key);
-      }
+      const prev = Number(slOrd?.stopPrice || lastPostedSl.get(key) || 0);
       const qty = snapQtyDown(p.qty, spec);
-      const r = await placeControl(p, qty, "STOP_MARKET", next, mark);
+      let r = await placeControl(p, qty, "STOP_MARKET", next, mark);
+      if (!r.ok && slId && mayCancelOrder(slOrd)) {
+        const c = await cancelOne(slOrd);
+        if (!c.ok && !/not exist|filled|nothing to cancel|no need/i.test(String(c.error || ""))) return null;
+        hasSl.delete(key);
+        r = await placeControl(p, qty, "STOP_MARKET", next, mark);
+      }
       if (r.ok) {
+        if (slId && mayCancelOrder(slOrd)) await cancelOne(slOrd);
         lastPostedSl.set(key, next);
         lastProtectQty.set(key, qty);
         hasSl.add(key);
         return `trail ${p.symbol}`;
+      }
+      if (!hasSl.has(key) && prev > 0) {
+        const back = await placeControl(p, qty, "STOP_MARKET", prev, mark);
+        if (back.ok) {
+          lastPostedSl.set(key, prev);
+          hasSl.add(key);
+          return `sl restore ${p.symbol}`;
+        }
       }
       noteApiFail(r);
       return `trail skip ${p.symbol} ${String(r.error || "err").slice(0, 60)}`;
