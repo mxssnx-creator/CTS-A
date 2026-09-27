@@ -2131,7 +2131,7 @@ async function mirrorToExchange(e, network, cfg) {
     if (String(o.type || "").toUpperCase() !== "LIMIT") continue;
     restingBySym.set(o.symbol, (restingBySym.get(o.symbol) || 0) + 1);
   }
-  const ladderShort = IS_X01 && restingLimits < X01_LADDER_TARGET;
+  const ladderShort = IS_X01 && !e.preEvalDone && restingLimits < X01_LADDER_TARGET;
   const paperOpen = new Set((e.positions || []).map((p) => `${p.symbol}:${p.side}`));
   for (const k of paperOpen) mirrored.delete(`seed:${k}`);
   const ours = deskPos;
@@ -2178,7 +2178,7 @@ async function mirrorToExchange(e, network, cfg) {
     .filter((o) => {
       if (!o) return false;
       if (o.playbook === "dca" || o.tactic === "dca" || /^DCA/i.test(String(o.note || ""))) return Boolean((e.strategyToggles ?? STRAT).dca);
-      if (IS_X01) return true;
+      if (IS_X01) return !e.preEvalDone || o.validExec === true;
       if (o.validExec === false) return false;
       return (
         o.kind === "short" ||
@@ -2421,7 +2421,7 @@ async function mirrorToExchange(e, network, cfg) {
       markWhy(f, "dead");
       continue;
     }
-    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 1)) && !(IS_X01 && (openN < 30 || f.ladder)) && !f.ladder) {
+    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 1)) && !(!e.preEvalDone && (f.ladder || (IS_X01 && openN < 30)))) {
       markWhy(f, "symskip");
       continue;
     }
@@ -2443,8 +2443,8 @@ async function mirrorToExchange(e, network, cfg) {
         blockLevel: order?.level ?? pos?.blockLevel,
         indication,
         rangeType,
-        tpAtr: Number(order?.tpAtr ?? pos?.tpAtr ?? currentPick?.cfg?.tpAtr ?? LIVE_CFG.tpAtr),
-        slOfTp: Number(order?.slOfTp ?? pos?.slOfTp ?? currentPick?.cfg?.slOfTp ?? LIVE_CFG.slOfTp),
+        tpAtr: Number(order?.tpAtr ?? pos?.tpAtr) || undefined,
+        slOfTp: Number(order?.slOfTp ?? pos?.slOfTp) || undefined,
       };
       if ((indication === "direction" || (e.skipIndications || []).includes(indication)) && (!f.ladder || e.preEvalDone)) {
         markWhy(f, "direction");
@@ -2836,7 +2836,7 @@ async function main() {
     engine.preEvalDone = false;
     engine.openCompleteTape = false;
   }
-  const examLeft0 = IS_X01 ? TICKS_PER_HOUR : 0;
+  const examLeft0 = IS_X01 ? TICKS_PER_HOUR * 2 : 0;
   let examLeft = examLeft0;
   writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
   const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} live / ${EVAL_SYMBOLS} eval · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf} short ${engine.shortPf}/${engine.shortBasePf} · grid ${GRID.length} TP ${pick.cfg.tpAtr}/${pick.cfg.slOfTp} · block ${engine.blockCfg.sharedVolumeRatio}/${engine.blockCfg.volumeRatio}/${engine.blockCfg.overallVolumeRatio}`];

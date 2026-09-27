@@ -566,8 +566,61 @@ type ConfigTapeRow = {
   kind?: string;
   tpAtr?: number;
   slOfTp?: number;
+  /** Flattened at the Base boundary. Not a strategy outcome. */
+  examFlat?: boolean;
 };
 const configPreMem = new WeakMap<VstEngine, ConfigTapeRow[]>();
+const configTapeMem = new WeakMap<VstEngine, Map<string, ConfigTapeRow[]>>();
+const rangeComboMem = new WeakMap<VstEngine, Map<string, ConfigTapeRow[]>>();
+function configSampleKey(rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
+  const tp = rel.tpAtr == null ? "" : String(Math.round(rel.tpAtr * 1000) / 1000);
+  const sl = rel.slOfTp == null ? "" : String(Math.round(rel.slOfTp * 1000) / 1000);
+  return `${rel.indication || ""}|${rel.tactic || ""}|${rel.rangeType || ""}|${rel.playbook || ""}|${rel.kind || ""}|${tp}|${sl}`;
+}
+function rangeComboKey(rel: { rangeType?: string; tpAtr?: number; slOfTp?: number }) {
+  const tp = rel.tpAtr == null ? "" : String(Math.round(rel.tpAtr * 1000) / 1000);
+  const sl = rel.slOfTp == null ? "" : String(Math.round(rel.slOfTp * 1000) / 1000);
+  return `${rel.rangeType || ""}|${tp}|${sl}`;
+}
+function pushTapeRing(map: Map<string, ConfigTapeRow[]>, key: string, row: ConfigTapeRow) {
+  const ring = map.get(key) ?? [];
+  ring.unshift(row);
+  if (ring.length > 80) ring.length = 80;
+  map.set(key, ring);
+}
+function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id?: string }) {
+  if (!deskTapeRow(e, c)) return;
+  const row: ConfigTapeRow = {
+    pnl: edgePnl(c),
+    indication: c.indication,
+    tactic: c.tactic,
+    rangeType: c.rangeType,
+    playbook: c.playbook,
+    kind: c.kind,
+    tpAtr: c.tpAtr,
+    slOfTp: c.slOfTp,
+  };
+  const key = configSampleKey(row);
+  let bag = configTapeMem.get(e);
+  if (!bag) {
+    bag = new Map();
+    configTapeMem.set(e, bag);
+  }
+  pushTapeRing(bag, key, row);
+  if (row.rangeType && row.tpAtr != null && row.slOfTp != null) {
+    let ranges = rangeComboMem.get(e);
+    if (!ranges) {
+      ranges = new Map();
+      rangeComboMem.set(e, ranges);
+    }
+    pushTapeRing(ranges, rangeComboKey(row), row);
+  }
+}
+function historyRows(e: VstEngine, rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
+  const bag = configTapeMem.get(e);
+  if (!bag) return [];
+  return bag.get(configSampleKey(rel)) ?? [];
+}
 function snapshotConfigPreTape(e: VstEngine) {
   const rows: ConfigTapeRow[] = [];
   for (const c of e.closed) {
@@ -589,11 +642,12 @@ function snapshotConfigPreTape(e: VstEngine) {
 function filterConfigRows(rows: ConfigTapeRow[], rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
   const out: ConfigTapeRow[] = [];
   for (const c of rows) {
+    if (c.examFlat) continue;
     if (rel.indication && c.indication !== rel.indication) continue;
     if (rel.tactic && c.tactic !== rel.tactic) continue;
     if (rel.rangeType && c.rangeType !== rel.rangeType) continue;
     if (rel.playbook && c.playbook !== rel.playbook) continue;
-    if (rel.kind && c.kind && c.kind !== rel.kind) continue;
+    if (rel.kind && (c.kind ?? "") !== rel.kind) continue;
     if (rel.tpAtr != null && (c.tpAtr == null || Math.abs(c.tpAtr - rel.tpAtr) > 1e-6)) continue;
     if (rel.slOfTp != null && (c.slOfTp == null || Math.abs(c.slOfTp - rel.slOfTp) > 1e-6)) continue;
     out.push(c);
@@ -2612,12 +2666,12 @@ export function pickLiveTactic(e: VstEngine, ind: IndicationId, fallback: Tactic
   return tog.axis !== false ? "hybrid" : "trailing";
 }
 
-/** Every enabled tactic — no skip of trailing/axis/hybrid. DCA only if toggle on. */
+/** Every enabled tactic — no skip of trailing/axis/hybrid. DCA only if toggle on. A switch that is off stays off, including during the eval. */
 export function enabledLiveTactics(e: VstEngine): TacticKind[] {
   const tog = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
   const intern = internAllPhase(e);
   const out: TacticKind[] = [];
-  if (intern || (tog.normal !== false && tog.trailing !== false)) out.push("trailing");
+  if (tog.trailing !== false && (intern || tog.normal !== false)) out.push("trailing");
   if (tog.axis !== false) out.push("axis");
   if (intern || tog.normal !== false) out.push("hybrid");
   if (tog.dca) out.push("dca");
@@ -2882,14 +2936,15 @@ export function shortProtectGrid(e: VstEngine, cfg: TacticConfig) {
     positiveOnly: sp.evalPositiveOnly !== false,
   });
   const inRange = (c: (typeof floors)[number]) => cfgUsesShortRange({ ...cfg, ...c, shortRange: true });
-  if (internAllPhase(e)) return allShortTpSlCombos().filter(inRange);
-  const intern = e.progressEval?.shortCombos;
   const withinFloors = (c: { tpAtr: number; slOfTp: number }) => {
     if (c.tpAtr + 1e-9 < snapShortTpAtr(sp.minTpAtr)) return false;
     if (c.slOfTp + 1e-9 < snapShortSlOfTp(sp.minSlOfTp)) return false;
     if (c.tpAtr - 1e-9 > snapShortTpAtr(sp.maxTpAtr ?? 0.6)) return false;
     return true;
   };
+  // Enabled band is the live grid. The exam still scores every short TP×SL so a cell outside today's floor can prove itself.
+  if (internAllPhase(e)) return allShortTpSlCombos().filter(inRange);
+  const intern = e.progressEval?.shortCombos;
   const gated = Boolean(e.preEvalDone || e.liveTape);
   if (gated && intern) {
     return allShortTpSlCombos().filter((c) => {
@@ -2974,7 +3029,6 @@ function sliceShortGrid(
   internExplore = false,
 ) {
   if (!all.length) return all;
-  const internAll = internAllPhase(e);
   const isolatedLive = Boolean(e.completeSim) && Boolean(e.preEvalDone) && !internExplore && !completeOpenTape(e);
   const provenPreview: typeof all = [];
   for (const c of all) {
@@ -2986,7 +3040,8 @@ function sliceShortGrid(
     return row && row.n >= 4 ? row.pf : 0;
   };
   provenPreview.sort((a, b) => comboPf(b) - comboPf(a) || b.tpAtr - a.tpAtr);
-  // Stage eval scores every TP×SL. After Base, live keeps only the pairs that passed.
+  // Stage eval scores every enabled TP×SL together. Indication and range cursors
+  // keep each set's own tape deep enough for last-N. After Base, live keeps only what passed.
   if (isolatedLive) return provenPreview;
   return all;
 }
@@ -4689,6 +4744,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     dcaQty: p.dcaQty,
     validExec: p.validExec === true,
     protect: protect || undefined,
+    examFlat: opts?.skipComboTape || undefined,
     tpAtr: p.tpAtr,
     slOfTp: p.slOfTp,
     trailPct: p.trailPct,
@@ -4725,6 +4781,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
       slOfTp: p.slOfTp,
     });
   }
+  if (!botBook && !protect && !opts?.skipComboTape) noteConfigSample(e, closedRow);
   if (e.closed.length > (e.completeSim && paperMode(e) ? 2500 : 600)) {
     const cap = e.completeSim && paperMode(e) ? 2500 : 600;
     const keptBots = e.closed.filter((c) => isBotPlay(c.playbook));
@@ -6593,11 +6650,30 @@ function validatedSet(
 ): boolean {
   if (!e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return true;
   const base = baseStageFloor(e);
-  const exact = filterConfigRows(laneClosed(e, rel, 80) as ConfigTapeRow[], rel);
-  const frozen = filterConfigRows(configPreMem.get(e) ?? [], rel);
-  const tape = exact.length >= frozen.length ? exact : frozen;
+  const ident = {
+    indication: rel.indication,
+    tactic: rel.tactic,
+    rangeType: rel.rangeType,
+    playbook: rel.playbook,
+    kind: rel.kind,
+    tpAtr: rel.tpAtr,
+    slOfTp: rel.slOfTp,
+  };
+  const exact = filterConfigRows(laneClosed(e, ident, 80) as ConfigTapeRow[], ident);
+  const frozen = filterConfigRows(configPreMem.get(e) ?? [], ident);
+  const hist = historyRows(e, ident);
+  const tape = [exact, frozen, hist].sort((a, b) => b.length - a.length)[0] ?? [];
   if (lastNTapePass(e, tape)) return true;
-  // A named range is its own set. A TP×SL pass must not unlock every range.
+  // A TP×SL pass does not unlock every range. This range must clear last-N on its own tape.
+  if (rel.rangeType && rel.tpAtr != null && rel.slOfTp != null) {
+    const rangeTape = rangeComboMem.get(e)?.get(rangeComboKey(rel)) ?? [];
+    if (!lastNTapePass(e, rangeTape)) return false;
+    const rangeSt = comboTapeStats(rangeTape);
+    if (!(rangeSt.n >= 8 && rangeSt.net > 0 && rangeSt.pf + 1e-9 >= base)) return false;
+    const pre = (e.shortComboPreTape ?? e.shortComboTape)?.[shortComboKey(rel.tpAtr, rel.slOfTp)];
+    const comboSt = comboTapeStats(pre);
+    return comboSt.n >= 8 && comboSt.net > 0 && comboSt.pf + 1e-9 >= base;
+  }
   if (rel.rangeType) return false;
   if (rel.indication && rel.tactic && rel.tpAtr != null && rel.slOfTp != null) {
     const key = internRelKey(rel.indication, rel.tactic, rel.tpAtr, rel.slOfTp);
@@ -9083,15 +9159,13 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   }
   const liveTapeRows = deskClosed.filter((c) => (c.tick || 0) > preTicks);
   const gatedRows = liveTapeRows.filter((c) => c.validExec === true);
-  const typeFloor = 1;
   const keptGate = gatedRows.filter((c) => {
     if (c.protect || c.tpAtr == null || c.slOfTp == null) return false;
-    if (internRelProven(engine, { indication: c.indication, tactic: c.tactic, tpAtr: c.tpAtr, slOfTp: c.slOfTp })) return true;
     const key = shortComboKey(c.tpAtr, c.slOfTp);
     const liveSt = comboTapeStats(engine.shortComboLiveTape?.[key]);
-    if (liveSt.n >= 8) return liveSt.pf > typeFloor + 1e-9 && liveSt.net > 0;
+    if (liveSt.n >= 8) return liveSt.pf + 1e-9 >= BASE_STAGE_PF && liveSt.net > 0;
     const preSt = comboTapeStats(engine.shortComboPreTape?.[key]);
-    return preSt.n >= 4 && preSt.pf > typeFloor + 1e-9 && preSt.net > 0;
+    return preSt.n >= 8 && preSt.pf + 1e-9 >= BASE_STAGE_PF && preSt.net > 0;
   });
   const keptStats = comboTapeStats(keptGate);
   const liveGated = {
@@ -11165,8 +11239,7 @@ export function liveShouldExecute(
   const note = String(rel.note || "");
   const play = String(rel.playbook || "");
   if (rel.indication && e.skipIndications?.includes(rel.indication)) return false;
-  // Block / Overall are adds on a position the scope PF already accepted. They are not a new base set,
-  // so the last-N combo gate must not drop Overall type after the exam.
+  // After Base, Block / Overall execute only when this set's own last-N passed.
   const overall = /Overall Block/i.test(note);
   const blockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   if (blockFill) {
@@ -11185,7 +11258,7 @@ export function liveShouldExecute(
   if (isDca) return t.dca;
   const shortCombo = isShortComboRel(e, rel);
   if (shortCombo && !ready && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!) && !internRelProven(e, rel) && !relExamPass(e, rel)) return false;
-  if (!shortCombo && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
+  if (!ready && !shortCombo && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
   if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel) && unadjustedNormalOrder(rel)) return false;
   const gated = Boolean(e.preEvalDone || e.liveTape);
   if (!blockFill && gated && laneExecProven(e, rel)) {
@@ -11207,18 +11280,18 @@ export function liveShouldExecute(
   }
   if (play === "axis" || rel.tactic === "axis") {
     if (!t.axis) return false;
-    if (e.liveTape) {
+    if (!ready && e.liveTape) {
       const take = laneClosed(e, { tactic: "axis", playbook: play || "axis" }, 40);
       if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, "axis")) return false;
     }
     return true;
   }
-  if (rel.indication === "direction" && e.liveTape) {
+  if (!ready && rel.indication === "direction" && e.liveTape) {
     const take = laneClosed(e, { indication: "direction", kind: rel.kind, playbook: play }, 40);
     if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, e.shortRange ? "short" : "overall")) return false;
   }
   if (t.trailing === false && rel.tactic === "trailing" && play !== "block" && play !== "axis" && play !== "dca" && !/Block/i.test(note)) return false;
-  if (e.liveTape && (rel.tactic === "trailing" || rel.tactic === "hybrid")) {
+  if (!ready && e.liveTape && (rel.tactic === "trailing" || rel.tactic === "hybrid")) {
     const take = laneClosed(e, { tactic: rel.tactic, indication: rel.indication, kind: rel.kind, playbook: play }, 40);
     if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, e.shortRange ? "short" : "overall")) return false;
   }

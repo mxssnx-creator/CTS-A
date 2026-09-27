@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, shortControlPrices } from "./engine.ts";
-import { adjustActiveBlocks, initVstEngine, LIVE_RUN_CFG, liveShouldExecute, rankIndications, simulateHours, tickVst, unadjustedNormalOrder, VST_DEFAULT_CONN } from "./vst.ts";
+import { adjustActiveBlocks, enabledLiveTactics, initVstEngine, LIVE_RUN_CFG, liveShouldExecute, rankIndications, simulateHours, tickVst, unadjustedNormalOrder, VST_DEFAULT_CONN } from "./vst.ts";
 
 const CFG = {
   ...DEFAULT_TACTIC_CONFIG,
@@ -815,6 +815,10 @@ describe("Block and DCA", () => {
       slOfTp: 0.75,
     };
     assert.equal(liveShouldExecute(e, rel), true, "eval keeps the axis/volume set");
+    assert.equal(enabledLiveTactics(e).includes("trailing"), false, "trailing stays off during eval");
+    assert.equal(enabledLiveTactics(e).includes("dca"), false);
+    assert.ok(enabledLiveTactics(e).includes("axis"));
+    assert.ok(enabledLiveTactics(e).includes("hybrid"));
     assert.equal(
       liveShouldExecute(e, { ...rel, tactic: "hybrid", playbook: "short", kind: "short", rangeType: "atr" }),
       true,
