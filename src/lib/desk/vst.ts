@@ -3164,6 +3164,8 @@ export function unadjustedNormalOrder(rel: {
   tactic?: string;
   note?: string;
   blockLevel?: number;
+  tpAtr?: number;
+  slOfTp?: number;
 }): boolean {
   const play = String(rel.playbook || "");
   const kind = String(rel.kind || "");
@@ -3172,6 +3174,10 @@ export function unadjustedNormalOrder(rel: {
   if (tac === "axis" || play === "axis") return false;
   if (tac === "dca" || play === "dca" || /^DCA/i.test(note)) return false;
   if (play === "block" || /Block/i.test(note) || (Number(rel.blockLevel) || 0) >= 1) return false;
+  if (play === "short" || kind === "short" || /\bshort\b/i.test(note)) return false;
+  const tpAtr = Number((rel as { tpAtr?: number }).tpAtr);
+  const slOfTp = Number((rel as { slOfTp?: number }).slOfTp);
+  if (Number.isFinite(tpAtr) && tpAtr > 0 && Number.isFinite(slOfTp) && slOfTp > 0) return false;
   if (tac === "trailing" || tac === "hybrid") return true;
   if (play === "normal" || kind === "normal") return true;
   return false;

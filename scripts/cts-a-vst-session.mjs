@@ -1384,6 +1384,28 @@ async function closeHit(network, hit) {
   );
 }
 
+function shortStopPrices(p, cfg, spec, e) {
+  const px = Number(p.mark || p.entry || 0);
+  const side = p.side === "short" ? "short" : "long";
+  const onSide = (sl, tp) => {
+    if (!(sl > 0) || !(tp > 0) || !(px > 0)) return false;
+    return side === "long" ? sl < px && tp > px : sl > px && tp < px;
+  };
+  const enginePos = e?.positions?.find((x) => x.symbol === p.symbol && x.side === p.side);
+  if (enginePos && onSide(enginePos.sl, enginePos.tp)) {
+    return { sl: snapPx(enginePos.sl, spec), tp: snapPx(enginePos.tp, spec) };
+  }
+  const atr = Number(e?.quotes?.[p.symbol]?.atr) || px * 0.01;
+  const slAtr = Number(cfg?.slAtr) || (Number(cfg?.tpAtr) || 0.48) * (Number(cfg?.slOfTp) || 1);
+  const tpRatio = Math.max(0.4, Number(cfg?.tpRatio) || 1);
+  const slD = Math.max(atr * Math.max(0.2, slAtr), px * MIN_LIVE_SL_PCT);
+  const tpD = Math.max(slD * tpRatio, px * 0.004);
+  const sl = snapPx(side === "long" ? px - slD : px + slD, spec);
+  const tp = snapPx(side === "long" ? px + tpD : px - tpD, spec);
+  if (onSide(sl, tp)) return { sl, tp };
+  return null;
+}
+
 async function ensureProtect(network, book, cfg, vanished = new Set(), e = null) {
   if (apiQuiet()) return null;
   const hasSl = new Set();
@@ -1550,20 +1572,9 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const slAtr = cell.slAtr;
     const tpRatio = cell.tpRatio;
     const cellProt = liveProtectPrices(px, p.side, slAtr, tpRatio, spec, network === "mainnet" ? "main" : "vst");
-    const shortLive = cfgUsesShortRange(cfg) || cfgUsesShortRange(currentPick?.cfg) || true;
-    const g0 = grouped.get(key);
-    const prot = shortLive
-      ? cellProt
-      : (() => {
-          const enginePos = e?.positions?.find((x) => x.symbol === p.symbol && x.side === p.side);
-          const wide = pickWidestProtect(p.side, p.entry || px, [
-            { sl: cellProt.sl, tp: cellProt.tp },
-            enginePos ? { sl: enginePos.sl, tp: enginePos.tp } : {},
-            ...((g0?.sl || []).map((o) => ({ sl: Number(o.stopPrice || o.price || 0) }))),
-            ...((g0?.tp || []).map((o) => ({ tp: Number(o.stopPrice || o.price || 0) }))),
-          ]);
-          return { ...cellProt, sl: wide.sl || cellProt.sl, tp: wide.tp || cellProt.tp };
-        })();
+    const shortLive = cfgUsesShortRange(cfg) || cfgUsesShortRange(currentPick?.cfg);
+    const atrProt = shortLive ? shortStopPrices(p, { ...cell, ...(cfg || {}), ...(currentPick?.cfg || {}) }, spec, e) : null;
+    const prot = atrProt || cellProt;
     const protectQty = (availUsdt = 0) => {
       let q = p.qty;
       if (availUsdt > 0 && px > 0) q = Math.min(q, (availUsdt * 0.98) / px);
@@ -1673,21 +1684,23 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const cell = protectFor(p.symbol);
     const spec = map.get(p.venueSymbol);
     const cellProt = liveProtectPrices(entry || p.mark, p.side, cell.slAtr, cell.tpRatio, spec, network === "mainnet" ? "main" : "vst");
-    const slLoose = hasSl.has(key) && slIsLooser(p.side, curSl, cellProt.sl);
-    const tpLoose = hasTp.has(key) && tpIsLooser(p.side, curTp, cellProt.tp);
+    const shortLive = cfgUsesShortRange(cfg) || cfgUsesShortRange(currentPick?.cfg);
+    const wantProt = (shortLive && shortStopPrices(p, { ...cell, ...(cfg || {}), ...(currentPick?.cfg || {}) }, spec, e)) || cellProt;
+    const slLoose = hasSl.has(key) && slIsLooser(p.side, curSl, wantProt.sl);
+    const tpLoose = hasTp.has(key) && tpIsLooser(p.side, curTp, wantProt.tp);
     const slDrift =
       hasSl.has(key) &&
       wantQ > 0 &&
-      ((slQ > 0 && Math.abs(wantQ - slQ) / Math.max(wantQ, slQ) > 0.08) ||
-        (prevQ > 0 && slQ <= 0 && Math.abs(wantQ - prevQ) / Math.max(wantQ, prevQ) > 0.08) ||
+      ((slQ > 0 && Math.abs(wantQ - slQ) / Math.max(wantQ, slQ) > 0.03) ||
+        (prevQ > 0 && slQ <= 0 && Math.abs(wantQ - prevQ) / Math.max(wantQ, prevQ) > 0.03) ||
         slLoose);
     const tpDrift =
       hasTp.has(key) &&
-      ((tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.08) || tpLoose);
+      ((tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.03) || tpLoose);
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift, missing: !hasSl.has(key) || !hasTp.has(key) });
   }
   need.sort((a, b) => Number(b.missing) - Number(a.missing) || Number(a.p.pnl || 0) - Number(b.p.pnl || 0));
-  for (let i = 0; i < Math.min(need.length, 12) && posts < 24; i += 1) {
+  for (let i = 0; i < need.length && posts < 40; i += 1) {
     if (apiQuiet()) break;
     const row = need[i];
     const r = await protectOne(row.p, row.missing ? false : row.slDrift, row.missing ? false : row.tpDrift);

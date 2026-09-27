@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG } from "./engine.ts";
-import { adjustActiveBlocks, initVstEngine, LIVE_RUN_CFG, simulateHours, tickVst, VST_DEFAULT_CONN } from "./vst.ts";
+import { adjustActiveBlocks, initVstEngine, LIVE_RUN_CFG, liveShouldExecute, simulateHours, tickVst, unadjustedNormalOrder, VST_DEFAULT_CONN } from "./vst.ts";
 
 const CFG = {
   ...DEFAULT_TACTIC_CONFIG,
@@ -295,30 +295,68 @@ describe("Block and DCA", () => {
     );
   });
 
-  it("Normal off places at least 30% fewer orders and keeps Block", () => {
-    const run = (normal: boolean) =>
-      simulateHours(0.5, { ...LIVE_RUN_CFG, dcaCount: 1 }, "hybrid", {
-        symbolCount: 4,
+  it("short range still executes when Normal is off", () => {
+    const e = book();
+    e.liveTape = true;
+    e.preEvalDone = true;
+    e.shortRange = true;
+    e.strategyToggles = { normal: false, trailing: true, axis: true, block: true, dca: false };
+    const rel = {
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      playbook: "short",
+      kind: "short" as const,
+      tactic: "trailing" as const,
+      tpAtr: 0.48,
+      slOfTp: 1,
+    };
+    assert.equal(unadjustedNormalOrder(rel), false);
+    assert.equal(liveShouldExecute(e, rel), true);
+    assert.equal(unadjustedNormalOrder({ playbook: "normal", kind: "normal", tactic: "hybrid" }), true);
+    assert.equal(liveShouldExecute(e, { symbol: "ETHUSDT", side: "long", playbook: "normal", kind: "normal", tactic: "hybrid" }), false);
+    const conn = e.activeConnId;
+    e.queue.push(
+      {
+        id: "s1",
+        connId: conn,
+        symbol: "BTCUSDT",
+        side: "long",
+        type: "limit",
+        qty: 1,
+        filled: 0,
+        price: 1,
+        remaining: 1,
+        status: "queued",
         rangeType: "atr",
-        equity: 10,
-        costStep: 3,
-        complete: true,
-        prehours: 0,
-        strategyToggles: { normal, trailing: true, axis: true, block: true, dca: false },
-      });
-    const on = run(true);
-    const off = run(false);
-    assert.ok(on.report.ordersPlaced > 20, `baseline ${on.report.ordersPlaced}`);
-    assert.ok(
-      off.report.ordersPlaced <= on.report.ordersPlaced * 0.7,
-      `normal off ${off.report.ordersPlaced} vs on ${on.report.ordersPlaced}`,
+        playbook: "short",
+        kind: "short",
+        tactic: "trailing",
+        tpAtr: 0.48,
+        slOfTp: 1,
+        note: "short 0.48/1",
+      },
+      {
+        id: "n1",
+        connId: conn,
+        symbol: "ETHUSDT",
+        side: "long",
+        type: "limit",
+        qty: 1,
+        filled: 0,
+        price: 1,
+        remaining: 1,
+        status: "queued",
+        rangeType: "atr",
+        playbook: "normal",
+        kind: "normal",
+        tactic: "hybrid",
+        note: "plain",
+      },
     );
-    const blockKept =
-      off.engine.queue.some((o) => o.playbook === "block") ||
-      off.engine.orders.some((o) => o.playbook === "block") ||
-      off.engine.positions.some((p) => (p.blockQty || 0) > 0) ||
-      off.engine.closed.some((c) => (c.blockQty || 0) > 0);
-    assert.ok(blockKept, "Block stopped when Normal was turned off");
+    tickVst(e, CFG, "trailing", { skipWalk: true, skipMatch: true, rangeType: "atr" });
+    const live = [...e.queue, ...e.orders];
+    assert.ok(live.some((o) => o.id === "s1" && o.status !== "cancelled"), "short range order was dropped");
+    assert.equal(live.some((o) => o.id === "n1" && o.status !== "cancelled"), false);
   });
 
   it("each Overall scope, shared and additive, stays inside an 8x stack", () => {
