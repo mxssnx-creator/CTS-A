@@ -1687,15 +1687,19 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const wantProt = (shortLive && shortStopPrices(p, { ...cell, ...(cfg || {}), ...(currentPick?.cfg || {}) }, spec, e)) || cellProt;
     const slLoose = hasSl.has(key) && slIsLooser(p.side, curSl, wantProt.sl);
     const tpLoose = hasTp.has(key) && tpIsLooser(p.side, curTp, wantProt.tp);
+    const mark = Number(p.mark || p.entry || 0);
+    const slWrong = hasSl.has(key) && mark > 0 && (p.side === "short" ? !(curSl > mark) : !(curSl > 0 && curSl < mark));
+    const tpWrong = hasTp.has(key) && mark > 0 && (p.side === "short" ? !(curTp > 0 && curTp < mark) : !(curTp > mark));
     const slDrift =
       hasSl.has(key) &&
       wantQ > 0 &&
-      ((slQ > 0 && Math.abs(wantQ - slQ) / Math.max(wantQ, slQ) > 0.03) ||
-        (prevQ > 0 && slQ <= 0 && Math.abs(wantQ - prevQ) / Math.max(wantQ, prevQ) > 0.03) ||
-        slLoose);
+      (slWrong ||
+        slLoose ||
+        (slQ > 0 && Math.abs(wantQ - slQ) / Math.max(wantQ, slQ) > 0.03) ||
+        (prevQ > 0 && slQ <= 0 && Math.abs(wantQ - prevQ) / Math.max(wantQ, prevQ) > 0.03));
     const tpDrift =
       hasTp.has(key) &&
-      ((tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.03) || tpLoose);
+      (tpWrong || tpLoose || (tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.03));
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift, missing: !hasSl.has(key) || !hasTp.has(key) });
   }
   need.sort((a, b) => Number(b.missing) - Number(a.missing) || Number(a.p.pnl || 0) - Number(b.p.pnl || 0));
@@ -2271,7 +2275,7 @@ async function mirrorToExchange(e, network, cfg) {
       continue;
     }
     const isBlockAdd = /Block/i.test(String(f.note || f._rel?.note || f.playbook || ""));
-    if (isBlockAdd && !budget.block && occupiedSymbols.has(f.symbol)) {
+    if (isBlockAdd && !budget.block && occupiedSymbols.has(f.symbol) && !isOwnedLeg(f.symbol, f.side)) {
       markWhy(f, "block");
       continue;
     }
@@ -2294,7 +2298,7 @@ async function mirrorToExchange(e, network, cfg) {
     }
     const otherSide = f.side === "long" ? "short" : "long";
     const otherOpen = exchangeOccupied.has(`${f.symbol}:${otherSide}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === otherSide);
-    if (otherOpen && (hedgeBlocked || IS_X01)) continue;
+    if (otherOpen && (hedgeBlocked || IS_X01) && !isBlockAdd) continue;
     if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side && String(x.note || "") === String(f.note || ""))) continue;
     if (isBlockAdd && fillJobs.filter((x) => /Block/i.test(String(x.note || x._rel?.note || ""))).length >= budget.maxNew) continue;
     if (!isBlockAdd && openN + fillJobs.length >= budget.maxPos) break;

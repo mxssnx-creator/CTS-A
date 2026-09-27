@@ -2720,7 +2720,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const internKeep = internAll || internSlot;
         const internHere = internAll || internSlot;
         const validExec = internHere || plainNormal ? false : (!gatedExec || liveShouldExecute(e, execRel));
-        if (plainNormal && !internHere && !internKeep) continue;
+        if (plainNormal && (e.liveTape || (!internHere && !internKeep))) continue;
         if (!internKeep && !internHere && !validExec && !keepInd && !shortLane) continue;
         const short = shortLane;
         const evalGrid = internHere && short
@@ -6824,7 +6824,7 @@ export function adjustActiveBlocks(
     else refreshProgressEvals(e, block);
   }
 
-  if (block.stack !== false && e.queue.filter((o) => o.connId === conn).length < maxQueue(e) - 2) {
+  if (block.stack !== false && (e.liveTape || e.queue.filter((o) => o.connId === conn && !isBlockOrder(o)).length < maxQueue(e) - 2)) {
     let adds = 0;
     const addCap = Math.min(
       maxQueue(e) - 8,
@@ -7075,8 +7075,8 @@ export function adjustActiveBlocks(
         }
       };
       // Sets / relation Block first, then Overall Block uses leftover room (additional, not share-scaled).
-      flushPlanned(plannedRel);
       flushPlanned(plannedOv, true);
+      flushPlanned(plannedRel);
     }
   }
 

@@ -359,6 +359,65 @@ describe("Block and DCA", () => {
     assert.ok(live.some((o) => o.id === "axis1" && o.status !== "cancelled"), "axis with short range was dropped");
   });
 
+  it("live Block still adds when the entry queue is full", () => {
+    const e = book();
+    e.liveTape = true;
+    e.preEvalDone = true;
+    const { pos } = seedLong(e, 1.01);
+    pos.unrealized = 1;
+    pos.validExec = true;
+    const block = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      overall: true,
+      stack: true,
+      windows: false,
+      addOnWin: false,
+      sets: true,
+      counts: [1],
+      maxMultiple: 6,
+      minMultiple: 1,
+      minActiveLevel: 1,
+      volumeMode: "shared" as const,
+      overallMode: "shared" as const,
+    };
+    e.blockCfg = block;
+    for (let i = 0; i < 9000; i++) {
+      e.queue.push({
+        id: `pad${i}`,
+        connId: e.activeConnId,
+        symbol: "ETHUSDT",
+        side: "long",
+        type: "limit",
+        qty: 1,
+        filled: 0,
+        price: 1,
+        remaining: 1,
+        status: "queued",
+        rangeType: "atr",
+        playbook: "axis",
+        tactic: "axis",
+        note: "pad",
+      });
+    }
+    adjustActiveBlocks(e, CFG, "axis", block, "atr");
+    assert.ok(e.queue.some((o) => /Overall Block/.test(o.note || "")), "block skipped a full entry queue");
+    const scopes = new Set(
+      e.queue.filter((o) => /Overall Block/.test(o.note || "")).map((o) => {
+        const n = o.note || "";
+        if (/indication type/.test(n)) return "indType";
+        if (/symbol/.test(n)) return "symbol";
+        if (/indication/.test(n)) return "indication";
+        if (/type/.test(n)) return "type";
+        if (/dir/.test(n)) return "dir";
+        return "book";
+      }),
+    );
+    for (const scope of ["book", "symbol", "dir", "indication", "type", "indType"]) {
+      assert.ok(scopes.has(scope), `missing ${scope}`);
+    }
+  });
+
   it("each Overall scope, shared and additive, stays inside an 8x stack", () => {
     const e = book();
     e.liveTape = true;
