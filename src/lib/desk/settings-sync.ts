@@ -241,7 +241,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       maxMdd: Math.min(0.45, Math.max(0.02, asNum(th.maxMdd, d.thresholds.maxMdd))),
       minWr: Math.min(0.8, Math.max(0.35, asNum(th.minWr, d.thresholds.minWr))),
       minVf: Math.max(MIN_VOLUME_FACTOR, asNum(th.minVf, d.thresholds.minVf)),
-      maxDdt: Math.min(20, Math.max(8, asNum(th.maxDdt, d.thresholds.maxDdt))),
+      maxDdt: Math.min(36, Math.max(8, asNum(th.maxDdt, d.thresholds.maxDdt))),
     },
     tacticConfig: (() => {
       const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;

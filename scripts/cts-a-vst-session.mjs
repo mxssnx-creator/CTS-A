@@ -758,7 +758,7 @@ function writeSettingsPick(pick, extra = {}) {
     enabledKinds: [...DEFAULT_ENABLED_KINDS],
     strategyId: "normal",
     minPf: LIVE_MIN_PF,
-    thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, shortPf: DEFAULT_SHORT_PF, shortBasePf: DEFAULT_SHORT_BASE_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 18 },
+    thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, shortPf: DEFAULT_SHORT_PF, shortBasePf: DEFAULT_SHORT_BASE_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 22 },
     activeConnId: CONN,
     evalHours: [...AUTO_EVAL_HOURS],
     evalLastNs: [EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N],
@@ -2008,8 +2008,9 @@ async function mirrorToExchange(e, network, cfg) {
             if (occupiedSymbols.has(id) || seen.has(id)) continue;
             const q = e.quotes[id];
             if (!q || !(q.px > 0) || !isUniverseSymbol(id)) continue;
-            const side = q.px >= (q.axis || q.px) ? "short" : "long";
-            const dist = Math.max(q.atr || 0, q.px * 0.0012);
+            const mid = q.hi > q.lo ? (q.hi + q.lo) / 2 : q.px;
+            const side = Math.abs(q.px - mid) > q.px * 0.0003 ? (q.px >= mid ? "short" : "long") : (id.charCodeAt(0) % 2 === 0 ? "long" : "short");
+            const dist = Math.min(Math.max((q.atr || 0) * 0.25, q.px * 0.0004), q.px * 0.0012);
             const px = side === "long" ? Math.max(q.px - dist, q.px * 0.998) : Math.min(q.px + dist, q.px * 1.002);
             seen.add(id);
             slim.push({
@@ -2037,6 +2038,31 @@ async function mirrorToExchange(e, network, cfg) {
           ovSeen.add(key);
           slim.push(f);
           if (ovSeen.size >= 8) break;
+        }
+        if (slim.length && (slim.every((x) => x.side === "short") || slim.every((x) => x.side === "long"))) {
+          const want = slim[0].side === "short" ? "long" : "short";
+          for (const id of Object.keys(e.quotes || {})) {
+            if (occupiedSymbols.has(id) || seen.has(id)) continue;
+            const q = e.quotes[id];
+            if (!q || !(q.px > 0) || !isUniverseSymbol(id)) continue;
+            const dist = Math.min(Math.max((q.atr || 0) * 0.25, q.px * 0.0004), q.px * 0.0012);
+            const px = want === "long" ? q.px - dist : q.px + dist;
+            seen.add(id);
+            slim.push({
+              id: `flat:${id}:${want}`,
+              orderId: "",
+              symbol: id,
+              side: want,
+              px,
+              kind: "entry",
+              playbook: "short",
+              note: "live flat",
+              tactic: e.lastTactic || "trailing",
+              rangeType: e.lastRange || "atr",
+              indication: classifyIndication(e, id),
+            });
+            if (slim.filter((x) => x.side === want).length >= 4) break;
+          }
         }
         return slim;
       })()
@@ -2152,8 +2178,12 @@ async function mirrorToExchange(e, network, cfg) {
   const fillOut = await mapLimit(fillJobs, 4, async (f) => {
     try {
       const mark = Number(e.quotes?.[f.symbol]?.px) || Number(f.px) || 0;
-      const ladder = Number(f.px) || mark;
-      const resting = f.side === "long" ? ladder > 0 && ladder <= mark * 0.9995 : ladder > 0 && ladder >= mark * 1.0005;
+      let ladder = Number(f.px) || mark;
+      const blockAdd = /Overall Block|^Block|Block /i.test(String(f.note || ""));
+      if (IS_X01 && mark > 0 && !blockAdd) ladder = mark;
+      const resting = blockAdd
+        ? (f.side === "long" ? ladder > 0 && ladder <= mark * 0.9995 : ladder > 0 && ladder >= mark * 1.0005)
+        : (f.side === "long" ? ladder > 0 && ladder <= mark * 0.9995 : ladder > 0 && ladder >= mark * 1.0005);
       const r = await withLiveBusy(() =>
         placeSwapOrder({
           network,

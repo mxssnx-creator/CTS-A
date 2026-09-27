@@ -883,7 +883,7 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   maxMdd: 0.12,
   minWr: 0.55,
   minVf: 1.12,
-  maxDdt: 18,
+  maxDdt: 22,
 };
 
 export const DEFAULT_TACTIC_CONFIG: TacticConfig = {

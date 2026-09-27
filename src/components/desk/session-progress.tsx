@@ -506,7 +506,7 @@ export function SessionProgress({
           />
         </label>
         <label className="flex min-w-0 flex-col gap-1">
-          <span className="text-xs font-medium text-muted">Max DDT {th.maxDdt} bars</span>
+          <span className="text-xs font-medium text-muted">Max DDT {th.maxDdt}h</span>
           <input
             aria-label="Maximal drawdown time"
             type="range"

@@ -691,7 +691,7 @@ export function PerformanceView() {
               onChange={(e) => setTh({ maxMdd: Number(e.target.value) })}
             />
           </Field>
-          <Field label={`Max DDT ${th.maxDdt} bars`}>
+          <Field label={`Max DDT ${th.maxDdt}h`}>
             <input
               type="range"
               min={12}

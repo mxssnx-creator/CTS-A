@@ -4027,7 +4027,7 @@ describe("VST engine", () => {
     assert.equal(sanitizeDeskSettings({ blockConfig: { overallVolumeRatio: 1.5, sharedVolumeRatio: 1.5 } } as never).blockConfig.overallVolumeRatio, 1.5);
     assert.equal(sanitizeDeskSettings({ blockConfig: { overallVolumeRatio: 1.5, sharedVolumeRatio: 1.5 } } as never).blockConfig.sharedVolumeRatio, 1.5);
     assert.ok(snap.tacticConfig.slAtr >= 0.8);
-    assert.equal(snap.thresholds.maxDdt, 20);
+    assert.equal(snap.thresholds.maxDdt, 36);
     assert.equal(snap.hedgeMode, true);
     assert.equal(snap.marginMode, "cross");
     assert.equal(snap.useMaxLeverage, true);

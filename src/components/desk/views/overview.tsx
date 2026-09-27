@@ -731,7 +731,7 @@ export function OverviewView() {
               <span className="font-mono text-sm tabular">{fmtPct(-th.maxMdd, 0)}</span>
             </Field>
             <Field label="Max DDT">
-              <span className="font-mono text-sm tabular">{th.maxDdt} bars</span>
+              <span className="font-mono text-sm tabular">{th.maxDdt}h</span>
             </Field>
           </div>
           <p className="mt-3 text-xs text-muted">
