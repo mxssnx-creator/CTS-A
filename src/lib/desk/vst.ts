@@ -3168,7 +3168,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const validExec = internHere || plainNormal ? false : (!gatedExec || liveShouldExecute(e, execRel));
         const afterBase = gatedExec && !internHere && !internKeep;
         if (plainNormal && (e.liveTape || (!internHere && !internKeep))) continue;
-        if (afterBase && !validExec && !(performingLive(e) && shortLane)) continue;
+        if (afterBase && !validExec && !(performingLive(e) && shortLane) && !e.holdLimits) continue;
         if (!afterBase && !internKeep && !internHere && !validExec && !keepInd && !shortLane) continue;
         const short = shortLane;
         const evalGrid = internHere && short
@@ -3231,7 +3231,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             if (!comboExec && !internKeep && !(keepInd && !afterBase)) continue;
           }
           let laneValid = internHere ? false : comboExec && comboOk;
-          if (afterBase && !laneValid) continue;
+          if (afterBase && !laneValid && !e.holdLimits) continue;
           if (
             performingLive(e) &&
             tac === "dca" &&
