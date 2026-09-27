@@ -120,6 +120,7 @@ import {
   relComboKey,
   lastNMaxOf,
   GATED_MIN_PF,
+  BASE_STAGE_PF,
   edgePnl,
   positionNetRatio,
   indicationQuality,
@@ -917,6 +918,22 @@ function noteRelClose(
   ring.unshift({ pnl: Number(c.pnl) || 0, ratio: Number(c.pnl) || 0 });
   if (ring.length > SHORT_COMBO_TAPE_CAP) ring.length = SHORT_COMBO_TAPE_CAP;
 }
+function baseStageFloor(e: VstEngine): number {
+  return Math.max(BASE_STAGE_PF, minPfFor(e, "base"));
+}
+
+/** Process only a full last-N window that clears the base stage. A short sample is not a pass. */
+function lastNTapePass(e: VstEngine, rows: { pnl: number }[] | undefined): boolean {
+  if (!rows || rows.length < 8) return false;
+  const base = baseStageFloor(e);
+  const d = decideLastN(rows, lastNProgressOf(e), base, base);
+  const validOk = d.validHits.some((h) => h.samples >= h.n && h.pf + 1e-9 >= base && h.net > 0);
+  if (!validOk) return false;
+  const evalFull = d.evalHits.filter((h) => h.samples >= h.n);
+  if (!evalFull.length) return true;
+  return evalFull.some((h) => h.pf + 1e-9 >= base && h.avg >= 0);
+}
+
 export function refreshValidRelKeys(e: VstEngine) {
   const tapes = (e.shortRelPreTape && Object.keys(e.shortRelPreTape).length ? e.shortRelPreTape : e.shortRelTape) ?? {};
   const stats = Object.entries(tapes).map(([k, rows]) => ({ k, ...comboTapeStats(rows) }));
@@ -960,10 +977,7 @@ export function refreshValidRelKeys(e: VstEngine) {
   for (const r of execStats) {
     const tiny = r.pf >= PF_NO_LOSS - 1e-9 && r.net <= 1e-4;
     if (tiny || r.pf >= 30) continue;
-    if (r.n < 4 || r.net <= 1e-9 || r.pf + 1e-9 < 1) continue;
-    const shortTac = r.k.includes(":trailing:") || r.k.includes(":hybrid:");
-    if (shortTac && (r.n < 8 || r.pf + 1e-9 < 1.12)) continue;
-    if (r.k.includes(":dca:") && (r.n < 12 || r.pf + 1e-9 < 1.15)) continue;
+    if (!lastNTapePass(e, tapes[r.k])) continue;
     execKeys[r.k] = r.pf;
     const cut = r.k.indexOf(":");
     const cut2 = cut >= 0 ? r.k.indexOf(":", cut + 1) : -1;
@@ -1071,7 +1085,7 @@ function comboLastNPass(
   const ln = lastNProgressOf(e);
   const d = decideLastN(rows, { ...ln, mode: "independent" }, minPf, basePf);
   if (!d.pass) return false;
-  const gated = d.validHits.filter((h) => h.samples >= h.n && h.pf + 1e-9 >= GATED_MIN_PF && h.net > 0);
+  const gated = d.validHits.filter((h) => h.samples >= h.n && h.pf + 1e-9 >= Math.max(GATED_MIN_PF, basePf, BASE_STAGE_PF) && h.net > 0);
   if (!gated.length) return false;
   const st = comboTapeStats(rows);
   if (st.pf >= PF_NO_LOSS - 1e-9 && st.net <= 1e-6) return false;
@@ -6510,15 +6524,16 @@ function validatedSet(
   rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number },
 ): boolean {
   if (!e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return true;
-  if (rel.tpAtr != null && rel.slOfTp != null && isShortComboRel(e, rel)) {
-    if (relExamPass(e, rel)) return true;
-    if (!shortComboProven(e, rel.tpAtr, rel.slOfTp) && !internRelProven(e, rel)) return false;
+  const base = baseStageFloor(e);
+  const d = laneLastNDecision(e, rel);
+  const validOk = d.validHits.some((h) => h.samples >= h.n && h.pf + 1e-9 >= base && h.net > 0);
+  const evalFull = d.evalHits.filter((h) => h.samples >= h.n);
+  const evalOk = !evalFull.length || evalFull.some((h) => h.pf + 1e-9 >= base && h.avg >= 0);
+  if (validOk && evalOk) return true;
+  if (rel.tpAtr != null && rel.slOfTp != null) {
+    return lastNTapePass(e, internStartRows(e, shortComboKey(rel.tpAtr, rel.slOfTp)));
   }
-  const coord = e.lastNCoord;
-  if (!coord) return rel.tpAtr != null && rel.slOfTp != null;
-  const combo = coord.combos[relComboKey(rel, { tactic: e.lastTactic, range: e.lastRange })];
-  if (!combo || combo.n < 4) return false;
-  return combo.ok && combo.pf + 1e-9 >= GATED_MIN_PF && combo.net >= 0;
+  return false;
 }
 
 const LAST_N_GROUP_CAP = 80;
@@ -11008,10 +11023,11 @@ function laneExecProven(
   const coord = e.lastNCoord;
   if (coord) {
     const combo = coord.combos[relComboKey(rel, { tactic: e.lastTactic, range: e.lastRange })];
-    if (combo && combo.n >= 4) return true;
+    if (combo && combo.n >= 8 && combo.ok && combo.pf + 1e-9 >= baseStageFloor(e) && combo.net > 0) return true;
   }
   const d = laneLastNDecision(e, rel);
-  return d.validHits.some((h) => h.samples >= h.n);
+  const base = baseStageFloor(e);
+  return d.validHits.some((h) => h.samples >= h.n && h.pf + 1e-9 >= base && h.net > 0);
 }
 
 export function laneLastNStack(

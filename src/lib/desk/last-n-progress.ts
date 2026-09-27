@@ -170,8 +170,13 @@ export function lastNMajorityOk(hits: LastNWindowHit[], pred: (h: LastNWindowHit
   return full.filter(pred).length >= MAJORITY_MIN_POSITIVE;
 }
 
+/** Base-stage eval floor. A window under this is not a base pass. */
+export const BASE_STAGE_PF = 1.1;
+
 export function evalLastNGood(h: LastNWindowHit, basePf: number): boolean {
-  return h.pf + 1e-9 >= basePf && h.avg >= 0;
+  const asked = Number(basePf);
+  const floor = asked > 0 ? Math.max(asked, BASE_STAGE_PF) : asked;
+  return h.pf + 1e-9 >= floor && h.avg >= 0;
 }
 
 /** Live / processing floor. Gated PF below 1 is a failed processing. */

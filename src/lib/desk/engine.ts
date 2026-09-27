@@ -68,6 +68,7 @@ export {
   VALID_EXEC_NS,
   LIVE_DISABLE_NS,
   GATED_MIN_PF,
+  BASE_STAGE_PF,
   edgePnl,
   gatedFloorPf,
   decideLastN,
@@ -808,7 +809,7 @@ export const TACTIC_META: Record<TacticKind, { label: string; blurb: string }> =
 };
 
 export const DEFAULT_MIN_PF = 1.35;
-export const DEFAULT_BASE_PF = 1;
+export const DEFAULT_BASE_PF = 1.1;
 export const DEFAULT_AXIS_PF = 1.15;
 export const DEFAULT_BLOCK_PF = 1.2;
 export const DEFAULT_SHORT_PF = 0.95;
