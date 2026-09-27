@@ -27,9 +27,9 @@ export type StrategyKind = "normal" | "trend" | "mean" | "breakout" | "volume" |
 
 /** Independent live switches. Normal is always computed internally even when live is off. */
 export interface StrategyToggles {
-  /** Live-execute general/unadjusted lanes. Off = calc-only base for relations. */
+  /** Live-execute the Normal and Trailing base sets. Off = those bases stay calc-only. Axis, Block, and DCA still run. */
   normal: boolean;
-  /** Trailing as a base set and as overlay on Axis/Block. Off = unused everywhere. */
+  /** Trailing stop only. Off = no trail anywhere, including Axis, Block, and DCA. */
   trailing: boolean;
   axis: boolean;
   block: boolean;

@@ -3539,6 +3539,7 @@ describe("VST engine", () => {
     const inds = rankIndications(e, pack, "trend");
     assert.equal(inds.length, 10);
     assert.equal(inds[0], "trend");
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: true, block: true, dca: false };
     assert.ok(enabledLiveTactics(e).includes("trailing") && enabledLiveTactics(e).includes("axis") && enabledLiveTactics(e).includes("hybrid"));
     assert.ok(!enabledLiveTactics(e).includes("dca"));
     const tacs = rankTactics(e, "hybrid");
@@ -4148,10 +4149,11 @@ describe("VST engine", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     e.strategyToggles = { normal: false, trailing: true, axis: true, block: true, dca: false };
     e.blockCfg = { ...DEFAULT_BLOCK_CONFIG, activeLive: true, enabled: true };
-    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), true);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), false);
     e.liveTape = true;
     e.liveOpenN = 40;
-    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), true);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), false);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "hybrid" }), false);
     assert.equal(
       liveShouldExecute(e, { symbol: "ETHUSDT", side: "long", playbook: "block", note: "Block 1", blockLevel: 1, tactic: "trailing" }),
       true,
@@ -4198,16 +4200,42 @@ describe("VST engine", () => {
     e.strategyToggles.dca = true;
     assert.equal(liveShouldExecute(e, { symbol: "XRPUSDT", side: "long", playbook: "dca", tactic: "dca" }), true);
     e.strategyToggles.dca = false;
+    e.strategyToggles.normal = true;
+    e.strategyToggles.trailing = false;
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "normal", kind: "normal", tactic: "hybrid" }), true);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), false);
+    assert.equal(liveShouldExecute(e, { symbol: "SOLUSDT", side: "short", playbook: "axis", tactic: "axis" }), true);
     const armed = initVstEngine({ ...CFG, shortRange: true, tpAtr: 0.48, slOfTp: 1, trailingPct: 1.5 }, { warmup: 0, symbolCount: 8, arm: false });
     armed.strategyToggles = { normal: false, trailing: true, axis: true, block: true, dca: true };
     armed.preEvalDone = true;
     armed.completeSim = true;
     armed.openCompleteTape = true;
     armUniverse(armed, { ...CFG, shortRange: true, tpAtr: 0.48, slOfTp: 1, trailingPct: 1.5 }, "trailing");
-    const livePlain = armed.queue.filter((o) => o.validExec === true && o.playbook === "normal");
-    const liveAdj = armed.queue.filter((o) => o.validExec === true && (o.tactic === "trailing" || o.tactic === "axis" || o.tactic === "dca" || o.playbook === "short" || o.playbook === "axis" || o.playbook === "block" || o.playbook === "dca"));
-    assert.equal(livePlain.length, 0);
-    assert.ok(liveAdj.length > 0, `adjusted live orders ${liveAdj.length}`);
+    const liveBase = armed.queue.filter((o) => o.validExec === true && (o.playbook === "normal" || o.tactic === "trailing" || o.tactic === "hybrid"));
+    const liveExtra = armed.queue.filter((o) => o.validExec === true && (o.tactic === "axis" || o.tactic === "dca" || o.playbook === "axis" || o.playbook === "dca" || o.playbook === "block"));
+    assert.equal(liveBase.length, 0);
+    assert.ok(liveExtra.length > 0, `axis/block/dca live ${liveExtra.length}`);
+    const trailOff = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    trailOff.strategyToggles = { normal: true, trailing: false, axis: true, block: true, dca: true };
+    trailOff.tick = 100;
+    const held = stubPos("BTCUSDT", "long", trailOff.activeConnId);
+    held.tactic = "axis";
+    held.playbook = "axis";
+    held.openedTick = 1;
+    held.validExec = true;
+    trailOff.positions = [held as never];
+    const q = trailOff.quotes.BTCUSDT;
+    q.px = 1.18;
+    q.hi = 1.2;
+    q.lo = 1.1;
+    tickVst(trailOff, { ...CFG, trailingPct: 1.5, maxHoldTicks: 20000 }, "axis", { skipWalk: true, minHold: 1 });
+    const stopped = trailOff.positions.find((p) => p.symbol === "BTCUSDT" && p.side === "long");
+    assert.ok(stopped, "axis position stays open");
+    assert.equal(stopped!.sl, 0.9);
+    trailOff.strategyToggles.trailing = true;
+    tickVst(trailOff, { ...CFG, trailingPct: 1.5, maxHoldTicks: 20000 }, "axis", { skipWalk: true, minHold: 1 });
+    const trailed = trailOff.positions.find((p) => p.symbol === "BTCUSDT" && p.side === "long");
+    assert.ok(trailed && trailed.sl > 0.9, `axis trail ${trailed?.sl}`);
   });
 
   it("short-range overall PF 0.95 and base PF 0.7 are independent of overall 1.35", () => {
@@ -4227,7 +4255,7 @@ describe("VST engine", () => {
     assert.equal(e.shortRange, true);
     assert.equal(minPfFor(e, "short"), 0.95);
     assert.equal(minPfFor(e, "shortBase"), 0.7);
-    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: false, dca: false };
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: true, block: false, dca: false };
     e.liveTape = true;
     e.liveOpenN = 20;
     assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", playbook: "short", kind: "short", tactic: "trailing" }), true);

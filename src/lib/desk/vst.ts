@@ -2160,12 +2160,17 @@ export function pickLiveTactic(e: VstEngine, ind: IndicationId, fallback: Tactic
 /** Every enabled tactic — no skip of trailing/axis/hybrid. DCA only if toggle on. */
 export function enabledLiveTactics(e: VstEngine): TacticKind[] {
   const tog = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  const intern = internAllPhase(e);
   const out: TacticKind[] = [];
-  if (tog.trailing !== false) out.push("trailing");
+  if (intern || (tog.normal !== false && tog.trailing !== false)) out.push("trailing");
   if (tog.axis !== false) out.push("axis");
-  out.push("hybrid");
+  if (intern || tog.normal !== false) out.push("hybrid");
   if (tog.dca) out.push("dca");
   return out;
+}
+
+function trailingOverlayOn(e: VstEngine): boolean {
+  return (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).trailing !== false;
 }
 
 /** All catalog indications, winner and higher-quality first. Never drops a lane. */
@@ -3150,7 +3155,7 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
   return ranked[0]?.[0] ?? lead?.[0] ?? "trend";
 }
 
-/** Plain Normal lane. Axis, Block, DCA and Trailing are adjustments on that base, not this. */
+/** Normal and Trailing base sets. Axis, Block, and DCA are extra and stay live. */
 export function unadjustedNormalOrder(rel: {
   playbook?: string;
   kind?: string;
@@ -3165,8 +3170,8 @@ export function unadjustedNormalOrder(rel: {
   if (tac === "axis" || play === "axis") return false;
   if (tac === "dca" || play === "dca" || /^DCA/i.test(note)) return false;
   if (play === "block" || /Block/i.test(note) || (Number(rel.blockLevel) || 0) >= 1) return false;
+  if (tac === "trailing" || tac === "hybrid") return true;
   if (play === "normal" || kind === "normal") return true;
-  if (tac === "hybrid" && play !== "short" && play !== "block") return true;
   return false;
 }
 
@@ -4290,11 +4295,11 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const hitSl = p.side === "long" ? q.lo <= p.sl : q.hi >= p.sl;
     const hitTp = p.side === "long" ? q.hi >= p.tp : q.lo <= p.tp;
     if (opts?.liveTape || e.liveTape) {
-      const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
-      p.peakPx = p.peakPx && p.peakPx > 0
-        ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
-        : fav;
-      if (ownTactic === "trailing" || ownTactic === "hybrid" || ownTactic !== "axis") {
+      if (trailingOverlayOn(e) && !botBook) {
+        const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
+        p.peakPx = p.peakPx && p.peakPx > 0
+          ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
+          : fav;
         const next = trailStopFromPeak({
           side: p.side,
           entry: p.avgEntry,
@@ -4341,7 +4346,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       closePosition(e, p, reason === "sl" ? p.sl : p.tp, reason);
       continue;
     }
-    if (!botBook && (ownTactic === "trailing" || ownTactic === "hybrid" || Boolean(opts?.liveTape && ownTactic !== "axis"))) {
+    if (!botBook && trailingOverlayOn(e)) {
       const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
       p.peakPx = p.peakPx && p.peakPx > 0
         ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
@@ -10110,6 +10115,8 @@ export function liveShouldExecute(
   if (!t.normal && unadjustedNormalOrder(rel)) return false;
   const note = String(rel.note || "");
   const play = String(rel.playbook || "");
+  const extra = play === "block" || play === "axis" || play === "dca" || rel.tactic === "axis" || rel.tactic === "dca" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
+  if (t.trailing === false && rel.tactic === "trailing" && !extra) return false;
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca) return t.dca;
   const blockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
@@ -10137,7 +10144,8 @@ export function liveShouldExecute(
     if (rel.kind === "normal" || play === "normal") return t.normal;
     if (rel.kind === "short" || play === "short" || /short/i.test(note)) return Boolean(t.block || t.trailing || t.axis);
     if (play === "axis" || rel.tactic === "axis") return t.axis;
-    if (rel.tactic === "trailing" || rel.tactic === "hybrid") return t.trailing !== false;
+    if (rel.tactic === "trailing") return t.trailing !== false;
+    if (rel.tactic === "hybrid") return t.normal !== false;
     return Boolean(t.trailing || t.axis || t.block);
   }
   if (rel.kind === "short" || play === "short" || /short/i.test(note)) {
@@ -10174,7 +10182,7 @@ export function liveShouldExecute(
     const take = laneClosed(e, { indication: "direction", kind: rel.kind, playbook: play }, 40);
     if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, e.shortRange ? "short" : "overall")) return false;
   }
-  if (!t.trailing && (rel.tactic === "trailing" || rel.tactic === "hybrid")) return false;
+  if (t.trailing === false && rel.tactic === "trailing" && play !== "block" && play !== "axis" && play !== "dca" && !/Block/i.test(note)) return false;
   if (e.liveTape && (rel.tactic === "trailing" || rel.tactic === "hybrid")) {
     const take = laneClosed(e, { tactic: rel.tactic, indication: rel.indication, kind: rel.kind, playbook: play }, 40);
     if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, e.shortRange ? "short" : "overall")) return false;
