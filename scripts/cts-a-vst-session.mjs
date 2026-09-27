@@ -1955,6 +1955,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
 
 async function mirrorToExchange(e, network, cfg) {
   if (apiQuiet()) return null;
+  if (e?.preEvalDone === false) return null;
   const gapNow = Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0));
   if (Date.now() - liveLast < (gapNow > 0 ? 250 : 700)) return;
   liveLast = Date.now();
@@ -2754,25 +2755,12 @@ async function main() {
     engine.completeSim = true;
     engine.preEvalDone = false;
     engine.openCompleteTape = false;
-    const examTicks = 2 * TICKS_PER_HOUR;
-    for (let i = 0; i < examTicks; i++) {
-      tickVst(engine, pick.cfg, "trailing", {
-        symbolCount: LIVE_SYMBOLS,
-        rangeType: "atr",
-        block: engine.blockCfg,
-      });
-    }
-    finishBaseEval(engine, engine.blockCfg);
-    engine.liveTape = true;
-    engine.completeSim = false;
-    engine.openCompleteTape = false;
   }
+  const examLeft0 = IS_X01 ? 2 * TICKS_PER_HOUR : 0;
+  let examLeft = examLeft0;
   writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
   const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} live / ${EVAL_SYMBOLS} eval · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf} short ${engine.shortPf}/${engine.shortBasePf} · grid ${GRID.length} TP ${pick.cfg.tpAtr}/${pick.cfg.slOfTp} · block ${engine.blockCfg.sharedVolumeRatio}/${engine.blockCfg.volumeRatio}/${engine.blockCfg.overallVolumeRatio}`];
-  if (IS_X01 && engine.preEvalDone) {
-    const ok = Object.values(engine.lastNCoord?.combos ?? {}).filter((c) => c && c.ok && c.n >= 4).length;
-    adjustments.push(`base eval ${engine.tick}t · validated sets ${ok} · normal+trailing+axis+block+dca`);
-  }
+  if (IS_X01) adjustments.push(`exam ${examLeft0}t on the live loop · ${LIVE_SYMBOLS} symbols · then validated book`);
   if (seededLosers) adjustments.push(`seed skip ${seededLosers} loser symbols`);
   if (seededOff) adjustments.push(`seed disable ${seededOff} relations`);
   if (lastExec.n) adjustments.push(`seed exec n=${lastExec.n} PF ${lastExec.pf.toFixed(2)}`);
@@ -3127,16 +3115,31 @@ async function main() {
     }
   }
 
+  let stopAsked = false;
+  const askStop = (sig) => {
+    if (stopAsked) return;
+    stopAsked = true;
+    hostPhase = "stopped";
+    adjustments.push(`stop ${sig}`);
+  };
+  process.on("SIGTERM", () => askStop("SIGTERM"));
+  process.on("SIGINT", () => askStop("SIGINT"));
+
   void (async () => {
-    await sleep(IS_X01 ? 1200 : 180_000);
+    while (examLeft > 0 && !stopAsked) await sleep(200);
+    if (stopAsked) return;
+    await sleep(IS_X01 ? 400 : 180_000);
     adjustments.push(`complete compute start · prehistory ${SHORT_EVAL_HOURS}h · full coverage`);
     try {
       const complete = await completeComputationsAsync(pick.cfg, {
         symbolCount: IS_X01 ? 8 : 12,
         hours: [...AUTO_EVAL_HOURS],
         prehours: SHORT_EVAL_HOURS,
-        complete: true,
-        yieldFn: () => sleep(IS_X01 ? 20 : 120),
+        complete: false,
+        yieldFn: async () => {
+          if (stopAsked) throw new Error("stop");
+          await sleep(IS_X01 ? 40 : 120);
+        },
         onCell: (cell, i, total) => {
           if (i === 1 || i === total || i % 5 === 0) {
             adjustments.push(`compute ${i}/${total} ${cell.tactic}/${cell.range} ${cell.hours}h PF ${cell.pf.toFixed(2)}`);
@@ -3197,20 +3200,7 @@ async function main() {
           : "complete compute empty",
       );
       computeDone = true;
-      try {
-        const scored = validateSymbols100h(pick.cfg, pick.tactic, {
-          symbolCount: Math.min(16, LIVE_SYMBOLS),
-          rangeType: pick.range,
-          minPf: Number(engine.shortPf) || DEFAULT_SHORT_PF,
-        });
-        const kept = mergeSymbolHourEval(engine, scored.engine);
-        refreshSymbolHourEval(engine, { hours: 100, minPf: Number(engine.shortPf) || DEFAULT_SHORT_PF });
-        adjustments.push(
-          `symbol 100h · ${kept.length} performing · skip ${scored.skipped.length} · hour ${scored.hour} ${scored.engine.hourCoord?.bestInd || ""}/${scored.engine.hourCoord?.bestTac || ""}`,
-        );
-      } catch (err3) {
-        adjustments.push(`symbol 100h skip ${err3 instanceof Error ? err3.message : "err"}`);
-      }
+      adjustments.push("symbol 100h stays on the live cadence");
     } catch (err) {
       adjustments.push(`compute skip ${err instanceof Error ? err.message : "err"}`);
       try {
@@ -3233,11 +3223,11 @@ async function main() {
 
   let lastRearmAt = 0;
   const watchdog = setInterval(() => {
-    if (hostPhase !== "running") return;
+    if (hostPhase !== "running" || stopAsked || examLeft > 0) return;
     if (Date.now() - lastTickAt > TICK_MS * 6) {
       tickBusy = false;
       liveBusy = 0;
-      if (!mirrorJob && ioStartedAt && Date.now() - ioStartedAt > 90000) ioInFlight = false;
+      if (ioStartedAt && Date.now() - ioStartedAt > 20000) ioInFlight = false;
       adjustments.push("watchdog tick");
       try {
         healEngine(engine, pick.cfg, pick.tactic, pick.range);
@@ -3256,8 +3246,8 @@ async function main() {
     ) {
       lastRearmAt = Date.now();
       try {
-        requeueFree(engine, pick.cfg, pick.tactic, pick.range, CONN);
-        adjustments.push("watchdog rearm");
+        armUniverse(engine, pick.cfg, pick.tactic, pick.range);
+        adjustments.push("watchdog arm");
       } catch {
         /* keep alive */
       }
@@ -3373,8 +3363,35 @@ async function main() {
       }
     }
 
-    if (hostPhase === "paused" || hostPhase === "stopped") {
+    if (stopAsked || hostPhase === "stopped") break;
+    if (hostPhase === "paused") {
       if (wantStatus(false)) writeStatus(snapshot(engine, { ...statusBase(), sessionPhase: hostPhase, computeDone }));
+      await sleep(TICK_MS);
+      continue;
+    }
+    if (examLeft > 0) {
+      try {
+        tickVst(engine, pick.cfg, "trailing", {
+          symbolCount: LIVE_SYMBOLS,
+          rangeType: "atr",
+          block: engine.blockCfg,
+        });
+        examLeft -= 1;
+        if (examLeft === 0) {
+          finishBaseEval(engine, engine.blockCfg);
+          engine.liveTape = true;
+          engine.completeSim = false;
+          engine.openCompleteTape = false;
+          const ok = Object.values(engine.lastNCoord?.combos ?? {}).filter((c) => c && c.ok && c.n >= 4).length;
+          adjustments.push(`base eval ${engine.tick}t · validated sets ${ok} · live`);
+        } else if (examLeft % 30 === 0) {
+          adjustments.push(`exam ${examLeft0 - examLeft}/${examLeft0}`);
+        }
+      } catch {
+        healEngine(engine, pick.cfg, pick.tactic, pick.range);
+        adjustments.push("exam tick recovered");
+      }
+      if (wantStatus(false)) writeStatus(snapshot(engine, { ...statusBase(), computeDone }));
       await sleep(TICK_MS);
       continue;
     }

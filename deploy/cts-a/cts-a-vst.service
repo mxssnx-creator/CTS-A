@@ -16,7 +16,8 @@ Restart=always
 RestartSec=8
 RuntimeMaxSec=45000
 TimeoutStartSec=180
-TimeoutStopSec=20
+TimeoutStopSec=30
+KillSignal=SIGTERM
 OOMPolicy=kill
 OOMScoreAdjust=-200
 Environment=CTS_A_VST_HOURS=12
