@@ -1422,6 +1422,8 @@ export interface VstEngine {
   /** Pre-historic eval finished — valid-execute (last 15) and disable (last 12) gates apply. Real counted + Live run from valid. */
   preEvalDone?: boolean;
   liveTape?: boolean;
+  /** Indications that must not be armed or sent. Live x01 drops direction. */
+  skipIndications?: string[];
   /** Desk bots are the live book: ladder arm stays off and bot orders fill on the tape. */
   botMode?: boolean;
   /** Stable normal progress (LIVE_RUN tape) also runs on this book, even while bots are on. */

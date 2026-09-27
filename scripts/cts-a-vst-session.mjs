@@ -220,7 +220,7 @@ const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis
 function pinX01Strat() {
   if (!IS_X01) return;
   STRAT.normal = true;
-  STRAT.trailing = true;
+  STRAT.trailing = false;
   STRAT.axis = true;
   STRAT.block = false;
   STRAT.dca = false;
@@ -280,7 +280,7 @@ function otherProtectRows() {
 }
 
 function x01BestGrid() {
-  const tactics = ["trailing", "axis", "hybrid"];
+  const tactics = ["axis", "hybrid"];
   const ranges = ["atr", "linear", "geometric", "volume", "fibonacci"];
   const shorts = filterLiveShortCombos(shortMinTp, shortMinSl, shortMaxTp, true);
   const rows = [];
@@ -325,7 +325,7 @@ function x01BestGrid() {
     }
   }
   return rows.length ? rows : [{
-    tactic: "trailing",
+    tactic: "hybrid",
     range: "atr",
     cfg: { ...DEFAULT_TACTIC_CONFIG, ...X01_LIVE_CFG, dcaCount: 1, trailingPct: 1.5 },
   }];
@@ -347,7 +347,7 @@ let SHORT_GRID = SHORT_GRID_SEED;
 let GRID = buildLiveGrid();
 function preferWinner(list = GRID) {
   if (IS_X01) {
-    return list.find((g) => g.tactic === "trailing" && g.range === "atr" && Number(g.cfg.tpAtr) === 0.48 && Number(g.cfg.slOfTp) === 0.75) || list[0];
+    return list.find((g) => g.tactic === "hybrid" && g.range === "atr" && Number(g.cfg.tpAtr) === 0.48 && Number(g.cfg.slOfTp) === 0.75) || list[0];
   }
   return (
     list.find((g) => g.cfg.tpAtr === SHORT_WINNER.tpAtr && g.cfg.slOfTp === SHORT_WINNER.slOfTp && g.tactic === "trailing") ||
@@ -463,6 +463,7 @@ function gridLive(e) {
   const minSl = shortMinSl;
   const filtered = GRID.filter((g) => {
     if (g.tactic === "dca" && !(e?.strategyToggles ?? STRAT).dca) return false;
+    if (g.tactic === "trailing" && (e?.strategyToggles ?? STRAT).trailing === false) return false;
     if (g.tactic === "axis" && dis[`tac:axis`]) return false;
     if (g.tactic !== "trailing" && dis[`tac:${g.tactic}`]) return false;
     if (!g.cfg?.shortRange && dis[`rng:${g.range}`]) return false;
@@ -1164,8 +1165,8 @@ function diversifyLiveIntents(list) {
   }
   return out;
 }
-/** Paper-unit scale for a live entry. Half of the previous 0.5. */
-const LIVE_VOL_FACTOR = 0.25;
+/** Paper-unit scale for a live entry. Raised from 0.25. */
+const LIVE_VOL_FACTOR = 0.5;
 function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
   return eq * POSITION_COST_PCT * LIVE_VOL_FACTOR;
@@ -2392,6 +2393,14 @@ async function mirrorToExchange(e, network, cfg) {
         tpAtr: Number(order?.tpAtr ?? pos?.tpAtr ?? currentPick?.cfg?.tpAtr ?? LIVE_CFG.tpAtr),
         slOfTp: Number(order?.slOfTp ?? pos?.slOfTp ?? currentPick?.cfg?.slOfTp ?? LIVE_CFG.slOfTp),
       };
+      if (indication === "direction" || (e.skipIndications || []).includes(indication)) {
+        markWhy(f, "direction");
+        continue;
+      }
+      if (rel.tactic === "trailing" && e.strategyToggles?.trailing === false) {
+        markWhy(f, "trailing");
+        continue;
+      }
       const allowed = liveShouldExecute(e, rel) && !liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType });
       const normalOff = e.strategyToggles?.normal === false && unadjustedNormalOrder(rel);
       const needBook = IS_X01 && !normalOff && (openN + fillJobs.length) < 30;
@@ -2744,7 +2753,8 @@ async function main() {
     engine.shortRange = true;
     pick.cfg = { ...pick.cfg, ...X01_LIVE_CFG, shortRange: true, trailingPct: 1.5, dcaCount: STRAT.dca ? 3 : 1 };
     currentPick = pick;
-    engine.strategyToggles = { normal: true, trailing: true, axis: true, block: false, dca: false };
+    engine.strategyToggles = { ...STRAT };
+    engine.skipIndications = ["direction"];
     engine.liveTape = false;
     engine.completeSim = true;
     engine.preEvalDone = false;

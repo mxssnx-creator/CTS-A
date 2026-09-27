@@ -3069,6 +3069,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       trailPct?: number;
     }>();
     for (const ind of inds) {
+      if (e.skipIndications?.includes(ind)) continue;
       let sides = trySides;
       if (!complete && !axisOnly && ind === "break") {
         const spanNow = (q.hi - q.lo) / atr;
