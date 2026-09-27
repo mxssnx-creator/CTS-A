@@ -740,6 +740,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
         void completeComputationsAsync(get().tacticConfig, {
           symbolCount: Math.min(8, get().symbolCount || 8),
           hours: hoursList,
+          prehours: 0,
+          complete: false,
           yieldFn: () => new Promise((r) => window.setTimeout(r, 0)),
           onCell: (cell, i, total) => {
             if (i === 1 || i === total || i % 5 === 0) {
@@ -776,6 +778,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const complete = completeComputations(get().tacticConfig, {
         symbolCount: Math.min(8, get().symbolCount || 8),
         hours: h,
+        prehours: 0,
       });
       const e = get().vst;
       const w = complete.winner;

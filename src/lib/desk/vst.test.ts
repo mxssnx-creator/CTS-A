@@ -3373,7 +3373,7 @@ describe("VST engine", () => {
     assert.ok(run.orders > 0, `orders ${run.orders}`);
     assert.ok(run.short.cells.every((c) => Number.isFinite(c.pf) && Number.isFinite(c.net) && Number.isFinite(c.trades)));
     assert.equal(new Set(run.short.cells.map((c) => c.slOfTp)).size, 9);
-    const tactics = completeComputations(CFG, { symbolCount: 4, hours: [1] });
+    const tactics = completeComputations(CFG, { symbolCount: 4, hours: [1], prehours: 0 });
     assert.equal(tactics.cells.length, LIVE_TACTICS.length * RANGE_TYPES.length);
     const a = covering.find((c) => c.slOfTp === 0.5)!;
     const b = covering.find((c) => c.slOfTp === 2.5)!;
@@ -4906,7 +4906,7 @@ describe("full config coverage", () => {
 
   it("complete computations cover every live tactic, range and stage independently", () => {
     assert.ok(!LIVE_TACTICS.includes("dca"));
-    const r = completeComputations(CFG, { symbolCount: 4, hours: [1] });
+    const r = completeComputations(CFG, { symbolCount: 4, hours: [1], prehours: 0 });
     assert.equal(r.cells.length, LIVE_TACTICS.length * RANGE_TYPES.length);
     assert.equal(r.hours[0], 1);
     for (const t of LIVE_TACTICS) {

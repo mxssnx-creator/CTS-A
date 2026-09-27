@@ -3075,11 +3075,13 @@ async function main() {
 
   void (async () => {
     await sleep(IS_X01 ? 1200 : 180_000);
-    adjustments.push("complete compute start");
+    adjustments.push(`complete compute start · prehistory ${SHORT_EVAL_HOURS}h · full coverage`);
     try {
       const complete = await completeComputationsAsync(pick.cfg, {
         symbolCount: IS_X01 ? 8 : 12,
         hours: [...AUTO_EVAL_HOURS],
+        prehours: SHORT_EVAL_HOURS,
+        complete: true,
         yieldFn: () => sleep(IS_X01 ? 20 : 120),
         onCell: (cell, i, total) => {
           if (i === 1 || i === total || i % 5 === 0) {
@@ -3137,7 +3139,7 @@ async function main() {
       writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
       adjustments.push(
         w
-          ? `complete ${complete.cells.length} cells · winner ${w.tactic}/${w.range} ${w.hours}h PF ${w.pf.toFixed(2)} · ${complete.elapsedMs}ms`
+          ? `complete ${complete.cells.length} cells · prehistory ${complete.prehours ?? SHORT_EVAL_HOURS}h · full ${complete.full ? `PF ${Number(complete.full.pf).toFixed(2)} n ${complete.full.trades}` : "off"} · winner ${w.tactic}/${w.range} ${w.hours}h PF ${w.pf.toFixed(2)} · ${complete.elapsedMs}ms`
           : "complete compute empty",
       );
       computeDone = true;

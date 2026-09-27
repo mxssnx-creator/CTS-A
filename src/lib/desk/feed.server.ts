@@ -16,7 +16,7 @@ import {
   type LiveTicker,
 } from "./feed.ts";
 import type { ExchangeBook, ExchangeOrder, ExchangePosition, Side } from "./types.ts";
-import { profitFactor } from "./engine.ts";
+import { profitFactor, SHORT_EVAL_HOURS } from "./engine.ts";
 
 export const HOSTS = {
   mainnet: ["https://open-api.bingx.com", "https://open-api.bingx.pro"],
@@ -701,7 +701,7 @@ function klineBar(row: unknown): { px: number; hi: number; lo: number } | null {
   return null;
 }
 
-/** Last 24 one-hour bars. ATR is the mean true range of the last 14, as a fraction of price. */
+/** Last 24 one-hour bars so the 20h lookback has room. ATR is that 20h mean true range, as a fraction of price. */
 export async function fetchPrehistory(network: "mainnet" | "testnet"): Promise<Map<string, { atrFrac: number; hourFrac: number; bars: { px: number; hi: number; lo: number }[] }>> {
   const hosts = HOSTS[network];
   const host = hosts[0]!;
@@ -723,7 +723,7 @@ export async function fetchPrehistory(network: "mainnet" | "testnet"): Promise<M
           const rows = Array.isArray(body?.data) ? body.data : [];
           const bars = rows.map(klineBar).filter((b): b is { px: number; hi: number; lo: number } => Boolean(b));
           if (bars.length < 8) continue;
-          const tail = bars.slice(-14);
+          const tail = bars.slice(-SHORT_EVAL_HOURS);
           let tr = 0;
           let n = 0;
           for (let i = 0; i < tail.length; i++) {

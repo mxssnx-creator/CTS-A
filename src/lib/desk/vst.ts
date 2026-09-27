@@ -10053,6 +10053,7 @@ export type CompleteCell = ConfigCell & { hours: number; mdd: number };
 export type CompleteComputeReport = {
   at: number;
   hours: number[];
+  prehours: number;
   symbolCount: number;
   cells: CompleteCell[];
   byHours: Record<string, { winner: CompleteCell | null; ok: number; n: number; avgPf: number }>;
@@ -10061,6 +10062,8 @@ export type CompleteComputeReport = {
   indications: OverallBucket[];
   kinds: OverallBucket[];
   elapsedMs: number;
+  /** One book with every tactic, range and indication after the prehistoric window. */
+  full?: { prehours: number; hours: number; pf: number; wr: number; net: number; trades: number; mdd: number; ok: boolean };
 };
 
 function cellPass(pf: number, net: number, trades: number, minTrades: number, cfg?: TacticConfig) {
@@ -10133,9 +10136,16 @@ function completeCellsForPair(
   range: RangeType,
   hours: number[],
   symbolCount: number,
+  sim?: { prehours?: number; complete?: boolean },
 ): CompleteCell[] {
+  const prehours = Math.max(0, Math.round(sim?.prehours ?? 0));
   const need = Math.max(...hours, hours.some((h) => h < 8) ? 16 : 0);
-  const { engine, report } = simulateHours(need, cfg, tactic, { symbolCount, rangeType: range });
+  const { engine, report } = simulateHours(need, cfg, tactic, {
+    symbolCount,
+    rangeType: range,
+    prehours,
+    complete: Boolean(sim?.complete),
+  });
   return hours.map((h) => {
     if (h >= need) {
       return {
@@ -10162,7 +10172,7 @@ function completeCellsForPair(
   });
 }
 
-function foldComplete(cells: CompleteCell[], hours: number[], playbooks: ReturnType<typeof sweepPlaybooks>, t0: number, symbolCount: number, hint?: { indications: OverallBucket[]; kinds: OverallBucket[] }): CompleteComputeReport {
+function foldComplete(cells: CompleteCell[], hours: number[], playbooks: ReturnType<typeof sweepPlaybooks>, t0: number, symbolCount: number, hint?: { indications: OverallBucket[]; kinds: OverallBucket[] }, prehours = 0): CompleteComputeReport {
   const byHours: CompleteComputeReport["byHours"] = {};
   for (const h of hours) {
     const slice = cells.filter((c) => c.hours === h);
@@ -10177,6 +10187,7 @@ function foldComplete(cells: CompleteCell[], hours: number[], playbooks: ReturnT
   return {
     at: Date.now(),
     hours,
+    prehours,
     symbolCount,
     cells,
     byHours,
@@ -10191,22 +10202,23 @@ function foldComplete(cells: CompleteCell[], hours: number[], playbooks: ReturnT
 /** Independent full compute: every live tactic × range × stage hours. Optional independent short TP×SL. */
 export function completeComputations(
   cfg: TacticConfig = DEFAULT_CFG,
-  opts?: { symbolCount?: number; hours?: number[]; shorts?: boolean; prehours?: number },
+  opts?: { symbolCount?: number; hours?: number[]; shorts?: boolean; prehours?: number; complete?: boolean },
 ): CompleteComputeReport {
   const hours = (opts?.hours ?? [...STAGE_HOURS]).map((n) => Math.max(1, Math.round(n)));
   const symbolCount = opts?.symbolCount ?? 8;
+  const prehours = opts?.prehours != null ? Math.max(0, Math.round(opts.prehours)) : SHORT_EVAL_HOURS;
   const t0 = Date.now();
   const cells: CompleteCell[] = [];
   for (const tactic of LIVE_TACTICS) {
     for (const range of RANGE_TYPES) {
-      cells.push(...completeCellsForPair(cfg, tactic, range, hours, symbolCount));
+      cells.push(...completeCellsForPair(cfg, tactic, range, hours, symbolCount, { prehours, complete: Boolean(opts?.complete) }));
     }
   }
   if (opts?.shorts) {
     const h = hours[0] ?? 4;
     const run = evaluateShortCombosIndependent({
       hours: h,
-      prehours: opts.prehours ?? 0,
+      prehours: opts.prehours ?? SHORT_EVAL_HOURS,
       symbolCount,
       tactic: "trailing",
       block: false,
@@ -10231,7 +10243,7 @@ export function completeComputations(
     }
   }
   const playbooks = sweepPlaybooks(hours.includes(8) ? 8 : hours[hours.length - 1]!, symbolCount, cfg);
-  return foldComplete(cells, hours, playbooks, t0, symbolCount);
+  return foldComplete(cells, hours, playbooks, t0, symbolCount, undefined, prehours);
 }
 
 export function sweepShortRange(
@@ -10502,23 +10514,29 @@ export async function completeComputationsAsync(
     yieldFn?: () => Promise<void>;
     onCell?: (cell: CompleteCell, i: number, total: number) => void;
     protect?: boolean;
+    /** Prehistoric hours before each scored window. Default 20. */
+    prehours?: number;
+    /** Also run one full book (every tactic, range and indication) after that prehistory. */
+    complete?: boolean;
   },
 ): Promise<CompleteComputeReport> {
   const hours = (opts?.hours ?? [...STAGE_HOURS]).map((n) => Math.max(1, Math.round(n)));
   const symbolCount = opts?.symbolCount ?? 8;
+  const prehours = opts?.prehours != null ? Math.max(0, Math.round(opts.prehours)) : SHORT_EVAL_HOURS;
   const yieldFn = opts?.yieldFn ?? (() => new Promise<void>((r) => setImmediate(r)));
   const t0 = Date.now();
   const cells: CompleteCell[] = [];
   const combos = opts?.protect === false ? [] : allTpSlCombos();
   const shorts = opts?.protect === false ? [] : allShortTpSlCombos();
   const shortTactics: TacticKind[] = ["trailing"];
-  const shortHours = [4];
+  const shortSpan = Math.max(...hours);
+  const shortHours = [shortSpan];
   const total =
     LIVE_TACTICS.length * RANGE_TYPES.length * hours.length + combos.length * LIVE_TACTICS.length + shorts.length * shortTactics.length * shortHours.length;
   let i = 0;
   for (const tactic of LIVE_TACTICS) {
     for (const range of RANGE_TYPES) {
-      const batch = completeCellsForPair(cfg, tactic, range, hours, symbolCount);
+      const batch = completeCellsForPair(cfg, tactic, range, hours, symbolCount, { prehours });
       for (const cell of batch) {
         cells.push(cell);
         i += 1;
@@ -10530,7 +10548,7 @@ export async function completeComputationsAsync(
   for (const tactic of LIVE_TACTICS) {
     for (const prot of combos) {
       const cfg2 = { ...cfg, slAtr: prot.slAtr, tpRatio: prot.tpRatio, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp };
-      const batch = completeCellsForPair(cfg2, tactic, "atr", [4], Math.min(8, symbolCount));
+      const batch = completeCellsForPair(cfg2, tactic, "atr", [4], Math.min(8, symbolCount), { prehours });
       for (const cell of batch) {
         cells.push({ ...cell, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp, slAtr: prot.slAtr, tpRatio: prot.tpRatio });
         i += 1;
@@ -10549,16 +10567,16 @@ export async function completeComputationsAsync(
         slOfTp: prot.slOfTp,
         shortRange: true,
       });
-      const { report } = simulateHours(4, cfg2, tactic, {
+      const { report } = simulateHours(shortSpan, cfg2, tactic, {
         symbolCount: Math.min(8, symbolCount),
         rangeType: "atr",
         complete: false,
-        prehours: 4,
+        prehours,
       });
       cells.push({
         tactic,
         range: "atr",
-        hours: 4,
+        hours: shortSpan,
         pf: report.pf,
         wr: report.wr,
         net: report.net,
@@ -10576,9 +10594,32 @@ export async function completeComputationsAsync(
       await yieldFn();
     }
   }
+  let full: CompleteComputeReport["full"];
+  if (opts?.complete !== false) {
+    const span = Math.max(...hours);
+    const { report } = simulateHours(span, cfg, "hybrid", {
+      symbolCount,
+      rangeType: "atr",
+      complete: true,
+      prehours,
+    });
+    full = {
+      prehours,
+      hours: span,
+      pf: report.pf,
+      wr: report.wr,
+      net: report.net,
+      trades: report.trades,
+      mdd: report.mdd,
+      ok: cellPass(report.pf, report.net, report.trades, 4, cfg),
+    };
+    await yieldFn();
+  }
   const playbooks = sweepPlaybooks(hours.includes(8) ? 8 : hours[hours.length - 1]!, symbolCount, cfg);
   await yieldFn();
-  return foldComplete(cells, hours, playbooks, t0, symbolCount);
+  const folded = foldComplete(cells, hours, playbooks, t0, symbolCount, undefined, prehours);
+  if (full) folded.full = full;
+  return folded;
 }
 
 export function formatTickClock(tick: number): string {

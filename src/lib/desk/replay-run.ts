@@ -67,7 +67,7 @@ export function runReplaySimulation(
   }));
   let complete: CompleteComputeReport | null = null;
   if (opts?.complete !== false) {
-    complete = completeComputations(cfg, { symbolCount, hours: completeHoursFor(h) });
+    complete = completeComputations(cfg, { symbolCount, hours: completeHoursFor(h), prehours: 0 });
   }
   return { hours: h, tactic, range, report, stats, fills, complete };
 }

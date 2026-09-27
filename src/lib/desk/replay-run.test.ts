@@ -61,7 +61,7 @@ describe("replay simulation", () => {
   });
 
   it("complete computations cover 8/16/24 for all live lanes", () => {
-    const complete = completeComputations(DEFAULT_TACTIC_CONFIG, { symbolCount: 4, hours: [8, 16, 24] });
+    const complete = completeComputations(DEFAULT_TACTIC_CONFIG, { symbolCount: 4, hours: [8, 16, 24], prehours: 0 });
     assert.equal(complete.cells.length, LIVE_TACTICS.length * RANGE_TYPES.length * 3);
     assert.ok(complete.winner);
     assert.ok(complete.byHours["8"] && complete.byHours["16"] && complete.byHours["24"]);
