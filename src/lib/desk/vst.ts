@@ -6467,6 +6467,30 @@ function emptyOvLevels(): Record<OverallScope, Set<number>> {
 function emptyOvQty(): Record<OverallScope, number> {
   return { book: 0, symbol: 0, dir: 0, indication: 0, type: 0 };
 }
+function openScopePf(
+  e: VstEngine,
+  scope: OverallScope,
+  p: { symbol: string; side: Side; indication?: string; tactic?: string },
+) {
+  let profit = 0;
+  let loss = 0;
+  let n = 0;
+  for (const x of e.positions) {
+    if (x.qty <= 0) continue;
+    if (scope === "symbol" && x.symbol !== p.symbol) continue;
+    if (scope === "dir" && x.side !== p.side) continue;
+    if (scope === "indication" && (x.indication || "") !== (p.indication || "")) continue;
+    if (scope === "type" && (x.tactic || "") !== (p.tactic || "")) continue;
+    const u = Number(x.unrealized) || 0;
+    if (u > 0) profit += u;
+    else if (u < 0) loss += Math.abs(u);
+    n += 1;
+  }
+  if (!n) return 0;
+  if (loss <= 1e-12) return profit > 0 ? 4 : 0;
+  return profitFactor(profit, loss);
+}
+
 function overallWindowOk(
   e: VstEngine,
   scope: OverallScope,
@@ -6477,9 +6501,19 @@ function overallWindowOk(
   if (internAllPhase(e)) return true;
   if (e.blockCfg?.windows === false) return true;
   const need = Math.max(8, next);
-  const floor = next <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.min(1.05, minPf || 1.05);
-  const pass = (w?: { closed?: number; lastPf?: number }) => !w || (w.closed || 0) < need || (Number(w.lastPf) || 0) + 1e-9 >= floor;
-  if (scope === "book") return blockCountPositive(e, next, minPf);
+  const floor = next <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.max(1.05, Math.min(minPf || 1.05, 1.2));
+  const pass = (w?: { closed?: number; lastPf?: number }) => {
+    if (!w || (w.closed || 0) < need) {
+      if (e.liveTape) return openScopePf(e, scope, p) + 1e-9 >= floor;
+      return true;
+    }
+    return (Number(w.lastPf) || 0) + 1e-9 >= floor;
+  };
+  if (scope === "book") {
+    if (!e.liveTape) return blockCountPositive(e, next, minPf);
+    const w = e.blockWindows?.[next];
+    return pass(w);
+  }
   if (scope === "symbol") return pass(e.blockWindowsBySymbol?.[p.symbol]?.[next]);
   if (scope === "dir") return pass(e.blockWindowsBySide?.[p.side]?.[next]);
   if (scope === "indication") {
@@ -6612,7 +6646,11 @@ function blockCountPositive(e: VstEngine, n: number, minPf: number) {
   if (internAllPhase(e)) return true;
   const w = e.blockWindows?.[n];
   const need = Math.max(8, n);
-  if (!w || w.closed < need) return true;
+  if (!w || w.closed < need) {
+    if (!e.liveTape) return true;
+    const floor = n <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.max(1.05, minPf || 1.05);
+    return openScopePf(e, "book", { symbol: "", side: "long" }) + 1e-9 >= floor;
+  }
   const floor = n <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.min(minPf || 1.05, 1.2);
   return w.lastPf + 1e-9 >= floor;
 }
@@ -6917,9 +6955,9 @@ export function adjustActiveBlocks(
           }
         }
       }
-      const flushPlanned = (planned: typeof plannedRel) => {
-        const capQty = parentBase * maxMul;
-        const room = capQty - (parentBase + usedQty);
+      const flushPlanned = (planned: typeof plannedRel, independent = false) => {
+        const capQty = independent ? parentBase * Math.max(1, vrOv) : parentBase * maxMul;
+        const room = independent ? capQty : capQty - (parentBase + usedQty);
         if (!(room > 1e-12) || !planned.length) return;
         const raw = planned.reduce((s, x) => s + x.qty, 0);
         const scale = raw > room ? room / raw : 1;
@@ -6999,7 +7037,7 @@ export function adjustActiveBlocks(
       };
       // Sets / relation Block first, then Overall Block uses leftover room (additional, not share-scaled).
       flushPlanned(plannedRel);
-      flushPlanned(plannedOv);
+      flushPlanned(plannedOv, true);
     }
   }
 
@@ -7101,7 +7139,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
       progressed = true;
     }
   }
-  if (blockDue && !over() && (!e.botMode || (e.x01Progress && e.activeConnId === "bingx-x01"))) {
+  if (blockDue && (!over() || e.liveTape) && (!e.botMode || (e.x01Progress && e.activeConnId === "bingx-x01"))) {
     safeStage(e, "block", () => {
       adjustActiveBlocks(e, cfg, tactic, block, opts?.rangeType, { endStage: opts?.endStage || e.tick >= endTick });
     });

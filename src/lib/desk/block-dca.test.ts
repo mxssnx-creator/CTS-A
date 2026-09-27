@@ -193,6 +193,102 @@ describe("Block and DCA", () => {
     assert.equal(off.cancelled, 0);
   });
 
+  it("Real stage Overall runs on every executed position only while that scope PF stays higher", () => {
+    const e = book();
+    e.liveTape = true;
+    e.activeConnId = VST_DEFAULT_CONN;
+    const ids = Object.keys(e.quotes).slice(0, 2);
+    const mk = (symbol: string, side: "long" | "short", unrealized: number, indication: "ema" | "break") => {
+      const q = e.quotes[symbol]!;
+      q.vol = 0.02;
+      const entry = q.px;
+      return {
+        id: `p-${symbol}`,
+        connId: e.activeConnId,
+        symbol,
+        side,
+        qty: 2,
+        plannedQty: 2,
+        avgEntry: entry,
+        mark: entry,
+        sl: entry * 0.99,
+        tp: entry * 1.02,
+        slDist: entry * 0.01,
+        tpDist: entry * 0.02,
+        realized: 0,
+        unrealized,
+        legs: [{ orderId: "seed", qty: 2, px: entry }],
+        controllingRange: "atr" as const,
+        rangeSpacing: q.atr || entry * 0.01,
+        status: "open" as const,
+        openedTick: 0,
+        tactic: "trailing" as const,
+        indication,
+        playbook: "short" as const,
+        kind: "short" as const,
+        calc: "px" as const,
+        validExec: true,
+      };
+    };
+    e.positions = [mk(ids[0]!, "long", 2, "ema"), mk(ids[1]!, "short", -0.2, "break")];
+    const block = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      overall: true,
+      overallSymbol: true,
+      overallDirection: true,
+      overallIndication: true,
+      overallType: true,
+      stack: true,
+      windows: true,
+      addOnWin: false,
+      flattenConflict: false,
+      endStageOnly: false,
+      counts: [1, 3],
+      maxMultiple: 3,
+      minMultiple: 1,
+      minActiveLevel: 1,
+      volumeRatio: 0.4,
+      sharedVolumeRatio: 1,
+      overallVolumeRatio: 1.5,
+      maxVolumeMultiplier: 8,
+      volumeMode: "parallel" as const,
+      overallMode: "parallel" as const,
+      minRelPf: 1.05,
+    };
+    e.blockCfg = block;
+    const adj = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    const notes = e.queue.map((o) => o.note);
+    const green = notes.filter((n) => n.includes(ids[0]!));
+    const red = notes.filter((n) => n.includes(ids[1]!));
+    assert.ok(adj.added > 0, "no block adds");
+    assert.ok(green.some((n) => /^Overall Block (shared|additive) #/.test(n)), "green missing book Overall");
+    for (const scope of ["Overall Block symbol", "Overall Block dir", "Overall Block indication", "Overall Block type"]) {
+      assert.ok(green.some((n) => n.includes(scope)), `green missing ${scope}`);
+    }
+    assert.equal(red.some((n) => n.includes("Overall Block symbol")), false, "losing symbol still got a symbol Overall add");
+    assert.ok(red.some((n) => /Overall Block /.test(n)), "book-level Overall should still cover a position while the book PF is higher");
+
+    e.queue = [];
+    e.orders = [];
+    e.blockLanes = {};
+    e.blockWindows = { 1: { closed: 12, lastPf: 0.8, wins: 2, n: 1 } };
+    adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    const bookLevel = (note: string) => /^Overall Block (shared|additive) #/.test(note);
+    const blocked = e.queue.filter((o) => /^Overall Block (shared|additive) #1 /.test(o.note));
+    assert.equal(blocked.length, 0, "book Overall N=1 added under a losing closed PF");
+    assert.ok(e.queue.some((o) => bookLevel(o.note) && /#3 /.test(o.note)), "later N still uses the higher open-book PF");
+    e.blockWindows = { 1: { closed: 12, lastPf: 1.4, wins: 9, n: 1 } };
+    e.queue = [];
+    e.orders = [];
+    e.blockLanes = {};
+    adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.ok(
+      e.queue.some((o) => o.note.startsWith("Overall Block ") && !/symbol|dir|indication|type/.test(o.note)),
+      "book Overall did not return after the closed PF recovered",
+    );
+  });
+
   it("full compute keeps Block and DCA finite, joined, and busy", () => {
     const block = {
       ...DEFAULT_BLOCK_CONFIG,

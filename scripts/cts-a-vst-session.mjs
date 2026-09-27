@@ -2108,15 +2108,34 @@ async function mirrorToExchange(e, network, cfg) {
             if (slim.length >= 8) break;
           }
         }
+        const blockFirst = [];
         const ovSeen = new Set();
+        const relSeen = new Set();
+        const scopeKey = (note) => {
+          const n = String(note || "");
+          if (/Overall Block symbol/i.test(n)) return "symbol";
+          if (/Overall Block indication/i.test(n)) return "indication";
+          if (/Overall Block type/i.test(n)) return "type";
+          if (/Overall Block dir/i.test(n)) return "dir";
+          return "book";
+        };
         for (const f of entryIntents) {
-          if (!/Overall Block/i.test(String(f.note || ""))) continue;
-          if (!occupiedSymbols.has(f.symbol)) continue;
-          const key = `${f.symbol}:${f.side}:${/symbol|dir|indication|type/.exec(String(f.note || ""))?.[0] || "book"}`;
+          const note = String(f.note || "");
+          if (!/Overall Block/i.test(note) || !occupiedSymbols.has(f.symbol)) continue;
+          const key = `${f.symbol}:${f.side}:${scopeKey(note)}`;
           if (ovSeen.has(key)) continue;
           ovSeen.add(key);
-          slim.push(f);
-          if (ovSeen.size >= 8) break;
+          blockFirst.push(f);
+          if (ovSeen.size >= 12) break;
+        }
+        for (const f of entryIntents) {
+          const note = String(f.note || "");
+          if (!/^Block\b/i.test(note) || /Overall/i.test(note) || !occupiedSymbols.has(f.symbol)) continue;
+          const key = `${f.symbol}:${f.side}:${f.level || 1}`;
+          if (relSeen.has(key)) continue;
+          relSeen.add(key);
+          blockFirst.push(f);
+          if (relSeen.size >= 6) break;
         }
         if (slim.length && (slim.every((x) => x.side === "short") || slim.every((x) => x.side === "long"))) {
           const want = slim[0].side === "short" ? "long" : "short";
@@ -2143,7 +2162,7 @@ async function mirrorToExchange(e, network, cfg) {
             if (slim.filter((x) => x.side === want).length >= 4) break;
           }
         }
-        return slim;
+        return [...blockFirst, ...slim];
       })()
     : entryIntents;
   let skipQuiet = 0;
@@ -2153,8 +2172,18 @@ async function mirrorToExchange(e, network, cfg) {
   const markWhy = (f, w) => {
     if (!firstWhy && f && !occupiedSymbols.has(f.symbol)) firstWhy = `${f.symbol}:${w}`;
   };
+  let blockJobs = 0;
+  const blockCap = IS_X01 ? 8 : 8;
+  const isBlockIntent = (f) => /Block/i.test(String(f?.note || "")) || f?.playbook === "block";
   for (const f of [...e.fills, ...scanIntents]) {
-    if (fillJobs.length >= entryCap) break;
+    const blockish = isBlockIntent(f);
+    const entries = fillJobs.length - blockJobs;
+    if (blockish) {
+      if (blockJobs >= blockCap) continue;
+    } else if (entries >= entryCap) {
+      if (blockJobs >= blockCap) break;
+      continue;
+    }
     if (mirrored.has(f.id) || skippedFills.has(f.id)) {
       markWhy(f, "mir");
       continue;
@@ -2243,7 +2272,7 @@ async function mirrorToExchange(e, network, cfg) {
     const otherSide = f.side === "long" ? "short" : "long";
     const otherOpen = exchangeOccupied.has(`${f.symbol}:${otherSide}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === otherSide);
     if (otherOpen && (hedgeBlocked || IS_X01)) continue;
-    if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side)) continue;
+    if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side && String(x.note || "") === String(f.note || ""))) continue;
     if (isBlockAdd && fillJobs.filter((x) => /Block/i.test(String(x.note || x._rel?.note || ""))).length >= budget.maxNew) continue;
     if (!isBlockAdd && openN + fillJobs.length >= budget.maxPos) break;
     if (IS_X01 && !x01CanAfford(f.symbol, book.equity) && !X01_GROWTH.has(f.symbol)) {
@@ -2256,6 +2285,7 @@ async function mirrorToExchange(e, network, cfg) {
       break;
     }
     fillJobs.push(f);
+    if (blockish) blockJobs += 1;
   }
   if (IS_X01) fillJobs.sort((a, b) => Number(X01_GROWTH.has(b.symbol)) - Number(X01_GROWTH.has(a.symbol)));
   const fillOut = await mapLimit(fillJobs, 4, async (f) => {
