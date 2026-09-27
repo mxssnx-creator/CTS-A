@@ -731,19 +731,44 @@ describe("Block and DCA", () => {
     const hot = adjustActiveBlocks(e, CFG, "trailing", e.blockCfg, "atr");
     assert.ok(hot.added > 0, "high type PF added nothing");
     assert.ok(e.queue.some((o) => /Overall Block type/.test(o.note || "")), "high type PF did not size Overall type");
-    assert.equal(
-      liveShouldExecute(e, {
+    const overallRel = {
+      symbol: pos.symbol,
+      side: "long" as const,
+      playbook: "block",
+      note: "Overall Block type shared #1",
+      tactic: "trailing" as const,
+      indication: "ema" as const,
+      kind: "block",
+      rangeType: "atr" as const,
+      tpAtr: 0.48,
+      slOfTp: 0.75,
+    };
+    assert.equal(liveShouldExecute(e, overallRel), false, "unvalidated Overall after Base does not execute");
+    for (let i = 0; i < 8; i += 1) {
+      e.closed.unshift({
+        id: `ov${i}`,
+        connId: e.activeConnId,
         symbol: pos.symbol,
         side: "long",
+        pnl: 1.2,
+        qty: 1,
+        entry: 100,
+        exit: 101,
+        reason: "tp",
+        tick: i + 1,
+        r: 1,
         playbook: "block",
-        note: "Overall Block type shared #1",
+        kind: "block",
         tactic: "trailing",
         indication: "ema",
+        rangeType: "atr",
         tpAtr: 0.48,
         slOfTp: 0.75,
-      }),
-      true,
-    );
+        validExec: true,
+      });
+    }
+    assert.equal(liveShouldExecute(e, overallRel), true, "validated Overall type executes");
+    assert.equal(liveShouldExecute(e, { ...overallRel, rangeType: "volume" }), false, "another range is not this set");
     assert.equal(liveShouldExecute(e, { symbol: pos.symbol, side: "long", playbook: "dca", tactic: "dca", note: "DCA L2" }), false);
     assert.equal(liveShouldExecute(e, { symbol: pos.symbol, side: "long", indication: "macd", tactic: "axis", playbook: "axis" }), false);
     assert.equal(liveShouldExecute(e, { symbol: pos.symbol, side: "long", indication: "bollinger", tactic: "axis", playbook: "axis" }), false);
@@ -766,5 +791,66 @@ describe("Block and DCA", () => {
     }, "macd");
     assert.equal(ranked.includes("macd"), false);
     assert.equal(ranked.includes("bollinger"), false);
+  });
+
+  it("stage eval runs every enabled config and Base keeps only a validated set", () => {
+    const e = book();
+    e.preEvalDone = false;
+    e.completeSim = true;
+    e.liveTape = false;
+    e.openCompleteTape = false;
+    e.holdLimits = true;
+    e.strategyToggles = { normal: true, trailing: false, axis: true, block: true, dca: false };
+    e.skipIndications = ["direction", "macd", "bollinger"];
+    const symbol = Object.keys(e.quotes)[0]!;
+    const rel = {
+      symbol,
+      side: "long" as const,
+      indication: "break" as const,
+      tactic: "axis" as const,
+      playbook: "axis",
+      kind: "axis",
+      rangeType: "volume" as const,
+      tpAtr: 0.48,
+      slOfTp: 0.75,
+    };
+    assert.equal(liveShouldExecute(e, rel), true, "eval keeps the axis/volume set");
+    assert.equal(
+      liveShouldExecute(e, { ...rel, tactic: "hybrid", playbook: "short", kind: "short", rangeType: "atr" }),
+      true,
+      "eval keeps the other tactic",
+    );
+    assert.equal(liveShouldExecute(e, { ...rel, tactic: "dca", playbook: "dca" }), false);
+    assert.equal(liveShouldExecute(e, { ...rel, indication: "macd" }), false);
+    e.preEvalDone = true;
+    e.completeSim = false;
+    e.liveTape = true;
+    e.holdLimits = true;
+    assert.equal(liveShouldExecute(e, rel), false, "holdLimits is not a validation");
+    for (let i = 0; i < 8; i += 1) {
+      e.closed.unshift({
+        id: `x:set${i}`,
+        connId: e.activeConnId,
+        symbol,
+        side: "long",
+        pnl: 1.15,
+        qty: 1,
+        entry: 100,
+        exit: 101,
+        reason: "tp",
+        tick: i + 1,
+        r: 1,
+        playbook: "axis",
+        kind: "axis",
+        tactic: "axis",
+        indication: "break",
+        rangeType: "volume",
+        tpAtr: 0.48,
+        slOfTp: 0.75,
+        validExec: true,
+      });
+    }
+    assert.equal(liveShouldExecute(e, rel), true, "validated set executes after Base");
+    assert.equal(liveShouldExecute(e, { ...rel, rangeType: "atr" }), false, "unvalidated range stays off");
   });
 });

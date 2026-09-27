@@ -556,9 +556,56 @@ export function engageLiveBook(e: VstEngine) {
   }
 }
 
+
+type ConfigTapeRow = {
+  pnl: number;
+  indication?: string;
+  tactic?: string;
+  rangeType?: string;
+  playbook?: string;
+  kind?: string;
+  tpAtr?: number;
+  slOfTp?: number;
+};
+const configPreMem = new WeakMap<VstEngine, ConfigTapeRow[]>();
+function snapshotConfigPreTape(e: VstEngine) {
+  const rows: ConfigTapeRow[] = [];
+  for (const c of e.closed) {
+    if (!deskTapeRow(e, c)) continue;
+    rows.push({
+      pnl: edgePnl(c),
+      indication: c.indication,
+      tactic: c.tactic,
+      rangeType: c.rangeType,
+      playbook: c.playbook,
+      kind: c.kind,
+      tpAtr: c.tpAtr,
+      slOfTp: c.slOfTp,
+    });
+    if (rows.length >= 2400) break;
+  }
+  configPreMem.set(e, rows);
+}
+function filterConfigRows(rows: ConfigTapeRow[], rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
+  const out: ConfigTapeRow[] = [];
+  for (const c of rows) {
+    if (rel.indication && c.indication !== rel.indication) continue;
+    if (rel.tactic && c.tactic !== rel.tactic) continue;
+    if (rel.rangeType && c.rangeType !== rel.rangeType) continue;
+    if (rel.playbook && c.playbook !== rel.playbook) continue;
+    if (rel.kind && c.kind && c.kind !== rel.kind) continue;
+    if (rel.tpAtr != null && (c.tpAtr == null || Math.abs(c.tpAtr - rel.tpAtr) > 1e-6)) continue;
+    if (rel.slOfTp != null && (c.slOfTp == null || Math.abs(c.slOfTp - rel.slOfTp) > 1e-6)) continue;
+    out.push(c);
+    if (out.length >= 80) break;
+  }
+  return out;
+}
+
 /** Close the base exam: score every set, drop what did not validate, keep the best tapes for live. */
 export function finishBaseEval(e: VstEngine, block?: BlockConfig) {
   const blk = block ?? e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
+  if (!e.liveTape) snapshotConfigPreTape(e);
   e.preEvalDone = true;
   evalBlockRelations(e, blk);
   flattenNonPerforming(e);
@@ -995,7 +1042,7 @@ export function internRelProven(
 ): boolean {
   // Intern→valid share statistic only. Live execute uses independent shortComboProven / last-N.
   if (internAllPhase(e) || !e.preEvalDone) return true;
-  if (!e.completeSim) return true;
+  if (!e.completeSim && !e.preEvalDone) return true;
   const keys = e.validRelKeys;
   if (!keys || !Object.keys(keys).length) return false;
   if (rel.tpAtr == null || rel.slOfTp == null) return false;
@@ -1205,7 +1252,7 @@ export function shortComboProven(e: VstEngine, tpAtr: number, slOfTp: number): b
     const st = comboTapeStats(intern);
     if (st.pf >= PF_NO_LOSS - 1e-9 && st.net <= 1e-6) return false;
     if (intern.length < 6) {
-      if (e.liveTape) return true;
+      if (e.liveTape && !e.preEvalDone) return true;
       if (!e.preEvalDone) return true;
       return internStartOk(e, intern);
     }
@@ -2939,14 +2986,9 @@ function sliceShortGrid(
     return row && row.n >= 4 ? row.pf : 0;
   };
   provenPreview.sort((a, b) => comboPf(b) - comboPf(a) || b.tpAtr - a.tpAtr);
-  // No combo cap. Intern scores every live-floor pair. After types, live is only the pairs that passed, best PF first.
+  // Stage eval scores every TP×SL. After Base, live keeps only the pairs that passed.
   if (isolatedLive) return provenPreview;
-  if (!internAll) return all;
-  const sp = e.shortProgress;
-  const minTp = snapShortTpAtr(sp?.minTpAtr ?? DEFAULT_SHORT_MIN_TP_ATR);
-  const minSl = snapShortSlOfTp(sp?.minSlOfTp ?? DEFAULT_SHORT_MIN_SL_OF_TP);
-  const floor = all.filter((c) => c && c.tpAtr + 1e-9 >= minTp && c.slOfTp + 1e-9 >= minSl);
-  return floor.length ? floor : all;
+  return all;
 }
 
 export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind, rangeType?: RangeType) {
@@ -3099,7 +3141,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       if (shareOn && (tac === "trailing" || tac === "hybrid") && shortLiveCold(e)) continue;
       if (shareOn && tac === "dca" && laneLiveCold(e, "dca")) continue;
       const liveQuality = openTape || performingLive(e) || Boolean(e.liveTape);
-      if (tac === "axis" && (disp < 0.35 || disp > 2.6)) continue;
+      if (tac === "axis" && !internAllPhase(e) && (disp < 0.35 || disp > 2.6)) continue;
       if (tac === "dca" && dcaOverlayOff(e)) continue;
       if (liveQuality && laneCooled(e, s.id, ind, tac)) continue;
       if (liveQuality && !liveIndStillPays(e, ind)) continue;
@@ -3168,8 +3210,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const internHere = internAll || internSlot;
         const validExec = internHere || plainNormal ? false : (!gatedExec || liveShouldExecute(e, execRel));
         const afterBase = gatedExec && !internHere && !internKeep;
+        // Coarse check has no TP×SL yet. Stage eval keeps every config; after Base the leg loop keeps only a validated one.
         if (plainNormal && (e.liveTape || (!internHere && !internKeep))) continue;
-        if (afterBase && !validExec && !(performingLive(e) && shortLane) && !e.holdLimits) continue;
         if (!afterBase && !internKeep && !internHere && !validExec && !keepInd && !shortLane) continue;
         const short = shortLane;
         const evalGrid = internHere && short
@@ -3227,12 +3269,12 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const comboExec = internHere
             ? false
             : !gatedExec || liveShouldExecute(e, prot ? { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp } : execRel);
-          if (gatedExec && prot && !internHere && !(e.shortComboOnly && paperMode(e)) && !e.holdLimits) {
-            if (!comboOk) continue;
-            if (!comboExec && !internKeep && !(keepInd && !afterBase)) continue;
+          if (gatedExec && prot && !internHere && !(e.shortComboOnly && paperMode(e))) {
+            if (!comboOk && !afterBase) continue;
+            if (!comboExec && !internKeep && !(keepInd && !afterBase) && !afterBase) continue;
           }
           let laneValid = internHere ? false : comboExec && comboOk;
-          if (afterBase && !laneValid && !e.holdLimits) continue;
+          if (afterBase && !internHere) laneValid = true;
           if (
             performingLive(e) &&
             tac === "dca" &&
@@ -3245,7 +3287,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             const indRow = e.progressEval?.indications?.[ind];
             if (indRow && indRow.n >= 6 && !indRow.ok && !keepInd) continue;
           }
-          if (!laneValid && !internHere && !internKeep && !e.holdLimits) continue;
+          if (!laneValid && !internHere && !internKeep) continue;
           if (!laneValid && (internHere || internKeep) && gatedExec && busyLegs.has(`${s.id}:${side}`)) continue;
           const exclusiveLeg = internSlot || (complete && gatedExec && !internHere && !livePace);
           const downHour = livePace && highTradeHourDown(e);
@@ -3299,7 +3341,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               legs.push({ ...leg, sizeMul: leg.sizeMul * ddCut });
             }
           }
-          if (allLanes && (e.liveTape || e.x01Progress || e.completeSim)) {
+          if (!afterBase && allLanes && (e.liveTape || e.x01Progress || e.completeSim)) {
             const have = new Set(legs.map((l) => l.range));
             for (const r of RANGE_TYPES) {
               if (have.has(r)) continue;
@@ -3307,7 +3349,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               have.add(r);
             }
           }
-          if (tac === "axis" && laneValid && ind === inds[0] && qn < Math.floor(qStop * 0.75)) {
+          if (!afterBase && tac === "axis" && laneValid && ind === inds[0] && qn < Math.floor(qStop * 0.75)) {
             for (const phase of axisPhasesOpen(e, q, side)) {
               for (const r of RANGE_TYPES) {
                 if (legs.some((l) => l.kind === phase && l.range === r)) continue;
@@ -3315,8 +3357,15 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               }
             }
           }
+          let legOk = laneValid;
           for (const leg of legs) {
           if (tac === "dca" && leg.range === "volume") continue;
+          if (afterBase && !internHere) {
+            legOk = liveShouldExecute(e, prot
+              ? { ...execRel, rangeType: leg.range, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp }
+              : { ...execRel, rangeType: leg.range });
+            if (!legOk) continue;
+          } else legOk = laneValid;
           const legKey = exclusiveLeg
             ? `${s.id}:${side}`
             : `${s.id}:${side}:${ind}:${tac}:${comboKey || "x"}:${leg.kind}:${leg.range}`;
@@ -3414,7 +3463,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               kind,
               playbook: book,
               tactic: tac,
-              validExec: laneValid,
+              validExec: legOk,
               tpAtr: prot?.tpAtr,
               slOfTp: prot?.slOfTp,
               trailPct,
@@ -3442,7 +3491,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                   kind,
                   playbook: book,
                   tactic: tac,
-                  validExec: laneValid,
+                  validExec: legOk,
                   tpAtr: prot?.tpAtr,
                   slOfTp: prot?.slOfTp,
                   trailPct,
@@ -6544,13 +6593,21 @@ function validatedSet(
 ): boolean {
   if (!e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return true;
   const base = baseStageFloor(e);
-  const d = laneLastNDecision(e, rel);
-  const validOk = d.validHits.some((h) => h.samples >= h.n && h.pf + 1e-9 >= base && h.net > 0);
-  const evalFull = d.evalHits.filter((h) => h.samples >= h.n);
-  const evalOk = !evalFull.length || evalFull.some((h) => h.pf + 1e-9 >= base && h.avg >= 0);
-  if (validOk && evalOk) return true;
+  const exact = filterConfigRows(laneClosed(e, rel, 80) as ConfigTapeRow[], rel);
+  const frozen = filterConfigRows(configPreMem.get(e) ?? [], rel);
+  const tape = exact.length >= frozen.length ? exact : frozen;
+  if (lastNTapePass(e, tape)) return true;
+  // A named range is its own set. A TP×SL pass must not unlock every range.
+  if (rel.rangeType) return false;
+  if (rel.indication && rel.tactic && rel.tpAtr != null && rel.slOfTp != null) {
+    const key = internRelKey(rel.indication, rel.tactic, rel.tpAtr, rel.slOfTp);
+    const relRows = (e.shortRelPreTape && Object.keys(e.shortRelPreTape).length ? e.shortRelPreTape : e.shortRelTape)?.[key];
+    return lastNTapePass(e, relRows);
+  }
   if (rel.tpAtr != null && rel.slOfTp != null) {
-    return lastNTapePass(e, internStartRows(e, shortComboKey(rel.tpAtr, rel.slOfTp)));
+    if (lastNTapePass(e, internStartRows(e, shortComboKey(rel.tpAtr, rel.slOfTp)))) return true;
+    const row = e.progressEval?.shortCombos?.[shortComboKey(rel.tpAtr, rel.slOfTp)];
+    return Boolean(row && row.n >= 8 && row.net > 0 && row.pf + 1e-9 >= base && row.ok !== false);
   }
   return false;
 }
@@ -7589,8 +7646,7 @@ export function adjustActiveBlocks(
       if (p.qty <= 0) continue;
       if (overlayOff) continue;
       if (p.indication && e.skipIndications?.includes(p.indication)) continue;
-      const realStage = Boolean(e.liveTape);
-      if (e.preEvalDone && !internAllPhase(e) && !realStage && p.validExec !== true) continue;
+      if (e.preEvalDone && !internAllPhase(e) && !completeOpenTape(e) && p.validExec !== true) continue;
       if (!overall) {
         const allow = symbolSideSet(p.symbol, block.sides, p.side);
         if (!allow.includes(p.side)) continue;
@@ -8024,7 +8080,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
       compactOrders(e);
     });
   }
-  const armEvery = completeOpenTape(e) || performingLive(e) || (e.completeSim && paperMode(e)) ? 2 : e.completeSim ? 6 : tapeRed(e) ? 8 : 12;
+  const armEvery = internAllPhase(e) ? 1 : completeOpenTape(e) || performingLive(e) || (e.completeSim && paperMode(e)) ? 2 : e.completeSim ? 6 : tapeRed(e) ? 8 : 12;
   if (completeOpenTape(e) || performingLive(e)) rollHourLanes(e);
   if (!opts?.skipWalk && e.tick % armEvery === 0 && (completeOpenTape(e) || performingLive(e))) recycleOpenLadders(e);
   const progressLane = e.x01Progress && e.activeConnId === "bingx-x01";
@@ -11016,6 +11072,10 @@ export function lanePassExec(
 ): boolean {
   if (internAllPhase(e) || completeOpenTape(e)) return true;
   if (e.preEvalDone && !validatedSet(e, rel)) return false;
+  if (e.preEvalDone) {
+    if (liveRelationDisabled(e, rel as Parameters<typeof liveRelationDisabled>[1])) return false;
+    return true;
+  }
   // Independent combo tape: intern always processes this TP×SL; last-N is scored, not a self-kill.
   if (e.shortComboOnly && paperMode(e)) return true;
   if (liveRelationDisabled(e, rel as Parameters<typeof liveRelationDisabled>[1])) return false;
@@ -11110,8 +11170,10 @@ export function liveShouldExecute(
   const overall = /Overall Block/i.test(note);
   const blockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   if (blockFill) {
-    if (overall) return e.blockCfg?.overall !== false;
-    return t.block !== false;
+    if (overall && e.blockCfg?.overall === false) return false;
+    if (!overall && t.block === false) return false;
+    if (!e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return true;
+    return validatedSet(e, rel);
   }
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca && t.dca === false) return false;
@@ -11122,7 +11184,7 @@ export function liveShouldExecute(
   if (t.trailing === false && rel.tactic === "trailing" && !extra) return false;
   if (isDca) return t.dca;
   const shortCombo = isShortComboRel(e, rel);
-  if (shortCombo && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!) && !internRelProven(e, rel) && !relExamPass(e, rel)) return false;
+  if (shortCombo && !ready && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!) && !internRelProven(e, rel) && !relExamPass(e, rel)) return false;
   if (!shortCombo && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
   if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel) && unadjustedNormalOrder(rel)) return false;
   const gated = Boolean(e.preEvalDone || e.liveTape);

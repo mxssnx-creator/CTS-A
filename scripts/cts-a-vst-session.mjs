@@ -2228,7 +2228,7 @@ async function mirrorToExchange(e, network, cfg) {
           if (slim.length >= 400) break;
         }
         const ladder = [];
-        if (IS_X01 && restingLimits < X01_LADDER_TARGET) {
+        if (IS_X01 && !e.preEvalDone && restingLimits < X01_LADDER_TARGET) {
           const ids = universeSymbols(LIVE_SYMBOLS).map((s) => s.id);
           for (const id of ids) {
             if (ladder.length >= X01_LADDER_TARGET - restingLimits) break;
@@ -2258,7 +2258,7 @@ async function mirrorToExchange(e, network, cfg) {
             }
           }
         }
-        if (slim.length < 4 && e.strategyToggles?.normal !== false && !ladder.length) {
+        if (!e.preEvalDone && slim.length < 4 && e.strategyToggles?.normal !== false && !ladder.length) {
           for (const id of Object.keys(e.quotes || {})) {
             if (occupiedSymbols.has(id) || seen.has(id)) continue;
             const q = e.quotes[id];
@@ -2324,7 +2324,7 @@ async function mirrorToExchange(e, network, cfg) {
           }
           if (bag.length) bags.push(bag);
         }
-        if (e.strategyToggles?.normal !== false && slim.length && (slim.every((x) => x.side === "short") || slim.every((x) => x.side === "long"))) {
+        if (!e.preEvalDone && e.strategyToggles?.normal !== false && slim.length && (slim.every((x) => x.side === "short") || slim.every((x) => x.side === "long"))) {
           const want = slim[0].side === "short" ? "long" : "short";
           for (const id of Object.keys(e.quotes || {})) {
             if (occupiedSymbols.has(id) || restingSymbols.has(id) || seen.has(id)) continue;
@@ -2446,18 +2446,19 @@ async function mirrorToExchange(e, network, cfg) {
         tpAtr: Number(order?.tpAtr ?? pos?.tpAtr ?? currentPick?.cfg?.tpAtr ?? LIVE_CFG.tpAtr),
         slOfTp: Number(order?.slOfTp ?? pos?.slOfTp ?? currentPick?.cfg?.slOfTp ?? LIVE_CFG.slOfTp),
       };
-      if ((indication === "direction" || (e.skipIndications || []).includes(indication)) && !f.ladder) {
+      if ((indication === "direction" || (e.skipIndications || []).includes(indication)) && (!f.ladder || e.preEvalDone)) {
         markWhy(f, "direction");
         continue;
       }
-      if (rel.tactic === "trailing" && e.strategyToggles?.trailing === false && !f.ladder) {
+      if (rel.tactic === "trailing" && e.strategyToggles?.trailing === false && (!f.ladder || e.preEvalDone)) {
         markWhy(f, "trailing");
         continue;
       }
       const allowed = liveShouldExecute(e, rel) && !liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType });
       const normalOff = e.strategyToggles?.normal === false && unadjustedNormalOrder(rel);
-      const needBook = IS_X01 && !normalOff && (openN + fillJobs.length) < 30;
-      if (!allowed && !needBook && !f.ladder) {
+      const evalOpen = !e.preEvalDone;
+      const needBook = evalOpen && IS_X01 && !normalOff && (openN + fillJobs.length) < 30;
+      if (!allowed && !needBook && !(evalOpen && f.ladder)) {
         markWhy(f, "gate");
         continue;
       }
@@ -2835,11 +2836,11 @@ async function main() {
     engine.preEvalDone = false;
     engine.openCompleteTape = false;
   }
-  const examLeft0 = IS_X01 ? 8 : 0;
+  const examLeft0 = IS_X01 ? TICKS_PER_HOUR : 0;
   let examLeft = examLeft0;
   writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
   const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} live / ${EVAL_SYMBOLS} eval · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf} short ${engine.shortPf}/${engine.shortBasePf} · grid ${GRID.length} TP ${pick.cfg.tpAtr}/${pick.cfg.slOfTp} · block ${engine.blockCfg.sharedVolumeRatio}/${engine.blockCfg.volumeRatio}/${engine.blockCfg.overallVolumeRatio}`];
-  if (IS_X01) adjustments.push(`exam ${examLeft0}t on the live loop · ${LIVE_SYMBOLS} symbols · then validated book`);
+  if (IS_X01) adjustments.push(`exam ${examLeft0}t intern-all · every enabled config · then validated only`);
   if (seededLosers) adjustments.push(`seed skip ${seededLosers} loser symbols`);
   if (seededOff) adjustments.push(`seed disable ${seededOff} relations`);
   if (lastExec.n) adjustments.push(`seed exec n=${lastExec.n} PF ${lastExec.pf.toFixed(2)}`);

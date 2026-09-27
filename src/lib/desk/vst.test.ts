@@ -3162,7 +3162,35 @@ describe("VST engine", () => {
     const snap = refreshProgressEvals(e);
     e.progressEval = snap;
     const lock = { symbol: "ETHUSDT", side: "long" as const, playbook: "short", kind: "short", tactic: "trailing" as const, tpAtr: 0.48, slOfTp: 0.75 };
-    assert.equal(liveShouldExecute(e, lock), true, "intern paper PF must not halt live lock");
+    assert.equal(liveShouldExecute(e, lock), false, "paper losses are not a validated set");
+    for (let i = 0; i < 8; i += 1) {
+      e.closed.unshift({
+        id: `x:lock${i}`,
+        connId: e.activeConnId,
+        symbol: "ETHUSDT",
+        side: "long",
+        pnl: 1.2,
+        qty: 1,
+        entry: 1,
+        exit: 1,
+        reason: "tp",
+        tick: 100 + i,
+        r: 1,
+        tactic: "trailing",
+        rangeType: "atr",
+        kind: "short",
+        indication: "ema",
+        playbook: "short",
+        tpAtr: 0.48,
+        slOfTp: 0.75,
+        validExec: true,
+      } as never);
+    }
+    assert.equal(
+      liveShouldExecute(e, { ...lock, indication: "ema", rangeType: "atr" }),
+      true,
+      "exchange last-N of this set executes",
+    );
     assert.equal(lanePassExec(e, lock), true);
     assert.equal(skipLiveSymbol(e, "NEWUSDT"), false, "fresh symbols stay armable while overall tape is empty");
   });
