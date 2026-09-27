@@ -2979,7 +2979,7 @@ export function indicationQuality(id: IndicationId, pack: IndicationSummary): nu
   if (id === "active") q *= pack.activity >= 0.85 && mag >= 0.12 && Math.abs(pack.break) < 0.8 ? 1.12 : mag >= 0.08 ? 0.7 : 0.48;
   if (id === "direction") q *= mag >= 0.16 ? (mag >= 0.28 ? 1.16 : 0.98) : mag >= 0.08 ? 0.72 : 0.42;
   if (id === "move") q *= mag >= 0.22 && (trendAlign || mag >= 0.3) && (pack.drawdown ?? 0) < 0.45 ? 1.14 : mag >= 0.12 ? 0.78 : 0.46;
-  if (id === "rsi") q *= mag >= 0.55 && Math.abs(pack.trend) < 0.4 ? 1.08 : 0.28;
+  if (id === "rsi") q *= mag >= 0.5 ? (Math.abs(pack.trend) < 0.7 ? 1.12 : 0.9) : mag >= 0.35 ? 0.86 : 0.4;
   if (id === "bollinger") q *= mag >= 0.18 ? (mag >= 0.32 ? 1.18 : 1.0) : mag >= 0.1 ? 0.78 : 0.48;
   if (id === "ema") q *= mag >= 0.18 && (trendAlign || mag >= 0.28) ? 1.2 : mag >= 0.1 ? 0.82 : 0.48;
   if (id === "macd") q *= mag >= 0.22 && (trendAlign || pack.agree || mag >= 0.32) ? 1.12 : mag >= 0.12 ? 0.76 : 0.46;
@@ -3164,8 +3164,15 @@ export function indicationFromQuote(
     const richMove = moveCont && Math.abs(r3) > 0.0032 && !exhausted && (volX > 1.02 || barAtr >= 1.05)
       ? clampDir(Math.sign(r3) * Math.min(1, Math.abs(r3) * 58 + (volX > 1.08 ? 0.18 : 0) + span * 0.08))
       : 0;
-    const richRsi = rsiV <= 28 ? 0.84 : rsiV >= 72 ? -0.84 : 0;
-    const rsiAgainst = stacked && richRsi !== 0 && Math.sign(richRsi) !== emaDir && Math.abs(r6) > 0.004;
+    const prevRsi = rsiLast(prevCloses, 14);
+    let rsiExtreme = rsiV <= 32 ? Math.min(1, 0.58 + (32 - rsiV) / 22) : rsiV >= 68 ? -Math.min(1, 0.58 + (rsiV - 68) / 22) : 0;
+    if (stacked && rsiExtreme !== 0 && Math.sign(rsiExtreme) !== emaDir && Math.abs(r6) > 0.004) rsiExtreme = 0;
+    const rsiReclaim = rsiV >= 40 && rsiV <= 62 && prevRsi < 50 && rsiV >= prevRsi && r3 >= 0 && (prevRsi < 44 || rsiV - prevRsi >= 3)
+      ? 0.74
+      : rsiV <= 60 && rsiV >= 38 && prevRsi > 50 && rsiV <= prevRsi && r3 <= 0 && (prevRsi > 56 || prevRsi - rsiV >= 3)
+        ? -0.74
+        : 0;
+    const richRsi = rsiReclaim !== 0 ? rsiReclaim : rsiExtreme;
     const richBb = stacked && ((px >= bbUp * 0.998 && emaDir > 0) || (px <= bbLo * 1.002 && emaDir < 0))
       ? clampDir(emaDir * 0.7)
       : px <= bbLo && Math.abs(r6) < 0.004
@@ -3197,7 +3204,7 @@ export function indicationFromQuote(
     active = mixInd(richActive, active, w);
     direction = richDir !== 0 ? mixInd(richDir, direction, 0.78) : mixInd(direction, 0, 0.62);
     move = richMove !== 0 ? mixInd(richMove, move, 0.72) : mixInd(0, move, 0.85);
-    rsi = richRsi !== 0 && !rsiAgainst ? mixInd(richRsi, rsi, 0.82) : mixInd(0, rsi, 0.92);
+    rsi = richRsi !== 0 ? mixInd(richRsi, rsi, 0.82) : mixInd(0, rsi, 0.92);
     bollinger = mixInd(richBb, bollinger, w);
     sar = richSar !== 0 ? mixInd(richSar, sar, 0.7) : mixInd(0, sar, 0.82);
     macd = mixInd(richMacd, macd, w);
