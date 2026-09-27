@@ -265,21 +265,65 @@ function shortGridCombos() {
   return filterLiveShortCombos(shortMinTp, shortMinSl, shortMaxTp, true);
 }
 
+let protectCells = [];
+function otherProtectRows() {
+  if (protectCells.length) return protectCells;
+  const allowedTrail = new Set(TRAIL_PCTS);
+  return allProtectCells().filter(
+    (c) => Number(c.tpAtr) >= 1 && Number(c.slOfTp) >= 1.25 && Number(c.slOfTp) <= 1.25 && allowedTrail.has(Number(c.trailPct)),
+  );
+}
+
 function x01BestGrid() {
   const tactics = ["trailing", "axis", "hybrid"];
   const ranges = ["atr", "linear", "geometric", "volume", "fibonacci"];
-  return tactics.flatMap((tactic) =>
-    ranges.map((range) => ({
-      tactic,
-      range,
-      cfg: {
-        ...DEFAULT_TACTIC_CONFIG,
-        ...X01_LIVE_CFG,
-        dcaCount: tactic === "dca" ? 3 : 1,
-        trailingPct: 1.5,
-      },
-    })),
-  );
+  const shorts = filterLiveShortCombos(shortMinTp, shortMinSl, shortMaxTp, true);
+  const rows = [];
+  for (const tactic of tactics) {
+    for (const range of ranges) {
+      for (const s of shorts) {
+        rows.push({
+          tactic,
+          range,
+          cfg: {
+            ...DEFAULT_TACTIC_CONFIG,
+            ...X01_LIVE_CFG,
+            ...s,
+            shortRange: true,
+            dcaCount: 1,
+            trailingPct: 1.5,
+          },
+        });
+      }
+      for (const p of otherProtectRows()) {
+        rows.push({
+          tactic,
+          range,
+          cfg: {
+            ...DEFAULT_TACTIC_CONFIG,
+            trailingPct: Number(p.trailPct) || 1.5,
+            dcaCount: 1,
+            dcaDrawdown: 0.6,
+            shortRange: false,
+            tpAtr: p.tpAtr,
+            slOfTp: p.slOfTp,
+            slAtr: p.slAtr,
+            tpRatio: p.tpRatio,
+            maxHoldTicks: 24,
+            maxHoldBars: 3,
+            axisLevels: 5,
+            axisPartialRatio: AXIS_PARTIAL_RATIO,
+            axisSpacing: 0.7,
+          },
+        });
+      }
+    }
+  }
+  return rows.length ? rows : [{
+    tactic: "trailing",
+    range: "atr",
+    cfg: { ...DEFAULT_TACTIC_CONFIG, ...X01_LIVE_CFG, dcaCount: 1, trailingPct: 1.5 },
+  }];
 }
 
 function buildLiveGrid() {
@@ -384,7 +428,8 @@ function loadProtectCells() {
   } catch {}
   return floor.length ? floor : allProtectCells().filter((c) => Number(c.tpAtr) >= minTp && Number(c.slOfTp) >= minSl && allowedTrail.has(Number(c.trailPct)));
 }
-let protectCells = loadProtectCells();
+protectCells = loadProtectCells();
+rebuildShortGrid();
 function liveWinnerProtect() {
   return {
     slAtr: SHORT_WINNER.tpAtr * SHORT_WINNER.slOfTp,
@@ -2288,7 +2333,9 @@ async function mirrorToExchange(e, network, cfg) {
   };
   for (const f of [...e.fills, ...scanIntents]) {
     const blockish = isBlockIntent(f);
-    if (blockish && !STRAT.block) continue;
+    const overallOrder = /Overall Block/i.test(String(f?.note || "")) || /^ob/i.test(String(f?.id || ""));
+    if (overallOrder && BLOCK.overall === false) continue;
+    if (blockish && !overallOrder && !STRAT.block) continue;
     const entries = fillJobs.length - blockJobs;
     if (blockish) {
       const bk = `${f.symbol}:${f.side}`;
@@ -2621,7 +2668,7 @@ function applyPfGates(engine, remote) {
     overallSymbol: true,
     overallDirection: true,
     overallSharedStack: "additive",
-    enabled: true,
+    enabled: IS_X01 ? false : true,
     counts: sanitizeBlockCounts(bc.counts ?? BLOCK.counts),
     evalLastNs: [...BLOCK_POS_COUNTS],
     ...vol,
@@ -2888,7 +2935,14 @@ async function main() {
         minRelPf: engine.blockPf || DEFAULT_BLOCK_PF,
         liveDisableMinPf: engine.blockPf || DEFAULT_BLOCK_PF,
       };
-      pick.cfg = { ...pick.cfg, shortRange: true, dcaCount: STRAT.dca ? 3 : 1, axisPartialRatio: AXIS_PARTIAL_RATIO, trailingPct: Math.max(1.5, Number(pick.cfg.trailingPct) || 1.5) };
+      pick.cfg = {
+        ...pick.cfg,
+        shortRange: cfgUsesShortRange(pick.cfg),
+        dcaCount: STRAT.dca ? 3 : 1,
+        axisPartialRatio: AXIS_PARTIAL_RATIO,
+        trailingPct: Math.max(1.5, Number(pick.cfg.trailingPct) || 1.5),
+      };
+      engine.shortRange = cfgUsesShortRange(pick.cfg);
       mergeLivePositions(engine, lastBook);
       tickVst(engine, pick.cfg, pick.tactic, {
         freezeIds: freeze,

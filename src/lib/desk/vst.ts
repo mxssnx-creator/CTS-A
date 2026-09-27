@@ -7445,8 +7445,11 @@ export function adjustActiveBlocks(
 ): BlockAdjustResult {
   const empty: BlockAdjustResult = { cancelled: 0, added: 0, flattened: 0, blocks: 0 };
   const toggles = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
-  if (!toggles.block || block.enabled === false) return empty;
-  if (!block.enabled) return empty;
+  const tacticOn = Boolean(toggles.block) && block.enabled !== false;
+  // Block tactic stays off. Overall still sizes the book when that scope is on and the tactic is disabled.
+  const overallOnly = !tacticOn && block.overall !== false && block.enabled === false && toggles.block === false;
+  if (!tacticOn && !overallOnly) return empty;
+  if (!overallOnly && !block.enabled) return empty;
   if (block.endStageOnly && !opts?.endStage) return empty;
   const conn = isDeskConn(e.activeConnId) ? e.activeConnId : VST_DEFAULT_CONN;
   let cancelled = 0;
@@ -7672,6 +7675,7 @@ export function adjustActiveBlocks(
           const vrModeRel = mode === "shared" ? vrShared : vrRel;
           const relCap = lane.baseQty * (mode === "additive" ? Math.min(next * vrModeRel, extraCap) : blockMaxAdditionalRatio(next, vrModeRel, maxMul, mode));
           if (
+            tacticOn &&
             block.sets !== false &&
             !lane.satisfied[next] &&
             !liveRelLevels.has(next) &&
@@ -7684,7 +7688,7 @@ export function adjustActiveBlocks(
             plan("relation", next, vrModeRel, 0);
           }
         }
-        if (extraOnce > 0 && !relExtraAttached && plannedRel.length > nBefore) {
+        if (tacticOn && extraOnce > 0 && !relExtraAttached && plannedRel.length > nBefore) {
           plan("relation", counts[0] ?? 1, 0, extraOnce, "book", true);
           relExtraAttached = true;
         }
@@ -7919,10 +7923,11 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   e.blockCfg = block;
   const cadence = Math.max(4, Math.round(block.cadence || 8));
   const endTick = 16 * TICKS_PER_HOUR;
+  const overallOnly = block.overall !== false && block.enabled === false && (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).block === false;
   const blockDue =
     Boolean(opts?.endStage) ||
-    (block.enabled &&
-      (block.endStageOnly ? e.tick >= endTick && e.tick % cadence === 0 : e.tick % cadence === 0));
+    ((block.enabled || overallOnly) &&
+      (block.endStageOnly && !overallOnly ? e.tick >= endTick && e.tick % cadence === 0 : e.tick % cadence === 0));
   const iv = intervalCfg(e);
   const ivTicks = ticksPerIntervalOf(e);
   const evalEvery = (e.completeSim || e.liveTape) && iv.enabled && iv.evalOnCadence
@@ -7932,7 +7937,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   const evalDue = e.tick > 0 && e.tick % evalEvery === 0;
   // Relation last-N / PF evals before Overall Block so extra volume uses current winners.
   if ((blockDue || evalDue) && !over()) {
-    const needRelEval = block.autoEval !== false && block.enabled && (evalDue || !(e.lastRelEvalTick));
+    const needRelEval = block.autoEval !== false && (block.enabled || overallOnly) && (evalDue || !(e.lastRelEvalTick));
     if (needRelEval) {
       safeStage(e, "block-eval", () => {
         evalBlockRelations(e, block);
