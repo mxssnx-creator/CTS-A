@@ -1578,6 +1578,47 @@ function axisLadders(q: VstQuote, cfg: TacticConfig): { rangeType: RangeType; sp
     },
   ];
 }
+
+/** CTS-G style: each axis coordination is its own set. A paused one does not block the others. */
+const AXIS_PHASES = ["ax-prev", "ax-last", "ax-cont", "ax-pause"] as const;
+type AxisPhase = (typeof AXIS_PHASES)[number];
+
+function axisPhaseSpace(phase: AxisPhase): number {
+  if (phase === "ax-prev") return 1.15;
+  if (phase === "ax-cont") return 0.8;
+  if (phase === "ax-pause") return 0.7;
+  return 1;
+}
+
+function axisPhasesOpen(e: VstEngine, q: VstQuote, side: Side): AxisPhase[] {
+  const axis = q.axis > 0 ? q.axis : q.px;
+  const atr = Math.max(q.atr, q.px * 0.0025, 1e-9);
+  const out: AxisPhase[] = [];
+  const prevExtreme = side === "long" ? q.lo : q.hi;
+  const prevStretch = side === "long" ? axis - prevExtreme : prevExtreme - axis;
+  if (prevStretch >= atr * 0.2) out.push("ax-prev");
+  const recent: { pnl: number }[] = [];
+  for (const c of e.closed) {
+    if (c.symbol !== q.id || c.side !== side || c.playbook !== "axis") continue;
+    recent.push(c);
+    if (recent.length >= 3) break;
+  }
+  if (recent.length < 3 || recent.some((c) => c.pnl > 0)) out.push("ax-last");
+  const fade = side === "long" ? q.px <= axis : q.px >= axis;
+  const disp = Math.abs(q.px - axis) / atr;
+  if (fade && disp >= 0.15 && disp <= 3.4) out.push("ax-cont");
+  let paused = false;
+  for (let i = 0; i < e.closed.length && i < 40; i++) {
+    const c = e.closed[i]!;
+    if (c.symbol === q.id && c.side === side && c.calc === "ax-pause" && c.pnl < 0 && e.tick - (c.tick || 0) < 8) {
+      paused = true;
+      break;
+    }
+  }
+  if (!paused) out.push("ax-pause");
+  return out;
+}
+
 function highestRange(q: VstQuote, cfg: TacticConfig) {
   return axisLadders(q, cfg).reduce((a, b) => b.spacing > a.spacing ? b : a);
 }
@@ -2932,6 +2973,14 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               have.add(r);
             }
           }
+          if (tac === "axis" && laneValid && ind === inds[0] && qn < Math.floor(qStop * 0.75)) {
+            for (const phase of axisPhasesOpen(e, q, side)) {
+              for (const r of RANGE_TYPES) {
+                if (legs.some((l) => l.kind === phase && l.range === r)) continue;
+                legs.push({ kind: phase, range: r, spaceMul: axisPhaseSpace(phase), sizeMul: 0.35, near: 0.16 });
+              }
+            }
+          }
           for (const leg of legs) {
           if (tac === "dca" && leg.range === "volume") continue;
           const legKey = exclusiveLeg
@@ -3534,7 +3583,7 @@ function calcBagOf(e: VstEngine): CalcBag {
   let bag = calcStat.get(e);
   if (!bag) {
     const z = () => ({ placed: 0, n: 0, profit: 0, loss: 0 });
-    bag = { base: z(), dd: z(), px: z(), rng: z() };
+    bag = { base: z(), dd: z(), px: z(), rng: z(), "ax-prev": z(), "ax-last": z(), "ax-cont": z(), "ax-pause": z() };
     calcStat.set(e, bag);
   }
   return bag;
@@ -3583,7 +3632,7 @@ export function indRangeStatsOf(e: VstEngine) {
 
 export function calcDiffOf(e: VstEngine) {
   const bag = calcBagOf(e);
-  const kinds: IndCalcKind[] = ["base", "dd", "px", "rng"];
+  const kinds: IndCalcKind[] = ["base", "dd", "px", "rng", "ax-prev", "ax-last", "ax-cont", "ax-pause"];
   const rows = kinds.map((kind) => {
     const r = bag[kind];
     return { kind, n: r.n, pf: profitFactor(r.profit, r.loss), net: r.profit - r.loss, placed: r.placed };

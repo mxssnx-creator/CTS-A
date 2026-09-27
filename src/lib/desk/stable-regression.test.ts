@@ -16,6 +16,7 @@ import {
   rankTactics,
   simulateHours,
   tickVst,
+  armUniverse,
   VST_DEFAULT_CONN,
 } from "./vst.ts";
 
@@ -179,6 +180,63 @@ describe("stable reference", () => {
     seedLong(deep, 0.955, "atr");
     tickVst(deep, LIVE_RUN_CFG, "trailing", { skipWalk: true, rangeType: "atr" });
     assert.equal([...deep.queue, ...deep.orders].some((o) => /^DCA/.test(o.note)), false);
+  });
+
+  it("keeps the base axis ladder and adds prev, last, continuous, and pause sets on every range", () => {
+    const e = initVstEngine({ ...LIVE_RUN_CFG, shortRange: false }, { warmup: 2, symbolCount: 4, arm: false, equity: 10, costStep: 3 });
+    e.completeSim = false;
+    e.preEvalDone = false;
+    e.liveTape = false;
+    e.shortRange = false;
+    e.running = true;
+    e.queue = [];
+    e.orders = [];
+    e.positions = [];
+    e.lastTactic = "axis";
+    e.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
+    const symbol = Object.keys(e.quotes)[0]!;
+    const q = e.quotes[symbol]!;
+    const atr = Math.max(q.atr, q.px * 0.0025);
+    q.atr = atr;
+    q.axis = q.px;
+    q.px = q.axis - atr;
+    q.lo = q.px - atr * 0.3;
+    q.hi = q.axis + atr * 0.4;
+    const cfg = { ...LIVE_RUN_CFG, shortRange: false as const };
+    armUniverse(e, cfg, "axis", "atr");
+    const axisOrders = [...e.queue, ...e.orders].filter((o) => o.tactic === "axis" || o.playbook === "axis");
+    const calcs = new Set(axisOrders.map((o) => o.calc));
+    assert.ok(axisOrders.some((o) => o.calc === "base" || o.level >= 1), `base axis missing ${axisOrders.length}`);
+    for (const phase of ["ax-prev", "ax-last", "ax-cont", "ax-pause"] as const) {
+      const rows = axisOrders.filter((o) => o.calc === phase);
+      assert.ok(rows.length >= 3, `${phase} sets ${rows.length}`);
+      assert.ok(new Set(rows.map((o) => o.rangeType)).size >= 3, `${phase} ranges`);
+    }
+    assert.ok(calcs.has("base") || axisOrders.some((o) => !String(o.calc || "").startsWith("ax-")));
+
+    e.closed.unshift({
+      id: "loss",
+      connId: e.activeConnId || VST_DEFAULT_CONN,
+      symbol,
+      side: "long",
+      qty: 1,
+      entry: q.axis,
+      exit: q.px,
+      pnl: -1,
+      reason: "sl",
+      tick: e.tick,
+      playbook: "axis",
+      tactic: "axis",
+      indication: "ema",
+      calc: "ax-pause",
+      rangeType: "atr",
+    } as (typeof e.closed)[number]);
+    e.queue = [];
+    e.orders = [];
+    armUniverse(e, cfg, "axis", "atr");
+    const again = [...e.queue, ...e.orders].filter((o) => o.playbook === "axis" || o.tactic === "axis");
+    assert.equal(again.some((o) => o.calc === "ax-pause"), false);
+    assert.ok(again.some((o) => o.calc === "ax-prev" || o.calc === "ax-last" || o.calc === "ax-cont"));
   });
 
   it("keeps the 1h ATR tape positive, with DCA above the floor and a matching order ledger", () => {

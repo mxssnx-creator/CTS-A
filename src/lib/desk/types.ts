@@ -1,5 +1,5 @@
 export type Venue = "bingx" | "bybit";
-export type IndCalcKind = "base" | "dd" | "px" | "rng";
+export type IndCalcKind = "base" | "dd" | "px" | "rng" | "ax-prev" | "ax-last" | "ax-cont" | "ax-pause";
 
 export interface CalcDiffRow {
   kind: IndCalcKind;
