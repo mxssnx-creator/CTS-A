@@ -4454,7 +4454,8 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_BLOCK_CONFIG.overallVolumeRatio, DEFAULT_OVERALL_BLOCK_VOLUME_RATIO);
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeRatio, DEFAULT_BLOCK_VOLUME_RATIO);
     assert.equal(DEFAULT_BLOCK_CONFIG.maxVolumeMultiplier, DEFAULT_MAX_VOLUME_MULTIPLIER);
-    assert.equal(clampMaxVolumeMul(6), 3.5);
+    assert.equal(clampMaxVolumeMul(9), 8);
+    assert.equal(clampMaxVolumeMul(6), 6);
     assert.equal(clampMaxVolumeMul(1), 1.5);
     assert.equal(clampMaxVolumeMul(2.5), 2.5);
   });

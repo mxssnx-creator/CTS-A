@@ -1739,6 +1739,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
   e.blockWindowsBySide = e.blockWindowsBySide ?? {};
   e.blockWindowsByIndication = e.blockWindowsByIndication ?? {};
   e.blockWindowsByType = e.blockWindowsByType ?? {};
+  e.blockWindowsByIndicationType = e.blockWindowsByIndicationType ?? {};
   e.blockRelWindows = e.blockRelWindows ?? {};
   e.blockRelBest = e.blockRelBest ?? {};
   e.lastRelEvalTick = e.lastRelEvalTick ?? 0;
@@ -1848,6 +1849,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     blockWindowsBySide: {},
     blockWindowsByIndication: {},
     blockWindowsByType: {},
+    blockWindowsByIndicationType: {},
     blockRelWindows: {},
     blockRelBest: {},
     lastRelEvalTick: 0,
@@ -4953,6 +4955,7 @@ export function noteBlockPosClose(
   e.blockWindowsBySide = e.blockWindowsBySide ?? {};
   e.blockWindowsByIndication = e.blockWindowsByIndication ?? {};
   e.blockWindowsByType = e.blockWindowsByType ?? {};
+  e.blockWindowsByIndicationType = e.blockWindowsByIndicationType ?? {};
   e.blockRelWindows = e.blockRelWindows ?? {};
   const ns = evalBlockNs(block);
   const pauseRatio = Math.max(0, block.pauseCountRatio ?? 1);
@@ -4972,6 +4975,10 @@ export function noteBlockPosClose(
     if (tactic) {
       const typeMap = (e.blockWindowsByType[tactic] ??= {});
       typeMap[n] = tickBlockWindow(typeMap[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
+    }
+    if (indication && tactic) {
+      const both = (e.blockWindowsByIndicationType[`${indication}:${tactic}`] ??= {});
+      both[n] = tickBlockWindow(both[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
     }
   }
   const keys = blockRelationKeys({ symbol, side, ...rel });
@@ -6442,7 +6449,7 @@ function isBlockOrder(o: LiveOrder) {
 function isOverallBlockOrder(o: LiveOrder) {
   return /Overall Block/i.test(o.note || "") || /^ob/i.test(o.id || "");
 }
-type OverallScope = "book" | "symbol" | "dir" | "indication" | "type";
+type OverallScope = "book" | "symbol" | "dir" | "indication" | "type" | "indType";
 function overallScopes(block?: BlockConfig): OverallScope[] {
   if (block?.overall === false) return [];
   const xs: OverallScope[] = ["book"];
@@ -6450,22 +6457,24 @@ function overallScopes(block?: BlockConfig): OverallScope[] {
   if (block?.overallDirection !== false) xs.push("dir");
   if (block?.overallIndication !== false) xs.push("indication");
   if (block?.overallType !== false) xs.push("type");
+  if (block?.overallIndicationType !== false) xs.push("indType");
   return xs;
 }
 function overallScopeOf(o: { note?: string }): OverallScope | null {
   if (!isOverallBlockOrder(o as LiveOrder)) return null;
   const n = o.note || "";
+  if (/Overall Block indication type/i.test(n)) return "indType";
   if (/Overall Block symbol/i.test(n)) return "symbol";
-  if (/Overall Block dir/i.test(n)) return "dir";
   if (/Overall Block indication/i.test(n)) return "indication";
   if (/Overall Block type/i.test(n)) return "type";
+  if (/Overall Block dir/i.test(n)) return "dir";
   return "book";
 }
 function emptyOvLevels(): Record<OverallScope, Set<number>> {
-  return { book: new Set(), symbol: new Set(), dir: new Set(), indication: new Set(), type: new Set() };
+  return { book: new Set(), symbol: new Set(), dir: new Set(), indication: new Set(), type: new Set(), indType: new Set() };
 }
 function emptyOvQty(): Record<OverallScope, number> {
-  return { book: 0, symbol: 0, dir: 0, indication: 0, type: 0 };
+  return { book: 0, symbol: 0, dir: 0, indication: 0, type: 0, indType: 0 };
 }
 function openScopePf(
   e: VstEngine,
@@ -6481,6 +6490,7 @@ function openScopePf(
     if (scope === "dir" && x.side !== p.side) continue;
     if (scope === "indication" && (x.indication || "") !== (p.indication || "")) continue;
     if (scope === "type" && (x.tactic || "") !== (p.tactic || "")) continue;
+    if (scope === "indType" && ((x.indication || "") !== (p.indication || "") || (x.tactic || "") !== (p.tactic || ""))) continue;
     const u = Number(x.unrealized) || 0;
     if (u > 0) profit += u;
     else if (u < 0) loss += Math.abs(u);
@@ -6503,11 +6513,20 @@ function overallWindowOk(
   const need = Math.max(8, next);
   const floor = next <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.max(1.05, Math.min(minPf || 1.05, 1.2));
   const pass = (w?: { closed?: number; lastPf?: number }) => {
-    if (!w || (w.closed || 0) < need) {
-      if (e.liveTape) return openScopePf(e, scope, p) + 1e-9 >= floor;
-      return true;
+    if (w && (w.closed || 0) >= need) return (Number(w.lastPf) || 0) + 1e-9 >= floor;
+    if (!e.liveTape) return true;
+    let n = 0;
+    for (const x of e.positions) {
+      if (x.qty <= 0) continue;
+      if (scope === "symbol" && x.symbol !== p.symbol) continue;
+      if (scope === "dir" && x.side !== p.side) continue;
+      if (scope === "indication" && (x.indication || "") !== (p.indication || "")) continue;
+      if (scope === "type" && (x.tactic || "") !== (p.tactic || "")) continue;
+      if (scope === "indType" && ((x.indication || "") !== (p.indication || "") || (x.tactic || "") !== (p.tactic || ""))) continue;
+      n += 1;
     }
-    return (Number(w.lastPf) || 0) + 1e-9 >= floor;
+    if (n < 4) return true;
+    return openScopePf(e, scope, p) + 1e-9 >= floor;
   };
   if (scope === "book") {
     if (!e.liveTape) return blockCountPositive(e, next, minPf);
@@ -6519,6 +6538,10 @@ function overallWindowOk(
   if (scope === "indication") {
     if (!p.indication) return false;
     return pass(e.blockWindowsByIndication?.[p.indication]?.[next]);
+  }
+  if (scope === "indType") {
+    if (!p.indication || !p.tactic) return false;
+    return pass(e.blockWindowsByIndicationType?.[`${p.indication}:${p.tactic}`]?.[next]);
   }
   if (!p.tactic) return false;
   return pass(e.blockWindowsByType?.[p.tactic]?.[next]);
@@ -6648,6 +6671,8 @@ function blockCountPositive(e: VstEngine, n: number, minPf: number) {
   const need = Math.max(8, n);
   if (!w || w.closed < need) {
     if (!e.liveTape) return true;
+    const openN = e.positions.filter((x) => x.qty > 0).length;
+    if (openN < 4) return true;
     const floor = n <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.max(1.05, minPf || 1.05);
     return openScopePf(e, "book", { symbol: "", side: "long" }) + 1e-9 >= floor;
   }
@@ -6847,6 +6872,8 @@ export function adjustActiveBlocks(
       }[] = [];
       const plannedOv: typeof plannedRel = [];
       let parentBase = Math.max(p.legs[0]?.qty || 0, 1e-12);
+      const stackLimit = parentBase * Math.min(8, maxMul);
+      let stackQty = p.qty + usedQty;
       const plannedCount = () => plannedRel.length + plannedOv.length;
       let relExtraAttached = false;
       for (const mode of volModes) {
@@ -6892,7 +6919,7 @@ export function adjustActiveBlocks(
         const relPlannedAt = () => plannedRel.length;
         const plan = (kind: "relation" | "overall", next: number, vr: number, extraQty: number, scope: OverallScope = "book", relExtra = false) => {
           const overallKind = kind === "overall";
-          const stepMode: "additive" | "shared" = overallKind && stackAdd ? "additive" : mode;
+          const stepMode: "additive" | "shared" = mode;
           const step = relExtra ? 0 : blockStepQty(lane.baseQty, next, vr, maxMul, 1, 0, stepMode);
           const qty = step + Math.max(0, extraQty);
           if (!(qty > 0)) return false;
@@ -6957,7 +6984,8 @@ export function adjustActiveBlocks(
       }
       const flushPlanned = (planned: typeof plannedRel, independent = false) => {
         const capQty = independent ? parentBase * Math.max(1, vrOv) : parentBase * maxMul;
-        const room = independent ? capQty : capQty - (parentBase + usedQty);
+        const modeRoom = independent ? capQty : capQty - (parentBase + usedQty);
+        const room = Math.min(modeRoom, stackLimit - stackQty);
         if (!(room > 1e-12) || !planned.length) return;
         const raw = planned.reduce((s, x) => s + x.qty, 0);
         const scale = raw > room ? room / raw : 1;
@@ -6983,7 +7011,9 @@ export function adjustActiveBlocks(
                     ? "Overall Block indication"
                     : item.scope === "type"
                       ? "Overall Block type"
-                      : "Overall Block";
+                      : item.scope === "indType"
+                        ? "Overall Block indication type"
+                        : "Overall Block";
           const oid = nextId(
             e,
             item.overallKind
@@ -6995,7 +7025,9 @@ export function adjustActiveBlocks(
                     ? "obi"
                     : item.scope === "type"
                       ? "obt"
-                      : "ob"
+                      : item.scope === "indType"
+                        ? "obx"
+                        : "ob"
               : "b",
           );
           e.queue.push({
@@ -7030,6 +7062,7 @@ export function adjustActiveBlocks(
           rememberBlock(e.queue[e.queue.length - 1]!);
           countPlaced(e);
           usedQty += qty;
+          stackQty += qty;
           added += 1;
           adds += 1;
           e.lastBlockAt = e.tick;
@@ -7049,8 +7082,21 @@ export function adjustActiveBlocks(
   return { cancelled, added, flattened, blocks: blockN };
 }
 
+function dropUnadjustedNormal(e: VstEngine) {
+  if ((e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).normal !== false) return;
+  const plain = (o: LiveOrder) => unadjustedNormalOrder(o);
+  if (e.queue.some(plain)) {
+    for (const o of e.queue) if (plain(o)) markTerminal(e, o, "cancelled");
+    e.queue = e.queue.filter((o) => !plain(o));
+  }
+  for (const o of e.orders) {
+    if (plain(o) && (o.status === "open" || o.status === "queued" || o.status === "partial")) markTerminal(e, o, "cancelled");
+  }
+}
+
 export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { freezeIds?: Set<string>; skipWalk?: boolean; skipMatch?: boolean; bookOnly?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
   ensureEngine(e);
+  dropUnadjustedNormal(e);
   if (opts?.bookOnly) {
     e.lastTactic = tactic;
     safeStage(e, "refill", () => refill(e));

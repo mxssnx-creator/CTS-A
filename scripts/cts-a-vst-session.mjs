@@ -35,6 +35,7 @@ import {
   skipLiveSymbol,
   liveRelationDisabled,
   liveShouldExecute,
+  unadjustedNormalOrder,
   winningRelVolume,
   classifyIndication,
   tacticForIndication,
@@ -212,10 +213,9 @@ const BLOCK = {
   lastNProgress: sanitizeLastNProgress(undefined),
 };
 
-const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: true, block: true, dca: false };
+const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false };
 function pinX01Strat() {
   if (!IS_X01) return;
-  STRAT.normal = true;
   STRAT.trailing = true;
   STRAT.axis = true;
   STRAT.block = true;
@@ -2082,7 +2082,7 @@ async function mirrorToExchange(e, network, cfg) {
           slim.push(f);
           if (slim.length >= 12) break;
         }
-        if (slim.length < 4) {
+        if (slim.length < 4 && e.strategyToggles?.normal !== false) {
           for (const id of Object.keys(e.quotes || {})) {
             if (occupiedSymbols.has(id) || restingSymbols.has(id) || seen.has(id)) continue;
             const q = e.quotes[id];
@@ -2113,6 +2113,7 @@ async function mirrorToExchange(e, network, cfg) {
         const relSeen = new Set();
         const scopeKey = (note) => {
           const n = String(note || "");
+          if (/Overall Block indication type/i.test(n)) return "indType";
           if (/Overall Block symbol/i.test(n)) return "symbol";
           if (/Overall Block indication/i.test(n)) return "indication";
           if (/Overall Block type/i.test(n)) return "type";
@@ -2146,7 +2147,7 @@ async function mirrorToExchange(e, network, cfg) {
           }
           if (bag.length) bags.push(bag);
         }
-        if (slim.length && (slim.every((x) => x.side === "short") || slim.every((x) => x.side === "long"))) {
+        if (e.strategyToggles?.normal !== false && slim.length && (slim.every((x) => x.side === "short") || slim.every((x) => x.side === "long"))) {
           const want = slim[0].side === "short" ? "long" : "short";
           for (const id of Object.keys(e.quotes || {})) {
             if (occupiedSymbols.has(id) || restingSymbols.has(id) || seen.has(id)) continue;
@@ -2243,7 +2244,8 @@ async function mirrorToExchange(e, network, cfg) {
         slOfTp: Number(order?.slOfTp ?? pos?.slOfTp ?? currentPick?.cfg?.slOfTp ?? LIVE_CFG.slOfTp),
       };
       const allowed = liveShouldExecute(e, rel) && !liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType });
-      const needBook = IS_X01 && (openN + fillJobs.length) < 30;
+      const normalOff = e.strategyToggles?.normal === false && unadjustedNormalOrder(rel);
+      const needBook = IS_X01 && !normalOff && (openN + fillJobs.length) < 30;
       if (!allowed && !needBook) {
         markWhy(f, "gate");
         continue;
@@ -3125,8 +3127,9 @@ async function main() {
           adjustments.push(`settings cfg sl ${pick.cfg.slAtr} tp ${pick.cfg.tpRatio} trail ${pick.cfg.trailingPct}`);
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
-        if (remote.strategyToggles && !IS_X01) {
-          Object.assign(STRAT, remote.strategyToggles, { dca: false, axis: false, trailing: true, normal: false });
+        if (remote.strategyToggles) {
+          if (IS_X01) Object.assign(STRAT, remote.strategyToggles, { dca: false });
+          else Object.assign(STRAT, remote.strategyToggles, { dca: false, axis: false, trailing: true, normal: false });
         }
         pinX01Strat();
         engine.strategyToggles = { ...STRAT };
@@ -3144,6 +3147,10 @@ async function main() {
             overallDirection: true,
             overallSharedStack: "additive",
             ...vol,
+            maxVolumeMultiplier: 8,
+            overallIndication: true,
+            overallType: true,
+            overallIndicationType: true,
             minActiveLevel: Math.max(1, Math.round(remote.blockConfig.minActiveLevel || BLOCK.minActiveLevel || 1)),
           });
         }

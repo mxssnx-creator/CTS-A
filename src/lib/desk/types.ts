@@ -334,6 +334,8 @@ export interface BlockConfig {
   overallIndication?: boolean;
   /** Extra Overall layer per tactic type (independent). Default true. */
   overallType?: boolean;
+  /** Extra Overall layer for indication and type together (independent). Default true. */
+  overallIndicationType?: boolean;
   /** Shared Overall: stack book+symbol+dir additively (default) vs split one cap. */
   overallSharedStack?: "additive" | "split";
   /** Extra+base ceiling vs parent. Default 2.5 (shared extra 1.5). */
@@ -1366,6 +1368,7 @@ export interface VstEngine {
   blockWindowsBySide?: Record<string, Record<number, BlockPosWindow>>;
   blockWindowsByIndication?: Record<string, Record<number, BlockPosWindow>>;
   blockWindowsByType?: Record<string, Record<number, BlockPosWindow>>;
+  blockWindowsByIndicationType?: Record<string, Record<number, BlockPosWindow>>;
   blockRelWindows: Record<string, Record<number, BlockPosWindow>>;
   blockRelBest?: Record<string, { key: string; n: number; pf: number; net: number; vol: number; major: boolean }>;
   lastRelEvalTick?: number;

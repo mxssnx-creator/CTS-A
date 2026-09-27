@@ -807,7 +807,7 @@ export const BLOCK_VOLUME_RATIO_MAX = 1;
 export const BLOCK_SHARED_VOLUME_MAX = 3;
 export const BLOCK_SHARED_VOLUME_MIN = 0.4;
 export const BLOCK_MAX_VOLUME_MUL_MIN = 1.5;
-export const BLOCK_MAX_VOLUME_MUL_MAX = 3.5;
+export const BLOCK_MAX_VOLUME_MUL_MAX = 8;
 
 /** Additive Block vol. 0.08 was Axis partials — reject; 0.1 floor, live default 0.2. */
 export function clampBlockVol(n: unknown, fallback = DEFAULT_BLOCK_VOLUME_RATIO): number {

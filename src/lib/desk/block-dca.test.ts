@@ -231,6 +231,12 @@ describe("Block and DCA", () => {
       };
     };
     e.positions = [mk(ids[0]!, "long", 2, "ema"), mk(ids[1]!, "short", -0.2, "break")];
+    e.blockWindowsBySymbol = {
+      [ids[1]!]: {
+        1: { closed: 12, lastPf: 0.7, wins: 2, n: 1 },
+        3: { closed: 12, lastPf: 0.7, wins: 2, n: 3 },
+      },
+    };
     const block = {
       ...DEFAULT_BLOCK_CONFIG,
       enabled: true,
@@ -287,6 +293,117 @@ describe("Block and DCA", () => {
       e.queue.some((o) => o.note.startsWith("Overall Block ") && !/symbol|dir|indication|type/.test(o.note)),
       "book Overall did not return after the closed PF recovered",
     );
+  });
+
+  it("Normal off places at least 30% fewer orders and keeps Block", () => {
+    const run = (normal: boolean) =>
+      simulateHours(0.5, { ...LIVE_RUN_CFG, dcaCount: 1 }, "hybrid", {
+        symbolCount: 4,
+        rangeType: "atr",
+        equity: 10,
+        costStep: 3,
+        complete: true,
+        prehours: 0,
+        strategyToggles: { normal, trailing: true, axis: true, block: true, dca: false },
+      });
+    const on = run(true);
+    const off = run(false);
+    assert.ok(on.report.ordersPlaced > 20, `baseline ${on.report.ordersPlaced}`);
+    assert.ok(
+      off.report.ordersPlaced <= on.report.ordersPlaced * 0.7,
+      `normal off ${off.report.ordersPlaced} vs on ${on.report.ordersPlaced}`,
+    );
+    const blockKept =
+      off.engine.queue.some((o) => o.playbook === "block") ||
+      off.engine.orders.some((o) => o.playbook === "block") ||
+      off.engine.positions.some((p) => (p.blockQty || 0) > 0) ||
+      off.engine.closed.some((c) => (c.blockQty || 0) > 0);
+    assert.ok(blockKept, "Block stopped when Normal was turned off");
+  });
+
+  it("each Overall scope, shared and additive, stays inside an 8x stack", () => {
+    const e = book();
+    e.liveTape = true;
+    const { pos } = seedLong(e, 1.01);
+    pos.unrealized = 1;
+    const base = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      overall: true,
+      stack: true,
+      windows: false,
+      addOnWin: false,
+      flattenConflict: false,
+      endStageOnly: false,
+      sets: true,
+      counts: [1],
+      maxMultiple: 6,
+      minMultiple: 1,
+      minActiveLevel: 1,
+      volumeRatio: 0.4,
+      sharedVolumeRatio: 1.5,
+      overallVolumeRatio: 1.5,
+      maxVolumeMultiplier: 8,
+      volumeMode: "parallel" as const,
+      overallMode: "parallel" as const,
+    };
+    const only = (flags: Record<string, boolean>) => {
+      e.queue = [];
+      e.orders = [];
+      e.blockLanes = {};
+      const block = { ...base, ...flags };
+      e.blockCfg = block;
+      adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+      return e.queue.map((o) => o.note);
+    };
+    const symbolOnly = only({
+      overallSymbol: true,
+      overallDirection: false,
+      overallIndication: false,
+      overallType: false,
+      overallIndicationType: false,
+    });
+    assert.ok(symbolOnly.some((n) => n.includes("Overall Block symbol")));
+    assert.equal(symbolOnly.some((n) => n.includes("Overall Block dir")), false);
+    assert.equal(symbolOnly.some((n) => n.includes("Overall Block indication")), false);
+    const dirOnly = only({
+      overallSymbol: false,
+      overallDirection: true,
+      overallIndication: false,
+      overallType: false,
+      overallIndicationType: false,
+    });
+    assert.ok(dirOnly.some((n) => n.includes("Overall Block dir")));
+    assert.equal(dirOnly.some((n) => n.includes("Overall Block symbol")), false);
+    const indOnly = only({
+      overallSymbol: false,
+      overallDirection: false,
+      overallIndication: true,
+      overallType: false,
+      overallIndicationType: false,
+    });
+    assert.ok(indOnly.some((n) => n.includes("Overall Block indication") && !n.includes("indication type")));
+    assert.equal(indOnly.some((n) => n.includes("Overall Block type")), false);
+    const bothOnly = only({
+      overallSymbol: false,
+      overallDirection: false,
+      overallIndication: false,
+      overallType: false,
+      overallIndicationType: true,
+    });
+    assert.ok(bothOnly.some((n) => n.includes("Overall Block indication type")));
+    assert.equal(bothOnly.some((n) => /Overall Block indication #/.test(n)), false);
+    const all = only({
+      overallSymbol: true,
+      overallDirection: true,
+      overallIndication: true,
+      overallType: true,
+      overallIndicationType: true,
+    });
+    assert.ok(all.some((n) => / shared #/.test(n)), "shared adjustment missing");
+    assert.ok(all.some((n) => / additive #/.test(n)), "additive adjustment missing");
+    const stacked = pos.qty + e.queue.reduce((s, o) => s + o.qty, 0);
+    assert.ok(stacked <= pos.legs[0]!.qty * 8 + 1e-6, `stack ${stacked} over 8x ${pos.legs[0]!.qty}`);
   });
 
   it("full compute keeps Block and DCA finite, joined, and busy", () => {
