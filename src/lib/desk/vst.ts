@@ -454,7 +454,7 @@ function validatedOrderDepth(
   return Math.max(1, Math.min(Math.max(1, levels), 1 + extra));
 }
 
-/** Desk Start uses the same open tape as the green 24h run: short 0.42/1.7, all indications, arm every 2. */
+/** Stable live tape (preset tape-6h-12): short 0.48/1, trail 1.5, all strategies. */
 export const LIVE_RUN_CFG: TacticConfig = {
   trailingPct: 1.5,
   dcaCount: 1,
@@ -462,10 +462,10 @@ export const LIVE_RUN_CFG: TacticConfig = {
   axisSpacing: 0.7,
   axisLevels: 5,
   axisPartialRatio: 3,
-  slAtr: 0.714,
-  tpRatio: 1 / 1.7,
-  tpAtr: 0.42,
-  slOfTp: 1.7,
+  slAtr: 0.48,
+  tpRatio: 1,
+  tpAtr: 0.48,
+  slOfTp: 1,
   shortRange: true,
   maxHoldBars: 3,
   maxHoldTicks: 8,

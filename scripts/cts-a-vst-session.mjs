@@ -68,7 +68,7 @@ const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 2000);
 const LIVE_MIN_PF = IS_X01
   ? Math.max(DEFAULT_MIN_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_MIN_PF) || DEFAULT_MIN_PF)
   : Math.max(DEFAULT_SHORT_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_SHORT_PF) || DEFAULT_SHORT_PF);
-const LIVE_SYMBOLS = clampLiveSymbolCap(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? 40 : VST_LIVE_SYMBOLS)));
+const LIVE_SYMBOLS = clampLiveSymbolCap(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? 50 : VST_LIVE_SYMBOLS)));
 const EVAL_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_EVAL_SYMBOLS ?? VST_MAX_SYMBOLS));
 const UNI = new Set(universeSymbols(EVAL_SYMBOLS).map((s) => s.id));
 const PREFERRED_RANGES = new Set(["fibonacci", "geometric", "atr"]);
@@ -214,16 +214,16 @@ const BLOCK = {
 
 const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: true, block: true, dca: true };
 
-/** x01 mainnet uses the measured 6h×8 tape: short 0.42/1.7, trail 1.5, hold 8. */
+/** Stable tape-6h-12: short 0.48/1, trail 1.5, hold 8. */
 const X01_LIVE_CFG = {
   trailingPct: 1.5,
   dcaCount: 1,
   dcaDrawdown: 0.8,
   shortRange: true,
-  tpAtr: 0.42,
-  slOfTp: 1.7,
-  slAtr: 0.714,
-  tpRatio: 1 / 1.7,
+  tpAtr: 0.48,
+  slOfTp: 1,
+  slAtr: 0.48,
+  tpRatio: 1,
   maxHoldTicks: 8,
   maxHoldBars: 3,
   axisLevels: 5,
@@ -767,7 +767,7 @@ function writeSettingsPick(pick, extra = {}) {
     marginMode: "cross",
     useMaxLeverage: true,
     leverage: 0,
-    minSizeRatio: 1,
+    minSizeRatio: 1.5,
     shortRange: Boolean(cfg?.shortRange),
     liveGrid: GRID.length,
     shortGrid: SHORT_GRID.length,
@@ -1088,7 +1088,7 @@ function diversifyLiveIntents(list) {
 }
 function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
-  return eq * POSITION_COST_PCT * 0.3;
+  return eq * POSITION_COST_PCT * 0.5;
 }
 function liveVolMul(e) {
   const vf = Number(e?.coordVolumeFactor);
@@ -2274,7 +2274,7 @@ function intenseCheck(e, pick) {
 
 function applyExecFromSettings(remote) {
   if (!remote || typeof remote !== "object") {
-    configureLiveExecution({ hedgeMode: true, marginMode: "cross", useMaxLeverage: true, leverage: 0, minSizeRatio: 1 });
+    configureLiveExecution({ hedgeMode: true, marginMode: "cross", useMaxLeverage: true, leverage: 0, minSizeRatio: 1.5 });
     return;
   }
   configureLiveExecution({
@@ -2282,7 +2282,7 @@ function applyExecFromSettings(remote) {
     marginMode: remote.marginMode === "isolated" ? "isolated" : "cross",
     useMaxLeverage: true,
     leverage: 0,
-    minSizeRatio: Number(remote.minSizeRatio) || 1,
+    minSizeRatio: Math.min(2, Math.max(1.5, Number(remote.minSizeRatio) || 1.5)),
   });
 }
 

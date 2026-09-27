@@ -601,6 +601,72 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       orders: 305.6,
     },
   },
+  {
+    id: "tape-6h-12",
+    label: "6h × 12 stable",
+    blurb: "Stable. 6h after 6h pre · 12 symbols · $10 · short 0.48/1 · trail 1.5 · DDT cap 22h · all strategies · Block 0.4/1.5 · PF 1.289 · live 50 symbols · vol 1.5",
+    builtin: true,
+    patch: {
+      activeConnId: "bingx-x01",
+      symbolCount: 50,
+      evalSymbolCount: 300,
+      liveSymbolCap: 50,
+      tactic: "trailing",
+      rangeType: "atr",
+      orderType: "limit",
+      costStep: 10,
+      tacticConfig: {
+        trailingPct: 1.5,
+        dcaCount: 1,
+        dcaDrawdown: 0.8,
+        axisSpacing: 0.7,
+        axisLevels: 5,
+        axisPartialRatio: 3,
+        slAtr: 0.48,
+        tpRatio: 1,
+        tpAtr: 0.48,
+        slOfTp: 1,
+        shortRange: true,
+        maxHoldBars: 3,
+        maxHoldTicks: 8,
+      },
+      blockConfig: {
+        ...DEFAULT_BLOCK_CONFIG,
+        enabled: true,
+        counts: [1, 3, 4, 5, 6],
+        maxMultiple: 6,
+        minMultiple: 1,
+        volumeRatio: 0.4,
+        relVolumeRatio: 0.4,
+        sharedVolumeRatio: 1.5,
+        overallVolumeRatio: 1.5,
+        maxVolumeMultiplier: 8,
+        minActiveLevel: 1,
+        pauseCountRatio: 0,
+        windows: true,
+        stack: true,
+        volumeMode: "parallel",
+        overallMode: "parallel",
+        sides: "both",
+        overall: true,
+      },
+      thresholds: { ...DEFAULT_THRESHOLDS, maxDdt: 22 },
+      pfCoords: { hourKeep: true, bankWin: true, pairAdd: true, laneCool: true, winAgain: true },
+      strategyToggles: { normal: true, trailing: true, axis: true, block: true, dca: true },
+      enabledKinds: [...DEFAULT_ENABLED_KINDS],
+      minSizeRatio: 1.5,
+      liveTape: true,
+      sessionPhase: "running",
+    },
+    info: {
+      winHoursPct: 1,
+      pf: 1.289,
+      ddt: 84,
+      tradesPerHour: 824,
+      positions: 147.3,
+      orders: 105.4,
+    },
+  },
 ];
 
 export function measuredSlTrailBots() {
@@ -637,7 +703,7 @@ export function x01BotPreset() {
   return bots;
 }
 
-export const PRESET_STORAGE_KEY = "cts-a-settings-presets";
+export const STABLE_PRESET_ID = "tape-6h-12";
 
 export function sanitizePreset(raw: unknown): SettingsPreset | null {
   if (!raw || typeof raw !== "object") return null;

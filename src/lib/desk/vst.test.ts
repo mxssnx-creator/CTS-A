@@ -4121,6 +4121,15 @@ describe("VST engine", () => {
     assert.equal(tape68?.info?.tradesPerHour, 1288);
     assert.equal(tape68?.info?.positions, 11.48);
     assert.equal(tape68?.info?.orders, 305.6);
+    const tape612 = findPreset("tape-6h-12", []);
+    assert.equal(tape612?.label, "6h × 12 stable");
+    assert.equal(tape612?.patch.symbolCount, 50);
+    assert.equal(tape612?.patch.tacticConfig?.tpAtr, 0.48);
+    assert.equal(tape612?.patch.tacticConfig?.slOfTp, 1);
+    assert.equal(tape612?.patch.thresholds?.maxDdt, 22);
+    assert.equal(tape612?.patch.minSizeRatio, 1.5);
+    assert.equal(tape612?.info?.pf, 1.289);
+    assert.equal(tape612?.info?.winHoursPct, 1);
     assert.ok(universeSymbols(120).length === 120);
     const saved = sanitizeUserPresets([{ id: "user-a", label: "Mine", blurb: "x", builtin: false, patch: { tactic: "axis" } }, { id: "" }]);
     assert.equal(saved.length, 1);
