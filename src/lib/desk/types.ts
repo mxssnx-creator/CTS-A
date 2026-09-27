@@ -809,6 +809,10 @@ export interface LivePosition {
   playbook?: string;
   blockLevel?: number;
   blockQty?: number;
+  /** VWAP of Block overlay fills only. The parent average stays the base set. */
+  blockAvg?: number;
+  /** Tick of the first Block fill. The overlay is not peeled on that same tick. */
+  blockTick?: number;
   dcaQty?: number;
   peakPx?: number;
   validExec?: boolean;
