@@ -2211,7 +2211,7 @@ async function mirrorToExchange(e, network, cfg) {
         const perSym = new Map();
         const slim = [];
         for (const f of entryIntents) {
-          if (!f?.symbol) continue;
+          if (!f?.symbol || mirrored.has(f.id)) continue;
           const nSym = perSym.get(f.symbol) || 0;
           if (nSym >= 6) continue;
           const pxKey = `${f.symbol}:${f.side}:${Math.round((Number(f.px) || 0) * 1e6)}`;
@@ -2219,7 +2219,7 @@ async function mirrorToExchange(e, network, cfg) {
           seen.add(pxKey);
           perSym.set(f.symbol, nSym + 1);
           slim.push(f);
-          if (slim.length >= 80) break;
+          if (slim.length >= 400) break;
         }
         if (slim.length < 4 && e.strategyToggles?.normal !== false) {
           for (const id of Object.keys(e.quotes || {})) {
@@ -2779,7 +2779,7 @@ async function main() {
     engine.preEvalDone = false;
     engine.openCompleteTape = false;
   }
-  const examLeft0 = IS_X01 ? 2 * TICKS_PER_HOUR : 0;
+  const examLeft0 = IS_X01 ? 8 : 0;
   let examLeft = examLeft0;
   writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
   const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} live / ${EVAL_SYMBOLS} eval · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf} short ${engine.shortPf}/${engine.shortBasePf} · grid ${GRID.length} TP ${pick.cfg.tpAtr}/${pick.cfg.slOfTp} · block ${engine.blockCfg.sharedVolumeRatio}/${engine.blockCfg.volumeRatio}/${engine.blockCfg.overallVolumeRatio}`];
