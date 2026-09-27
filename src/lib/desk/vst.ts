@@ -429,13 +429,21 @@ function validatedOrderDepth(
     if (tacRow?.ok) pf = Math.min(pf, tacRow.pf);
   }
   if (tpAtr != null && slOfTp != null) {
-    const st = comboTapeStats(e.shortComboPreTape?.[shortComboKey(tpAtr, slOfTp)]);
-    if (st.n >= 4) {
-      const tiny = st.pf >= PF_NO_LOSS - 1e-9 && st.net <= 1e-6;
-      if (st.pf + 1e-9 < 1 || st.net <= 1e-9 || tiny) return 0;
-      if (gate.floor > 1 && st.pf + 1e-9 < gate.floor) return 0;
-      pf = Math.min(pf, st.pf);
-    } else if (!shortComboProven(e, tpAtr, slOfTp)) return 0;
+    const key = shortComboKey(tpAtr, slOfTp);
+    const full = comboPreRun.get(e)?.[key];
+    const fullPf = full && full.gl > 1e-12 ? full.gp / full.gl : full && full.gp > 0 ? PF_NO_LOSS : 0;
+    const fullNet = full ? full.gp - full.gl : 0;
+    if (full && full.n >= 12) {
+      if (fullPf + 1e-9 < 1 || fullNet <= 0) return 0;
+    } else {
+      const st = comboTapeStats(e.shortComboPreTape?.[key]);
+      if (st.n >= 4) {
+        const tiny = st.pf >= PF_NO_LOSS - 1e-9 && st.net <= 1e-6;
+        if (st.pf + 1e-9 < 1 || st.net <= 1e-9 || tiny) return 0;
+        if (gate.floor > 1 && st.pf + 1e-9 < gate.floor) return 0;
+        pf = Math.min(pf, st.pf);
+      } else if (!shortComboProven(e, tpAtr, slOfTp)) return 0;
+    }
   }
   const liveEv = e.progressEval?.indications?.[ind];
   if (liveEv && liveEv.n >= 8 && !comboProven && (liveEv.ok === false || liveEv.pf + 1e-9 < 1)) return 0;
@@ -839,6 +847,8 @@ export function shortComboProven(e: VstEngine, tpAtr: number, slOfTp: number): b
     const full = comboPreRun.get(e)?.[key];
     const fullPf = full && full.gl > 1e-12 ? full.gp / full.gl : full && full.gp > 0 ? PF_NO_LOSS : 0;
     const fullNet = full ? full.gp - full.gl : 0;
+    // The whole exam decides. A cold last-80 tail must not erase a winning combo or keep a losing one.
+    if (full && full.n >= 12) return fullPf + 1e-9 >= 1 && fullNet > 0;
     const fullOk = !!full && full.n >= 12 && fullPf + 1e-9 >= 1 && fullNet > 0;
     const gate = typeGateMem.get(e);
     if (performingLive(e) && gate) {
@@ -7403,9 +7413,12 @@ function resetLiveBook(e: VstEngine) {
   e.ledger.ratioLoss = 0;
   e.ledger.ratioWins = 0;
   e.ledger.peak = base;
+  e.ledger.ddTicks = 0;
+  e.ledger.maxDdt = 0;
   e.stats.net = 0;
   e.stats.pf = 0;
   e.stats.mdd = 0;
+  e.stats.ddt = 0;
   e.stats.equity = base;
 }
 
