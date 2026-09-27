@@ -10,4 +10,5 @@ Measured 6h after 6h pre, 12 symbols, start $10, short 0.48/1, trail 1.5, all st
 - 824 trades per hour
 - Equity $10.400
 
-Live x01 runs this tape on 50 symbols with size factor 1.5.
+Live x01 runs this tape on 50 symbols with size factor 1.5. Axis and Block are on. DCA is off on the live book.
+

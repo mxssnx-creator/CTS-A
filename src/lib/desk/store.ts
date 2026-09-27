@@ -512,7 +512,7 @@ const boot = initVstEngine(DEFAULT_TACTIC_CONFIG, { warmup: 0, symbolCount: 12, 
   boot.activeConnId = "bingx-x01";
   boot.symbolCount = 50;
   boot.liveSymbolCap = 50;
-  boot.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
+  boot.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: false };
   engageLiveBook(boot);
   const three = sanitizeArmed(armed);
   for (let i = 0; i < 6; i++) {
@@ -1064,7 +1064,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       e.botMode = anyBots;
       e.x01Progress = view === "bingx-x01";
       if (e.x01Progress) {
-        e.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
+        e.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: false };
         e.liveSymbolCap = 50;
       }
       const born: { id: string; connId: string; symbol: string; side: "long" | "short"; price: number; qty: number; sl: number; tp: number; bot: boolean }[] = [];
@@ -1560,7 +1560,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       e.botMode = true;
       e.x01Progress = id === "bingx-x01";
       if (e.x01Progress) {
-        e.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
+        e.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: false };
         e.liveSymbolCap = 50;
         e.symbolCount = n;
       }

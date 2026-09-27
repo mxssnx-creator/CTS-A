@@ -212,7 +212,16 @@ const BLOCK = {
   lastNProgress: sanitizeLastNProgress(undefined),
 };
 
-const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: true, block: true, dca: true };
+const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: true, block: true, dca: false };
+function pinX01Strat() {
+  if (!IS_X01) return;
+  STRAT.normal = true;
+  STRAT.trailing = true;
+  STRAT.axis = true;
+  STRAT.block = true;
+  STRAT.dca = false;
+}
+pinX01Strat();
 
 /** Stable tape-6h-12: short 0.48/1, trail 1.5, hold 8. */
 const X01_LIVE_CFG = {
@@ -3000,8 +3009,9 @@ async function main() {
         }
         if (remote.strategyToggles && !IS_X01) {
           Object.assign(STRAT, remote.strategyToggles, { dca: false, axis: false, trailing: true, normal: false });
-          engine.strategyToggles = { ...STRAT };
         }
+        pinX01Strat();
+        engine.strategyToggles = { ...STRAT };
         if (remote.blockConfig) {
           const vol = IS_X01
             ? { volumeRatio: 0.4, relVolumeRatio: 0.4, sharedVolumeRatio: 1.5, overallVolumeRatio: 1.5 }

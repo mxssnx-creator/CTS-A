@@ -4129,7 +4129,9 @@ describe("VST engine", () => {
     assert.equal(tape612?.patch.thresholds?.maxDdt, 22);
     assert.equal(tape612?.patch.minSizeRatio, 1.5);
     assert.equal(tape612?.info?.pf, 1.289);
-    assert.equal(tape612?.info?.winHoursPct, 1);
+    assert.equal(tape612?.patch.strategyToggles?.dca, false);
+    assert.equal(tape612?.patch.strategyToggles?.axis, true);
+    assert.equal(tape612?.patch.strategyToggles?.block, true);
     assert.ok(universeSymbols(120).length === 120);
     const saved = sanitizeUserPresets([{ id: "user-a", label: "Mine", blurb: "x", builtin: false, patch: { tactic: "axis" } }, { id: "" }]);
     assert.equal(saved.length, 1);

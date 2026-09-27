@@ -604,7 +604,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
   {
     id: "tape-6h-12",
     label: "6h × 12 stable",
-    blurb: "Stable. 6h after 6h pre · 12 symbols · $10 · short 0.48/1 · trail 1.5 · DDT cap 22h · all strategies · Block 0.4/1.5 · PF 1.289 · live 50 symbols · vol 1.5",
+    blurb: "Stable. 6h after 6h pre · 12 symbols · $10 · short 0.48/1 · trail 1.5 · Axis+Block on · DCA off · DDT cap 22h · PF 1.289 · live 50 · vol 1.5",
     builtin: true,
     patch: {
       activeConnId: "bingx-x01",
@@ -652,7 +652,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       },
       thresholds: { ...DEFAULT_THRESHOLDS, maxDdt: 22 },
       pfCoords: { hourKeep: true, bankWin: true, pairAdd: true, laneCool: true, winAgain: true },
-      strategyToggles: { normal: true, trailing: true, axis: true, block: true, dca: true },
+      strategyToggles: { normal: true, trailing: true, axis: true, block: true, dca: false },
       enabledKinds: [...DEFAULT_ENABLED_KINDS],
       minSizeRatio: 1.5,
       liveTape: true,
