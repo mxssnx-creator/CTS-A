@@ -2228,23 +2228,24 @@ async function mirrorToExchange(e, network, cfg) {
             if (!q || !(q.px > 0) || !isUniverseSymbol(id)) continue;
             const mid = q.hi > q.lo ? (q.hi + q.lo) / 2 : q.px;
             const side = Math.abs(q.px - mid) > q.px * 0.0003 ? (q.px >= mid ? "short" : "long") : (id.charCodeAt(0) % 2 === 0 ? "long" : "short");
-            const dist = Math.min(Math.max((q.atr || 0) * 0.25, q.px * 0.0004), q.px * 0.0012);
-            const px = side === "long" ? Math.max(q.px - dist, q.px * 0.998) : Math.min(q.px + dist, q.px * 1.002);
-            seen.add(id);
-            slim.push({
-              id: `flat:${id}:${side}`,
-              orderId: "",
-              symbol: id,
-              side,
-              px,
-              kind: "entry",
-              playbook: "short",
-              note: "live flat",
-              tactic: e.lastTactic || "trailing",
-              rangeType: e.lastRange || "atr",
-              indication: classifyIndication(e, id),
-            });
-            if (slim.length >= 48) break;
+            for (let lvl = 1; lvl <= 8 && slim.length < 300; lvl += 1) {
+              const dist = q.px * 0.0012 * lvl;
+              const px = side === "long" ? q.px - dist : q.px + dist;
+              slim.push({
+                id: `flat:${id}:${side}:${lvl}`,
+                orderId: "",
+                symbol: id,
+                side,
+                px,
+                kind: "entry",
+                playbook: "short",
+                note: "live flat",
+                tactic: e.lastTactic || "hybrid",
+                rangeType: e.lastRange || "atr",
+                indication: classifyIndication(e, id),
+              });
+            }
+            if (slim.length >= 300) break;
           }
         }
         const blockFirst = [];
@@ -2318,7 +2319,9 @@ async function mirrorToExchange(e, network, cfg) {
   let skipTaken = 0;
   let skipUni = 0;
   let firstWhy = "";
+  const skipN = {};
   const markWhy = (f, w) => {
+    skipN[w] = (skipN[w] || 0) + 1;
     if (!firstWhy && f && !occupiedSymbols.has(f.symbol)) firstWhy = `${f.symbol}:${w}`;
   };
   let blockJobs = 0;
@@ -2431,7 +2434,7 @@ async function mirrorToExchange(e, network, cfg) {
       mirrored.add(f.id);
       continue;
     }
-    if (!isBlockAdd && IS_X01 && fillJobs.filter((x) => x.symbol === f.symbol).length >= 6) continue;
+    if (!isBlockAdd && IS_X01 && fillJobs.filter((x) => x.symbol === f.symbol).length >= 12) continue;
     const restingEntry = (book.orders ?? []).some((o) => {
       if (!isDeskOrder(o) || o.symbol !== f.symbol) return false;
       const t = String(o.type || "").toUpperCase();
@@ -2447,7 +2450,7 @@ async function mirrorToExchange(e, network, cfg) {
     }
     if (symbolTaken && !isBlockAdd && IS_X01) {
       const onSym = (book.orders ?? []).filter((o) => o.symbol === f.symbol && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition).length;
-      if (onSym + fillJobs.filter((x) => x.symbol === f.symbol).length >= 6) {
+      if (onSym + fillJobs.filter((x) => x.symbol === f.symbol).length >= 12) {
         skipTaken += 1;
         continue;
       }
@@ -2458,7 +2461,7 @@ async function mirrorToExchange(e, network, cfg) {
     if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && /Block/i.test(String(x.note || "")))) continue;
     if (isBlockAdd && fillJobs.filter((x) => /Block/i.test(String(x.note || x._rel?.note || ""))).length >= budget.maxNew) continue;
     if (!isBlockAdd && openN + fillJobs.length >= budget.maxPos) break;
-    if (IS_X01 && !x01CanAfford(f.symbol, book.equity) && !X01_GROWTH.has(f.symbol)) {
+    if (IS_X01 && !x01CanAfford(f.symbol, Number(book.equity) || Number(lastBook.equity) || 0) && !X01_GROWTH.has(f.symbol)) {
       markWhy(f, "afford");
       continue;
     }
@@ -2576,7 +2579,7 @@ async function mirrorToExchange(e, network, cfg) {
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
   }
-  if (IS_X01) notes.push(`q ${queueIntents.length} scan ${scanIntents.length} jobs ${fillJobs.length} ok ${placed} ${firstWhy || "sent"}`);
+  if (IS_X01) notes.push(`q ${queueIntents.length} scan ${scanIntents.length} jobs ${fillJobs.length} ok ${placed} ${Object.entries(skipN).map(([k, v]) => `${k}${v}`).join(" ") || firstWhy || "sent"}`);
   return notes.length ? notes.slice(-4).join(" · ") : null;
 }
 
