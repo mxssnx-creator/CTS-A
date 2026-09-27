@@ -2131,7 +2131,7 @@ async function mirrorToExchange(e, network, cfg) {
     if (String(o.type || "").toUpperCase() !== "LIMIT") continue;
     restingBySym.set(o.symbol, (restingBySym.get(o.symbol) || 0) + 1);
   }
-  const ladderShort = IS_X01 && !e.preEvalDone && restingLimits < X01_LADDER_TARGET;
+  const ladderShort = IS_X01 && restingLimits < X01_LADDER_TARGET;
   const paperOpen = new Set((e.positions || []).map((p) => `${p.symbol}:${p.side}`));
   for (const k of paperOpen) mirrored.delete(`seed:${k}`);
   const ours = deskPos;
@@ -2204,7 +2204,7 @@ async function mirrorToExchange(e, network, cfg) {
       _fromQueue: true,
     }));
   const entryIntents = IS_X01 ? diversifyLiveIntents(queueIntents) : queueIntents;
-  const entryCap = IS_X01 ? Math.min(120, Math.max(48, X01_LADDER_TARGET - restingLimits)) : 16;
+  const entryCap = IS_X01 ? Math.min(36, Math.max(16, X01_LADDER_TARGET - restingLimits)) : 16;
   const occupiedSymbols = new Set([...exchangeOccupied].map((k) => String(k).split(":")[0]));
   const restingSymbols = new Set(
     (book.orders ?? [])
@@ -2228,7 +2228,7 @@ async function mirrorToExchange(e, network, cfg) {
           if (slim.length >= 400) break;
         }
         const ladder = [];
-        if (IS_X01 && !e.preEvalDone && restingLimits < X01_LADDER_TARGET) {
+        if (IS_X01 && restingLimits < X01_LADDER_TARGET) {
           const ids = universeSymbols(LIVE_SYMBOLS).map((s) => s.id);
           for (const id of ids) {
             if (ladder.length >= X01_LADDER_TARGET - restingLimits) break;
@@ -2421,7 +2421,7 @@ async function mirrorToExchange(e, network, cfg) {
       markWhy(f, "dead");
       continue;
     }
-    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 1)) && !(!e.preEvalDone && (f.ladder || (IS_X01 && openN < 30)))) {
+    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 1)) && !f.ladder && !(!e.preEvalDone && IS_X01 && openN < 30)) {
       markWhy(f, "symskip");
       continue;
     }
@@ -2456,9 +2456,8 @@ async function mirrorToExchange(e, network, cfg) {
       }
       const allowed = liveShouldExecute(e, rel) && !liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType });
       const normalOff = e.strategyToggles?.normal === false && unadjustedNormalOrder(rel);
-      const evalOpen = !e.preEvalDone;
-      const needBook = evalOpen && IS_X01 && !normalOff && (openN + fillJobs.length) < 30;
-      if (!allowed && !needBook && !(evalOpen && f.ladder)) {
+      const needBook = !e.preEvalDone && IS_X01 && !normalOff && (openN + fillJobs.length) < 30;
+      if (!allowed && !needBook && !f.ladder) {
         markWhy(f, "gate");
         continue;
       }
@@ -2831,16 +2830,17 @@ async function main() {
     currentPick = pick;
     engine.strategyToggles = { ...STRAT };
     engine.skipIndications = ["direction", "macd", "bollinger"];
-    engine.liveTape = false;
-    engine.completeSim = true;
-    engine.preEvalDone = false;
+    engine.liveTape = true;
+    engine.holdLimits = true;
+    engine.completeSim = false;
+    engine.preEvalDone = true;
     engine.openCompleteTape = false;
   }
-  const examLeft0 = IS_X01 ? TICKS_PER_HOUR * 2 : 0;
+  const examLeft0 = 0;
   let examLeft = examLeft0;
   writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
   const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} live / ${EVAL_SYMBOLS} eval · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf} short ${engine.shortPf}/${engine.shortBasePf} · grid ${GRID.length} TP ${pick.cfg.tpAtr}/${pick.cfg.slOfTp} · block ${engine.blockCfg.sharedVolumeRatio}/${engine.blockCfg.volumeRatio}/${engine.blockCfg.overallVolumeRatio}`];
-  if (IS_X01) adjustments.push(`exam ${examLeft0}t intern-all · every enabled config · then validated only`);
+  if (IS_X01) adjustments.push(`live now · multiple limits up to ${X01_LADDER_TARGET} · ${X01_LADDER_PER_SYM}/symbol`);
   if (seededLosers) adjustments.push(`seed skip ${seededLosers} loser symbols`);
   if (seededOff) adjustments.push(`seed disable ${seededOff} relations`);
   if (lastExec.n) adjustments.push(`seed exec n=${lastExec.n} PF ${lastExec.pf.toFixed(2)}`);
@@ -3208,7 +3208,7 @@ async function main() {
   void (async () => {
     while (examLeft > 0 && !stopAsked) await sleep(200);
     if (stopAsked) return;
-    await sleep(IS_X01 ? 400 : 180_000);
+    await sleep(IS_X01 ? 15000 : 180_000);
     adjustments.push(`complete compute start · prehistory ${SHORT_EVAL_HOURS}h · full coverage`);
     try {
       const complete = await completeComputationsAsync(pick.cfg, {
