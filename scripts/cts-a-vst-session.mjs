@@ -266,12 +266,17 @@ function shortGridCombos() {
 }
 
 let protectCells = [];
+function goodOtherCells() {
+  const allowedTrail = new Set(TRAIL_PCTS);
+  const tps = new Set([0.8, 1, 1.2, 1.4, 1.6]);
+  const sls = new Set([1, 1.25]);
+  return allProtectCells().filter(
+    (c) => tps.has(Number(c.tpAtr)) && sls.has(Number(c.slOfTp)) && allowedTrail.has(Number(c.trailPct)),
+  );
+}
 function otherProtectRows() {
   if (protectCells.length) return protectCells;
-  const allowedTrail = new Set(TRAIL_PCTS);
-  return allProtectCells().filter(
-    (c) => Number(c.tpAtr) >= 1 && Number(c.slOfTp) >= 1.25 && Number(c.slOfTp) <= 1.25 && allowedTrail.has(Number(c.trailPct)),
-  );
+  return goodOtherCells();
 }
 
 function x01BestGrid() {
@@ -398,35 +403,24 @@ function saveManualClosed(map) {
 
 const PROTECT_FILE = process.env.CTS_A_PROTECT ?? (IS_X01 ? "/var/lib/cts-a/protect-grid.json" : "/var/lib/cts-a/protect-grid-x02.json");
 function loadProtectCells() {
-  const allowedTrail = new Set(TRAIL_PCTS);
-  const minTp = IS_X01 ? 1.0 : 0.8;
-  const minSl = IS_X01 ? 1.25 : 1;
-  const floor = allProtectCells().filter((c) =>
-    Number(c.tpAtr) >= minTp && Number(c.slOfTp) >= minSl && Number(c.slOfTp) <= 1.25 && allowedTrail.has(Number(c.trailPct)),
-  );
+  const floor = goodOtherCells();
+  const keys = new Set(floor.map((c) => `${c.tpAtr}:${c.slOfTp}`));
   try {
     const raw = JSON.parse(readFileSync(PROTECT_FILE, "utf8"));
     const cells = Array.isArray(raw?.cells) ? raw.cells : Array.isArray(raw) ? raw : [];
     const minPf = LIVE_MIN_PF;
-    const ok = cells.filter((c) =>
-      Number(c.tpAtr) >= minTp &&
-      Number(c.slOfTp) >= minSl &&
-      Number(c.slOfTp) <= 1.25 &&
-      Number(c.trailPct) >= 1.5 &&
-      allowedTrail.has(Number(c.trailPct)) &&
-      (c.pf == null || Number(c.pf) >= minPf),
-    );
-    if (ok.length >= 3) {
-      return ok.map((c) => ({
-        slAtr: Number(c.slAtr),
-        tpRatio: Number(c.tpRatio),
-        trailPct: Number(c.trailPct) || 1.5,
-        tpAtr: Number(c.tpAtr),
-        slOfTp: Number(c.slOfTp),
-      }));
+    for (const c of cells) {
+      const tp = Number(c.tpAtr);
+      const sl = Number(c.slOfTp);
+      const key = `${tp}:${sl}`;
+      if (!keys.has(key)) continue;
+      if (c.pf != null && Number(c.pf) + 1e-9 < minPf) keys.delete(key);
     }
-  } catch {}
-  return floor.length ? floor : allProtectCells().filter((c) => Number(c.tpAtr) >= minTp && Number(c.slOfTp) >= minSl && allowedTrail.has(Number(c.trailPct)));
+  } catch {
+    /* floor is the working set */
+  }
+  const kept = floor.filter((c) => keys.has(`${c.tpAtr}:${c.slOfTp}`));
+  return kept.length >= 4 ? kept : floor;
 }
 protectCells = loadProtectCells();
 rebuildShortGrid();

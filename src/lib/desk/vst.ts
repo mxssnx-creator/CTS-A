@@ -3013,7 +3013,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     const symbolBands = openTape || performingLive(e) || internAll0 ? rangeBands(q, cfg) : undefined;
     const winner = classifyIndication(e, s.id);
     let liveInd: IndicationId = winner;
-    if (!complete && winner !== "break") {
+    if (!complete && winner !== "break" && winner !== "ema" && winner !== "macd") {
       const qb = indicationQuality("break", pack);
       const qw = indicationQuality(winner, pack);
       if (

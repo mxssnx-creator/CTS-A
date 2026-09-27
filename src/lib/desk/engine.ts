@@ -2909,6 +2909,24 @@ function emaLast(closes: number[], period: number): number {
   return e;
 }
 
+function macdSignalLast(closes: number[]): { macd: number; signal: number; hist: number } {
+  if (closes.length < 12) return { macd: 0, signal: 0, hist: 0 };
+  const k12 = 2 / 13;
+  const k26 = 2 / 27;
+  const k9 = 2 / 10;
+  let e12 = closes[0]!;
+  let e26 = closes[0]!;
+  let signal = 0;
+  let macd = 0;
+  for (let i = 1; i < closes.length; i++) {
+    e12 = closes[i]! * k12 + e12 * (1 - k12);
+    e26 = closes[i]! * k26 + e26 * (1 - k26);
+    macd = e12 - e26;
+    signal = i === 1 ? macd : macd * k9 + signal * (1 - k9);
+  }
+  return { macd, signal, hist: macd - signal };
+}
+
 function rsiLast(closes: number[], period = 14): number {
   if (closes.length < period + 1) return 50;
   let g = 0;
@@ -3054,10 +3072,12 @@ export function indicationFromQuote(
     const rsiV = rsiLast(closes, 14);
     const fast = emaLast(closes, 12);
     const slow = emaLast(closes, 26);
-    const macdLine = fast - slow;
     const prevCloses = closes.slice(0, -1);
-    const prevMacd = prevCloses.length >= 12 ? emaLast(prevCloses, 12) - emaLast(prevCloses, 26) : 0;
-    const macdHist = macdLine - prevMacd * 0.8;
+    const ms = macdSignalLast(closes);
+    const prevMs = macdSignalLast(prevCloses);
+    const macdLine = ms.macd || fast - slow;
+    const macdSig = ms.signal;
+    const macdHist = ms.hist;
     const bbN = Math.min(20, closes.length);
     const bbSlice = closes.slice(-bbN);
     const bbMid = bbSlice.reduce((s, x) => s + x, 0) / bbSlice.length;
@@ -3155,10 +3175,22 @@ export function indicationFromQuote(
           : 0;
     const sarFlip = prevEmaDir !== 0 && emaDir !== 0 && prevEmaDir !== emaDir;
     const richSar = sarFlip && (volX > 1.02 || barAtr >= 1.05) ? clampDir(emaDir * 0.88) : 0;
-    const macdThrust = Math.abs(macdHist) / Math.max(atr, 1e-9) > 0.12 && Math.sign(macdHist) === emaDir;
-    const richMacd = macdThrust ? clampDir(Math.sign(macdHist) * Math.min(1, 0.5 + Math.abs(macdHist) / Math.max(atr, 1e-9) * 0.45)) : 0;
-    const slopeOk = Math.abs(r6) > 0.0024 && Math.sign(r6) === emaDir && Math.abs(r3) > 0.001;
-    const richEma = stacked && slopeOk && emaDir !== 0 ? clampDir(emaDir * 0.86) : 0;
+    const macdCross = prevMs.macd <= prevMs.signal && macdLine > macdSig
+      ? 1
+      : prevMs.macd >= prevMs.signal && macdLine < macdSig
+        ? -1
+        : 0;
+    const macdThrust = Math.abs(macdHist) / Math.max(atr, 1e-9) > 0.08 && Math.sign(macdHist) === (macdCross || emaDir || Math.sign(macdHist));
+    const richMacd = macdCross !== 0
+      ? clampDir(macdCross * Math.min(1, 0.72 + Math.abs(macdHist) / Math.max(atr, 1e-9) * 0.35))
+      : macdThrust
+        ? clampDir(Math.sign(macdHist) * Math.min(1, 0.5 + Math.abs(macdHist) / Math.max(atr, 1e-9) * 0.45))
+        : 0;
+    const slopeOk = Math.abs(r6) > 0.0016 && Math.sign(r6) === emaDir && Math.abs(r3) > 0.0008;
+    const emaGap = Math.abs(e9 - e21) / Math.max(px, 1e-9);
+    const richEma = emaDir !== 0 && (emaFlip || (stacked && (slopeOk || emaGap > 0.0008)))
+      ? clampDir(emaDir * (emaFlip ? 0.92 : 0.84))
+      : 0;
     const w = 0.58;
     trend = mixInd(richTrend, trend, w);
     brk = brkDir !== 0 ? mixInd(richBreak, brk, 0.8) : mixInd(brk, 0, span > 1.18 ? 0.92 : 0.72);
