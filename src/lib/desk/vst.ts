@@ -3226,7 +3226,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const comboExec = internHere
             ? false
             : !gatedExec || liveShouldExecute(e, prot ? { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp } : execRel);
-          if (gatedExec && prot && !internHere && !(e.shortComboOnly && paperMode(e))) {
+          if (gatedExec && prot && !internHere && !(e.shortComboOnly && paperMode(e)) && !e.holdLimits) {
             if (!comboOk) continue;
             if (!comboExec && !internKeep && !(keepInd && !afterBase)) continue;
           }
@@ -3244,7 +3244,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             const indRow = e.progressEval?.indications?.[ind];
             if (indRow && indRow.n >= 6 && !indRow.ok && !keepInd) continue;
           }
-          if (!laneValid && !internHere && !internKeep) continue;
+          if (!laneValid && !internHere && !internKeep && !e.holdLimits) continue;
           if (!laneValid && (internHere || internKeep) && gatedExec && busyLegs.has(`${s.id}:${side}`)) continue;
           const exclusiveLeg = internSlot || (complete && gatedExec && !internHere && !livePace);
           const downHour = livePace && highTradeHourDown(e);
