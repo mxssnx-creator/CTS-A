@@ -1148,7 +1148,7 @@ function pruneLiveSets(e) {
 function diversifyLiveIntents(list) {
   const buckets = new Map();
   for (const f of list) {
-    const key = `${f.tactic || "trailing"}|${f.rangeType || "atr"}`;
+    const key = `${f.indication || ""}|${f.tactic || "trailing"}|${f.rangeType || "atr"}|${f.tpAtr ?? ""}|${f.slOfTp ?? ""}`;
     const bag = buckets.get(key);
     if (bag) bag.push(f);
     else buckets.set(key, [f]);
@@ -2131,7 +2131,8 @@ async function mirrorToExchange(e, network, cfg) {
     if (String(o.type || "").toUpperCase() !== "LIMIT") continue;
     restingBySym.set(o.symbol, (restingBySym.get(o.symbol) || 0) + 1);
   }
-  const ladderShort = IS_X01 && restingLimits < X01_LADDER_TARGET;
+  const examOpen = e?.preEvalDone === false;
+  const ladderShort = IS_X01 && examOpen && restingLimits < X01_LADDER_TARGET;
   const paperOpen = new Set((e.positions || []).map((p) => `${p.symbol}:${p.side}`));
   for (const k of paperOpen) mirrored.delete(`seed:${k}`);
   const ours = deskPos;
@@ -2154,12 +2155,14 @@ async function mirrorToExchange(e, network, cfg) {
   const fillJobs = [];
   const engineResting = (e.orders ?? []).filter((o) => o && (o.status === "open" || o.status === "queued" || o.status === "partial") && (o.type === "limit" || o.type === "market"));
   const rawQueue = e.queue ?? [];
-  const fat = rawQueue.length + engineResting.length > 1600;
+  const liveQueue = e?.preEvalDone ? rawQueue.filter((o) => o && o.validExec === true) : rawQueue;
+  const pickFrom = liveQueue.length ? liveQueue : rawQueue;
+  const fat = pickFrom.length + engineResting.length > 1600;
   const queueSource = [];
-  if (!fat) queueSource.push(...rawQueue, ...engineResting);
+  if (!fat) queueSource.push(...pickFrom, ...engineResting);
   else {
     const bySym = new Map();
-    for (const o of rawQueue) {
+    for (const o of pickFrom) {
       if (!o?.symbol) continue;
       const row = bySym.get(o.symbol) || [];
       if (row.length < 12) row.push(o);
@@ -2201,6 +2204,8 @@ async function mirrorToExchange(e, network, cfg) {
       tactic: o.tactic,
       rangeType: o.rangeType,
       indication: o.indication,
+      tpAtr: o.tpAtr,
+      slOfTp: o.slOfTp,
       _fromQueue: true,
     }));
   const entryIntents = IS_X01 ? diversifyLiveIntents(queueIntents) : queueIntents;
@@ -2228,7 +2233,7 @@ async function mirrorToExchange(e, network, cfg) {
           if (slim.length >= 400) break;
         }
         const ladder = [];
-        if (IS_X01 && restingLimits < X01_LADDER_TARGET) {
+        if (examOpen && IS_X01 && restingLimits < X01_LADDER_TARGET) {
           const ids = universeSymbols(LIVE_SYMBOLS).map((s) => s.id);
           for (const id of ids) {
             if (ladder.length >= X01_LADDER_TARGET - restingLimits) break;
@@ -2456,8 +2461,8 @@ async function mirrorToExchange(e, network, cfg) {
       }
       const allowed = liveShouldExecute(e, rel) && !liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType });
       const normalOff = e.strategyToggles?.normal === false && unadjustedNormalOrder(rel);
-      const needBook = !e.preEvalDone && IS_X01 && !normalOff && (openN + fillJobs.length) < 30;
-      if (!allowed && !needBook && !f.ladder) {
+      const needBook = examOpen && IS_X01 && !normalOff && (openN + fillJobs.length) < 30;
+      if (!allowed && !needBook && !(f.ladder && examOpen)) {
         markWhy(f, "gate");
         continue;
       }
@@ -2474,9 +2479,9 @@ async function mirrorToExchange(e, network, cfg) {
       markWhy(f, "block");
       continue;
     }
-    if (!isBlockAdd && !IS_X01 && (exchangeOccupied.has(`${f.symbol}:${f.side}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side))) {
-      mirrored.add(f.id);
-      continue;
+    if (!isBlockAdd && !IS_X01) {
+      const onSide = fillJobs.filter((x) => x.symbol === f.symbol && x.side === f.side).length;
+      if (onSide >= 6) continue;
     }
     if (!isBlockAdd && IS_X01 && fillJobs.filter((x) => x.symbol === f.symbol).length >= 12) continue;
     const restingEntry = (book.orders ?? []).some((o) => {
@@ -2489,8 +2494,13 @@ async function mirrorToExchange(e, network, cfg) {
       fillJobs.some((x) => x.symbol === f.symbol) ||
       restingEntry;
     if (symbolTaken && !isBlockAdd && !IS_X01) {
-      skipTaken += 1;
-      continue;
+      const onSym =
+        (book.orders ?? []).filter((o) => o.symbol === f.symbol && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition).length +
+        fillJobs.filter((x) => x.symbol === f.symbol).length;
+      if (onSym >= 6) {
+        skipTaken += 1;
+        continue;
+      }
     }
     if (symbolTaken && !isBlockAdd && IS_X01) {
       const onSym = (book.orders ?? []).filter((o) => o.symbol === f.symbol && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition).length;

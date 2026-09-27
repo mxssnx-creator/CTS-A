@@ -237,6 +237,64 @@ export function stable02Book(q: VstQuote | undefined): Stable02Book {
 
 const IND_ENTRY = new Set(["direction", "move", "active", "rsi", "macd", "ema", "bollinger", "trend", "break", "sar"]);
 
+/** Where price sits in the recent range. Lower third leans long, upper third short, unless the short slope fights it. */
+export function stable02Logistics(closes: number[]): Side | null {
+  if (closes.length < 12) return null;
+  const last = closes[closes.length - 1]!;
+  if (!(last > 0)) return null;
+  const win = closes.slice(-12);
+  const lo = Math.min(...win);
+  const hi = Math.max(...win);
+  const rng = Math.max(hi - lo, last * 0.002);
+  const loc = (last - lo) / rng;
+  const slope = dirOf(closes.slice(-6));
+  if (loc <= 0.28 && slope > -0.0008) return "long";
+  if (loc >= 0.72 && slope < 0.0008) return "short";
+  return null;
+}
+
+/** How many independent signals share a side. `agree` is the majority over the full pack, not just the votes. */
+export function stable02Relation(book: Stable02Book, logistics?: Side | null): { side: Side | null; agree: number } {
+  const votes = [book.direction, book.move, book.active, book.common, book.strategy, logistics ?? null];
+  let longN = 0;
+  let shortN = 0;
+  for (const v of votes) {
+    if (v === "long") longN += 1;
+    else if (v === "short") shortN += 1;
+  }
+  if (longN === shortN) return { side: null, agree: 0 };
+  const side: Side = longN > shortN ? "long" : "short";
+  return { side, agree: Math.max(longN, shortN) / votes.length };
+}
+
+/** 0–1 activity factor from relative volume and the bar's move. */
+export function stable02Factor(q: VstQuote | undefined): number {
+  if (!q || !(q.px > 0)) return 0;
+  const volScore = Math.min(1, Math.max(0, Number(q.vol) || 0) / 0.02);
+  const chgScore = Math.min(1, Math.abs(Number(q.chg) || 0) / 0.004);
+  return Math.min(1, volScore * 0.6 + chgScore * 0.4);
+}
+
+/**
+ * Processing tactic. Axis keeps the continuation side only when logistics and the relation pack do not oppose it.
+ * Other tactics return the indication's own side, or null when the pack strongly disagrees so that side is not added.
+ */
+export function stable02ProcessSide(q: VstQuote | undefined, indication: string, tactic: string): Side | null {
+  if (!q || !(q.px > 0)) return null;
+  const book = stable02Book(q);
+  const logistics = stable02Logistics(q.pxHist ?? []);
+  const rel = stable02Relation(book, logistics);
+  const ax: Side = q.px >= (q.axis || q.px) ? "long" : "short";
+  if (tactic === "axis") {
+    if (rel.side && rel.side !== ax && rel.agree >= 0.5) return null;
+    if (logistics && logistics !== ax && rel.agree >= 0.34) return null;
+    return ax;
+  }
+  const own = stable02EntrySide(q, indication);
+  if (own && rel.side && own !== rel.side && rel.agree >= 0.67) return null;
+  return own;
+}
+
 /** Extra side this indication or strategy wants. Null means no added entry. */
 export function stable02EntrySide(q: VstQuote | undefined, indication: string): Side | null {
   if (!IND_ENTRY.has(indication)) return null;
