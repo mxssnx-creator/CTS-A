@@ -2547,15 +2547,15 @@ async function mirrorToExchange(e, network, cfg) {
       const dead = markDeadSymbol(f.symbol, err);
       if (!dead && isMarginFail(err)) {
         skipUntil.set(f.symbol, Date.now() + 12_000);
-      } else if (!dead && !/min notional exceeds|TP Price|SL Price|must be (greater|lower)|order price|price deviation|too far/i.test(err)) {
-        skipUntil.set(f.symbol, Date.now() + (isRateLimited(r?.error) ? 480_000 : 90_000));
+      } else if (!dead && isRateLimited(r?.error)) {
+        skipUntil.set(f.symbol, Date.now() + 20_000);
       }
       const quiet = noteApiFail(r);
       failed += 1;
       if (dead) notes.push(`offline ${f.symbol}`);
       else notes.push(`skip ${f.symbol} ${err.slice(0, 80)}`);
       if (threw) return `live throw ${err}`;
-      if (quiet || failed >= 4) break;
+      if (quiet) break;
       continue;
     }
     mirrored.add(f.id);
@@ -2579,7 +2579,11 @@ async function mirrorToExchange(e, network, cfg) {
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
   }
-  if (IS_X01) notes.push(`q ${queueIntents.length} scan ${scanIntents.length} jobs ${fillJobs.length} ok ${placed} ${Object.entries(skipN).map(([k, v]) => `${k}${v}`).join(" ") || firstWhy || "sent"}`);
+  if (IS_X01) {
+    const line = `q ${queueIntents.length} scan ${scanIntents.length} jobs ${fillJobs.length} ok ${placed} ${Object.entries(skipN).map(([k, v]) => `${k}${v}`).join(" ") || firstWhy || "sent"}`;
+    console.log(line);
+    notes.push(line);
+  }
   return notes.length ? notes.slice(-4).join(" · ") : null;
 }
 
