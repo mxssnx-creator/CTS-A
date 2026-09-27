@@ -2198,7 +2198,7 @@ async function mirrorToExchange(e, network, cfg) {
       _fromQueue: true,
     }));
   const entryIntents = IS_X01 ? diversifyLiveIntents(queueIntents) : queueIntents;
-  const entryCap = IS_X01 ? 8 : 16;
+  const entryCap = IS_X01 ? 48 : 16;
   const occupiedSymbols = new Set([...exchangeOccupied].map((k) => String(k).split(":")[0]));
   const restingSymbols = new Set(
     (book.orders ?? [])
@@ -2208,16 +2208,22 @@ async function mirrorToExchange(e, network, cfg) {
   const scanIntents = IS_X01
     ? (() => {
         const seen = new Set();
+        const perSym = new Map();
         const slim = [];
         for (const f of entryIntents) {
-          if (!f?.symbol || seen.has(f.symbol) || occupiedSymbols.has(f.symbol) || restingSymbols.has(f.symbol)) continue;
-          seen.add(f.symbol);
+          if (!f?.symbol) continue;
+          const nSym = perSym.get(f.symbol) || 0;
+          if (nSym >= 6) continue;
+          const pxKey = `${f.symbol}:${f.side}:${Math.round((Number(f.px) || 0) * 1e6)}`;
+          if (seen.has(pxKey)) continue;
+          seen.add(pxKey);
+          perSym.set(f.symbol, nSym + 1);
           slim.push(f);
-          if (slim.length >= 12) break;
+          if (slim.length >= 80) break;
         }
         if (slim.length < 4 && e.strategyToggles?.normal !== false) {
           for (const id of Object.keys(e.quotes || {})) {
-            if (occupiedSymbols.has(id) || restingSymbols.has(id) || seen.has(id)) continue;
+            if (occupiedSymbols.has(id) || seen.has(id)) continue;
             const q = e.quotes[id];
             if (!q || !(q.px > 0) || !isUniverseSymbol(id)) continue;
             const mid = q.hi > q.lo ? (q.hi + q.lo) / 2 : q.px;
@@ -2238,7 +2244,7 @@ async function mirrorToExchange(e, network, cfg) {
               rangeType: e.lastRange || "atr",
               indication: classifyIndication(e, id),
             });
-            if (slim.length >= 8) break;
+            if (slim.length >= 48) break;
           }
         }
         const blockFirst = [];
@@ -2421,10 +2427,11 @@ async function mirrorToExchange(e, network, cfg) {
       markWhy(f, "block");
       continue;
     }
-    if (!isBlockAdd && (exchangeOccupied.has(`${f.symbol}:${f.side}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side))) {
+    if (!isBlockAdd && !IS_X01 && (exchangeOccupied.has(`${f.symbol}:${f.side}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side))) {
       mirrored.add(f.id);
       continue;
     }
+    if (!isBlockAdd && IS_X01 && fillJobs.filter((x) => x.symbol === f.symbol).length >= 6) continue;
     const restingEntry = (book.orders ?? []).some((o) => {
       if (!isDeskOrder(o) || o.symbol !== f.symbol) return false;
       const t = String(o.type || "").toUpperCase();
@@ -2434,9 +2441,16 @@ async function mirrorToExchange(e, network, cfg) {
       [...exchangeOccupied].some((k) => String(k).startsWith(`${f.symbol}:`)) ||
       fillJobs.some((x) => x.symbol === f.symbol) ||
       restingEntry;
-    if (symbolTaken && !isBlockAdd) {
+    if (symbolTaken && !isBlockAdd && !IS_X01) {
       skipTaken += 1;
       continue;
+    }
+    if (symbolTaken && !isBlockAdd && IS_X01) {
+      const onSym = (book.orders ?? []).filter((o) => o.symbol === f.symbol && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition).length;
+      if (onSym + fillJobs.filter((x) => x.symbol === f.symbol).length >= 6) {
+        skipTaken += 1;
+        continue;
+      }
     }
     const otherSide = f.side === "long" ? "short" : "long";
     const otherOpen = exchangeOccupied.has(`${f.symbol}:${otherSide}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === otherSide);
@@ -2471,7 +2485,12 @@ async function mirrorToExchange(e, network, cfg) {
       const blockAdd = /Overall Block|^Block|Block /i.test(String(f.note || ""));
       const blockQty = Number(f.qty) || 0;
       if (blockAdd && mark > 0) ladder = f.side === "long" ? mark * 0.9992 : mark * 1.0008;
-      else if (IS_X01 && mark > 0) ladder = mark;
+      else if (IS_X01 && mark > 0) {
+        const raw = Number(f.px) || mark;
+        const away = Math.min(0.008, Math.max(0.0008, Math.abs(raw - mark) / mark));
+        if (f.side === "long") ladder = raw <= mark * 0.9995 ? Math.max(raw, mark * (1 - 0.008)) : mark * (1 - Math.min(away, 0.0012));
+        else ladder = raw >= mark * 1.0005 ? Math.min(raw, mark * (1 + 0.008)) : mark * (1 + Math.min(away, 0.0012));
+      }
       const resting = f.side === "long" ? ladder > 0 && ladder <= mark * 0.9995 : ladder > 0 && ladder >= mark * 1.0005;
       if (blockAdd && mark > 0 && blockQty * mark > Math.max(1, Number(book.equity) || 0) * 0.35) {
         return { f, r: { ok: false, error: "block size" }, skip: true };
@@ -3384,6 +3403,7 @@ async function main() {
         if (examLeft === 0) {
           finishBaseEval(engine, engine.blockCfg);
           engine.liveTape = true;
+          engine.holdLimits = true;
           engine.completeSim = false;
           engine.openCompleteTape = false;
           const ok = Object.values(engine.lastNCoord?.combos ?? {}).filter((c) => c && c.ok && c.n >= 4).length;

@@ -35,6 +35,7 @@ import type {
   ProgressEvalRow,
   LastNCoordState,
 } from "./types.ts";
+import { pushStable02Px, stable02EntrySide, stable02ExitSl } from "./stable02.ts";
 import {
   DEFAULT_BLOCK_CONFIG,
   DEFAULT_THRESHOLDS,
@@ -3087,6 +3088,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           sides = [brk];
         }
       }
+      const added = stable02EntrySide(q, ind);
+      if (added && !sides.includes(added) && mode !== "long" && mode !== "short") sides = [...sides, added];
       const tacs = allLanes ? rankTactics(e, pickLiveTactic(e, ind, e.lastTactic)) : [e.lastTactic];
       for (const tac of tacs) {
       const tacCap = shareOn && (tac === "trailing" || tac === "hybrid") ? shortRestCap(e, shareCap) : shareCap;
@@ -3295,7 +3298,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               legs.push({ ...leg, sizeMul: leg.sizeMul * ddCut });
             }
           }
-          if (allLanes && (e.liveTape || e.x01Progress)) {
+          if (allLanes && (e.liveTape || e.x01Progress || e.completeSim)) {
             const have = new Set(legs.map((l) => l.range));
             for (const r of RANGE_TYPES) {
               if (have.has(r)) continue;
@@ -3594,6 +3597,7 @@ function walkQuotes(e: VstEngine, freeze?: Set<string>) {
     q.atr = q.atr * .98 + (q.hi - q.lo) * .02;
     q.axis = q.axis * .985 + q.px * .015;
     if (!frozen) q.chg = ret;
+    pushStable02Px(q);
   }
 }
 export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
@@ -4455,6 +4459,7 @@ function matchOrders(e: VstEngine) {
     const q = e.quotes[o.symbol];
     if (!q || !(q.px > 0)) continue;
     const taker = o.type === "market" || o.type === "ioc" || o.type === "fok";
+    if (e.holdLimits && !taker) continue;
     const vol = finiteOr(q.vol, 0);
     const openTape = completeOpenTape(e);
     if (!taker && !openTape && vol < MIN_QUOTE_VOL * 0.35) continue;
@@ -4952,6 +4957,17 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
           notePfCoord(e, "bank");
         }
       }
+    }
+    const favNow = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo > 0 ? q.lo : q.px, q.px);
+    if (favNow > 0) {
+      p.peakPx = p.peakPx && p.peakPx > 0
+        ? (p.side === "long" ? Math.max(p.peakPx, favNow) : Math.min(p.peakPx, favNow))
+        : favNow;
+    }
+    const tightened = stable02ExitSl(p.side, p.avgEntry, p.peakPx || q.px, p.sl, e.tick - p.openedTick);
+    if (tightened != null && (p.side === "long" ? tightened < q.px : tightened > q.px)) {
+      p.sl = tightened;
+      p.slDist = Math.abs(p.sl - p.avgEntry);
     }
     const hitSl = p.side === "long" ? q.lo <= p.sl : q.hi >= p.sl;
     const hitTp = p.side === "long" ? q.hi >= p.tp : q.lo <= p.tp;

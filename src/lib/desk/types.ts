@@ -749,6 +749,8 @@ export interface VstQuote {
   hi1h?: number;
   lo1h?: number;
   vol1hAt?: number;
+  /** Recent closes for Stable-02 indication and strategy entry. */
+  pxHist?: number[];
 }
 
 export interface LiveOrder {
@@ -1422,6 +1424,8 @@ export interface VstEngine {
   /** Pre-historic eval finished — valid-execute (last 15) and disable (last 12) gates apply. Real counted + Live run from valid. */
   preEvalDone?: boolean;
   liveTape?: boolean;
+  /** Live exchange book: keep limit orders resting instead of paper-filling them. */
+  holdLimits?: boolean;
   /** Indications that must not be armed or sent. Live x01 drops direction. */
   skipIndications?: string[];
   /** Desk bots are the live book: ladder arm stays off and bot orders fill on the tape. */
