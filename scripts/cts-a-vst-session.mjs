@@ -1993,19 +1993,24 @@ async function mirrorToExchange(e, network, cfg) {
   const entryIntents = IS_X01 ? diversifyLiveIntents(queueIntents) : queueIntents;
   const entryCap = IS_X01 ? 8 : 16;
   const occupiedSymbols = new Set([...exchangeOccupied].map((k) => String(k).split(":")[0]));
+  const restingSymbols = new Set(
+    (book.orders ?? [])
+      .filter((o) => isDeskOrder(o) && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition)
+      .map((o) => o.symbol),
+  );
   const scanIntents = IS_X01
     ? (() => {
         const seen = new Set();
         const slim = [];
         for (const f of entryIntents) {
-          if (!f?.symbol || seen.has(f.symbol) || occupiedSymbols.has(f.symbol)) continue;
+          if (!f?.symbol || seen.has(f.symbol) || occupiedSymbols.has(f.symbol) || restingSymbols.has(f.symbol)) continue;
           seen.add(f.symbol);
           slim.push(f);
           if (slim.length >= 12) break;
         }
         if (slim.length < 4) {
           for (const id of Object.keys(e.quotes || {})) {
-            if (occupiedSymbols.has(id) || seen.has(id)) continue;
+            if (occupiedSymbols.has(id) || restingSymbols.has(id) || seen.has(id)) continue;
             const q = e.quotes[id];
             if (!q || !(q.px > 0) || !isUniverseSymbol(id)) continue;
             const mid = q.hi > q.lo ? (q.hi + q.lo) / 2 : q.px;
@@ -2042,7 +2047,7 @@ async function mirrorToExchange(e, network, cfg) {
         if (slim.length && (slim.every((x) => x.side === "short") || slim.every((x) => x.side === "long"))) {
           const want = slim[0].side === "short" ? "long" : "short";
           for (const id of Object.keys(e.quotes || {})) {
-            if (occupiedSymbols.has(id) || seen.has(id)) continue;
+            if (occupiedSymbols.has(id) || restingSymbols.has(id) || seen.has(id)) continue;
             const q = e.quotes[id];
             if (!q || !(q.px > 0) || !isUniverseSymbol(id)) continue;
             const dist = Math.min(Math.max((q.atr || 0) * 0.25, q.px * 0.0004), q.px * 0.0012);
