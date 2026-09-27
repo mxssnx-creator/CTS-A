@@ -2119,23 +2119,32 @@ async function mirrorToExchange(e, network, cfg) {
           if (/Overall Block dir/i.test(n)) return "dir";
           return "book";
         };
+        const bySym = new Map();
         for (const f of entryIntents) {
           const note = String(f.note || "");
-          if (!/Overall Block/i.test(note) || !occupiedSymbols.has(f.symbol)) continue;
-          const key = `${f.symbol}:${f.side}:${scopeKey(note)}`;
-          if (ovSeen.has(key)) continue;
-          ovSeen.add(key);
-          blockFirst.push(f);
-          if (ovSeen.size >= 12) break;
+          if (!/Block/i.test(note) || !occupiedSymbols.has(f.symbol)) continue;
+          const row = bySym.get(f.symbol) ?? [];
+          row.push(f);
+          bySym.set(f.symbol, row);
         }
-        for (const f of entryIntents) {
+        const bags = [...bySym.values()];
+        let guard = 0;
+        while (bags.length && ovSeen.size < 12 && guard < 400) {
+          guard += 1;
+          const bag = bags.shift();
+          if (!bag?.length) continue;
+          const f = bag.shift();
           const note = String(f.note || "");
-          if (!/^Block\b/i.test(note) || /Overall/i.test(note) || !occupiedSymbols.has(f.symbol)) continue;
-          const key = `${f.symbol}:${f.side}:${f.level || 1}`;
-          if (relSeen.has(key)) continue;
-          relSeen.add(key);
-          blockFirst.push(f);
-          if (relSeen.size >= 6) break;
+          const overall = /Overall Block/i.test(note);
+          const key = overall
+            ? `${f.symbol}:${f.side}:${scopeKey(note)}`
+            : `${f.symbol}:${f.side}:rel:${f.level || 1}`;
+          const seen = overall ? ovSeen : relSeen;
+          if (!seen.has(key)) {
+            seen.add(key);
+            blockFirst.push(f);
+          }
+          if (bag.length) bags.push(bag);
         }
         if (slim.length && (slim.every((x) => x.side === "short") || slim.every((x) => x.side === "long"))) {
           const want = slim[0].side === "short" ? "long" : "short";
