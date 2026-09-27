@@ -1433,8 +1433,11 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     if (!mayCancelOrder(o)) return false;
     if (kindOf(o.type)) return false;
     const t = String(o.type || "").toUpperCase();
-    if (t === "LIMIT" && !ownedSym.has(o.symbol)) return false;
-    if (t === "MARKET") return false;
+    if (t === "LIMIT" || t === "MARKET") return false;
+    const filled = Number(o.filled) || 0;
+    const remaining = o.remaining != null ? Number(o.remaining) : Number(o.qty) || 0;
+    if (filled > 0 && remaining > 0) return false;
+    if (!ownedSym.has(o.symbol)) return false;
     return true;
   });
   if (leftoverJobs.length) {
@@ -1476,6 +1479,31 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     (a, b) => vol1hOf(e?.quotes?.[b.symbol]) - vol1hOf(e?.quotes?.[a.symbol]),
   );
   const closeRetry = (err) => /closePosition|close position|available amount|quantity|position/i.test(String(err || ""));
+  const placeControl = async (p, qty, type, stopPrice, mark) => {
+    const q = qty > 0 ? qty : snapQtyDown(p.qty, null);
+    const px = mark > 0 ? mark : p.mark || p.entry || stopPrice;
+    const base = {
+      network,
+      connId: CONN,
+      symbol: p.symbol,
+      side: p.side === "long" ? "SELL" : "BUY",
+      positionSide: p.side === "long" ? "LONG" : "SHORT",
+      quantity: q,
+      type,
+      price: px,
+      stopPrice,
+      notional: Math.max(1, q * px),
+      confirmLive: true,
+      attachProtect: false,
+      reduceOnly: false,
+      exactQty: true,
+    };
+    let r = await withLiveBusy(() => placeSwapOrder({ ...base, closePosition: true }));
+    if (!r.ok && closeRetry(r.error)) {
+      r = await withLiveBusy(() => placeSwapOrder({ ...base, closePosition: false }));
+    }
+    return r;
+  };
   let posts = 0;
 
   const protectOne = async (p, driftSl, driftTp) => {
@@ -1664,28 +1692,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         hasSl.delete(key);
       }
       const qty = snapQtyDown(p.qty, spec);
-      const body = {
-        network,
-        connId: CONN,
-        symbol: p.symbol,
-        side: p.side === "long" ? "SELL" : "BUY",
-        positionSide: p.side === "long" ? "LONG" : "SHORT",
-        quantity: qty,
-        type: "STOP_MARKET",
-        price: mark,
-        stopPrice: next,
-        notional: Math.max(1, qty * mark),
-        confirmLive: true,
-        slAtr: cell.slAtr,
-        tpRatio: cell.tpRatio,
-        attachProtect: false,
-        closePosition: false,
-        reduceOnly: false,
-      };
-      let r = await withLiveBusy(() => placeSwapOrder(body));
-      if (!r.ok && closeRetry(r.error)) {
-        r = await withLiveBusy(() => placeSwapOrder({ ...body, reduceOnly: false, closePosition: false }));
-      }
+      const r = await placeControl(p, qty, "STOP_MARKET", next, mark);
       if (r.ok) {
         lastPostedSl.set(key, next);
         lastProtectQty.set(key, qty);
@@ -1745,24 +1752,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         hasTp.delete(key);
       }
       const qty = snapQtyDown(p.qty, spec);
-      const r = await withLiveBusy(() =>
-        placeSwapOrder({
-          network,
-          connId: CONN,
-          symbol: p.symbol,
-          side: p.side === "long" ? "SELL" : "BUY",
-          positionSide: p.side === "long" ? "LONG" : "SHORT",
-          quantity: qty,
-          type: "TAKE_PROFIT_MARKET",
-          stopPrice: want,
-          confirmLive: true,
-          attachProtect: false,
-          closePosition: false,
-          reduceOnly: false,
-          notional: Math.max(1, qty * mark),
-          price: mark,
-        }),
-      );
+      const r = await placeControl(p, qty, "TAKE_PROFIT_MARKET", want, mark);
       if (r.ok) {
         lastPostedTp.set(key, want);
         hasTp.add(key);
@@ -2092,6 +2082,10 @@ async function mirrorToExchange(e, network, cfg) {
     if (fillJobs.length >= entryCap) break;
     if (mirrored.has(f.id) || skippedFills.has(f.id)) {
       markWhy(f, "mir");
+      continue;
+    }
+    if (f.liveEcho) {
+      mirrored.add(f.id);
       continue;
     }
     if (f.kind !== "entry" && f.kind !== "partial") {
@@ -2595,6 +2589,8 @@ async function main() {
   let lastTickAt = Date.now();
   let tickBusy = false;
   let ioInFlight = false;
+  let ioStartedAt = 0;
+  let mirrorJob = null;
 
   function doTick() {
     if (tickBusy) {
@@ -2620,7 +2616,7 @@ async function main() {
         minRelPf: engine.blockPf || DEFAULT_BLOCK_PF,
         liveDisableMinPf: engine.blockPf || DEFAULT_BLOCK_PF,
       };
-      pick.cfg = { ...pick.cfg, shortRange: true, dcaCount: 3, axisPartialRatio: AXIS_PARTIAL_RATIO, trailingPct: Math.max(1.5, Number(pick.cfg.trailingPct) || 1.5) };
+      pick.cfg = { ...pick.cfg, shortRange: true, dcaCount: STRAT.dca ? 3 : 1, axisPartialRatio: AXIS_PARTIAL_RATIO, trailingPct: Math.max(1.5, Number(pick.cfg.trailingPct) || 1.5) };
       mergeLivePositions(engine, lastBook);
       tickVst(engine, pick.cfg, pick.tactic, {
         freezeIds: freeze,
@@ -2648,6 +2644,7 @@ async function main() {
   async function ioCycle() {
     if (ioInFlight) return;
     ioInFlight = true;
+    ioStartedAt = Date.now();
     try {
       if (apiQuiet()) {
         /* skip private API until BingX unban */
@@ -2684,9 +2681,14 @@ async function main() {
         }
       }
       let wroteExchange = false;
-      if (!apiQuiet() && ping.pingOk) {
+      if (!apiQuiet() && ping.pingOk && !mirrorJob) {
+        const job = mirrorToExchange(engine, ping.network, pick.cfg);
+        mirrorJob = job;
+        job.finally(() => {
+          if (mirrorJob === job) mirrorJob = null;
+        });
         try {
-          const liveNote = await withTimeout(mirrorToExchange(engine, ping.network, pick.cfg), 60000, "live");
+          const liveNote = await withTimeout(job, 60000, "live");
           if (liveNote) {
             adjustments.push(liveNote);
             noteOp(liveNote);
@@ -2786,6 +2788,7 @@ async function main() {
       }
     } finally {
       ioInFlight = false;
+      ioStartedAt = 0;
     }
     try {
       if (wantStatus(false)) {
@@ -2905,7 +2908,7 @@ async function main() {
     if (Date.now() - lastTickAt > TICK_MS * 6) {
       tickBusy = false;
       liveBusy = 0;
-      ioInFlight = false;
+      if (!mirrorJob && ioStartedAt && Date.now() - ioStartedAt > 90000) ioInFlight = false;
       adjustments.push("watchdog tick");
       try {
         healEngine(engine, pick.cfg, pick.tactic, pick.range);
@@ -3055,7 +3058,7 @@ async function main() {
     } catch (err) {
       tickBusy = false;
       liveBusy = 0;
-      ioInFlight = false;
+      if (!mirrorJob) ioInFlight = false;
       adjustments.push(`loop ${err instanceof Error ? err.message : "err"}`);
       try {
         healEngine(engine, pick.cfg, pick.tactic, pick.range);

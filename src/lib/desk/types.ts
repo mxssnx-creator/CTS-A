@@ -826,6 +826,8 @@ export interface Fill {
   tick: number;
   remaining?: number;
   planned?: number;
+  /** Bookkeeping from the exchange position. Never send this fill again. */
+  liveEcho?: boolean;
 }
 
 export interface VstBatch {

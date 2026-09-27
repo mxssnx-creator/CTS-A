@@ -874,6 +874,7 @@ describe("VST engine", () => {
     assert.equal(e.positions[0].status, "partial");
     const cut = e.fills[0];
     assert.equal(cut.kind, "partial");
+    assert.equal(cut.liveEcho, true);
     assert.equal(cut.qty, 6);
     assert.equal(cut.remaining, 4);
     assert.equal(cut.planned, 10);

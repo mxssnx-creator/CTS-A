@@ -4503,6 +4503,7 @@ export function syncLivePartials(
           tick: e.tick,
           remaining: Math.max(0, pos.plannedQty - pos.qty),
           planned: pos.plannedQty,
+          liveEcho: true,
         });
       } else {
         const take = Math.abs(dQty);
@@ -4524,6 +4525,7 @@ export function syncLivePartials(
           tick: e.tick,
           remaining: pos.qty,
           planned: pos.plannedQty,
+          liveEcho: true,
         });
       }
       if (e.fills.length > VST_FILL_KEEP) e.fills.length = VST_FILL_KEEP;
