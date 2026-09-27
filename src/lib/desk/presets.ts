@@ -667,6 +667,71 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       orders: 105.4,
     },
   },
+  {
+    id: "stable-dca-0927",
+    label: "Stable DCA 09-27",
+    blurb: "Reference. Repair from git tag stable. 2h after 1h pre, 8 symbols, $10. ATR DCA PF 1.253 on 168 closes. Overall PF 1.241. Volume DCA off.",
+    builtin: true,
+    patch: {
+      activeConnId: "bingx-x01",
+      symbolCount: 50,
+      evalSymbolCount: 300,
+      liveSymbolCap: 50,
+      tactic: "trailing",
+      rangeType: "atr",
+      orderType: "limit",
+      costStep: 3,
+      tacticConfig: {
+        trailingPct: 1.5,
+        dcaCount: 3,
+        dcaDrawdown: 0.6,
+        axisSpacing: 0.7,
+        axisLevels: 5,
+        axisPartialRatio: 3,
+        slAtr: 0.48,
+        tpRatio: 1,
+        tpAtr: 0.48,
+        slOfTp: 1,
+        shortRange: true,
+        maxHoldBars: 3,
+        maxHoldTicks: 8,
+      },
+      blockConfig: {
+        ...DEFAULT_BLOCK_CONFIG,
+        enabled: true,
+        counts: [1, 2, 3, 4, 5, 6],
+        maxMultiple: 6,
+        minMultiple: 1,
+        volumeRatio: 0.4,
+        relVolumeRatio: 0.4,
+        sharedVolumeRatio: 1.5,
+        overallVolumeRatio: 1.5,
+        maxVolumeMultiplier: 8,
+        minActiveLevel: 1,
+        pauseCountRatio: 0,
+        windows: true,
+        stack: true,
+        volumeMode: "parallel",
+        overallMode: "parallel",
+        sides: "both",
+        overall: true,
+      },
+      thresholds: { ...DEFAULT_THRESHOLDS, maxDdt: 22 },
+      pfCoords: { hourKeep: true, bankWin: true, pairAdd: true, laneCool: true, winAgain: true },
+      strategyToggles: { normal: true, trailing: true, axis: true, block: true, dca: true },
+      enabledKinds: [...DEFAULT_ENABLED_KINDS],
+      minSizeRatio: 1.5,
+      sessionPhase: "running",
+    },
+    info: {
+      winHoursPct: 1,
+      pf: 1.241,
+      ddt: 22,
+      tradesPerHour: 181,
+      positions: 8,
+      orders: 168,
+    },
+  },
 ];
 
 export function measuredSlTrailBots() {
@@ -703,7 +768,7 @@ export function x01BotPreset() {
   return bots;
 }
 
-export const STABLE_PRESET_ID = "tape-6h-12";
+export const STABLE_PRESET_ID = "stable-dca-0927";
 
 export function sanitizePreset(raw: unknown): SettingsPreset | null {
   if (!raw || typeof raw !== "object") return null;

@@ -1,6 +1,6 @@
 # CTS-A — Coordinations that must not regress
 
-**Stable baseline: git tag `stable` (2026-09-23).** Repair from that commit. Do not revert the tape-accounting rules in `AGENTS.project.md` (arm after flags, interval baseline after the exam reset, no gatedFlip, leg range spacing, no double-counted drawdown placements).
+**Stable baseline: git tag `stable` (2026-09-27), preset `stable-dca-0927`.** Repair from that commit. Check with `npm run test:stable`. Do not revert the tape-accounting rules in `AGENTS.project.md` (arm after flags, interval baseline after the exam reset, no gatedFlip, leg range spacing, no double-counted drawdown placements).
 
 **Read this before changing PF floors, last-N, Block volumes, short GRID, intern/live isolation, or sim headlines.**  
 Pair with [CTS-A-COMPLETE-CONTEXT.md](./CTS-A-COMPLETE-CONTEXT.md) and [CTS-A-defaults.json](./CTS-A-defaults.json). Machine dump: [CTS-A-coordinations.json](./CTS-A-coordinations.json).
