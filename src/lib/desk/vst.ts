@@ -462,8 +462,8 @@ function validatedOrderDepth(
 /** Stable live tape (preset tape-6h-12): short 0.48/1, trail 1.5, all strategies. */
 export const LIVE_RUN_CFG: TacticConfig = {
   trailingPct: 1.5,
-  dcaCount: 1,
-  dcaDrawdown: 0.8,
+  dcaCount: 3,
+  dcaDrawdown: 0.6,
   axisSpacing: 0.7,
   axisLevels: 5,
   axisPartialRatio: 3,
@@ -2933,6 +2933,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             }
           }
           for (const leg of legs) {
+          if (tac === "dca" && leg.range === "volume") continue;
           const legKey = exclusiveLeg
             ? `${s.id}:${side}`
             : `${s.id}:${side}:${ind}:${tac}:${comboKey || "x"}:${leg.kind}:${leg.range}`;
@@ -4311,15 +4312,18 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   if (String(p.playbook || "").startsWith("bot:")) return;
   if (dcaOverlayOff(e)) return;
   if (p.legs.length < 1 || p.legs.length >= cfg.dcaCount) return;
+  if (p.controllingRange === "volume") return;
   const q = e.quotes[p.symbol];
   if (!q || !(q.px > 0) || !(p.avgEntry > 0)) return;
   const signed = p.side === "long" ? 1 : -1;
   const ddPct = Math.max(0, (-signed * (q.px - p.avgEntry)) / Math.max(p.avgEntry, 1e-9) * 100);
-  const need = Math.max(0, cfg.dcaDrawdown) * p.legs.length;
-  if (ddPct + 1e-12 < need || ddPct <= 0) return;
   const stopPct = p.slDist > 0 ? (p.slDist / p.avgEntry) * 100 : 0.8;
-  const room = Math.min(stopPct * 0.72, Math.max(need * 3.2, 2.4));
-  if (ddPct > room) return;
+  const rangeStep: Record<string, number> = { atr: 0.32, linear: 0.75, geometric: 0.42, volume: 0.72, fibonacci: 0.382 };
+  const tune = cfg.dcaDrawdown > 0 && cfg.dcaDrawdown <= 1.6 ? cfg.dcaDrawdown : 0.8;
+  const step = Math.min(0.48, Math.max(0.18, (rangeStep[p.controllingRange] ?? 0.32) * tune));
+  const need = stopPct * step * p.legs.length;
+  const room = stopPct * 0.62;
+  if (ddPct + 1e-12 < need || ddPct <= 0 || ddPct > room) return;
   const through = p.side === "long" ? q.px <= p.sl : q.px >= p.sl;
   if (through) return;
   const axis = q.axis > 0 ? q.axis : p.avgEntry;
@@ -4339,7 +4343,7 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   if (e.queue.filter((o) => o.connId === p.connId).length >= maxQueue(e)) return;
   const px = q.px;
   const legN = p.legs.length;
-  const scale = legN <= 1 ? 0.55 : legN === 2 ? 0.35 : 0.22;
+  const scale = legN <= 1 ? 0.4 : legN === 2 ? 0.25 : 0.15;
   const qty = Math.max((positionNotional(paperSizeEquity(e), e.costStep || 10) / px) * scale, 1e-8);
   const nextQty = Math.max(p.qty, 0) + qty;
   const nextAvg = nextQty > 0 ? (p.avgEntry * Math.max(p.qty, 0) + px * qty) / nextQty : px;
@@ -6083,7 +6087,7 @@ function validatedSet(
   e: VstEngine,
   rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number },
 ): boolean {
-  if (!e.preEvalDone || internAllPhase(e)) return true;
+  if (!e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return true;
   if (rel.tpAtr != null && rel.slOfTp != null && isShortComboRel(e, rel)) {
     if (!shortComboProven(e, rel.tpAtr, rel.slOfTp) && !internRelProven(e, rel)) return false;
   }

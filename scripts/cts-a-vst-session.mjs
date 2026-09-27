@@ -229,8 +229,8 @@ pinX01Strat();
 /** Stable tape-6h-12: short 0.48/1, trail 1.5, hold 8. */
 const X01_LIVE_CFG = {
   trailingPct: 1.5,
-  dcaCount: 1,
-  dcaDrawdown: 0.8,
+  dcaCount: 3,
+  dcaDrawdown: 0.6,
   shortRange: true,
   tpAtr: 0.48,
   slOfTp: 1,

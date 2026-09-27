@@ -133,6 +133,19 @@ describe("Block and DCA", () => {
     assert.ok([...e.queue, ...e.orders].some((o) => /^DCA/.test(o.note)), "tactic dca still adds when the switch is off");
   });
 
+  it("DCA adds inside a short stop instead of waiting past it", () => {
+    const e = book();
+    e.strategyToggles = { ...e.strategyToggles!, dca: true };
+    const { pos, entry } = seedLong(e, 0.997);
+    pos.sl = entry * 0.995;
+    pos.tp = entry * 1.005;
+    pos.slDist = entry * 0.005;
+    pos.tpDist = entry * 0.005;
+    pos.controllingRange = "atr";
+    tickVst(e, CFG, "trailing", { skipWalk: true, rangeType: "atr" });
+    assert.ok([...e.queue, ...e.orders].some((o) => /^DCA/.test(o.note)), "tight short stop never got a DCA add");
+  });
+
   it("DCA does not add once the dip has used most of the stop", () => {
     const e = book();
     e.strategyToggles = { ...e.strategyToggles!, dca: true };
