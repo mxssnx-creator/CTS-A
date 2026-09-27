@@ -185,6 +185,7 @@ import {
   classifyIndication,
   openPlaybook,
   liveExecPlaybook,
+  unadjustedNormalOrder,
   tacticForIndication,
   ingestLivePnls,
   evalBlockRelations,
@@ -1393,10 +1394,12 @@ describe("VST engine", () => {
     const ePb = initVstEngine(CFG, { warmup: 0, symbolCount: 2, arm: false });
     ePb.strategyToggles = { normal: false, trailing: true, axis: true, block: true, dca: false };
     ePb.blockCfg = { ...DEFAULT_BLOCK_CONFIG, activeLive: true, enabled: true };
-    assert.equal(liveExecPlaybook(ePb, "trailing", "trend"), "block");
+    assert.equal(liveExecPlaybook(ePb, "trailing", "trend"), "normal");
     assert.equal(liveExecPlaybook(ePb, "axis", "direction"), "axis");
+    assert.equal(unadjustedNormalOrder({ tactic: "trailing", playbook: "short", kind: "short", tpAtr: 0.48, slOfTp: 1 }), false);
+    assert.equal(unadjustedNormalOrder({ tactic: "hybrid", playbook: "short", kind: "short", tpAtr: 0.48, slOfTp: 1 }), true);
     ePb.strategyToggles.block = false;
-    assert.equal(liveExecPlaybook(ePb, "trailing", "trend"), "short");
+    assert.equal(liveExecPlaybook(ePb, "trailing", "trend"), "normal");
     assert.equal(tacticForIndication("direction"), "axis");
     assert.equal(tacticForIndication("trend"), "hybrid");
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });

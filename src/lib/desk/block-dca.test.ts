@@ -312,8 +312,8 @@ describe("Block and DCA", () => {
     };
     assert.equal(unadjustedNormalOrder(rel), false);
     assert.equal(liveShouldExecute(e, rel), true);
-    assert.equal(unadjustedNormalOrder({ playbook: "normal", kind: "normal", tactic: "hybrid" }), true);
-    assert.equal(liveShouldExecute(e, { symbol: "ETHUSDT", side: "long", playbook: "normal", kind: "normal", tactic: "hybrid" }), false);
+    assert.equal(unadjustedNormalOrder({ playbook: "short", kind: "short", tactic: "hybrid", tpAtr: 0.48, slOfTp: 1 }), true);
+    assert.equal(liveShouldExecute(e, { symbol: "ETHUSDT", side: "long", playbook: "short", kind: "short", tactic: "hybrid", tpAtr: 0.48, slOfTp: 1 }), false);
     const conn = e.activeConnId;
     e.queue.push(
       {

@@ -2321,6 +2321,13 @@ async function mirrorToExchange(e, network, cfg) {
       const resting = blockAdd
         ? (f.side === "long" ? ladder > 0 && ladder <= mark * 0.9995 : ladder > 0 && ladder >= mark * 1.0005)
         : (f.side === "long" ? ladder > 0 && ladder <= mark * 0.9995 : ladder > 0 && ladder >= mark * 1.0005);
+      const cell = protectFor(f.symbol);
+      const prot = shortStopPrices(
+        { symbol: f.symbol, side: f.side, mark, entry: mark, qty: 1 },
+        { ...cell, ...(currentPick?.cfg || {}), ...(cfg || {}) },
+        null,
+        e,
+      );
       const r = await withLiveBusy(() =>
         placeSwapOrder({
           network,
@@ -2333,9 +2340,11 @@ async function mirrorToExchange(e, network, cfg) {
           price: resting ? ladder : mark,
           notional: liveNotional(e, f, book.equity, f._rel),
           confirmLive: true,
-          slAtr: protectFor(f.symbol).slAtr,
-          tpRatio: protectFor(f.symbol).tpRatio,
-          attachProtect: false,
+          slAtr: cell.slAtr,
+          tpRatio: cell.tpRatio,
+          slPrice: prot?.sl,
+          tpPrice: prot?.tp,
+          attachProtect: !resting,
           equity: Number(book.equity) || 0,
         }),
       );

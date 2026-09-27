@@ -903,6 +903,8 @@ export async function placeSwapOrder(input: {
   exactQty?: boolean;
   slAtr?: number;
   tpRatio?: number;
+  slPrice?: number;
+  tpPrice?: number;
   attachProtect?: boolean;
   equity?: number;
   clientOrderId?: string;
@@ -991,7 +993,15 @@ export async function placeSwapOrder(input: {
     } else if (input.type === "MARKET" && !input.closePosition && input.attachProtect !== false && withProtect) {
       const ref = px > 0 ? px : sendQty > 0 ? usedNotional / sendQty : 0;
       if (ref > 0) {
-        const prot = liveProtectPrices(ref, protectSide, input.slAtr ?? 1.05, input.tpRatio ?? 2.6, spec, input.network === "mainnet" ? "main" : "vst");
+        const given = Number(input.slPrice) > 0 && Number(input.tpPrice) > 0
+          ? { sl: Number(input.slPrice), tp: Number(input.tpPrice) }
+          : null;
+        const sideOk = given
+          ? (protectSide === "long" ? given.sl < ref && given.tp > ref : given.sl > ref && given.tp < ref)
+          : false;
+        const prot = sideOk && given
+          ? given
+          : liveProtectPrices(ref, protectSide, input.slAtr ?? 1.05, input.tpRatio ?? 2.6, spec, input.network === "mainnet" ? "main" : "vst");
         params.stopLoss = JSON.stringify({
           type: "STOP_MARKET",
           stopPrice: prot.sl,

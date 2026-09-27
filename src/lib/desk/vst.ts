@@ -3157,7 +3157,7 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
   return ranked[0]?.[0] ?? lead?.[0] ?? "trend";
 }
 
-/** Normal and Trailing base sets. Axis, Block, and DCA are extra and stay live. */
+/** Unadjusted by Axis, Block, DCA, or Trailing. Range (short, ATR, fib, …) is not a strategy. */
 export function unadjustedNormalOrder(rel: {
   playbook?: string;
   kind?: string;
@@ -3168,19 +3168,13 @@ export function unadjustedNormalOrder(rel: {
   slOfTp?: number;
 }): boolean {
   const play = String(rel.playbook || "");
-  const kind = String(rel.kind || "");
   const tac = String(rel.tactic || "");
   const note = String(rel.note || "");
   if (tac === "axis" || play === "axis") return false;
   if (tac === "dca" || play === "dca" || /^DCA/i.test(note)) return false;
   if (play === "block" || /Block/i.test(note) || (Number(rel.blockLevel) || 0) >= 1) return false;
-  if (play === "short" || kind === "short" || /\bshort\b/i.test(note)) return false;
-  const tpAtr = Number((rel as { tpAtr?: number }).tpAtr);
-  const slOfTp = Number((rel as { slOfTp?: number }).slOfTp);
-  if (Number.isFinite(tpAtr) && tpAtr > 0 && Number.isFinite(slOfTp) && slOfTp > 0) return false;
-  if (tac === "trailing" || tac === "hybrid") return true;
-  if (play === "normal" || kind === "normal") return true;
-  return false;
+  if (tac === "trailing") return false;
+  return true;
 }
 
 export function openPlaybook(tactic: TacticKind, indication: IndicationId): string {
@@ -3192,22 +3186,17 @@ export function openPlaybook(tactic: TacticKind, indication: IndicationId): stri
   return "normal";
 }
 
-/** When Normal is off, live fills are short/Block — not general Normal lanes. */
+/** Strategy playbook only. Short range is a range, not a playbook. */
 export function liveExecPlaybook(
   e: VstEngine,
   tactic: TacticKind,
   indication: IndicationId,
   hinted?: string,
 ): string {
-  if (hinted && hinted !== "normal") return hinted;
   if (tactic === "dca") return "dca";
   if (tactic === "axis") return "axis";
-  const tog = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
-  if (!tog.normal) {
-    if (tog.block && (e.blockCfg?.activeLive || e.blockCfg?.enabled)) return "block";
-    return "short";
-  }
-  return hinted || openPlaybook(tactic, indication);
+  if (hinted === "block" || hinted === "axis" || hinted === "dca") return hinted;
+  return openPlaybook(tactic, indication);
 }
 
 export function tacticForIndication(id: IndicationId, t?: { axis?: boolean; trailing?: boolean }): TacticKind {
@@ -4322,6 +4311,10 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
           p.slDist = Math.abs(p.sl - p.avgEntry);
           clampRatio(p, holdR, shortPos);
         }
+      }
+      if (hitSl || (hitTp && !partial)) {
+        closePosition(e, p, hitSl ? p.sl : p.tp, hitSl ? "sl" : "tp");
+        continue;
       }
       keep.push(p);
       continue;
