@@ -114,6 +114,8 @@ import {
   lastNPrefix,
   coordinateLastNFromPrefix,
   scoreLastNGroup,
+  nearLastNPass,
+  evalWindowCount,
   foldLastNProcessings,
   completeLastNCorrectness,
   coverCatalogRows,
@@ -1024,10 +1026,11 @@ function baseStageFloor(e: VstEngine): number {
   return Math.max(BASE_STAGE_PF, minPfFor(e, "base"));
 }
 
-/** Process only a full last-N window that clears the base stage. A short sample is not a pass. */
+/** Process a full last-N once the eval count is filled. Under that count, keep accepting from 8. */
 function lastNTapePass(e: VstEngine, rows: { pnl: number }[] | undefined): boolean {
-  if (!rows || rows.length < 8) return false;
   const base = baseStageFloor(e);
+  const evalCount = evalWindowCount(lastNProgressOf(e));
+  if (!rows || rows.length < evalCount) return nearLastNPass(rows, 8, base);
   const d = decideLastN(rows, lastNProgressOf(e), base, base);
   const validOk = d.validHits.some((h) => h.samples >= h.n && h.pf + 1e-9 >= base && h.net > 0);
   if (!validOk) return false;

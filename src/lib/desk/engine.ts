@@ -79,6 +79,8 @@ export {
   coordinateLastNFromPrefix,
   slimLastNProgress,
   scoreLastNGroup,
+  nearLastNPass,
+  evalWindowCount,
   scoreLastNModeTape,
   foldLastNProcessings,
   foldOverallProcessing,

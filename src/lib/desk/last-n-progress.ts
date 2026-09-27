@@ -173,6 +173,30 @@ export function lastNMajorityOk(hits: LastNWindowHit[], pred: (h: LastNWindowHit
 /** Base-stage eval floor. A window under this is not a base pass. */
 export const BASE_STAGE_PF = 1.1;
 
+/** Smallest configured eval window. A shorter tape is still under the eval count. */
+export function evalWindowCount(cfg: { evalNs?: readonly number[] } | null | undefined): number {
+  const ns = cfg?.evalNs?.filter((n) => n > 0) ?? [];
+  return ns.length ? Math.min(...ns) : EVAL_POS_NS[0] ?? 15;
+}
+
+/**
+ * Sample is still shorter than the eval count. Accept the nearer last-N instead of waiting
+ * for a full eval window. Beginning uses 8. Stage evals use 5.
+ */
+export function nearLastNPass(
+  rows: { pnl?: number; ratio?: number }[] | null | undefined,
+  away: number,
+  floor: number,
+): boolean {
+  const need = Math.max(1, Math.round(away));
+  if (!rows || rows.length < need) return false;
+  const h = lastNHitFromPrefix(lastNPrefix(rows, need), need);
+  if (h.samples < need) return false;
+  const asked = Number(floor);
+  const pfFloor = asked > 0 ? Math.max(asked, BASE_STAGE_PF) : asked;
+  return h.pf + 1e-9 >= pfFloor && h.net > 0;
+}
+
 export function evalLastNGood(h: LastNWindowHit, basePf: number): boolean {
   const asked = Number(basePf);
   const floor = asked > 0 ? Math.max(asked, BASE_STAGE_PF) : asked;
@@ -403,10 +427,23 @@ export function scoreLastNGroup(
   minPf: number,
   basePf: number,
 ): LastNGroupScore {
-  if (rows.length < 4) {
+  const evalCount = evalWindowCount(cfg);
+  if (rows.length < evalCount && rows.length < 5) {
     let net = 0;
     for (const r of rows) net += edgePnl(r);
     return { n: rows.length, pf: 0, net, ok: true, stack: 1 };
+  }
+  if (rows.length < evalCount) {
+    const h = lastNHitFromPrefix(lastNPrefix(rows, 5), 5);
+    const asked = Number(basePf);
+    const pfFloor = asked > 0 ? Math.max(asked, BASE_STAGE_PF) : asked;
+    return {
+      n: rows.length,
+      pf: h.pf,
+      net: h.net,
+      ok: h.samples >= 5 && h.pf + 1e-9 >= pfFloor && h.net > 0,
+      stack: 1,
+    };
   }
   const d = decideLastN(rows, cfg, minPf, basePf);
   const hit = pickLastNScoreHit(d, minPf);

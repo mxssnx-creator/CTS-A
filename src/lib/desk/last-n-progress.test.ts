@@ -21,6 +21,8 @@ import {
   relComboKey,
   sanitizeLastNProgress,
   scoreLastNGroup,
+  nearLastNPass,
+  evalWindowCount,
   scoreLastNModeTape,
   foldLastNProcessings,
   completeLastNCorrectness,
@@ -378,6 +380,21 @@ describe("coordinateLastN picks working windows without shrinking settings", () 
     assert.equal(mode.pass, false);
     const fresh = scoreLastNGroup(wins(2), cfgP, 0, 0);
     assert.equal(fresh.ok, true, "undersampled intern coverage stays open");
+  });
+
+  it("under the eval count, stage evals accept from 5 and the beginning from 8", () => {
+    assert.equal(evalWindowCount(cfgP), 15);
+    const stageWin = scoreLastNGroup(wins(7), cfgP, 1.2, 1.1);
+    assert.equal(stageWin.ok, true);
+    assert.equal(stageWin.n, 7);
+    const stageLose = scoreLastNGroup(Array.from({ length: 7 }, () => ({ pnl: -0.4 })), cfgP, 1.2, 1.1);
+    assert.equal(stageLose.ok, false);
+    const stageShort = scoreLastNGroup(wins(4), cfgP, 1.2, 1.1);
+    assert.equal(stageShort.ok, true, "still under 5 stays open");
+    assert.equal(nearLastNPass(wins(8), 8, 1.1), true);
+    assert.equal(nearLastNPass(wins(7), 8, 1.1), false);
+    assert.equal(nearLastNPass(Array.from({ length: 8 }, () => ({ pnl: -0.4 })), 8, 1.1), false);
+    assert.equal(nearLastNPass(wins(6), 5, 1.1), true);
   });
 
   it("scoreLastNGroup explores undersampled and uses independent full last-N for types", () => {
