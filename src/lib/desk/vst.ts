@@ -2661,20 +2661,22 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         if (gate && tacRow && tacRow.n >= 8 && tacRow.pf + 1e-9 < 0.9 && tacRow.net <= 0) continue;
       }
       const axisInd = tac === "axis";
+      const normalOff = e.strategyToggles?.normal === false;
       const book = tac === "dca"
         ? "dca"
         : tac === "axis"
           ? "axis"
-          : tac === "hybrid" && e.strategyToggles?.normal
-            ? "normal"
+          : tac === "hybrid"
+            ? (cfgUsesShortRange(cfg) ? "short" : "normal")
             : cfgUsesShortRange(cfg)
               ? "short"
-              : e.strategyToggles?.normal === false
+              : normalOff
                 ? "short"
                 : openPlaybook(tac, ind);
       const kind = cfgUsesShortRange(cfg) ? "short" : kindFromIndication(ind, book, tac);
       const range = pickIndicationRange(e, ind, rangeType ?? e.lastRange ?? "atr");
       const shortLane = cfgUsesShortRange(cfg);
+      const plainNormal = normalOff && unadjustedNormalOrder({ playbook: book, kind, tactic: tac });
       const keepInd =
         book === "block" ||
         (DEFAULT_LOSING_HOUR_INDS as readonly string[]).includes(ind) ||
@@ -2709,7 +2711,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const internScore = Boolean(e.completeSim && paperMode(e));
         const internKeep = internAll || internSlot;
         const internHere = internAll || internSlot;
-        const validExec = internHere ? false : (!gatedExec || liveShouldExecute(e, execRel));
+        const validExec = internHere || plainNormal ? false : (!gatedExec || liveShouldExecute(e, execRel));
+        if (plainNormal && !internHere && !internKeep) continue;
         if (!internKeep && !internHere && !validExec && !keepInd && !shortLane) continue;
         const short = shortLane;
         const evalGrid = internHere && short
@@ -3145,6 +3148,26 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
     .filter(([id]) => !enabled?.length || enabled.includes(id))
     .sort((a, b) => b[1] - a[1]);
   return ranked[0]?.[0] ?? lead?.[0] ?? "trend";
+}
+
+/** Plain Normal lane. Axis, Block, DCA and Trailing are adjustments on that base, not this. */
+export function unadjustedNormalOrder(rel: {
+  playbook?: string;
+  kind?: string;
+  tactic?: string;
+  note?: string;
+  blockLevel?: number;
+}): boolean {
+  const play = String(rel.playbook || "");
+  const kind = String(rel.kind || "");
+  const tac = String(rel.tactic || "");
+  const note = String(rel.note || "");
+  if (tac === "axis" || play === "axis") return false;
+  if (tac === "dca" || play === "dca" || /^DCA/i.test(note)) return false;
+  if (play === "block" || /Block/i.test(note) || (Number(rel.blockLevel) || 0) >= 1) return false;
+  if (play === "normal" || kind === "normal") return true;
+  if (tac === "hybrid" && play !== "short" && play !== "block") return true;
+  return false;
 }
 
 export function openPlaybook(tactic: TacticKind, indication: IndicationId): string {
@@ -10084,6 +10107,7 @@ export function liveShouldExecute(
   },
 ): boolean {
   const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  if (!t.normal && unadjustedNormalOrder(rel)) return false;
   const note = String(rel.note || "");
   const play = String(rel.playbook || "");
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);

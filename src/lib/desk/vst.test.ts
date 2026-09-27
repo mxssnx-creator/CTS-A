@@ -4190,7 +4190,24 @@ describe("VST engine", () => {
     const rel = { symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, kind: "trend", tactic: "trailing" as const, rangeType: "atr" as const, playbook: "normal" };
     assert.equal(matchingWinningRels(e, rel).length, 3);
     assert.ok(Math.abs(winningRelVolume(e, rel) - 1.2) < 1e-9);
-    assert.equal(liveShouldExecute(e, rel), true);
+    assert.equal(liveShouldExecute(e, rel), false);
+    assert.equal(
+      liveShouldExecute(e, { ...rel, playbook: "block", note: "Block 1", blockLevel: 1 }),
+      true,
+    );
+    e.strategyToggles.dca = true;
+    assert.equal(liveShouldExecute(e, { symbol: "XRPUSDT", side: "long", playbook: "dca", tactic: "dca" }), true);
+    e.strategyToggles.dca = false;
+    const armed = initVstEngine({ ...CFG, shortRange: true, tpAtr: 0.48, slOfTp: 1, trailingPct: 1.5 }, { warmup: 0, symbolCount: 8, arm: false });
+    armed.strategyToggles = { normal: false, trailing: true, axis: true, block: true, dca: true };
+    armed.preEvalDone = true;
+    armed.completeSim = true;
+    armed.openCompleteTape = true;
+    armUniverse(armed, { ...CFG, shortRange: true, tpAtr: 0.48, slOfTp: 1, trailingPct: 1.5 }, "trailing");
+    const livePlain = armed.queue.filter((o) => o.validExec === true && o.playbook === "normal");
+    const liveAdj = armed.queue.filter((o) => o.validExec === true && (o.tactic === "trailing" || o.tactic === "axis" || o.tactic === "dca" || o.playbook === "short" || o.playbook === "axis" || o.playbook === "block" || o.playbook === "dca"));
+    assert.equal(livePlain.length, 0);
+    assert.ok(liveAdj.length > 0, `adjusted live orders ${liveAdj.length}`);
   });
 
   it("short-range overall PF 0.95 and base PF 0.7 are independent of overall 1.35", () => {
