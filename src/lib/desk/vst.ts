@@ -104,6 +104,7 @@ import {
   LIVE_DISABLE_N,
   sanitizeShortProgress,
   SHORT_PROGRESS_INDICATIONS,
+  COMMON_INDICATIONS,
   DEFAULT_SHORT_PROGRESS,
   sanitizeIntervalStrategy,
   sanitizeLastNProgress,
@@ -418,6 +419,9 @@ function validatedOrderDepth(
   tactic?: string,
 ): number {
   if (!performingLive(e)) return -1;
+  if (tpAtr != null && slOfTp != null && internRelProven(e, { indication: ind, tactic, tpAtr, slOfTp })) {
+    return Math.max(1, Math.min(4, levels));
+  }
   const gate = typeGateMem.get(e);
   if (!gate) return -1;
   const indRow = gate.indications[ind];
@@ -510,6 +514,17 @@ export function engageLiveBook(e: VstEngine) {
     e.stats.net = 0;
   }
 }
+
+/** Close the base exam: score every set, drop what did not validate, keep the best tapes for live. */
+export function finishBaseEval(e: VstEngine, block?: BlockConfig) {
+  const blk = block ?? e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
+  e.preEvalDone = true;
+  evalBlockRelations(e, blk);
+  flattenNonPerforming(e);
+  refreshProgressEvals(e, blk);
+  refreshLiveDisable(e, blk);
+}
+
 /** Paper $10 book uses 12× size on the open tape and after the exam, so later hours do not shrink to dust. */
 function paperSizeEquity(e: VstEngine): number {
   const eq = Number(e.stats?.equity) || 0;
@@ -667,6 +682,13 @@ function comboTapeStats(rows: { pnl?: number; ratio?: number }[] | undefined): {
     else if (p < 0) gl += -p;
   }
   return { n: rows.length, pf: profitFactor(gp, gl), net };
+}
+function relComboAlive(e: VstEngine, tpAtr: number, slOfTp: number): boolean {
+  const combo = shortComboKey(tpAtr, slOfTp);
+  const keys = e.validRelKeys;
+  if (!keys) return false;
+  for (const k of Object.keys(keys)) if (k.endsWith(`:${combo}`)) return true;
+  return false;
 }
 function internRelKey(ind: string | undefined, tac: string | undefined, tpAtr: number, slOfTp: number): string {
   return `${ind || "na"}:${tac || "na"}:${shortComboKey(tpAtr, slOfTp)}`;
@@ -871,6 +893,7 @@ export function shortComboProven(e: VstEngine, tpAtr: number, slOfTp: number): b
       if (!preOk) {
         const liveSt = comboTapeStats(e.shortComboLiveTape?.[key]);
         if (liveSt.n >= 8 && liveSt.pf + 1e-9 >= 1 && liveSt.net > 1e-9) return true;
+        if (internComboLiveOk(e, pre, minPfFor(e, "short"), minPfFor(e, "shortBase"))) return true;
         return false;
       }
     }
@@ -904,9 +927,8 @@ export function shortComboProven(e: VstEngine, tpAtr: number, slOfTp: number): b
   const row = e.progressEval?.shortCombos?.[key];
   if (!row || row.n < 6) {
     if (!e.preEvalDone) return true;
-    if (e.liveTape) return true;
-    if (!e.completeSim) return true;
-    return internStartOk(e, intern) || (row != null && row.n >= 4 && row.pf + 1e-9 >= GATED_MIN_PF && row.net > 0);
+    if (internStartOk(e, intern)) return true;
+    return row != null && row.n >= 4 && row.ok === true && row.pf + 1e-9 >= GATED_MIN_PF && row.net > 0;
   }
   const pf = Number(row.pf) || 0;
   const net = Number(row.net) || 0;
@@ -1437,7 +1459,18 @@ function symbolScore(e: VstEngine, id: string): number {
 
 export function rankUniverse(e: VstEngine): VstSymbol[] {
   const perf = internAllPhase(e) ? new Set<string>() : new Set(e.performingSymbols ?? []);
+  const after = Boolean(e.preEvalDone && !internAllPhase(e));
+  const pfOf = (id: string) => {
+    const t = e.symbolStats?.[id];
+    if (!t || (t.trades ?? 0) < 2) return -1;
+    return profitFactor(t.profit, t.loss);
+  };
   return [...universeSymbols(e.symbolCount)].sort((a, b) => {
+    if (after) {
+      const pa = pfOf(a.id);
+      const pb = pfOf(b.id);
+      if ((pa >= 0 || pb >= 0) && Math.abs(pb - pa) > 0.02) return pb - pa;
+    }
     if (perf.size) {
       const pa = perf.has(a.id) ? 1 : 0;
       const pb = perf.has(b.id) ? 1 : 0;
@@ -1506,11 +1539,17 @@ function protectLevels(entry: number, side: Side, sl0: number, tp0: number, rati
     slOut = side === "long" ? entry - minD : entry + minD;
     slOutD = minD;
   }
+  let tpOut = tp;
+  let tpOutD = tpD;
+  if (slOutD > tpOutD / Math.max(r, 1e-9) + 1e-12) {
+    tpOutD = slOutD * Math.max(r, 0.3);
+    tpOut = side === "long" ? entry + tpOutD : entry - tpOutD;
+  }
   return {
     sl: slOut,
-    tp,
+    tp: tpOut,
     slDist: slOutD,
-    tpDist: tpD
+    tpDist: tpOutD
   };
 }
 function axisLadders(q: VstQuote, cfg: TacticConfig): { rangeType: RangeType; spacing: number; levels: number[] }[] {
@@ -1947,6 +1986,38 @@ function isTerminal(status: LiveOrder['status']): boolean {
 function countPlaced(e: VstEngine, n = 1) {
   e.ledger.ordersPlaced += n;
 }
+const orderSnaps = new WeakMap<VstEngine, { tick: number; placed: number; filled: number }[]>();
+function noteOrderSnap(e: VstEngine) {
+  let row = orderSnaps.get(e);
+  if (!row) {
+    row = [];
+    orderSnaps.set(e, row);
+  }
+  const placed = e.ledger.ordersPlaced;
+  const filled = e.ledger.ordersFilled;
+  const last = row[row.length - 1];
+  if (last && last.tick === e.tick) {
+    last.placed = placed;
+    last.filled = filled;
+    return;
+  }
+  row.push({ tick: e.tick, placed, filled });
+  if (row.length > 5000) row.splice(0, row.length - 5000);
+}
+function orderWindow(e: VstEngine, minutes: number): { placed: number; filled: number } {
+  noteOrderSnap(e);
+  const row = orderSnaps.get(e) ?? [];
+  const from = e.tick - Math.max(1, minutes);
+  let base = { tick: 0, placed: 0, filled: 0 };
+  for (const s of row) {
+    if (s.tick <= from) base = s;
+    else break;
+  }
+  return {
+    placed: Math.max(0, e.ledger.ordersPlaced - base.placed),
+    filled: Math.max(0, e.ledger.ordersFilled - base.filled),
+  };
+}
 let lanePass: VstEngine | null = null;
 let laneMap: Map<string, LiveOrder[]> | null = null;
 function beginLanePass(e: VstEngine) {
@@ -2206,20 +2277,31 @@ function liveTacticScore(e: VstEngine, tac: string): number {
 }
 
 export function rankIndications(e: VstEngine, pack: Parameters<typeof indicationQuality>[1], winner: IndicationId): IndicationId[] {
-  const catalog = (e.shortProgress?.indications?.length ? e.shortProgress.indications : SHORT_PROGRESS_INDICATIONS) as IndicationId[];
+  const picked = (e.shortProgress?.indications?.length ? e.shortProgress.indications : SHORT_PROGRESS_INDICATIONS) as IndicationId[];
+  const catalog = [...new Set<IndicationId>([...COMMON_INDICATIONS, ...picked])];
+  const after = Boolean(e.preEvalDone && !internAllPhase(e));
   const score = (id: IndicationId) => {
     const q = indicationQuality(id, pack);
     const ev = e.progressEval?.indications?.[id];
     const mag = Math.abs(Number((pack as unknown as Record<string, number>)[id]) || 0);
+    if (after) {
+      const validated = Boolean(ev && ev.n >= 4 && ev.ok && ev.pf + 1e-9 >= GATED_MIN_PF && ev.net >= 0);
+      return (validated ? 1000 + ev!.pf * 100 : 0) + q + mag + liveLaneScore(e, id);
+    }
     return (id === winner ? 80 : 0) + q * 8 + (ev && ev.n >= 3 ? ev.pf * 4 : 0) + mag + liveLaneScore(e, id);
   };
   return catalog.slice().sort((a, b) => score(b) - score(a));
 }
 
-/** All enabled tactics, preferred / higher PF first. */
+/** All enabled tactics, best validated PF first after the base exam. */
 export function rankTactics(e: VstEngine, preferred: TacticKind): TacticKind[] {
+  const after = Boolean(e.preEvalDone && !internAllPhase(e));
   const score = (t: TacticKind) => {
     const ev = e.progressEval?.tactics?.[t];
+    if (after) {
+      const validated = Boolean(ev && ev.n >= 4 && ev.ok && ev.pf + 1e-9 >= GATED_MIN_PF && ev.net >= 0);
+      return (validated ? 1000 + ev!.pf * 100 : 0) + liveTacticScore(e, t);
+    }
     return (t === preferred ? 80 : 0) + (ev && ev.n >= 3 ? ev.pf : 1) + liveTacticScore(e, t);
   };
   return enabledLiveTactics(e).slice().sort((a, b) => score(b) - score(a));
@@ -2430,7 +2512,7 @@ export function shortProtectGrid(e: VstEngine, cfg: TacticConfig) {
   if (gated && intern) {
     return allShortTpSlCombos().filter((c) => {
       if (!withinFloors(c) || !inRange(c)) return false;
-      return shortComboProven(e, c.tpAtr, c.slOfTp);
+      return shortComboProven(e, c.tpAtr, c.slOfTp) || relComboAlive(e, c.tpAtr, c.slOfTp);
     });
   }
   if (intern) {
@@ -2509,9 +2591,15 @@ function sliceShortGrid(
   const isolatedLive = Boolean(e.completeSim) && Boolean(e.preEvalDone) && !internExplore && !completeOpenTape(e);
   const provenPreview: typeof all = [];
   for (const c of all) {
-    if (c && shortComboProven(e, c.tpAtr, c.slOfTp)) provenPreview.push(c);
+    if (c && (shortComboProven(e, c.tpAtr, c.slOfTp) || relComboAlive(e, c.tpAtr, c.slOfTp))) provenPreview.push(c);
   }
-  // No combo cap. Intern scores every live-floor pair. After types, live is only the pairs that passed.
+  const comboPf = (c: (typeof all)[number]) => {
+    if (!c) return 0;
+    const row = e.progressEval?.shortCombos?.[shortComboKey(c.tpAtr, c.slOfTp)];
+    return row && row.n >= 4 ? row.pf : 0;
+  };
+  provenPreview.sort((a, b) => comboPf(b) - comboPf(a) || b.tpAtr - a.tpAtr);
+  // No combo cap. Intern scores every live-floor pair. After types, live is only the pairs that passed, best PF first.
   if (isolatedLive) return provenPreview;
   if (!internAll) return all;
   const sp = e.shortProgress;
@@ -2657,6 +2745,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       for (const tac of tacs) {
       const liveQuality = openTape || performingLive(e) || Boolean(e.liveTape);
       if (tac === "axis" && (disp < 0.35 || disp > 2.6)) continue;
+      if (tac === "dca" && dcaOverlayOff(e)) continue;
       if (liveQuality && laneCooled(e, s.id, ind, tac)) continue;
       if (liveQuality && !liveIndStillPays(e, ind)) continue;
       if (performingLive(e) || e.liveTape) {
@@ -2666,7 +2755,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const shortBook = cfgUsesShortRange(cfg);
         // Mixed-intern indication PF must not blank a proven short combo. Dead tactics stay off.
         if (!shortBook && gate && indRow && indRow.n >= 4 && !indRow.ok) continue;
-        if (gate && tacRow && tacRow.n >= 8 && tacRow.pf + 1e-9 < 0.9 && tacRow.net <= 0) continue;
+        if (gate && tacRow && tacRow.n >= 8 && tacRow.pf + 1e-9 < 0.9 && tacRow.net <= 0) {
+          const keepTac = Object.keys(e.validRelKeys ?? {}).some((k) => k.startsWith(`${ind}:${tac}:`));
+          if (!keepTac) continue;
+        }
       }
       const axisInd = tac === "axis";
       const normalOff = e.strategyToggles?.normal === false;
@@ -2720,8 +2812,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const internKeep = internAll || internSlot;
         const internHere = internAll || internSlot;
         const validExec = internHere || plainNormal ? false : (!gatedExec || liveShouldExecute(e, execRel));
+        const afterBase = gatedExec && !internHere && !internKeep;
         if (plainNormal && (e.liveTape || (!internHere && !internKeep))) continue;
-        if (!internKeep && !internHere && !validExec && !keepInd && !shortLane) continue;
+        if (afterBase && !validExec) continue;
+        if (!afterBase && !internKeep && !internHere && !validExec && !keepInd && !shortLane) continue;
         const short = shortLane;
         const evalGrid = internHere && short
           ? (internAll
@@ -2760,15 +2854,17 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         for (const prot of grid) {
           if (qn >= qStop || pn >= pMax) break;
           const comboKey = prot ? shortComboKey(prot.tpAtr, prot.slOfTp) : "";
-          const comboOk = !prot || internAll || internSlot || internKeep || shortComboProven(e, prot.tpAtr, prot.slOfTp);
+          const relOk = Boolean(prot && performingLive(e) && internRelProven(e, { indication: ind, tactic: tac, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp }));
+          const comboOk = !prot || internAll || internSlot || internKeep || shortComboProven(e, prot.tpAtr, prot.slOfTp) || relOk;
           const comboExec = internHere
             ? false
             : !gatedExec || liveShouldExecute(e, prot ? { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp } : execRel);
           if (gatedExec && prot && !internHere && !(e.shortComboOnly && paperMode(e))) {
             if (!comboOk) continue;
-            if (!comboExec && !keepInd && !internKeep) continue;
+            if (!comboExec && !internKeep && !(keepInd && !afterBase)) continue;
           }
           let laneValid = internHere ? false : comboExec && comboOk;
+          if (afterBase && !laneValid) continue;
           // Mixed intern indication PF must not skip a proven independent short combo.
           if (complete && gatedExec && laneValid && !short) {
             const indRow = e.progressEval?.indications?.[ind];
@@ -2806,7 +2902,28 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                   ddActivity: pack.drawdown ?? 0,
                   relAlign,
                   bands,
+                  tactic: tac,
                 }).map((leg) => ({ ...leg, sizeMul: leg.sizeMul * ddCut }));
+          if (!useCalc && paysHour && tac !== "dca" && (performingLive(e) || openTape || e.liveTape)) {
+            const extra = indicationCalcLegs({
+              id: ind,
+              primary: range,
+              dd: ddNow,
+              pxStretch: disp,
+              pays: true,
+              busy: hourBusy,
+              ddActivity: pack.drawdown ?? 0,
+              relAlign,
+              bands,
+              tactic: tac,
+            });
+            for (const leg of extra) {
+              if (leg.kind === "base") continue;
+              if (legs.length >= 4) break;
+              if (legs.some((l) => l.kind === leg.kind && l.range === leg.range)) continue;
+              legs.push({ ...leg, sizeMul: leg.sizeMul * ddCut });
+            }
+          }
           if (allLanes && (e.liveTape || e.x01Progress)) {
             const have = new Set(legs.map((l) => l.range));
             for (const r of RANGE_TYPES) {
@@ -3171,6 +3288,7 @@ export function unadjustedNormalOrder(rel: {
   const play = String(rel.playbook || "");
   const tac = String(rel.tactic || "");
   const note = String(rel.note || "");
+  if (play.startsWith("bot:")) return false;
   if (tac === "axis" || play === "axis") return false;
   if (tac === "dca" || play === "dca" || /^DCA/i.test(note)) return false;
   if (play === "block" || /Block/i.test(note) || (Number(rel.blockLevel) || 0) >= 1) return false;
@@ -3303,6 +3421,7 @@ export function indicationPaysThisHour(e: VstEngine, id: IndicationId): boolean 
 
 /** Up to three range calcs. Primary first, then the indication's own pref list. */
 export function expandPayRanges(id: IndicationId, primary: RangeType): RangeType[] {
+  if (id === "move") return [primary];
   const out: RangeType[] = [];
   const push = (r: RangeType) => {
     if (r && !out.includes(r)) out.push(r);
@@ -3314,7 +3433,7 @@ export function expandPayRanges(id: IndicationId, primary: RangeType): RangeType
 
 export type IndCalcLeg = { kind: IndCalcKind; range: RangeType; spaceMul: number; sizeMul: number; near: number };
 
-/** Base ladder plus one context leg: drawdown uses the wide range near the market, past relation uses tight or wide, busy hours keep a middle extra. At most four legs. */
+/** Base ladder plus independent context legs: price/session drawdown, past relation, and a busy-hour middle range. At most four. Tactics only reshape the extras. */
 export function indicationCalcLegs(args: {
   id: IndicationId;
   primary: RangeType;
@@ -3327,59 +3446,74 @@ export function indicationCalcLegs(args: {
   /** Positive when the past relation agrees with this fade. */
   relAlign?: number;
   bands?: { low: RangeType; mid: RangeType; high: RangeType };
+  tactic?: TacticKind;
 }): IndCalcLeg[] {
   const legs: IndCalcLeg[] = [{ kind: "base", range: args.primary, spaceMul: 1, sizeMul: 1, near: 0.11 }];
   const stretch = Number.isFinite(args.pxStretch) ? args.pxStretch : 0;
   const paysRange = (range: RangeType) => (IND_RANGE_PREF[args.id] || []).includes(range);
+  const push = (leg: IndCalcLeg) => {
+    if (legs.length >= 4) return;
+    if (!paysRange(leg.range) && leg.kind !== "px") return;
+    if (legs.some((l) => l.kind === leg.kind && l.range === leg.range)) return;
+    if (leg.kind !== "dd" && leg.kind !== "px" && leg.range === args.primary && legs.some((l) => l.range === args.primary)) return;
+    legs.push(leg);
+  };
   if (args.pays && paysRange("linear") && stretch >= 0.28 && stretch <= 1.6) {
     const near = Math.min(0.14, Math.max(0.09, 0.11 + (stretch - 0.55) * 0.04));
-    legs.push({
-      kind: "px",
-      range: "linear",
-      spaceMul: 1,
-      sizeMul: 0.55,
-      near,
-    });
+    push({ kind: "px", range: "linear", spaceMul: 1, sizeMul: 0.55, near });
   }
-  if (args.pays && args.bands && args.id !== "break" && args.id !== "sar" && args.id !== "move" && args.id !== "direction") {
-    const ddAct = Number.isFinite(args.ddActivity) ? Math.max(0, args.ddActivity!) : 0;
-    const align = Number.isFinite(args.relAlign) ? args.relAlign! : 0;
-    let leg: IndCalcLeg | null = null;
-    if (ddAct >= 0.18) {
-      leg = { kind: "dd", range: args.bands.high, spaceMul: 1, sizeMul: 0.42, near: align > 0.2 ? 0.09 : 0.12 };
-    } else if (align >= 0.22) {
-      leg = { kind: "rng", range: args.bands.low, spaceMul: 1, sizeMul: 0.5, near: 0.12 };
-    } else if (align <= -0.22) {
-      leg = { kind: "rng", range: args.bands.high, spaceMul: 1, sizeMul: 0.45, near: 0.2 };
-    } else if (args.busy) {
-      const mid = args.bands.mid !== args.primary ? args.bands.mid : args.bands.low;
-      if (mid !== args.primary) leg = { kind: "rng", range: mid, spaceMul: 1, sizeMul: 0.55, near: 0.2 };
-    }
-    if (leg && paysRange(leg.range) && (leg.range !== args.primary || leg.kind === "dd")) legs.push(leg);
-  } else if (args.pays && args.busy && args.id !== "break" && args.id !== "sar" && args.id !== "move" && args.id !== "direction") {
-    const extra = expandPayRanges(args.id, args.primary).find((r) => r !== args.primary);
-    if (extra) {
-      legs.push({
-        kind: "rng",
-        range: extra,
-        spaceMul: 1,
-        sizeMul: 0.55,
-        near: 0.2,
+  const locked = args.id === "break" || args.id === "sar" || args.id === "move";
+  const ddAct = Number.isFinite(args.ddActivity) ? Math.max(0, args.ddActivity!) : 0;
+  const align = Number.isFinite(args.relAlign) ? args.relAlign! : 0;
+  const sessionDd = Number.isFinite(args.dd) ? Math.max(0, args.dd) : 0;
+  if (!locked && args.pays && args.bands && args.id !== "direction") {
+    if (ddAct >= 0.18 || sessionDd >= 0.012) {
+      const range = paysRange(args.bands.high) ? args.bands.high : args.primary;
+      push({
+        kind: "dd",
+        range,
+        spaceMul: sessionDd >= 0.02 ? 1.08 : 1,
+        sizeMul: ddAct >= 0.18 ? 0.42 : 0.34,
+        near: align > 0.2 ? 0.09 : 0.12,
       });
     }
+    if (align >= 0.22 && paysRange(args.bands.low)) {
+      push({ kind: "rng", range: args.bands.low, spaceMul: 1, sizeMul: 0.5, near: 0.12 });
+    }
+    if (align <= -0.22 && paysRange(args.bands.high)) {
+      push({ kind: "rng", range: args.bands.high, spaceMul: 1, sizeMul: 0.45, near: 0.2 });
+    }
+    if (args.busy && legs.length < 4) {
+      const mid = args.bands.mid !== args.primary ? args.bands.mid : args.bands.low;
+      if (mid !== args.primary) push({ kind: "rng", range: mid, spaceMul: 1, sizeMul: 0.55, near: 0.2 });
+    }
+  } else if (!locked && args.pays && args.busy && args.id !== "direction") {
+    const extra = expandPayRanges(args.id, args.primary).find((r) => r !== args.primary);
+    if (extra) push({ kind: "rng", range: extra, spaceMul: 1, sizeMul: 0.55, near: 0.2 });
   }
-  if ((args.id === "break" || args.id === "sar" || args.id === "move") && legs.length > 1) {
-    return legs.filter((l) => l.kind === "base" || l.kind === "px");
+  if (locked && legs.length > 1) {
+    return legs.filter((l) => l.kind === "base" || l.kind === "px").slice(0, 4);
   }
   if (args.id === "direction" && args.pays && args.bands) {
-    const ddAct = Number.isFinite(args.ddActivity) ? Math.max(0, args.ddActivity!) : 0;
-    const align = Number.isFinite(args.relAlign) ? args.relAlign! : 0;
-    if (ddAct >= 0.08 && paysRange(args.bands.high) && !legs.some((l) => l.kind === "dd")) {
-      legs.push({ kind: "dd", range: args.bands.high, spaceMul: 1, sizeMul: 0.48, near: 0.08 });
+    if ((ddAct >= 0.08 || sessionDd >= 0.012) && paysRange(args.bands.high)) {
+      push({ kind: "dd", range: args.bands.high, spaceMul: sessionDd >= 0.02 ? 1.08 : 1, sizeMul: 0.48, near: 0.08 });
     }
-    if (align >= 0.08 && paysRange(args.bands.low) && args.bands.low !== args.primary && !legs.some((l) => l.kind === "rng" && l.range === args.bands!.low)) {
-      legs.push({ kind: "rng", range: args.bands.low, spaceMul: 1, sizeMul: 0.55, near: 0.1 });
+    if (align >= 0.08 && paysRange(args.bands.low)) {
+      push({ kind: "rng", range: args.bands.low, spaceMul: 1, sizeMul: 0.55, near: 0.1 });
     }
+    if (align <= -0.12 && paysRange(args.bands.high)) {
+      push({ kind: "rng", range: args.bands.high, spaceMul: 1, sizeMul: 0.45, near: 0.16 });
+    }
+  }
+  if (args.tactic === "trailing") {
+    for (const leg of legs) if (leg.kind !== "base") leg.near = Math.max(0.06, leg.near * 0.85);
+  } else if (args.tactic === "axis") {
+    for (const leg of legs) if (leg.kind !== "base") {
+      leg.spaceMul *= 1.12;
+      leg.sizeMul *= 0.9;
+    }
+  } else if (args.tactic === "dca") {
+    return legs.filter((l) => l.kind === "base");
   }
   return legs.slice(0, 4);
 }
@@ -3768,25 +3902,19 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       pos.kind = "block";
     }
   } else if (/^DCA/i.test(o.note || "")) {
+    pos.dcaQty = (pos.dcaQty || 0) + take;
     if (pos.playbook !== "block" && pos.playbook !== "short") pos.playbook = "dca";
     if (!pos.tactic) pos.tactic = "dca";
   }
   if (!created) {
     if (/^DCA/i.test(o.note || "")) {
-      pos.slDist = Math.abs(pos.sl - pos.avgEntry);
-      pos.tpDist = Math.abs(pos.tp - pos.avgEntry);
-    } else {
-    const sameCombo = o.tpAtr == null || pos.tpAtr == null || shortComboKey(pos.tpAtr, pos.slOfTp ?? 0) === shortComboKey(o.tpAtr, o.slOfTp ?? 0);
-    if (sameCombo) {
-      const slUse = Math.max(Number(o.slDist) || 0, Number(pos.slDist) || 0, 1e-12);
-      const tpUse = Math.max(Number(o.tpDist) || 0, Number(pos.tpDist) || 0, 1e-12);
       const entry = pos.avgEntry;
       if (pos.side === "long") {
-        pos.sl = Math.min(pos.sl, entry - slUse);
-        pos.tp = Math.max(pos.tp, entry + tpUse);
+        if (!(pos.sl < entry)) pos.sl = entry - Math.max(Number(pos.slDist) || 0, 1e-12);
+        if (!(pos.tp > entry)) pos.tp = entry + Math.max(Number(pos.tpDist) || 0, 1e-12);
       } else {
-        pos.sl = Math.max(pos.sl, entry + slUse);
-        pos.tp = Math.min(pos.tp, entry - tpUse);
+        if (!(pos.sl > entry)) pos.sl = entry + Math.max(Number(pos.slDist) || 0, 1e-12);
+        if (!(pos.tp < entry)) pos.tp = entry - Math.max(Number(pos.tpDist) || 0, 1e-12);
       }
       pos.slDist = Math.abs(pos.sl - entry);
       pos.tpDist = Math.abs(pos.tp - entry);
@@ -3795,7 +3923,51 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
         pos.slDist = pos.tpDist * slOf;
         pos.sl = pos.side === "long" ? entry - pos.slDist : entry + pos.slDist;
       }
-    }
+    } else if (/Block/i.test(o.note || "")) {
+      const entry = pos.avgEntry;
+      const slKeep = Math.max(Number(o.slDist) || Number(pos.slDist) || 0, 1e-12);
+      const tpKeep = Math.max(Number(o.tpDist) || Number(pos.tpDist) || 0, 1e-12);
+      if (pos.side === "long") {
+        const tight = entry - slKeep;
+        pos.sl = pos.sl > 0 ? Math.max(pos.sl, tight) : tight;
+        if (!(pos.sl < entry)) pos.sl = tight;
+        if (!(pos.tp > entry)) pos.tp = entry + tpKeep;
+      } else {
+        const tight = entry + slKeep;
+        pos.sl = pos.sl > 0 ? Math.min(pos.sl, tight) : tight;
+        if (!(pos.sl > entry)) pos.sl = tight;
+        if (!(pos.tp < entry)) pos.tp = entry - tpKeep;
+      }
+      pos.slDist = Math.abs(pos.sl - entry);
+      pos.tpDist = Math.abs(pos.tp - entry);
+      const slOf = Number(pos.slOfTp);
+      if (slOf > 0 && pos.tpDist > 0 && pos.slDist > pos.tpDist * slOf + 1e-9) {
+        pos.slDist = pos.tpDist * slOf;
+        pos.sl = pos.side === "long" ? entry - pos.slDist : entry + pos.slDist;
+      }
+    } else {
+      const entry = pos.avgEntry;
+      const dists = [Number(o.slDist), Number(pos.slDist)].filter((n) => n > 0);
+      const slKeep = Math.max(dists.length ? Math.min(...dists) : 1e-12, 1e-12);
+      const tpKeep = Math.max(Number(o.tpDist) || Number(pos.tpDist) || 0, 1e-12);
+      if (pos.side === "long") {
+        const tight = entry - slKeep;
+        pos.sl = pos.sl > 0 ? Math.max(pos.sl, tight) : tight;
+        if (!(pos.sl < entry)) pos.sl = tight;
+        if (!(pos.tp > entry)) pos.tp = entry + tpKeep;
+      } else {
+        const tight = entry + slKeep;
+        pos.sl = pos.sl > 0 ? Math.min(pos.sl, tight) : tight;
+        if (!(pos.sl > entry)) pos.sl = tight;
+        if (!(pos.tp < entry)) pos.tp = entry - tpKeep;
+      }
+      pos.slDist = Math.abs(pos.sl - entry);
+      pos.tpDist = Math.abs(pos.tp - entry);
+      const slOf = Number(pos.slOfTp);
+      if (slOf > 0 && pos.tpDist > 0 && pos.slDist > pos.tpDist * slOf + 1e-9) {
+        pos.slDist = pos.tpDist * slOf;
+        pos.sl = pos.side === "long" ? entry - pos.slDist : entry + pos.slDist;
+      }
     }
   }
   let otherWorking = false;
@@ -4042,6 +4214,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     playbook: originBook,
     level: p.blockLevel ?? Math.max(1, p.legs.length),
     blockQty: p.blockQty,
+    dcaQty: p.dcaQty,
     validExec: p.validExec === true,
     protect: protect || undefined,
     tpAtr: p.tpAtr,
@@ -4094,8 +4267,49 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   cancelLane(e, p);
   if (!botBook && !protect && ratio > 0.0012) queueWinAgain(e, p);
 }
+const dcaOvCache = new WeakMap<VstEngine, { tick: number; stamp: string; n: number; pf: number }>();
+
+function dcaOverlayShare(qty: number, dcaQty: number | undefined, playbook?: string, tactic?: string): number {
+  if (playbook === "dca" || tactic === "dca") return 1;
+  const q = Math.max(0, Number(qty) || 0);
+  const dq = Math.min(q, Math.max(0, Number(dcaQty) || 0));
+  if (q > 1e-12 && dq > 1e-12) return Math.min(1, dq / q);
+  return 0;
+}
+
+function dcaOverlayStats(e: VstEngine): { n: number; pf: number } {
+  const stamp = `${e.closed.length}:${e.closed[0]?.id || ""}`;
+  const hit = dcaOvCache.get(e);
+  if (hit && hit.tick === e.tick && hit.stamp === stamp) return hit;
+  let gp = 0;
+  let gl = 0;
+  let n = 0;
+  for (const c of e.closed) {
+    if (n >= 60) break;
+    if (c.protect) continue;
+    const sh = dcaOverlayShare(c.qty ?? 0, c.dcaQty, c.playbook, c.tactic);
+    if (!(sh > 0)) continue;
+    const raw = Number.isFinite(Number(c.ratio)) ? Number(c.ratio) : Number(c.pnl) || 0;
+    const edge = raw * sh;
+    if (Math.abs(edge) < 1e-15) continue;
+    n += 1;
+    if (edge > 0) gp += edge;
+    else gl -= edge;
+  }
+  const row = { tick: e.tick, stamp, n, pf: profitFactor(gp, gl) };
+  dcaOvCache.set(e, row);
+  return row;
+}
+
+function dcaOverlayOff(e: VstEngine): boolean {
+  if (!(e.liveTape || performingLive(e))) return false;
+  const st = dcaOverlayStats(e);
+  return st.n >= 24 && st.pf + 1e-9 < 1;
+}
+
 function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   if (String(p.playbook || "").startsWith("bot:")) return;
+  if (dcaOverlayOff(e)) return;
   if (p.legs.length < 1 || p.legs.length >= cfg.dcaCount) return;
   const q = e.quotes[p.symbol];
   if (!q || !(q.px > 0) || !(p.avgEntry > 0)) return;
@@ -4103,13 +4317,15 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   const ddPct = Math.max(0, (-signed * (q.px - p.avgEntry)) / Math.max(p.avgEntry, 1e-9) * 100);
   const need = Math.max(0, cfg.dcaDrawdown) * p.legs.length;
   if (ddPct + 1e-12 < need || ddPct <= 0) return;
-  if (ddPct > Math.max(need * 3.2, 2.4)) return;
+  const stopPct = p.slDist > 0 ? (p.slDist / p.avgEntry) * 100 : 0.8;
+  const room = Math.min(stopPct * 0.72, Math.max(need * 3.2, 2.4));
+  if (ddPct > room) return;
+  const through = p.side === "long" ? q.px <= p.sl : q.px >= p.sl;
+  if (through) return;
   const axis = q.axis > 0 ? q.axis : p.avgEntry;
-  const fading = p.side === "long" ? p.avgEntry <= axis : p.avgEntry >= axis;
-  const stillOk = fading
-    ? p.side === "long" ? q.px <= axis * 1.004 : q.px >= axis * 0.996
-    : p.side === "long" ? q.px > p.sl : q.px < p.sl;
-  if (!stillOk) return;
+  const openedFade = p.side === "long" ? p.avgEntry <= axis * 1.002 : p.avgEntry >= axis * 0.998;
+  const crossedBack = p.side === "long" ? q.px > axis * 1.002 : q.px < axis * 0.998;
+  if (openedFade && crossedBack) return;
   const tag = `DCA L${p.legs.length + 1}`;
   const pending = [...e.queue, ...e.orders].some(
     (o) =>
@@ -4123,10 +4339,11 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   if (e.queue.filter((o) => o.connId === p.connId).length >= maxQueue(e)) return;
   const px = q.px;
   const legN = p.legs.length;
-  const scale = legN <= 1 ? 0.62 : legN === 2 ? 0.4 : 0.28;
+  const scale = legN <= 1 ? 0.55 : legN === 2 ? 0.35 : 0.22;
   const qty = Math.max((positionNotional(paperSizeEquity(e), e.costStep || 10) / px) * scale, 1e-8);
   const nextQty = Math.max(p.qty, 0) + qty;
   const nextAvg = nextQty > 0 ? (p.avgEntry * Math.max(p.qty, 0) + px * qty) / nextQty : px;
+  if (p.side === "long" ? !(p.sl < nextAvg && p.tp > nextAvg) : !(p.sl > nextAvg && p.tp < nextAvg)) return;
   const shortLeg = p.tpAtr != null && p.slOfTp != null && p.slDist > 0 && p.tpDist > 0;
   const lv = shortLeg
     ? { sl: p.sl, tp: p.tp, slDist: Math.abs(p.sl - nextAvg), tpDist: Math.abs(p.tp - nextAvg) }
@@ -4270,7 +4487,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     }
     if (!botBook && (ownTactic === "dca" || (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca) && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (!shortPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
-    const holdR = shortPos && p.tpDist > 1e-12 && p.slDist > 1e-12 ? p.tpDist / p.slDist : e.tpRatio;
+    const holdR = shortPos && p.slOfTp != null && p.slOfTp > 0 ? Math.max(0.25, 1 / p.slOfTp) : e.tpRatio;
     if (!botBook) clampRatio(p, holdR, shortPos);
     if (e.tick === p.openedTick || e.tick - p.openedTick < Math.max(1, opts?.minHold ?? 1)) {
       keep.push(p);
@@ -4476,7 +4693,7 @@ function compactOrders(e: VstEngine) {
         .sort((a, b) => b.dist - a.dist);
       const kill = new Set(ranked.slice(0, unfilled.length - 1600).map((r) => r.o));
       for (const o of kill) markTerminal(e, o, "cancelled");
-      e.orders = e.orders.filter((o) => (o.status === "open" || o.status === "partial") && !kill.has(o));
+      e.orders = e.orders.filter((o) => !kill.has(o));
     }
     if (e.queue.length > 2400) {
       const rankedQ = e.queue
@@ -4595,6 +4812,7 @@ function recomputeStats(e: VstEngine) {
   const working = e.orders.length;
   e.ledger.maxPositions = Math.max(e.ledger.maxPositions, e.positions.length);
   e.ledger.maxOrders = Math.max(e.ledger.maxOrders, working + e.queue.length);
+  noteOrderSnap(e);
   let partials = 0;
   for (const p of e.positions) if (p.status === "partial") partials += 1;
   e.stats = {
@@ -4720,6 +4938,7 @@ export function sanitizeBook(e: VstEngine): number {
   const liveOrd = [];
   for (const o of e.orders) {
     if (!o || !Number.isFinite(o.qty) || o.qty <= 0 || !Number.isFinite(o.price) || o.price <= 0) {
+      if (o && !isTerminal(o.status)) markTerminal(e, o, "cancelled");
       fixes += 1;
       continue;
     }
@@ -4729,25 +4948,30 @@ export function sanitizeBook(e: VstEngine): number {
   }
   if (liveOrd.length !== e.orders.length) fixes += 1;
   e.orders = liveOrd;
-  e.queue = e.queue.filter((o) => {
+  const queueKeep = [];
+  for (const o of e.queue) {
     if (!o || !Number.isFinite(o.qty) || o.qty <= 0 || !Number.isFinite(o.price) || o.price <= 0) {
+      if (o && !isTerminal(o.status)) markTerminal(e, o, "cancelled");
       fixes += 1;
-      return false;
+      continue;
     }
-    return true;
-  });
+    queueKeep.push(o);
+  }
+  e.queue = queueKeep;
   if (e.queue.length > maxQueue(e)) {
     const bots = e.queue.filter((o) => isBotPlay(o.playbook));
     const rest = e.queue.filter((o) => !isBotPlay(o.playbook));
-    rest.length = Math.min(rest.length, maxQueue(e));
-    e.queue = [...rest, ...bots];
+    const keepN = Math.min(rest.length, maxQueue(e));
+    for (const o of rest.slice(keepN)) if (!isTerminal(o.status)) markTerminal(e, o, "cancelled");
+    e.queue = [...rest.slice(0, keepN), ...bots];
     fixes += 1;
   }
   if (e.orders.length > maxWorking(e)) {
     const bots = e.orders.filter((o) => isBotPlay(o.playbook));
     const rest = e.orders.filter((o) => !isBotPlay(o.playbook));
-    rest.length = Math.min(rest.length, maxWorking(e));
-    e.orders = [...rest, ...bots];
+    const keepN = Math.min(rest.length, maxWorking(e));
+    for (const o of rest.slice(keepN)) if (!isTerminal(o.status)) markTerminal(e, o, "cancelled");
+    e.orders = [...rest.slice(0, keepN), ...bots];
     fixes += 1;
   }
   if (e.positions.length > maxPositions(e)) {
@@ -5840,9 +6064,34 @@ function groupPf(rows: { pnl: number }[], minPf: number, minN = 3): ProgressEval
   return { n: sc.n, pf: sc.pf, net: sc.net, ok: sc.n >= minN && sc.pf + 1e-9 >= minPf && sc.net >= 0 };
 }
 
-function pickPositiveKeys(rows: Record<string, ProgressEvalRow>, fallback: string[]): string[] {
+function pickPositiveKeys(
+  rows: Record<string, ProgressEvalRow>,
+  fallback: string[],
+  afterBase = false,
+): string[] {
+  if (afterBase) {
+    return Object.entries(rows)
+      .filter(([, r]) => r.n >= 4 && r.ok && r.pf + 1e-9 >= GATED_MIN_PF && r.net >= 0)
+      .map(([k]) => k);
+  }
   const ok = Object.entries(rows).filter(([, r]) => r.ok || r.n < 4).map(([k]) => k);
   return ok.length ? ok : fallback;
+}
+
+/** After base eval, only a sampled set that passed its own last-N trades. An unsampled overall set does not. */
+function validatedSet(
+  e: VstEngine,
+  rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number },
+): boolean {
+  if (!e.preEvalDone || internAllPhase(e)) return true;
+  if (rel.tpAtr != null && rel.slOfTp != null && isShortComboRel(e, rel)) {
+    if (!shortComboProven(e, rel.tpAtr, rel.slOfTp) && !internRelProven(e, rel)) return false;
+  }
+  const coord = e.lastNCoord;
+  if (!coord) return rel.tpAtr != null && rel.slOfTp != null;
+  const combo = coord.combos[relComboKey(rel, { tactic: e.lastTactic, range: e.lastRange })];
+  if (!combo || combo.n < 4) return false;
+  return combo.ok && combo.pf + 1e-9 >= GATED_MIN_PF && combo.net >= 0;
 }
 
 const LAST_N_GROUP_CAP = 80;
@@ -6027,7 +6276,7 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
   );
   const tactics = coverCatalogRows(
     scoreTypeMap(grouped.tac, ln, typeFloor, typeFloor),
-    ["trailing", "axis", "hybrid"],
+    ["trailing", "axis", "hybrid", "dca"],
   );
   const ranges = coverCatalogRows(
     scoreTypeMap(grouped.rng, ln, typeFloor, typeFloor),
@@ -6035,7 +6284,7 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
   );
   const playbooks = coverCatalogRows(
     scoreTypeMap(grouped.play, ln, minPf, basePf),
-    ["short", "block", "axis", "normal"],
+    ["short", "block", "axis", "normal", "dca"],
   );
   const combos = scoreTypeMap(grouped.combo, ln, minPf, basePf);
   const shortBaseFloor = minPfFor(e, e.shortRange ? "shortBase" : "base");
@@ -6074,10 +6323,11 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
   const relMinPf = internAllPhase(e) ? 0 : (block.minRelPf ?? minPfFor(e, "block"));
   const relations = internScoreBlockRelations(e, block, relMinPf).rows;
 
-  const activeInds = pickPositiveKeys(indications, [...grouped.ind.keys()]);
-  const activeTacs = pickPositiveKeys(tactics, [...grouped.tac.keys()]);
-  const activeRanges = pickPositiveKeys(ranges, [...grouped.rng.keys()]);
-  const activePlays = pickPositiveKeys(playbooks, [...grouped.play.keys()]);
+  const afterBase = Boolean(e.preEvalDone && !internAllPhase(e));
+  const activeInds = pickPositiveKeys(indications, [...grouped.ind.keys()], afterBase);
+  const activeTacs = pickPositiveKeys(tactics, [...grouped.tac.keys()], afterBase);
+  const activeRanges = pickPositiveKeys(ranges, [...grouped.rng.keys()], afterBase);
+  const activePlays = pickPositiveKeys(playbooks, [...grouped.play.keys()], afterBase);
   const activeBlockNs = Object.entries(blockCounts)
     .filter(([, r]) => r.ok)
     .map(([k]) => Number(k))
@@ -6118,8 +6368,8 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
       playbooks,
       indicationKeys: SHORT_PROGRESS_INDICATIONS,
       rangeKeys: RANGE_TYPES,
-      tacticKeys: ["trailing", "axis", "hybrid"],
-      playbookKeys: ["short", "block", "axis", "normal"],
+      tacticKeys: ["trailing", "axis", "hybrid", "dca"],
+      playbookKeys: ["short", "block", "axis", "normal", "dca"],
     }),
     evalNs,
     validNs,
@@ -6670,6 +6920,32 @@ function recordBlockClose(e: VstEngine, p: LivePosition, ratio: number) {
   }
 }
 
+const blockOvCache = new WeakMap<VstEngine, { tick: number; stamp: string; n: number; pf: number }>();
+
+function blockOverlayStats(e: VstEngine): { n: number; pf: number } {
+  const stamp = `${e.closed.length}:${e.closed[0]?.id || ""}`;
+  const hit = blockOvCache.get(e);
+  if (hit && hit.tick === e.tick && hit.stamp === stamp) return hit;
+  let gp = 0;
+  let gl = 0;
+  let n = 0;
+  for (const c of e.closed) {
+    if (n >= 60) break;
+    if (c.protect) continue;
+    const sh = blockOverlayShare(c.qty ?? 0, c.blockQty, c.playbook);
+    if (!(sh > 0)) continue;
+    const raw = Number.isFinite(Number(c.ratio)) ? Number(c.ratio) : Number(c.pnl) || 0;
+    const edge = raw * sh;
+    if (Math.abs(edge) < 1e-15) continue;
+    n += 1;
+    if (edge > 0) gp += edge;
+    else gl -= edge;
+  }
+  const row = { tick: e.tick, stamp, n, pf: profitFactor(gp, gl) };
+  blockOvCache.set(e, row);
+  return row;
+}
+
 function blockCountPositive(e: VstEngine, n: number, minPf: number) {
   if (n < 1 || n > 6) return false;
   if (internAllPhase(e)) return true;
@@ -6702,16 +6978,13 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
   const inc = vr * Math.max(1, count);
   const floor = Math.max(minPf, blockMinimumProfitFactor(minPf, block.pfRatio || 1.25, inc) || minPf);
   if (pf + 1e-9 < floor) {
-    lane.heldFactor[count] = count;
     if (block.keepAdjusted) {
-      // Hold existing extra through a loss window. Do NOT plan new Block adds on a losing PF.
+      lane.heldFactor[count] = 1;
       return false;
     }
-    lane.pauseRemaining[count] = Math.max(0, Math.round((block.pauseCountRatio ?? 2) * count));
-    if (lane.pauseRemaining[count] < 1) {
-      lane.heldFactor[count] = 1;
-      return true;
-    }
+    lane.heldFactor[count] = count;
+    const pauseN = Math.max(1, Math.round((block.pauseCountRatio ?? 2) * count));
+    lane.pauseRemaining[count] = pauseN;
     return false;
   }
   lane.heldFactor[count] = 1;
@@ -6817,6 +7090,9 @@ export function adjustActiveBlocks(
   const overall = block.overall !== false;
   const overallPause = !overall && block.windows !== false && blockPosPaused(e, evalN);
   const volModes = liveVolumeModes(block);
+  const overlay = block.windows !== false && (e.liveTape || performingLive(e)) ? blockOverlayStats(e) : null;
+  const overlayFloor = Math.max(1.05, Math.min(minPf || 1.05, 1.2));
+  const overlayOff = Boolean(overlay && overlay.n >= 16 && overlay.pf + 1e-9 < overlayFloor);
 
   // Last-N / relation PF / indication sets must be current before Overall Block sizes extra volume.
   if ((e.lastRelEvalTick || 0) !== e.tick && (e.progressEval?.at || 0) !== e.tick) {
@@ -6843,6 +7119,7 @@ export function adjustActiveBlocks(
       if (adds >= addCap) break;
       if (!ownedByDesk(p, conn)) continue;
       if (p.qty <= 0) continue;
+      if (overlayOff) continue;
       const realStage = Boolean(e.liveTape);
       if (e.preEvalDone && !internAllPhase(e) && !realStage && p.validExec !== true) continue;
       if (!overall) {
@@ -6855,6 +7132,12 @@ export function adjustActiveBlocks(
       if (!overall && symbolBlockPaused(e, p.symbol, evalN)) continue;
       const q = e.quotes[p.symbol];
       if (!q || finiteOr(q.vol, 0) < MIN_QUOTE_VOL) continue;
+      const mark = q.px > 0 ? q.px : p.mark || p.avgEntry;
+      const adverse = p.side === "long"
+        ? (p.avgEntry - mark) / Math.max(p.avgEntry, 1e-12)
+        : (mark - p.avgEntry) / Math.max(p.avgEntry, 1e-12);
+      const stopFrac = p.slDist > 0 && p.avgEntry > 0 ? p.slDist / p.avgEntry : 0.008;
+      if (adverse > 0.0008 || adverse > stopFrac * 0.5) continue;
       const axisParent = p.playbook === "axis" || p.tactic === "axis";
       if (axisParent) {
         const withAxis = p.side === "long" ? q.px + 1e-12 >= p.avgEntry : q.px - 1e-12 <= p.avgEntry;
@@ -6998,7 +7281,7 @@ export function adjustActiveBlocks(
         const hi = pickRange(q, cfg, (p.controllingRange as RangeType | undefined) || rangeType);
         const sl0 = p.slDist > 1e-12 ? p.slDist : slDist(q.atr, hi.spacing, cfg.slAtr ?? SL_ATR_MULT, cfgUsesShortRange(cfg), q.px);
         const tp0 = p.tpDist > 1e-12 ? p.tpDist : tpDistFromSl(sl0, cfg.tpRatio, cfgUsesShortRange(cfg));
-        const px = p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
+        const px = mark > 0 ? mark : p.side === "long" ? Math.min(q.px, q.axis) : Math.max(q.px, q.axis);
         if (!(px > 0)) return;
         const lv = protectLevels(px, p.side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
         for (const item of planned) {
@@ -7100,8 +7383,44 @@ function dropUnadjustedNormal(e: VstEngine) {
   }
 }
 
+function capBookCheap(e: VstEngine) {
+  const qCap = maxQueue(e);
+  if (e.queue.length > qCap) {
+    const block: LiveOrder[] = [];
+    const bot: LiveOrder[] = [];
+    const foreign: LiveOrder[] = [];
+    const rest: LiveOrder[] = [];
+    for (const o of e.queue) {
+      if (!isDeskConn(o.connId)) foreign.push(o);
+      else if (isBotPlay(o.playbook)) bot.push(o);
+      else if (isBlockOrder(o)) block.push(o);
+      else rest.push(o);
+    }
+    const blockKeep = block.slice(-2400);
+    const room = Math.max(0, qCap - blockKeep.length);
+    const restKeep = rest.slice(-room);
+    const drop = block.slice(0, Math.max(0, block.length - 2400)).concat(rest.slice(0, Math.max(0, rest.length - room)));
+    for (const o of drop) markTerminal(e, o, "cancelled");
+    e.queue = blockKeep.concat(restKeep, bot, foreign);
+  }
+  const wCap = maxWorking(e);
+  if (e.orders.length > wCap) {
+    const keep: LiveOrder[] = [];
+    const extra: LiveOrder[] = [];
+    for (const o of e.orders) {
+      if (!isDeskConn(o.connId) || isBotPlay(o.playbook) || isBlockOrder(o)) keep.push(o);
+      else extra.push(o);
+    }
+    const room = Math.max(0, wCap - keep.length);
+    const extraKeep = extra.slice(-room);
+    for (const o of extra.slice(0, Math.max(0, extra.length - room))) markTerminal(e, o, "cancelled");
+    e.orders = keep.concat(extraKeep);
+  }
+}
+
 export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { freezeIds?: Set<string>; skipWalk?: boolean; skipMatch?: boolean; bookOnly?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
   ensureEngine(e);
+  capBookCheap(e);
   dropUnadjustedNormal(e);
   if (opts?.bookOnly) {
     e.lastTactic = tactic;
@@ -7713,7 +8032,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       row.profit += pnl;
     } else row.loss += Math.abs(pnl);
   };
-  const bumpClose = (t: { pnl?: number; ratio?: number; indication?: string; tactic?: string; playbook?: string; kind?: string; qty?: number; blockQty?: number }) => {
+  const bumpClose = (t: { pnl?: number; ratio?: number; indication?: string; tactic?: string; playbook?: string; kind?: string; qty?: number; blockQty?: number; dcaQty?: number }) => {
     const pnl = edgePnl(t);
     const ind = String(t.indication || "trend");
     bump(indAcc, ind, pnl);
@@ -7726,6 +8045,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     const bq = Math.min(qty, Math.max(0, Number(t.blockQty) || 0));
     const blockShare = qty > 1e-12 && bq > 1e-12 ? Math.min(1, bq / qty) : t.playbook === "block" ? 1 : 0;
     const origin = String(t.playbook || "normal");
+    const dcaShare = origin === "dca" ? 0 : dcaOverlayShare(qty, t.dcaQty, origin, t.tactic);
     const split = (play: string, share: number) => {
       if (Math.abs(share) < 1e-15) return;
       bump(playAcc, play, share);
@@ -7733,12 +8053,17 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       bump(hourPlayAcc, play, share);
       bump(hourPlayIndAcc, `${play}:${ind}`, share);
     };
+    let rest = 1;
+    let blockPart = 0;
     if (blockShare > 0 && origin !== "block") {
-      split(origin, pnl * (1 - blockShare));
-      split("block", pnl * blockShare);
-    } else {
-      split(origin, pnl);
+      blockPart = Math.min(1, blockShare);
+      rest -= blockPart;
     }
+    const dcaPart = Math.min(Math.max(0, rest), dcaShare);
+    rest -= dcaPart;
+    if (rest > 1e-12) split(origin, pnl * rest);
+    if (blockPart > 1e-12) split("block", pnl * blockPart);
+    if (dcaPart > 1e-12) split("dca", pnl * dcaPart);
   };
   const finish = (map: ReturnType<typeof accMap>) =>
     [...map.values()]
@@ -8187,6 +8512,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const typeFloor = 1;
   const keptGate = gatedRows.filter((c) => {
     if (c.protect || c.tpAtr == null || c.slOfTp == null) return false;
+    if (internRelProven(engine, { indication: c.indication, tactic: c.tactic, tpAtr: c.tpAtr, slOfTp: c.slOfTp })) return true;
     const key = shortComboKey(c.tpAtr, c.slOfTp);
     const liveSt = comboTapeStats(engine.shortComboLiveTape?.[key]);
     if (liveSt.n >= 8) return liveSt.pf > typeFloor + 1e-9 && liveSt.net > 0;
@@ -8610,7 +8936,14 @@ export function overlayLiveExecutions(
       const take = newest.filter((r) => Number(r.t) >= since);
       const b = pnlBucket(asRows(take), `${h}h`);
       const symbols = new Set(take.map((r) => String(r.symbol || "")).filter(Boolean)).size;
-      stats.hours[String(h)] = { ...b, symbols, orders: take.length, avgOrders: take.length };
+      const act = e ? orderWindow(e, h * 60) : null;
+      const prev = stats.hours[String(h)];
+      stats.hours[String(h)] = {
+        ...b,
+        symbols,
+        orders: act ? act.placed : prev?.orders ?? 0,
+        avgOrders: act ? act.placed / Math.max(h, 1) : prev?.avgOrders ?? 0,
+      };
     }
   }
   if (stats.intervals) {
@@ -8619,7 +8952,14 @@ export function overlayLiveExecutions(
       const take = newest.filter((r) => Number(r.t) >= since);
       const b = pnlBucket(asRows(take), `${m}m`);
       const symbols = new Set(take.map((r) => String(r.symbol || "")).filter(Boolean)).size;
-      stats.intervals[String(m)] = { ...b, symbols, orders: take.length, avgOrders: take.length };
+      const act = e ? orderWindow(e, m) : null;
+      const prev = stats.intervals[String(m)];
+      stats.intervals[String(m)] = {
+        ...b,
+        symbols,
+        orders: act ? act.placed : prev?.orders ?? 0,
+        avgOrders: act ? act.placed : prev?.avgOrders ?? 0,
+      };
     }
   }
   if (stats.bySymbol) {
@@ -8703,17 +9043,15 @@ function hourBucket(e: VstEngine, hours: number): OverallBucket {
   );
   const base = pnlBucket(rows, `${hours}h`);
   const symbols = new Set(rows.map((c) => c.symbol)).size;
-  const lived = Math.max(e.tick, 1);
-  const windowTicks = Math.min(hours * TICKS_PER_HOUR, lived);
-  const frac = windowTicks / lived;
-  const orders = Math.round((e.ledger.ordersFilled || e.ledger.ordersPlaced || rows.length) * frac);
-  const liveOrd = e.orders.filter((o) => ownedByDesk(o, conn) && (o.status === "open" || o.status === "partial")).length;
-  const avgOrders = (liveOrd + (e.ledger.maxOrders || liveOrd)) / 2;
+  const act = orderWindow(e, hours * 60);
+  const orders = act.placed;
+  const spanH = Math.max(1 / 60, Math.min(hours, Math.max(e.tick, 1) / TICKS_PER_HOUR));
+  const avgOrders = orders / spanH;
   return {
     ...base,
     symbols,
     orders,
-    avgOrders: Number.isFinite(avgOrders) ? avgOrders : liveOrd,
+    avgOrders,
   };
 }
 
@@ -8745,7 +9083,8 @@ function intervalBucket(e: VstEngine, minutes: number): OverallBucket {
   const rows = windowMinutes(scoped, e.tick, minutes);
   const base = pnlBucket(rows, `${minutes}m`);
   const symbols = new Set(rows.map((c) => (c as { symbol?: string }).symbol).filter(Boolean)).size;
-  return { ...base, symbols, orders: rows.length, avgOrders: rows.length };
+  const act = orderWindow(e, minutes);
+  return { ...base, symbols, orders: act.placed, avgOrders: act.placed };
 }
 
 type SeedableStats = {
@@ -8907,7 +9246,7 @@ export function overallLiveStats(e: VstEngine, opts?: { seed?: boolean }) {
     ...pnlBucket(blockClosed, "block"),
     orders: blockLive.length,
     partials: blockPart.length,
-    ids: blockLive.map((o) => o.id),
+    ids: blockLive.slice(0, 48).map((o) => o.id),
     volume: blockVol,
     queued: e.queue.filter((o) => isBlockOrder(o) && ownedByDesk(o, conn)).length,
     overall: e.blockCfg?.overall !== false,
@@ -8935,7 +9274,7 @@ export function overallLiveStats(e: VstEngine, opts?: { seed?: boolean }) {
     worstSymbols: [...rankedPf].reverse().slice(0, 6),
     runningSymbols: new Set(activePos.map((p) => p.symbol)).size,
     avgPositions: activePos.length,
-    avgOrders: working,
+    avgOrders: orderWindow(e, 60).placed,
     maxPositions: e.ledger.maxPositions,
     maxOrders: e.ledger.maxOrders,
     configsLive: liveBuckets.length,
@@ -10117,11 +10456,12 @@ export function lanePassExec(
   },
 ): boolean {
   if (internAllPhase(e) || completeOpenTape(e)) return true;
+  if (e.preEvalDone && !validatedSet(e, rel)) return false;
   // Independent combo tape: intern always processes this TP×SL; last-N is scored, not a self-kill.
   if (e.shortComboOnly && paperMode(e)) return true;
   if (liveRelationDisabled(e, rel as Parameters<typeof liveRelationDisabled>[1])) return false;
   if (rel.tpAtr != null && rel.slOfTp != null && isShortComboRel(e, rel)) {
-    return shortComboProven(e, rel.tpAtr, rel.slOfTp);
+    return shortComboProven(e, rel.tpAtr, rel.slOfTp) || internRelProven(e, rel);
   }
   const coord = e.lastNCoord;
   if (coord) {
@@ -10202,7 +10542,9 @@ export function liveShouldExecute(
   },
 ): boolean {
   const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
-  if (!t.normal && unadjustedNormalOrder(rel)) return false;
+  const ready = e.preEvalDone && validatedSet(e, rel);
+  if (!t.normal && unadjustedNormalOrder(rel) && !ready) return false;
+  if (e.preEvalDone && !validatedSet(e, rel)) return false;
   const note = String(rel.note || "");
   const play = String(rel.playbook || "");
   const extra = play === "block" || play === "axis" || play === "dca" || rel.tactic === "axis" || rel.tactic === "dca" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
@@ -10213,16 +10555,18 @@ export function liveShouldExecute(
   if (blockFill) {
     if (t.block === false) return false;
     const shortComboBlk = isShortComboRel(e, rel);
-    if (shortComboBlk && e.preEvalDone && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!)) return false;
+    if (shortComboBlk && e.preEvalDone && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!) && !internRelProven(e, rel)) return false;
     return true;
   }
   const shortCombo = isShortComboRel(e, rel);
-  if (shortCombo && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!)) return false;
+  if (shortCombo && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!) && !internRelProven(e, rel)) return false;
   if (!shortCombo && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
   if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel) && unadjustedNormalOrder(rel)) return false;
   const gated = Boolean(e.preEvalDone || e.liveTape);
   if (!blockFill && gated && laneExecProven(e, rel)) {
-    if (rel.kind === "normal" || play === "normal" || play === "short" || rel.kind === "short") return !unadjustedNormalOrder(rel) || t.normal;
+    if (rel.kind === "normal" || play === "normal" || play === "short" || rel.kind === "short") {
+      return !unadjustedNormalOrder(rel) || t.normal || ready;
+    }
     if (play === "axis" || rel.tactic === "axis") return t.axis;
     if (rel.tactic === "trailing") return t.trailing !== false;
     if (rel.tactic === "hybrid") return t.normal !== false;
@@ -10253,6 +10597,6 @@ export function liveShouldExecute(
     const take = laneClosed(e, { tactic: rel.tactic, indication: rel.indication, kind: rel.kind, playbook: play }, 40);
     if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, e.shortRange ? "short" : "overall")) return false;
   }
-  if (rel.kind === "normal" || play === "normal") return t.normal;
-  return t.normal;
+  if (rel.kind === "normal" || play === "normal") return t.normal || ready;
+  return t.normal || ready;
 }

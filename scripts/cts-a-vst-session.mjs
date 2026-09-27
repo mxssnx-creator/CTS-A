@@ -53,6 +53,8 @@ import {
   validateSymbols100h,
   mergeSymbolHourEval,
   refreshSymbolHourEval,
+  finishBaseEval,
+  TICKS_PER_HOUR,
 } from "../src/lib/desk/vst.ts";
 
 const HOURS = Number(process.env.CTS_A_VST_HOURS ?? 12);
@@ -216,10 +218,11 @@ const BLOCK = {
 const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false };
 function pinX01Strat() {
   if (!IS_X01) return;
+  STRAT.normal = true;
   STRAT.trailing = true;
   STRAT.axis = true;
   STRAT.block = true;
-  STRAT.dca = false;
+  STRAT.dca = true;
 }
 pinX01Strat();
 
@@ -1074,6 +1077,21 @@ function markDeadSymbol(symbol, err) {
   return true;
 }
 const trimHits = new Map();
+function pruneLiveSets(e) {
+  if (skippedFills.size > 3000) {
+    const liveIds = new Set((e?.fills ?? []).map((f) => f.id));
+    for (const id of skippedFills) if (!liveIds.has(id)) skippedFills.delete(id);
+    if (skippedFills.size > 3000) skippedFills.clear();
+  }
+  if (cancelFailed.size > 1500) cancelFailed.clear();
+  if (!e || mirrored.size < 5000) return;
+  const liveQ = new Set();
+  for (const o of e.queue ?? []) if (o?.id) liveQ.add(`q:${o.id}`);
+  for (const o of e.orders ?? []) if (o?.id) liveQ.add(`q:${o.id}`);
+  for (const k of mirrored) {
+    if (typeof k === "string" && k.startsWith("q:") && !liveQ.has(k)) mirrored.delete(k);
+  }
+}
 function diversifyLiveIntents(list) {
   const buckets = new Map();
   for (const f of list) {
@@ -2052,7 +2070,35 @@ async function mirrorToExchange(e, network, cfg) {
   let failed = 0;
   const fillJobs = [];
   const engineResting = (e.orders ?? []).filter((o) => o && (o.status === "open" || o.status === "queued" || o.status === "partial") && (o.type === "limit" || o.type === "market"));
-  const queueIntents = [...(e.queue ?? []), ...engineResting]
+  const rawQueue = e.queue ?? [];
+  const fat = rawQueue.length + engineResting.length > 1600;
+  const queueSource = [];
+  if (!fat) queueSource.push(...rawQueue, ...engineResting);
+  else {
+    let blocks = 0;
+    let entries = 0;
+    let idle = 0;
+    for (let i = rawQueue.length - 1; i >= 0; i -= 1) {
+      const o = rawQueue[i];
+      if (!o) continue;
+      const block = /Block/i.test(String(o.note || "")) || o.playbook === "block";
+      if (block ? blocks >= 800 : entries >= 280) {
+        idle += 1;
+        if (idle > 500 && (blocks >= 64 || entries >= 64)) break;
+        continue;
+      }
+      idle = 0;
+      if (block) blocks += 1;
+      else entries += 1;
+      queueSource.push(o);
+      if (blocks >= 800 && entries >= 280) break;
+    }
+    for (const o of engineResting) {
+      if (!o || queueSource.length >= 1200) break;
+      queueSource.push(o);
+    }
+  }
+  const queueIntents = queueSource
     .filter((o) => {
       if (!o) return false;
       if (o.playbook === "dca" || o.tactic === "dca" || /^DCA/i.test(String(o.note || ""))) return true;
@@ -2590,11 +2636,32 @@ async function main() {
   applyPfGates(engine, readSettingsPick());
   if (IS_X01) {
     engine.shortRange = true;
-    pick.cfg = { ...pick.cfg, ...X01_LIVE_CFG, shortRange: true, trailingPct: 1.5, dcaCount: 1 };
+    pick.cfg = { ...pick.cfg, ...X01_LIVE_CFG, shortRange: true, trailingPct: 1.5, dcaCount: STRAT.dca ? 3 : 1 };
     currentPick = pick;
+    engine.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
+    engine.liveTape = false;
+    engine.completeSim = true;
+    engine.preEvalDone = false;
+    engine.openCompleteTape = false;
+    const examTicks = 2 * TICKS_PER_HOUR;
+    for (let i = 0; i < examTicks; i++) {
+      tickVst(engine, pick.cfg, "trailing", {
+        symbolCount: LIVE_SYMBOLS,
+        rangeType: "atr",
+        block: engine.blockCfg,
+      });
+    }
+    finishBaseEval(engine, engine.blockCfg);
+    engine.liveTape = true;
+    engine.completeSim = false;
+    engine.openCompleteTape = false;
   }
   writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
   const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} live / ${EVAL_SYMBOLS} eval · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf} short ${engine.shortPf}/${engine.shortBasePf} · grid ${GRID.length} TP ${pick.cfg.tpAtr}/${pick.cfg.slOfTp} · block ${engine.blockCfg.sharedVolumeRatio}/${engine.blockCfg.volumeRatio}/${engine.blockCfg.overallVolumeRatio}`];
+  if (IS_X01 && engine.preEvalDone) {
+    const ok = Object.values(engine.lastNCoord?.combos ?? {}).filter((c) => c && c.ok && c.n >= 4).length;
+    adjustments.push(`base eval ${engine.tick}t · validated sets ${ok} · normal+trailing+axis+block+dca`);
+  }
   if (seededLosers) adjustments.push(`seed skip ${seededLosers} loser symbols`);
   if (seededOff) adjustments.push(`seed disable ${seededOff} relations`);
   if (lastExec.n) adjustments.push(`seed exec n=${lastExec.n} PF ${lastExec.pf.toFixed(2)}`);
@@ -3200,6 +3267,7 @@ async function main() {
         if (note) adjustments.push(note);
       }
       if (engine.tick % 80 === 0) healEngine(engine, pick.cfg, pick.tactic, pick.range);
+      if (engine.tick % 20 === 0) pruneLiveSets(engine);
       if (adjustments.length > 40) adjustments.splice(0, adjustments.length - 24);
       if (liveBusy > 8) liveBusy = 0;
     } catch (err) {

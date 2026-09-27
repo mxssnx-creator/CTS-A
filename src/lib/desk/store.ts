@@ -512,7 +512,7 @@ const boot = initVstEngine(DEFAULT_TACTIC_CONFIG, { warmup: 0, symbolCount: 12, 
   boot.activeConnId = "bingx-x01";
   boot.symbolCount = 50;
   boot.liveSymbolCap = 50;
-  boot.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: false };
+  boot.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
   engageLiveBook(boot);
   const three = sanitizeArmed(armed);
   for (let i = 0; i < 6; i++) {

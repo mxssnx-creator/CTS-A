@@ -807,6 +807,7 @@ export interface LivePosition {
   playbook?: string;
   blockLevel?: number;
   blockQty?: number;
+  dcaQty?: number;
   peakPx?: number;
   validExec?: boolean;
   tpAtr?: number;
@@ -864,6 +865,7 @@ export interface ClosedTrade {
   playbook?: string;
   level?: number;
   blockQty?: number;
+  dcaQty?: number;
   validExec?: boolean;
   /** Hour-protect scratch. Not a live loss and not an intern fill. */
   protect?: boolean;

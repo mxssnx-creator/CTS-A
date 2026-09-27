@@ -133,6 +133,14 @@ describe("Block and DCA", () => {
     assert.ok([...e.queue, ...e.orders].some((o) => /^DCA/.test(o.note)), "tactic dca still adds when the switch is off");
   });
 
+  it("DCA does not add once the dip has used most of the stop", () => {
+    const e = book();
+    e.strategyToggles = { ...e.strategyToggles!, dca: true };
+    seedLong(e, 0.955);
+    tickVst(e, CFG, "trailing", { skipWalk: true, rangeType: "atr" });
+    assert.equal([...e.queue, ...e.orders].some((o) => /^DCA/.test(o.note)), false, "added inside the stop zone");
+  });
+
   it("Block adds join the parent calc and stay inside the multiple cap", () => {
     const e = book();
     const { pos } = seedLong(e, 1.02);
@@ -307,7 +315,7 @@ describe("Block and DCA", () => {
     assert.equal(unadjustedNormalOrder({ ...short, tactic: "axis", playbook: "axis" }), false);
     assert.equal(unadjustedNormalOrder({ tactic: "hybrid", playbook: "block", note: "Block #1", blockLevel: 1 }), false);
     assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", ...short, tactic: "trailing" }), false);
-    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", tactic: "axis", playbook: "axis", kind: "mean", tpAtr: 0.48, slOfTp: 1 }), true);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", tactic: "axis", playbook: "axis", kind: "mean", tpAtr: 0.48, slOfTp: 1, rangeType: "atr" }), false);
     const q = e.quotes.BTCUSDT!;
     const stop = shortControlPrices("long", q.px, q.atr, 0.48, 1);
     assert.ok(stop.sl < q.px && stop.tp > q.px);
@@ -357,6 +365,39 @@ describe("Block and DCA", () => {
     const live = [...e.queue, ...e.orders];
     assert.equal(live.some((o) => o.id === "base" && o.status !== "cancelled"), false);
     assert.ok(live.some((o) => o.id === "axis1" && o.status !== "cancelled"), "axis with short range was dropped");
+  });
+
+  it("a fat queue is capped on the next tick and Block orders stay", () => {
+    const e = book();
+    e.liveTape = true;
+    const { pos } = seedLong(e, 1.01);
+    pos.unrealized = 1;
+    for (let i = 0; i < 20000; i++) {
+      e.queue.push({
+        id: `pad${i}`,
+        connId: e.activeConnId,
+        symbol: "ETHUSDT",
+        side: "long",
+        type: "limit",
+        qty: 1,
+        filled: 0,
+        price: 1,
+        remaining: 1,
+        status: "queued",
+        rangeType: "atr",
+        playbook: "axis",
+        tactic: "axis",
+        note: i < 40 ? "Overall Block book shared #1 ETHUSDT" : "pad",
+      });
+    }
+    const before = process.memoryUsage().heapUsed;
+    tickVst(e, CFG, "axis", { skipWalk: true, skipMatch: true, bookOnly: true });
+    assert.ok(e.queue.length <= 8000, `queue ${e.queue.length}`);
+    assert.ok(e.orders.length <= 8000, `working ${e.orders.length}`);
+    const held = [...e.queue, ...e.orders];
+    assert.ok(held.some((o) => /Overall Block/.test(o.note || "")), "block orders were capped away");
+    const after = process.memoryUsage().heapUsed;
+    assert.ok(after < before + 80 * 1024 * 1024, `heap grew ${after - before}`);
   });
 
   it("live Block still adds when the entry queue is full", () => {
@@ -501,6 +542,52 @@ describe("Block and DCA", () => {
     assert.ok(all.some((n) => / additive #/.test(n)), "additive adjustment missing");
     const stacked = pos.qty + e.queue.reduce((s, o) => s + o.qty, 0);
     assert.ok(stacked <= pos.legs[0]!.qty * 8 + 1e-6, `stack ${stacked} over 8x ${pos.legs[0]!.qty}`);
+  });
+
+  it("does not add Block through the stop, and stops once the overlay PF is under the floor", () => {
+    const e = book();
+    const { pos, q, entry } = seedLong(e, 0.95);
+    pos.slDist = entry * 0.06;
+    pos.unrealized = (q.px - entry) * pos.qty;
+    const block = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      overall: true,
+      stack: true,
+      windows: true,
+      addOnWin: false,
+      counts: [1],
+      maxMultiple: 2,
+      minActiveLevel: 1,
+      volumeMode: "shared" as const,
+      overallMode: "shared" as const,
+    };
+    e.blockCfg = block;
+    const deep = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.equal(deep.added, 0, "added Block more than halfway to the stop");
+    q.px = entry * 1.01;
+    pos.mark = q.px;
+    pos.unrealized = (q.px - entry) * pos.qty;
+    e.closed = [];
+    const win = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.ok(win.added > 0, "winner did not get a Block add");
+    e.queue = [];
+    e.orders = [];
+    e.blockLanes = {};
+    e.closed = Array.from({ length: 16 }, (_, i) => ({
+      id: `c${i}`,
+      connId: pos.connId,
+      symbol: pos.symbol,
+      side: "long" as const,
+      pnl: -0.2,
+      ratio: -0.4,
+      qty: 2,
+      blockQty: 1,
+      playbook: "short",
+      tick: i,
+    }));
+    const stopped = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.equal(stopped.added, 0, "overlay under the floor still added");
   });
 
   it("full compute keeps Block and DCA finite, joined, and busy", () => {

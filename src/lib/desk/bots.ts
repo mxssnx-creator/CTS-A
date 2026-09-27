@@ -1340,6 +1340,10 @@ function botTapePays(e: VstEngine, conn: string, play: string): boolean {
   }
   const pf = gl > 1e-12 ? gp / gl : gp > 0 ? 4 : 0;
   if (pf > 1 && gp - gl > 0) return true;
+  const flat = !e.positions.some((p) => p.connId === conn && p.playbook === play && p.qty > 0)
+    && !e.queue.some((o) => o.connId === conn && o.playbook === play && o.status === "queued")
+    && !e.orders.some((o) => o.connId === conn && o.playbook === play && (o.status === "open" || o.status === "partial"));
+  if (flat) return true;
   return e.tick % 30 === 0;
 }
 

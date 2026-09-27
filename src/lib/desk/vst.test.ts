@@ -1396,7 +1396,7 @@ describe("VST engine", () => {
     ePb.blockCfg = { ...DEFAULT_BLOCK_CONFIG, activeLive: true, enabled: true };
     assert.equal(liveExecPlaybook(ePb, "trailing", "trend"), "normal");
     assert.equal(liveExecPlaybook(ePb, "axis", "direction"), "axis");
-    assert.equal(unadjustedNormalOrder({ tactic: "trailing", playbook: "short", kind: "short", tpAtr: 0.48, slOfTp: 1 }), false);
+    assert.equal(unadjustedNormalOrder({ tactic: "trailing", playbook: "short", kind: "short", tpAtr: 0.48, slOfTp: 1 }), true);
     assert.equal(unadjustedNormalOrder({ tactic: "hybrid", playbook: "short", kind: "short", tpAtr: 0.48, slOfTp: 1 }), true);
     ePb.strategyToggles.block = false;
     assert.equal(liveExecPlaybook(ePb, "trailing", "trend"), "normal");

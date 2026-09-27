@@ -40,7 +40,7 @@ describe("complete 24h open tape", () => {
     assert.ok(BUSY_HOUR_INDICATIONS.includes("break"));
     assert.ok(BUSY_HOUR_INDICATIONS.includes("ema"));
     const ranges = expandPayRanges("break", "atr");
-    assert.deepEqual(ranges, ["atr", "linear"]);
+    assert.deepEqual(ranges, ["atr", "linear", "fibonacci"]);
     assert.ok(expandPayRanges("ema", "fibonacci").includes("linear"));
     assert.ok(expandPayRanges("ema", "fibonacci").includes("geometric"));
     assert.deepEqual(expandPayRanges("move", "atr"), ["atr"]);
@@ -63,6 +63,20 @@ describe("complete 24h open tape", () => {
     const highLegs = indicationCalcLegs({ id: "ema", primary: "linear", dd: 0, pxStretch: 0.1, pays: true, busy: false, ddActivity: 0, relAlign: -0.4, bands });
     assert.equal(highLegs.filter((l) => l.range === "volume").length, 0);
     assert.ok(ddLegs.length <= 4 && lowLegs.length <= 4 && highLegs.length <= 4);
+    const bothBands = { low: "geometric" as const, mid: "linear" as const, high: "fibonacci" as const };
+    const both = indicationCalcLegs({ id: "ema", primary: "atr", dd: 0.03, pxStretch: 0.1, pays: true, busy: false, ddActivity: 0.4, relAlign: 0.4, bands: bothBands });
+    assert.ok(both.some((l) => l.kind === "dd"), "drawdown leg is independent");
+    assert.ok(both.some((l) => l.kind === "rng" && l.range === "geometric"), "past relation keeps its own range");
+    assert.ok(both.length <= 4);
+    const trail = indicationCalcLegs({ id: "ema", primary: "atr", dd: 0.03, pxStretch: 0.1, pays: true, busy: false, ddActivity: 0.4, relAlign: 0.4, bands: bothBands, tactic: "trailing" });
+    const axis = indicationCalcLegs({ id: "ema", primary: "atr", dd: 0.03, pxStretch: 0.1, pays: true, busy: false, ddActivity: 0.4, relAlign: 0.4, bands: bothBands, tactic: "axis" });
+    const dca = indicationCalcLegs({ id: "ema", primary: "atr", dd: 0.03, pxStretch: 0.1, pays: true, busy: false, ddActivity: 0.4, relAlign: 0.4, bands: bothBands, tactic: "dca" });
+    assert.ok((trail.find((l) => l.kind === "dd")?.near ?? 1) <= (both.find((l) => l.kind === "dd")?.near ?? 0));
+    assert.ok((axis.find((l) => l.kind === "dd")?.spaceMul ?? 0) > 1);
+    assert.equal(dca.length, 1);
+    assert.equal(dca[0]?.kind, "base");
+    const sessionOnly = indicationCalcLegs({ id: "trend", primary: "atr", dd: 0.02, pxStretch: 0, pays: true, busy: false, ddActivity: 0, relAlign: 0, bands: { low: "geometric", mid: "atr", high: "geometric" } });
+    assert.ok(sessionOnly.some((l) => l.kind === "dd"), "session drawdown adds a leg without a price drawdown");
   });
 
   it("does not intern-all-starve live and keeps orders on the first hours", () => {
