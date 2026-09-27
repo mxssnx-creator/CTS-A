@@ -1353,6 +1353,8 @@ export interface VstEngine {
   symbolCount: number;
   /** Live-execute this many top-ranked symbols. Eval universe is `symbolCount`. */
   liveSymbolCap?: number;
+  /** Browser desk only. Keeps the live clock small enough that pages stay clickable. Sims ignore it. */
+  deskUi?: boolean;
   orderType: OrderTypeId;
   symbolStats: Record<string, SymbolTape>;
   activeConnId: string;

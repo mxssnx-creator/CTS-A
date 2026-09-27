@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   buildBlocks,
   coordinate,
@@ -30,7 +30,8 @@ export function PositionsView() {
   const setTactic = useDesk((s) => s.setTactic);
   const connections = useDesk((s) => s.connections);
   const activeConnId = useDesk((s) => s.activeConnId);
-  const vst = useDesk((s) => s.vst);
+  const bookStamp = useDesk((s) => Math.floor((s.vst.tick || 0) / 8));
+  const vst = useMemo(() => useDesk.getState().vst, [bookStamp, activeConnId]);
   const liveSnap = useLiveSnapshot();
   useDesk((s) => s.liveMark);
   const exchange = liveSnap.exchange;
@@ -127,7 +128,7 @@ export function PositionsView() {
                 <span className={clsPnl(p.pnl)}>{fmtUsd(p.pnl)}</span>
               </li>
             ))}
-            {livePos.map((p) => (
+            {livePos.slice(0, 48).map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="font-mono text-xs">{p.symbol.replace("USDT", "")}</span>
                 <span className="capitalize">{p.side}</span>

@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useLayoutEffect, useSyncExternalStore } from "react";
 
 export type DesignSkin = "desk" | "lattice" | "pulse" | "atlas";
 
@@ -29,6 +29,7 @@ export function getDesignSkin(): DesignSkin {
 }
 
 export function setDesignSkin(next: DesignSkin) {
+  const changed = skin !== next;
   skin = next;
   applyDom(next);
   try {
@@ -36,7 +37,7 @@ export function setDesignSkin(next: DesignSkin) {
   } catch {
     /* keep in memory */
   }
-  listeners.forEach((fn) => fn());
+  if (changed) listeners.forEach((fn) => fn());
 }
 
 function subscribe(fn: () => void) {
@@ -46,7 +47,7 @@ function subscribe(fn: () => void) {
 
 export function useDesignSkin(): DesignSkin {
   const value = useSyncExternalStore(subscribe, getDesignSkin, () => "desk" as DesignSkin);
-  useEffect(() => {
+  useLayoutEffect(() => {
     let stored: string | null = null;
     try {
       stored = localStorage.getItem(KEY);

@@ -624,7 +624,7 @@ export function WaterfallStack({
           const fill = `M${first},${baseY.toFixed(1)} L${pts.join(" ")} L${last},${baseY.toFixed(1)} Z`;
           const on = li === active;
           return (
-            <g key={layer.id} onMouseEnter={() => setActive(li)} className="cursor-pointer">
+            <g key={`${layer.id}-${li}`} onMouseEnter={() => setActive(li)} className="cursor-pointer">
               <path d={fill} fill={CHART_STROKES[li % CHART_STROKES.length]} opacity={on ? 0.22 : 0.08} />
               <polyline
                 points={pts.join(" ")}
@@ -640,7 +640,7 @@ export function WaterfallStack({
       <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted">
         {ready.map((layer, li) => (
           <button
-            key={layer.id}
+            key={`${layer.id}-${li}`}
             type="button"
             onClick={() => setActive(li)}
             className={

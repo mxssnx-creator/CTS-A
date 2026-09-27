@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { INDICATION_KINDS } from "@/lib/desk/engine";
 import { DESIGN_SKINS, setDesignSkin, useDesignSkin, type DesignSkin } from "@/lib/desk/design-skin";
 import { useLiveSnapshot } from "@/lib/desk/live-ctx";
@@ -17,7 +18,7 @@ type BookRow = { key: string; pf: number; n: number; net: number };
 
 function useDesignModel() {
   const live = useLiveSnapshot();
-  const tick = useDesk((s) => s.vst.tick);
+  const pulse = useDesk((s) => Math.floor((s.vst.tick || 0) / 8));
   const closedN = useDesk((s) => s.vst.closed.length);
   const enginePf = useDesk((s) => Number(s.vst.stats?.pf) || 0);
   const engineEq = useDesk((s) => Number(s.vst.stats?.equity) || 0);
@@ -67,7 +68,7 @@ function useDesignModel() {
       net: Number(b.net || 0),
     }));
     return { live, spark, hours, inds, lastN, books, enginePf, engineEq, engineWr, phase, botsOn };
-  }, [live, tick, closedN, enginePf, engineEq, engineWr, phase, botsOn]);
+  }, [live, pulse, closedN, enginePf, engineEq, engineWr, phase, botsOn]);
 }
 
 function Spark({ values, stroke, fill }: { values: number[]; stroke: string; fill: string }) {
@@ -208,61 +209,97 @@ function MiniTable({
 export function DesignSwitch() {
   const skin = useDesignSkin();
   const [open, setOpen] = useState(false);
+  const [box, setBox] = useState<{ top: number; left: number } | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const btnRef = useRef<HTMLButtonElement | null>(null);
   const current = DESIGN_SKINS.find((s) => s.id === skin) ?? DESIGN_SKINS[0]!;
+
+  const place = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const width = 288;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    setBox({ top: r.bottom + 4, left });
+  };
 
   useEffect(() => {
     if (!open) return;
+    place();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
     const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (ref.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
     };
+    const onMove = () => place();
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onDown);
+    window.addEventListener("resize", onMove);
+    window.addEventListener("scroll", onMove, true);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("resize", onMove);
+      window.removeEventListener("scroll", onMove, true);
     };
   }, [open]);
+
+  const menu =
+    open && box && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            data-design-menu="open"
+            className="fixed z-[80] w-72 border border-border bg-surface p-1 text-fg shadow-panel"
+            style={{ top: box.top, left: box.left }}
+          >
+            {DESIGN_SKINS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={skin === s.id}
+                onClick={() => {
+                  setDesignSkin(s.id);
+                  setOpen(false);
+                }}
+                className={`flex w-full flex-col items-start gap-0.5 px-2 py-2 text-left ${
+                  skin === s.id ? "bg-primary-soft text-fg" : "hover:bg-surface-muted"
+                }`}
+              >
+                <span className="text-[11px] font-semibold">{s.name}</span>
+                <span className="text-[10px] leading-4 text-muted">{s.note}</span>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
     <div ref={ref} className="relative">
       <button
+        ref={btnRef}
         type="button"
-        className="desk-design-btn h-7 px-2 text-[11px] font-medium tracking-wide"
+        className="desk-design-btn h-8 px-2 text-[11px] font-medium tracking-wide"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        aria-label={`Design ${current.name}`}
+        onClick={() => {
+          if (open) setOpen(false);
+          else {
+            place();
+            setOpen(true);
+          }
+        }}
       >
         Design · {current.name}
       </button>
-      {open ? (
-        <div
-          role="menu"
-          className="absolute left-0 top-8 z-50 w-72 border border-border bg-surface p-1 text-fg shadow-panel"
-        >
-          {DESIGN_SKINS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              role="menuitemradio"
-              aria-checked={skin === s.id}
-              onClick={() => {
-                setDesignSkin(s.id);
-                setOpen(false);
-              }}
-              className={`flex w-full flex-col items-start gap-0.5 px-2 py-1.5 text-left ${
-                skin === s.id ? "bg-primary-soft text-fg" : "hover:bg-surface-muted"
-              }`}
-            >
-              <span className="text-[11px] font-semibold">{s.name}</span>
-              <span className="text-[10px] leading-4 text-muted">{s.note}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
+      {menu}
     </div>
   );
 }

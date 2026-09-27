@@ -4,7 +4,7 @@
  * Keys from env — never printed.
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
-import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, fetchPrehistory, loadLeverageCaps, cachedMaxLeverage, MIN_LIVE_SL_PCT } from "../src/lib/desk/feed.server.ts";
+import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, fetchPrehistory, loadLeverageCaps, cachedMaxLeverage, MIN_LIVE_SL_PCT, exchangeMinNotional } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, seedPreAtr, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts, seedIndicationHistory, shortControlPrices } from "../src/lib/desk/engine.ts";
 import {
@@ -161,6 +161,7 @@ let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, pos
 let lastTrail = { n: 0, ms: 0, at: 0 };
 let lastExec = { n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 };
 let lastPnl = [];
+let sessionStarted = Date.now();
 let lastIncomeOrders = [];
 const lastPostedSl = new Map();
 const lastPostedTp = new Map();
@@ -173,7 +174,7 @@ let lastOverallWrite = 0;
 
 const BLOCK = {
   ...DEFAULT_BLOCK_CONFIG,
-  enabled: true,
+  enabled: !IS_X01,
   endStageOnly: false,
   cadence: 4,
   flattenConflict: false,
@@ -215,27 +216,27 @@ const BLOCK = {
   lastNProgress: sanitizeLastNProgress(undefined),
 };
 
-const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: true, dca: false };
+const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: false, dca: false };
 function pinX01Strat() {
   if (!IS_X01) return;
   STRAT.normal = true;
   STRAT.trailing = true;
   STRAT.axis = true;
-  STRAT.block = true;
-  STRAT.dca = true;
+  STRAT.block = false;
+  STRAT.dca = false;
 }
 pinX01Strat();
 
-/** Stable tape-6h-12: short 0.48/1, trail 1.5, hold 8. */
+/** Stable short winner: 0.48/0.75, trail 1.5, hold 8. */
 const X01_LIVE_CFG = {
   trailingPct: 1.5,
-  dcaCount: 3,
+  dcaCount: 1,
   dcaDrawdown: 0.6,
   shortRange: true,
   tpAtr: 0.48,
-  slOfTp: 1,
-  slAtr: 0.48,
-  tpRatio: 1,
+  slOfTp: 0.75,
+  slAtr: 0.36,
+  tpRatio: 1 / 0.75,
   maxHoldTicks: 8,
   maxHoldBars: 3,
   axisLevels: 5,
@@ -265,7 +266,7 @@ function shortGridCombos() {
 }
 
 function x01BestGrid() {
-  const tactics = ["trailing", "axis", "hybrid", "dca"];
+  const tactics = ["trailing", "axis", "hybrid"];
   const ranges = ["atr", "linear", "geometric", "volume", "fibonacci"];
   return tactics.flatMap((tactic) =>
     ranges.map((range) => ({
@@ -292,11 +293,12 @@ function buildLiveGrid() {
   );
 }
 
-const SHORT_GRID = IS_X01 ? [] : buildLiveGrid();
+const SHORT_GRID_SEED = IS_X01 ? [] : buildLiveGrid();
+let SHORT_GRID = SHORT_GRID_SEED;
 let GRID = buildLiveGrid();
 function preferWinner(list = GRID) {
   if (IS_X01) {
-    return list.find((g) => g.tactic === "trailing" && g.range === "atr" && Number(g.cfg.tpAtr) === 0.42) || list[0];
+    return list.find((g) => g.tactic === "trailing" && g.range === "atr" && Number(g.cfg.tpAtr) === 0.48 && Number(g.cfg.slOfTp) === 0.75) || list[0];
   }
   return (
     list.find((g) => g.cfg.tpAtr === SHORT_WINNER.tpAtr && g.cfg.slOfTp === SHORT_WINNER.slOfTp && g.tactic === "trailing") ||
@@ -308,6 +310,13 @@ if (prefer) GRID = [prefer, ...GRID.filter((g) => g !== prefer)];
 let currentPick = GRID[0];
 
 function rebuildShortGrid() {
+  if (IS_X01) {
+    SHORT_GRID = filterLiveShortCombos(shortMinTp, shortMinSl, shortMaxTp, true).map((s) => ({
+      tactic: "trailing",
+      range: "atr",
+      cfg: { ...DEFAULT_TACTIC_CONFIG, ...X01_LIVE_CFG, ...s, dcaCount: 1, shortRange: true },
+    }));
+  }
   GRID = buildLiveGrid();
   const hit = preferWinner(GRID);
   if (hit) GRID = [hit, ...GRID.filter((g) => g !== hit)];
@@ -316,6 +325,7 @@ function rebuildShortGrid() {
     currentPick = same || GRID[0];
   }
 }
+rebuildShortGrid();
 const DISABLED_FILE = process.env.CTS_A_DISABLED ?? (IS_X01 ? "/var/lib/cts-a/live-disabled.json" : "/var/lib/cts-a/live-disabled-x02.json");
 const MANUAL_FILE = process.env.CTS_A_MANUAL ?? (IS_X01 ? "/var/lib/cts-a/manual-closed.json" : "/var/lib/cts-a/manual-closed-x02.json");
 const systemClosed = new Set();
@@ -388,11 +398,11 @@ function protectFor(symbol) {
   if (cfgUsesShortRange(currentPick?.cfg ?? LIVE_CFG)) {
     const cfg = currentPick?.cfg ?? LIVE_CFG;
     return {
-      slAtr: Number(cfg.slAtr) || 0.714,
-      tpRatio: Number(cfg.tpRatio) || 1 / 1.7,
+      slAtr: Number(cfg.slAtr) || Number(cfg.tpAtr) || 0.48,
+      tpRatio: Number(cfg.tpRatio) || 1,
       trailPct: Number(cfg.trailingPct) || 1.5,
-      tpAtr: Number(cfg.tpAtr) || 0.42,
-      slOfTp: Number(cfg.slOfTp) || 1.7,
+      tpAtr: Number(cfg.tpAtr) || 0.48,
+      slOfTp: Number(cfg.slOfTp) || 1,
     };
   }
   const cells = protectCells;
@@ -542,7 +552,7 @@ function gridIndex(pick, list = GRID) {
 }
 
 function snapshot(e, extra) {
-  if (lastPnl.length) ingestLivePnls(e, lastPnl, BLOCK);
+  if (lastPnl.length) ingestLivePnls(e, lastPnl, BLOCK, { blockSince: sessionStarted });
   const audit = e.tick % 40 === 0 ? auditEngine(e) : { nanCount: 0, issues: [] };
   const book = bookCounts(e);
   if (!cachedOverall || e.tick - cachedOverallTick >= 8) {
@@ -1115,9 +1125,16 @@ function diversifyLiveIntents(list) {
   }
   return out;
 }
+/** Paper-unit scale for a live entry. Half of the previous 0.5. */
+const LIVE_VOL_FACTOR = 0.25;
 function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
-  return eq * POSITION_COST_PCT * 0.5;
+  return eq * POSITION_COST_PCT * LIVE_VOL_FACTOR;
+}
+/** Exchange minimums may not exceed this. 2× equity keeps small alts and skips majors on a small book. */
+function liveNotionalCap(equity) {
+  const eq = Math.max(0, Number(equity) || 0);
+  return Math.max(2, eq * 2);
 }
 function liveVolMul(e) {
   const vf = Number(e?.coordVolumeFactor);
@@ -1185,11 +1202,15 @@ function mergeLivePositions(e, book) {
         cur.tp = tpPx;
         cur.tpDist = Math.abs(tpPx - entry);
       }
-      if (!cur.playbook || cur.playbook === "normal") {
-        cur.playbook = e.strategyToggles?.normal === false && e.strategyToggles?.block ? "block" : "short";
-        if (cur.kind === "trend" || cur.kind === "normal") cur.kind = "short";
+      if (!cur.playbook || cur.playbook === "normal" || cur.playbook === "block") {
+        cur.playbook = cur.tactic === "axis" ? "axis" : cur.tactic === "dca" ? "dca" : "short";
       }
-      if (!cur.kind) cur.kind = "short";
+      if (cur.playbook !== "axis" && cur.playbook !== "dca") {
+        cur.kind = "short";
+        if (!(Number(cur.tpAtr) > 0)) cur.tpAtr = Number(currentPick?.cfg?.tpAtr) || 0.48;
+        if (!(Number(cur.slOfTp) > 0)) cur.slOfTp = Number(currentPick?.cfg?.slOfTp) || 1;
+      }
+      if (!cur.kind) cur.kind = cur.playbook === "axis" || cur.playbook === "dca" ? cur.kind || "short" : "short";
       e.liveLegHint = e.liveLegHint || {};
       e.liveLegHint[p.symbol] = { side: p.side, indication: cur.indication, tactic: cur.tactic, playbook: cur.playbook, kind: cur.kind, rangeType: cur.controllingRange };
       continue;
@@ -1197,6 +1218,8 @@ function mergeLivePositions(e, book) {
     const slDist = floor;
     const slUse = p.side === "long" ? (slPx > 0 && slPx < mark ? slPx : entry - slDist) : (slPx > mark ? slPx : entry + slDist);
     const tpUse = p.side === "long" ? (tpPx > mark ? tpPx : entry + slDist * 2) : (tpPx > 0 && tpPx < mark ? tpPx : entry - slDist * 2);
+    const remembered = legCfg.get(key);
+    const parentBook = remembered?.playbook === "axis" || remembered?.playbook === "dca" ? remembered.playbook : "short";
     e.positions.push({
       id: `ex:${key}`,
       connId: conn,
@@ -1213,14 +1236,16 @@ function mergeLivePositions(e, book) {
       realized: 0,
       unrealized: Number(p.pnl) || 0,
       legs: [{ orderId: `ex:${key}`, qty: p.qty, px: entry }],
-      controllingRange: e.lastRange || "atr",
+      controllingRange: remembered?.range || e.lastRange || "atr",
       rangeSpacing: slDist,
       status: "open",
       openedTick: e.tick,
-      tactic: e.lastTactic,
-      indication: classifyIndication(e, p.symbol),
-      kind: "short",
-      playbook: "short",
+      tactic: remembered?.tactic || e.lastTactic,
+      indication: remembered?.indication || classifyIndication(e, p.symbol),
+      kind: parentBook === "short" ? "short" : remembered?.kind || "short",
+      playbook: parentBook,
+      tpAtr: Number(currentPick?.cfg?.tpAtr) || 0.48,
+      slOfTp: Number(currentPick?.cfg?.slOfTp) || 1,
       peakPx: mark,
     });
   }
@@ -1255,6 +1280,7 @@ function pfGateClosed() {
 
 /** First-seen wall time per owned live leg — short-range hold matches sim minutes. */
 const openedAt = new Map();
+const blockLiveAdds = new Map();
 const MAX_HOLD_MS = Math.max(4, Number(LIVE_CFG.maxHoldTicks) || 24) * 60_000;
 
 function cellProtectOf(p, spec, network) {
@@ -1952,9 +1978,10 @@ async function mirrorToExchange(e, network, cfg) {
         playbook: enginePos.playbook,
         kind: enginePos.kind,
       } : null);
-      const indication = remembered?.indication || (e ? classifyIndication(e, p.symbol) : "trend");
-      const tactic = remembered?.tactic || (e ? tacticForIndication(indication, e.strategyToggles ?? STRAT) : "trailing");
-      const playbook = remembered?.playbook || openPlaybook(tactic, indication);
+      const indication = enginePos?.indication || remembered?.indication || (e ? classifyIndication(e, p.symbol) : "trend");
+      const tactic = enginePos?.tactic || remembered?.tactic || (e ? tacticForIndication(indication, e.strategyToggles ?? STRAT) : "trailing");
+      const hinted = enginePos?.playbook && enginePos.playbook !== "block" ? enginePos.playbook : remembered?.playbook;
+      const playbook = hinted === "axis" || hinted === "dca" || hinted === "short" ? hinted : tactic === "axis" ? "axis" : tactic === "dca" ? "dca" : "short";
       return {
         connId: CONN,
         symbol: p.symbol,
@@ -1969,7 +1996,7 @@ async function mirrorToExchange(e, network, cfg) {
         tactic,
         playbook,
         rangeType: remembered?.range || e?.lastRange || "atr",
-        kind: remembered?.kind || kindFromIndication(indication, playbook, tactic),
+        kind: playbook === "short" ? "short" : remembered?.kind || kindFromIndication(indication, playbook, tactic),
         owned: true,
       };
     }),
@@ -2024,6 +2051,8 @@ async function mirrorToExchange(e, network, cfg) {
     mirrored.delete(`tp:${key}`);
     mirrored.delete(`seed:${key}`);
     skipUntil.delete(String(key).split(":")[0]);
+    blockLiveAdds.delete(key);
+    openedAt.delete(key);
   };
   for (const k of vanished) {
     const [sym, side] = String(k).split(":");
@@ -2101,7 +2130,7 @@ async function mirrorToExchange(e, network, cfg) {
   const queueIntents = queueSource
     .filter((o) => {
       if (!o) return false;
-      if (o.playbook === "dca" || o.tactic === "dca" || /^DCA/i.test(String(o.note || ""))) return true;
+      if (o.playbook === "dca" || o.tactic === "dca" || /^DCA/i.test(String(o.note || ""))) return Boolean((e.strategyToggles ?? STRAT).dca);
       if (IS_X01) return true;
       if (o.validExec === false) return false;
       return (
@@ -2121,6 +2150,7 @@ async function mirrorToExchange(e, network, cfg) {
       kind: "entry",
       playbook: o.playbook,
       note: o.note,
+      qty: Number(o.qty) || 0,
       tactic: o.tactic,
       rangeType: o.rangeType,
       indication: o.indication,
@@ -2247,10 +2277,25 @@ async function mirrorToExchange(e, network, cfg) {
   let blockJobs = 0;
   const blockCap = IS_X01 ? 8 : 8;
   const isBlockIntent = (f) => /Block/i.test(String(f?.note || "")) || f?.playbook === "block";
+  const contractMap = IS_X01 ? await fetchContractMap(network) : null;
+  const overVol = (symbol, px) => {
+    if (!IS_X01 || !(px > 0)) return false;
+    const venue = BINGX_SYMBOL[symbol] ?? (symbol.includes("-") ? symbol : `${symbol.replace(/USDT$/i, "")}-USDT`);
+    const spec = contractMap?.get(venue);
+    const minN = exchangeMinNotional(spec, px);
+    const cap = liveNotionalCap(Number(book.equity) || Number(lastBook.equity) || 0);
+    return minN > cap + 1e-6;
+  };
   for (const f of [...e.fills, ...scanIntents]) {
     const blockish = isBlockIntent(f);
+    if (blockish && !STRAT.block) continue;
     const entries = fillJobs.length - blockJobs;
     if (blockish) {
+      const bk = `${f.symbol}:${f.side}`;
+      if ((blockLiveAdds.get(bk) || 0) >= 2) continue;
+      const px = Number(e.quotes?.[f.symbol]?.px) || Number(f.px) || 0;
+      const q = Number(f.qty) || 0;
+      if (px > 0 && q * px > Math.max(1, Number(lastBook.equity) || 0) * 0.35) continue;
       if (blockJobs >= blockCap) continue;
     } else if (entries >= entryCap) {
       if (blockJobs >= blockCap) break;
@@ -2345,12 +2390,19 @@ async function mirrorToExchange(e, network, cfg) {
     const otherSide = f.side === "long" ? "short" : "long";
     const otherOpen = exchangeOccupied.has(`${f.symbol}:${otherSide}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === otherSide);
     if (otherOpen && (hedgeBlocked || IS_X01) && !isBlockAdd) continue;
-    if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && x.side === f.side && String(x.note || "") === String(f.note || ""))) continue;
+    if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && /Block/i.test(String(x.note || "")))) continue;
     if (isBlockAdd && fillJobs.filter((x) => /Block/i.test(String(x.note || x._rel?.note || ""))).length >= budget.maxNew) continue;
     if (!isBlockAdd && openN + fillJobs.length >= budget.maxPos) break;
     if (IS_X01 && !x01CanAfford(f.symbol, book.equity) && !X01_GROWTH.has(f.symbol)) {
       markWhy(f, "afford");
       continue;
+    }
+    {
+      const pxNow = Number(e.quotes?.[f.symbol]?.px) || Number(f.px) || 0;
+      if (overVol(f.symbol, pxNow)) {
+        markWhy(f, "vol");
+        continue;
+      }
     }
     if (IS_X01 && (Number(book.equity) || 0) < 8 && !X01_GROWTH.has(f.symbol) && fillJobs.length >= 1) continue;
     if (apiQuiet()) {
@@ -2366,10 +2418,14 @@ async function mirrorToExchange(e, network, cfg) {
       const mark = Number(e.quotes?.[f.symbol]?.px) || Number(f.px) || 0;
       let ladder = Number(f.px) || mark;
       const blockAdd = /Overall Block|^Block|Block /i.test(String(f.note || ""));
-      if (IS_X01 && mark > 0 && !blockAdd) ladder = mark;
-      const resting = blockAdd
-        ? (f.side === "long" ? ladder > 0 && ladder <= mark * 0.9995 : ladder > 0 && ladder >= mark * 1.0005)
-        : (f.side === "long" ? ladder > 0 && ladder <= mark * 0.9995 : ladder > 0 && ladder >= mark * 1.0005);
+      const blockQty = Number(f.qty) || 0;
+      if (blockAdd && mark > 0) ladder = f.side === "long" ? mark * 0.9992 : mark * 1.0008;
+      else if (IS_X01 && mark > 0) ladder = mark;
+      const resting = f.side === "long" ? ladder > 0 && ladder <= mark * 0.9995 : ladder > 0 && ladder >= mark * 1.0005;
+      if (blockAdd && mark > 0 && blockQty * mark > Math.max(1, Number(book.equity) || 0) * 0.35) {
+        return { f, r: { ok: false, error: "block size" }, skip: true };
+      }
+      const sized = blockAdd && blockQty > 0 && blockQty * mark >= 2;
       const cell = protectFor(f.symbol);
       const prot = shortStopPrices(
         { symbol: f.symbol, side: f.side, mark, entry: mark, qty: 1 },
@@ -2384,10 +2440,11 @@ async function mirrorToExchange(e, network, cfg) {
           symbol: f.symbol,
           side: f.side === "long" ? "BUY" : "SELL",
           positionSide: f.side === "long" ? "LONG" : "SHORT",
-          quantity: 0,
+          quantity: sized ? blockQty : 0,
           type: resting ? "LIMIT" : "MARKET",
           price: resting ? ladder : mark,
-          notional: liveNotional(e, f, book.equity, f._rel),
+          notional: sized ? blockQty * mark : liveNotional(e, f, book.equity, f._rel),
+          exactQty: sized,
           confirmLive: true,
           slAtr: cell.slAtr,
           tpRatio: cell.tpRatio,
@@ -2403,7 +2460,9 @@ async function mirrorToExchange(e, network, cfg) {
     }
   });
   for (const row of fillOut) {
-    const { f, r, threw } = row;
+    const { f, r, threw, skip } = row || {};
+    if (!f) continue;
+    if (skip) continue;
     if (!r?.ok) {
       skippedFills.add(f.id);
       const err = String(r?.error ?? "err");
@@ -2431,14 +2490,18 @@ async function mirrorToExchange(e, network, cfg) {
     mirrored.add(`live:${f.symbol}:${f.side}`);
     taggedKeys.add(`${f.symbol}:${f.side}`);
     exchangeOccupied.add(`${f.symbol}:${f.side}`);
-    if (f._rel) {
+    if (f._rel && !/Block/i.test(String(f.note || ""))) {
       legCfg.set(`${f.symbol}:${f.side}`, {
         tactic: f._rel.tactic,
         range: f._rel.rangeType,
         indication: f._rel.indication,
-        playbook: f._rel.playbook,
-        kind: f._rel.kind,
+        playbook: f._rel.playbook === "axis" || f._rel.playbook === "dca" ? f._rel.playbook : "short",
+        kind: f._rel.playbook === "axis" || f._rel.playbook === "dca" ? f._rel.kind : "short",
       });
+    }
+    if (/Block/i.test(String(f.note || ""))) {
+      const bk = `${f.symbol}:${f.side}`;
+      blockLiveAdds.set(bk, (blockLiveAdds.get(bk) || 0) + 1);
     }
     placed += 1;
     notes.push(`live ${f.symbol} ${f.side}`);
@@ -2528,9 +2591,9 @@ function applyPfGates(engine, remote) {
   engine.shortBasePf = shortBase;
   engine.shortRange = remote?.tacticConfig?.shortRange !== false;
   if (IS_X01) {
-    shortMinTp = 0.42;
-    shortMinSl = 1.7;
-    shortMaxTp = 0.42;
+    shortMinTp = DEFAULT_SHORT_MIN_TP_ATR;
+    shortMinSl = DEFAULT_SHORT_MIN_SL_OF_TP;
+    shortMaxTp = 0.6;
     shortEvalPositive = true;
     rebuildShortGrid();
   } else {
@@ -2572,6 +2635,7 @@ function applyPfGates(engine, remote) {
 
 async function main() {
   const started = Date.now();
+  sessionStarted = started;
   const ends = started + HOURS * 3600 * 1000;
   let pick = pickFromSweep();
   currentPick = pick;
@@ -2638,7 +2702,7 @@ async function main() {
     engine.shortRange = true;
     pick.cfg = { ...pick.cfg, ...X01_LIVE_CFG, shortRange: true, trailingPct: 1.5, dcaCount: STRAT.dca ? 3 : 1 };
     currentPick = pick;
-    engine.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
+    engine.strategyToggles = { normal: true, trailing: true, axis: true, block: false, dca: false };
     engine.liveTape = false;
     engine.completeSim = true;
     engine.preEvalDone = false;
@@ -2961,7 +3025,7 @@ async function main() {
               applyRealizedSymbolStats(engine, deskExecRows(ex.bySymbol));
             }
             if (lastPnl.length) {
-              const n = ingestLivePnls(engine, lastPnl, BLOCK);
+              const n = ingestLivePnls(engine, lastPnl, BLOCK, { blockSince: sessionStarted });
               if (n) {
                 const ev = evalBlockRelations(engine, BLOCK);
                 persistDisabled(engine);
@@ -3220,7 +3284,7 @@ async function main() {
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
         if (remote.strategyToggles) {
-          if (IS_X01) Object.assign(STRAT, remote.strategyToggles, { dca: false });
+          if (IS_X01) Object.assign(STRAT, remote.strategyToggles, { dca: false, block: false });
           else Object.assign(STRAT, remote.strategyToggles, { dca: false, axis: false, trailing: true, normal: false });
         }
         pinX01Strat();

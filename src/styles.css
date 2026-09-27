@@ -501,7 +501,6 @@ html[data-skin="atlas"] .desk-side {
 }
 html[data-skin="atlas"] main section {
   border-radius: 12px;
-  overflow: hidden;
 }
 html[data-skin="atlas"] main h1 {
   font-size: 1.2rem;

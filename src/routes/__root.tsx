@@ -34,6 +34,12 @@ export const Route = createRootRoute({
   component: () => (
     <html lang="en" className="antialiased" suppressHydrationWarning>
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var s=localStorage.getItem('cts-design-skin');if(s==='lattice'||s==='pulse'||s==='atlas')document.documentElement.dataset.skin=s;}catch(e){}",
+          }}
+        />
         <HeadContent />
       </head>
       <body className="bg-bg text-fg">

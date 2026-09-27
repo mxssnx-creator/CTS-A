@@ -134,6 +134,24 @@ function DeskRuntime() {
   const liveSnap = useLiveSnapshot();
   const hasLive = Boolean(liveSession) || liveSnap.hasLive;
   const path = useRouterState({ select: (s) => s.location.pathname });
+  const hot = useRef(false);
+
+  useEffect(() => {
+    const down = () => {
+      hot.current = true;
+    };
+    const up = () => {
+      hot.current = false;
+    };
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+    };
+  }, []);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -162,12 +180,18 @@ function DeskRuntime() {
     let timer = 0;
     const step = () => {
       if (dead) return;
+      if (hot.current) {
+        timer = window.setTimeout(step, 70);
+        return;
+      }
+      const t0 = performance.now();
       try {
         tickEngine();
       } catch {
         /* self-heal: keep the clock */
       }
-      timer = window.setTimeout(step, VST_TICK_MS);
+      const spent = performance.now() - t0;
+      timer = window.setTimeout(step, spent > 90 ? Math.min(1400, Math.max(700, spent)) : VST_TICK_MS);
     };
     timer = window.setTimeout(step, VST_TICK_MS);
     const onVis = () => {
@@ -448,6 +472,10 @@ function SystemStrip() {
   const armed = useDesk((s) => s.botByConn[s.activeConnId]?.armed ?? []);
   const [now, setNow] = useState(0);
   const [host, setHost] = useState<HostPulse | null>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   useEffect(() => {
     const id = window.setInterval(() => {
       const s = useDesk.getState();
@@ -479,6 +507,13 @@ function SystemStrip() {
       window.clearInterval(id);
     };
   }, []);
+  if (!mounted) {
+    return (
+      <footer className="desk-foot shrink-0 border-t border-border bg-surface px-3 py-1.5 text-[11px] leading-4 text-muted">
+        <div className="font-mono">system</div>
+      </footer>
+    );
+  }
   const counts = runtimeCounts();
   const conn =
     activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : activeConnId === "bingx-vst-02" ? "x02 off" : activeConnId;
@@ -514,13 +549,21 @@ export function AppShell() {
   useDeskPaneScroll(pane);
   const [open, setOpen] = useState(false);
   const skin = useDesignSkin();
+  const path = useRouterState({ select: (s) => s.location.pathname });
 
   useEffect(() => {
+    setOpen(false);
+  }, [path]);
+
+  useEffect(() => {
+    document.documentElement.dataset.hydrated = "1";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
   }, []);
 
   return (
@@ -529,7 +572,7 @@ export function AppShell() {
       <DeskRuntime />
       {skin === "pulse" ? null : <DeskSidebar rail={skin === "lattice"} />}
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-12 lg:pb-0">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pb-16 lg:pb-0">
         <DeskHeader onMenu={() => setOpen(true)} />
         {skin === "pulse" ? (
           <div className="hidden border-b border-border bg-nav text-nav-fg lg:block">
@@ -589,7 +632,6 @@ export function AppShell() {
           <MobileTab key={item.to} to={item.to} label={item.label} icon={item.icon} />
         ))}
       </nav>
-      <div className="h-14 lg:hidden" />
     </div>
   );
 }

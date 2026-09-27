@@ -297,6 +297,8 @@ let tickStartedAt = 0;
 const liveBotSent = new Set<string>();
 const liveBotAt: Record<string, number> = {};
 const liveLane = new Map<string, "bot" | "progress">();
+/** Notional already sent per conn:symbol so ladder orders cannot stack a full size again. */
+const liveOpenNotional = new Map<string, number>();
 
 function controlPrices(side: "long" | "short", entry: number, mark: number, slPct: number, tpPct: number) {
   const px = mark > 0 ? mark : entry;
@@ -499,12 +501,6 @@ function queuePersist(snap: DeskSettingsSnap) {
 
 const boot = initVstEngine(DEFAULT_TACTIC_CONFIG, { warmup: 0, symbolCount: 12, arm: false, equity: 10 });
 {
-  const sess = freshConnBots();
-  const armed = sanitizeArmed(sess.armed);
-  for (const t of BOT_TYPES) {
-    if (armed.length >= 3) break;
-    if (!armed.includes(t)) armed.push(t);
-  }
   boot.botMode = true;
   boot.x01Progress = true;
   boot.running = true;
@@ -514,14 +510,7 @@ const boot = initVstEngine(DEFAULT_TACTIC_CONFIG, { warmup: 0, symbolCount: 12, 
   boot.liveSymbolCap = 50;
   boot.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
   engageLiveBook(boot);
-  const three = sanitizeArmed(armed);
-  for (let i = 0; i < 6; i++) {
-    stepDeskBots(boot, three, sess.configs);
-    tickVst(boot, LIVE_RUN_CFG, "trailing", { symbolCount: 50, rangeType: "atr", block: liveRunBlock() });
-  }
-  const open = boot.positions.filter((p) => p.connId === "bingx-x01" && p.qty > 0).length;
-  const progress = [...boot.queue, ...boot.orders].filter((o) => o.connId === "bingx-x01" && !String(o.playbook || "").startsWith("bot:") && (o.status === "queued" || o.status === "open" || o.status === "partial")).length;
-  boot.lastMsg = `X01 progress · ${open} open · ${progress} orders`;
+  boot.lastMsg = "X01 progress ready";
 }
 
 function trimConnSymbols(conns: Connection[], count: number): Connection[] {
@@ -1058,6 +1047,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const sampledAt = e.tick;
       const anyBots = runningIds.length > 0;
       e.activeConnId = view;
+      e.deskUi = true;
       if (!get().liveSession || anyBots) engageLiveBook(e);
       e.pfCoords = get().pfCoords;
       const viewSess = sessions[view];
@@ -1067,7 +1057,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
         e.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: false };
         e.liveSymbolCap = 50;
       }
-      const born: { id: string; connId: string; symbol: string; side: "long" | "short"; price: number; qty: number; sl: number; tp: number; bot: boolean }[] = [];
+      const born: { id: string; connId: string; symbol: string; side: "long" | "short"; price: number; qty: number; sl: number; tp: number; bot: boolean; add: boolean }[] = [];
       const takeBorn = () => {
         for (const o of e.queue) {
           const play = String(o.playbook || "");
@@ -1075,7 +1065,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
           const progressOrder = e.x01Progress && o.connId === "bingx-x01" && !bot && liveOrderAllowed(e, o);
           if (!bot && !progressOrder) continue;
           if (born.some((b) => b.id === o.id) || liveBotSent.has(o.id)) continue;
-          born.push({ id: o.id, connId: o.connId, symbol: o.symbol, side: o.side, price: o.price, qty: o.qty, sl: o.sl, tp: o.tp, bot });
+          const add = play === "block" || play === "dca" || /Block/i.test(o.note || "") || /^DCA/i.test(o.note || "");
+          born.push({ id: o.id, connId: o.connId, symbol: o.symbol, side: o.side, price: o.price, qty: o.qty, sl: o.sl, tp: o.tp, bot, add });
         }
       };
       if (anyBots && !viewSess?.running) {
@@ -1119,13 +1110,31 @@ export const useDesk = create<DeskStore>((set, get) => ({
         const owner = liveLane.get(`${o.connId}:${o.symbol}`);
         const mine = o.bot ? "bot" : "progress";
         if (owner && owner !== mine) continue;
-        const heldLive = get().exchange?.connId === o.connId && get().exchange.positions.some((p) => p.symbol === o.symbol && p.qty > 0);
-        if (heldLive && owner !== mine) continue;
+        const book = get().exchange;
+        const bookFresh = Boolean(book && book.ok && book.connId === o.connId && nowLive - book.at < 20000);
+        const held = bookFresh ? book!.positions.find((p) => p.symbol === o.symbol && p.side === o.side && p.qty > 0) : undefined;
+        if (held && owner && owner !== mine) continue;
+        const laneKey = `${o.connId}:${o.symbol}`;
+        const key = `${laneKey}:${o.side}`;
+        const anyHeld = bookFresh && book!.positions.some((p) => p.symbol === o.symbol && p.qty > 0);
+        if (bookFresh && !anyHeld && owner === mine) {
+          liveOpenNotional.delete(`${laneKey}:long`);
+          liveOpenNotional.delete(`${laneKey}:short`);
+          liveLane.delete(laneKey);
+        }
+        const sent = liveOpenNotional.get(key) ?? 0;
+        const px = o.price > 0 ? o.price : 1;
+        const acct = bookFresh && (book!.equity ?? 0) > 0 ? book!.equity : 0;
+        const liveCap = botLiveNotional(acct, BOT_DEFAULT_VOLUME_FACTOR);
+        const ceiling = o.add ? liveCap * 2.5 : liveCap;
+        if (!o.add && (sent > 0 || held)) continue;
+        const have = held ? held.qty * (held.mark > 0 ? held.mark : held.entry || px) : sent;
+        const room = ceiling - Math.max(sent, have);
+        const notional = Math.min(liveCap, room);
+        if (!(notional >= 2)) continue;
         liveBotSent.add(o.id);
         liveBotAt[lane] = nowLive;
-        const px = o.price > 0 ? o.price : 1;
-        const acct = get().exchange?.connId === o.connId && (get().exchange?.equity ?? 0) > 0 ? get().exchange!.equity : 0;
-        const notional = botLiveNotional(acct, BOT_DEFAULT_VOLUME_FACTOR);
+        liveOpenNotional.set(key, Math.max(sent, have) + notional);
         const slPct = px > 0 && o.sl > 0 ? Math.abs(o.sl - px) / px : 0.008;
         const tpPct = px > 0 && o.tp > 0 ? Math.abs(o.tp - px) / px : 0.008;
         void placeBingxOrder({
@@ -1149,12 +1158,18 @@ export const useDesk = create<DeskStore>((set, get) => ({
         })
           .then((res) => {
             set({ ticketMsg: res.ok ? `LIVE ${conn.id} ${o.symbol} ${o.side}` : `LIVE rejected ${conn.id}: ${res.error}` });
-            if (!res.ok) return;
+            if (!res.ok) {
+              liveBotSent.delete(o.id);
+              liveOpenNotional.set(key, Math.max(0, (liveOpenNotional.get(key) ?? 0) - notional));
+              return;
+            }
             liveLane.set(`${conn.id}:${o.symbol}`, o.bot ? "bot" : "progress");
             if (o.bot) void placeBotControls(conn.network === "testnet" ? "testnet" : "mainnet", conn.id, o.symbol, o.side, px, Math.max(slPct, 0.008), Math.max(tpPct, 0.006), px, "both", notional / px);
             if (get().activeConnId === conn.id) void get().pullExchange();
           })
           .catch((err: unknown) => {
+            liveBotSent.delete(o.id);
+            liveOpenNotional.set(key, Math.max(0, (liveOpenNotional.get(key) ?? 0) - notional));
             set({ ticketMsg: `LIVE rejected ${conn.id}: ${err instanceof Error ? err.message : "order failed"}` });
           });
       }

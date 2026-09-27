@@ -603,7 +603,7 @@ describe("Block and DCA", () => {
     assert.equal(stopped.added, 0, "overlay under the floor still added");
   });
 
-  it("Block still adds on a small dip inside the stop and not once the dip is halfway", () => {
+  it("Block adds on a green position and not on a dip or halfway to the stop", () => {
     const e = book();
     const block = {
       ...DEFAULT_BLOCK_CONFIG,
@@ -618,13 +618,21 @@ describe("Block and DCA", () => {
       volumeMode: "shared" as const,
       overallMode: "shared" as const,
     };
-    const { pos, q, entry } = seedLong(e, 0.995);
+    const { pos, q, entry } = seedLong(e, 1.002);
     pos.sl = entry * 0.94;
     pos.slDist = entry * 0.06;
     pos.unrealized = (q.px - entry) * pos.qty;
     e.blockCfg = block;
-    const near = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
-    assert.ok(near.added > 0, "small dip inside the stop got no Block add");
+    const green = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.ok(green.added > 0, "green position got no Block add");
+    e.queue = [];
+    e.orders = [];
+    e.blockLanes = {};
+    q.px = entry * 0.995;
+    pos.mark = q.px;
+    pos.unrealized = (q.px - entry) * pos.qty;
+    const dip = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.equal(dip.added, 0, "0.5% dip still got a Block add");
     e.queue = [];
     e.orders = [];
     e.blockLanes = {};

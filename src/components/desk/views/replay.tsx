@@ -456,9 +456,9 @@ export function ReplayView() {
               <tbody>
                 {[...matrix]
                   .sort((a, b) => b.pf - a.pf)
-                  .map((c) => (
+                  .map((c, i) => (
                     <tr
-                      key={`${c.tactic}-${c.range}-${c.hours}`}
+                      key={`${c.tactic}-${c.range}-${c.hours}-${i}`}
                       className={`border-t border-border ${c.tactic === tactic && c.range === rangeType ? "bg-primary-soft" : ""}`}
                     >
                       <td className="px-4 py-2">{c.tactic}</td>
@@ -493,8 +493,8 @@ export function ReplayView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(stats.byIndication ?? []).map((b) => (
-                    <tr key={b.key} className="border-t border-border">
+                  {(stats.byIndication ?? []).map((b, i) => (
+                    <tr key={`${b.key}-${i}`} className="border-t border-border">
                       <td className="py-2 capitalize">{b.key}</td>
                       <td className="py-2 font-mono tabular">{b.n}</td>
                       <td className="py-2 font-mono tabular">{fmtPf(b.pf)}</td>
@@ -521,8 +521,8 @@ export function ReplayView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(stats.byPlaybook ?? []).map((b) => (
-                    <tr key={b.key} className="border-t border-border">
+                  {(stats.byPlaybook ?? []).map((b, i) => (
+                    <tr key={`${b.key}-${i}`} className="border-t border-border">
                       <td className="py-2 capitalize">{b.key}</td>
                       <td className="py-2 font-mono tabular">{b.n}</td>
                       <td className="py-2 font-mono tabular">{fmtPf(b.pf)}</td>
@@ -642,8 +642,8 @@ export function ReplayView() {
                 </tr>
               </thead>
               <tbody>
-                {[...stats.bySymbol].sort((a, b) => b.pf - a.pf).map((s) => (
-                  <tr key={s.key} className="border-t border-border">
+                {[...stats.bySymbol].sort((a, b) => b.pf - a.pf).map((s, i) => (
+                  <tr key={`${s.key}-${i}`} className="border-t border-border">
                     <td className="px-4 py-2 font-medium">{s.key}</td>
                     <td className="px-2 py-2 font-mono tabular">{s.n}</td>
                     <td className={`px-2 py-2 font-mono tabular ${s.pf >= 1 ? "text-up" : "text-down"}`}>{fmtPf(s.pf)}</td>
@@ -671,8 +671,8 @@ export function ReplayView() {
                 </tr>
               </thead>
               <tbody>
-                {[...tape.symbolRows].sort((a, b) => b.pf - a.pf).map((s) => (
-                  <tr key={s.id} className="border-t border-border">
+                {[...tape.symbolRows].sort((a, b) => b.pf - a.pf).map((s, i) => (
+                  <tr key={`${s.id}-${i}`} className="border-t border-border">
                     <td className="px-4 py-2 font-medium">{s.id}</td>
                     <td className="px-2 py-2 font-mono tabular">{s.trades}</td>
                     <td className={`px-2 py-2 font-mono tabular ${s.pf >= 1 ? "text-up" : "text-down"}`}>{fmtPf(s.pf)}</td>
@@ -713,8 +713,8 @@ export function ReplayView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {report.bySymbol.slice(0, 8).map((s) => (
-                    <tr key={s.id} className="border-t border-border">
+                  {report.bySymbol.slice(0, 8).map((s, i) => (
+                    <tr key={`${s.id}-best-${i}`} className="border-t border-border">
                       <td className="px-4 py-2">{s.id}</td>
                       <td className="px-2 py-2 font-mono tabular">{fmtPf(s.pf)}</td>
                       <td className="px-2 py-2 font-mono tabular">{fmtWr(s.wr)}</td>
@@ -739,8 +739,8 @@ export function ReplayView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...report.bySymbol].reverse().slice(0, 8).map((s) => (
-                    <tr key={s.id} className="border-t border-border">
+                  {[...report.bySymbol].reverse().slice(0, 8).map((s, i) => (
+                    <tr key={`${s.id}-worst-${i}`} className="border-t border-border">
                       <td className="px-4 py-2">{s.id}</td>
                       <td className="px-2 py-2 font-mono tabular">{fmtPf(s.pf)}</td>
                       <td className="px-2 py-2 font-mono tabular">{fmtWr(s.wr)}</td>
@@ -769,8 +769,8 @@ export function ReplayView() {
                 </tr>
               </thead>
               <tbody>
-                {replaySim.fills.slice(0, 24).map((t) => (
-                  <tr key={t.id} className="border-t border-border">
+                {replaySim.fills.slice(0, 24).map((t, i) => (
+                  <tr key={`${t.id}-${i}`} className="border-t border-border">
                     <td className="px-4 py-2">{t.symbol}</td>
                     <td className="px-2 py-2 capitalize">{t.side}</td>
                     <td className="px-2 py-2">{t.reason}</td>
@@ -900,8 +900,8 @@ export function ReplayView() {
               </tr>
             </thead>
             <tbody>
-              {tape.kinds.map((k) => (
-                <tr key={k.key} className="border-t border-border">
+              {tape.kinds.map((k, i) => (
+                <tr key={`${k.key}-${i}`} className="border-t border-border">
                   <td className="py-2 capitalize">{INDICATION_KINDS.find((x) => x.id === k.key)?.label ?? k.key}</td>
                   <td className="py-2 font-mono tabular">{k.hits}</td>
                   <td className="py-2 font-mono tabular">{fmtNum(k.avgStrength, 2)}</td>
@@ -915,8 +915,8 @@ export function ReplayView() {
           </table>
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {tape.configs.map((c) => (
-            <div key={c.id} className="border border-border px-3 py-2">
+          {tape.configs.map((c, i) => (
+            <div key={`${c.id}-${i}`} className="border border-border px-3 py-2">
               <div className="text-xs uppercase tracking-wide text-subtle">{c.kind}</div>
               <div className="text-sm font-medium">{c.label}</div>
               <div className="mt-1 font-mono text-xs tabular text-muted">
@@ -949,9 +949,9 @@ export function ReplayView() {
             <tbody>
               {[...tape.strategies]
                 .sort((a, b) => b.pf - a.pf)
-                .map((s) => (
+                .map((s, i) => (
                   <tr
-                    key={s.id}
+                    key={`${s.id}-${i}`}
                     className={`border-t border-border ${s.id === strategyId ? "bg-primary-soft" : ""}`}
                     onClick={() => setStrategy(s.id)}
                   >
@@ -998,8 +998,8 @@ export function ReplayView() {
                 {tradesToNow
                   .slice(-16)
                   .reverse()
-                  .map((t) => (
-                    <tr key={t.id} className="border-t border-border">
+                  .map((t, i) => (
+                    <tr key={`${t.id}-${i}`} className="border-t border-border">
                       <td className="px-4 py-2 font-mono text-xs tabular">
                         {t.entryBar}→{t.exitBar}
                       </td>

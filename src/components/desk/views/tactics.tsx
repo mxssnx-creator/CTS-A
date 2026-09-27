@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { buildBlocks, TACTIC_META } from "@/lib/desk/engine";
 import type { TacticKind } from "@/lib/desk/types";
 import { useDesk } from "@/lib/desk/store";
@@ -15,10 +16,11 @@ export function TacticsView() {
   const cfg = useDesk((s) => s.tacticConfig);
   const setCfg = useDesk((s) => s.setTacticConfig);
   const applyLive = useDesk((s) => s.applyLiveConfig);
-  const vst = useDesk((s) => s.vst);
+  const bookStamp = useDesk((s) => Math.floor((s.vst.tick || 0) / 8));
+  const activeConnId = useDesk((s) => s.activeConnId);
+  const vst = useMemo(() => useDesk.getState().vst, [bookStamp, activeConnId]);
   const liveSnap = useLiveSnapshot();
   const exchange = liveSnap.exchange;
-  const activeConnId = useDesk((s) => s.activeConnId);
   const costStep = useDesk((s) => s.costStep);
   const pfCoords = useDesk((s) => s.pfCoords);
   const setPfCoords = useDesk((s) => s.setPfCoords);

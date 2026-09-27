@@ -1044,7 +1044,7 @@ export async function placeSwapOrder(input: {
     result = await post(qty, false);
   }
   if (isRateLimitedMsg(result.error)) return result;
-  if (!result.ok && isMinSizeError(result.error) && !input.closePosition) {
+  if (!result.ok && isMinSizeError(result.error) && !input.closePosition && !input.exactQty) {
     const eq = Number(input.equity) || 0;
     if (eq > 0 && eq < 8) return result;
     for (const mul of [1.25, 1.5, 2]) {

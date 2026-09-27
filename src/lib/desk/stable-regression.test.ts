@@ -17,6 +17,7 @@ import {
   simulateHours,
   tickVst,
   armUniverse,
+  refreshValidRelKeys,
   VST_DEFAULT_CONN,
 } from "./vst.ts";
 
@@ -237,6 +238,30 @@ describe("stable reference", () => {
     const again = [...e.queue, ...e.orders].filter((o) => o.playbook === "axis" || o.tactic === "axis");
     assert.equal(again.some((o) => o.calc === "ax-pause"), false);
     assert.ok(again.some((o) => o.calc === "ax-prev" || o.calc === "ax-last" || o.calc === "ax-cont"));
+  });
+
+  it("keeps a validated short book armed beside axis after the exam", () => {
+    const e = engine();
+    e.openCompleteTape = false;
+    e.liveTape = false;
+    const win = Array.from({ length: 16 }, () => ({ pnl: 0.4 }));
+    e.shortRelPreTape = {
+      "trend:trailing:0.48:0.75": win,
+      "ema:hybrid:0.48:0.75": win,
+      "break:trailing:0.48:1.00": win,
+      "trend:axis:0.48:0.75": win,
+      "direction:axis:0.48:0.75": win,
+    };
+    e.shortComboPreTape = { "0.48:0.75": win, "0.48:1.00": win };
+    refreshValidRelKeys(e);
+    armUniverse(e, LIVE_RUN_CFG, "trailing", "atr");
+    const rows = e.queue.filter((o) => o.validExec === true);
+    const shortN = rows.filter((o) => o.playbook === "short" || o.tactic === "trailing" || o.tactic === "hybrid").length;
+    const axisN = rows.filter((o) => o.tactic === "axis" || o.playbook === "axis").length;
+    assert.ok(shortN >= 8, `short ${shortN} axis ${axisN} queued ${e.queue.length}`);
+    assert.ok(axisN >= 4, `axis ${axisN}`);
+    // Live hours probe Short (cap 12 per tactic) until that hour's PF is hot, then the cap rises.
+    assert.ok(shortN >= 8 && axisN >= 4, `short starved ${shortN} vs axis ${axisN}`);
   });
 
   it("keeps the 1h ATR tape positive, with DCA above the floor and a matching order ledger", () => {

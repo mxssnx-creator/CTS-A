@@ -44,8 +44,8 @@ export function OverviewView() {
   const applyLive = useDesk((s) => s.applyLiveConfig);
   const params = useDesk((s) => s.strategyParams);
   const enabledKinds = useDesk((s) => s.enabledKinds);
-  const vstTick = useDesk((s) => s.vst.tick);
   const vstTrades = useDesk((s) => s.vst.closed.length);
+  const engineStamp = useDesk((s) => Math.floor((s.vst.tick || 0) / 8));
   const vstCoord = useDesk((s) => s.vst.lastNCoord);
   const progressEval = useDesk((s) => s.vst.progressEval);
   const engineSize = useDesk((s) => s.vst.engineSizeFactor ?? 1);
@@ -80,8 +80,10 @@ export function OverviewView() {
     () => buildLanes(lastNs.lanes, cfg, th, undefined, enabledKinds).filter((l) => l.status !== "rejected").slice(0, 12),
     [lastNs.lanes, cfg, th, enabledKinds],
   );
-  const live = liveDeskBook(useDesk.getState().vst, activeConnId, lastNs.last);
-  const engineStamp = Math.floor(vstTick / 8);
+  const live = useMemo(
+    () => liveDeskBook(useDesk.getState().vst, activeConnId, lastNs.last),
+    [engineStamp, vstTrades, activeConnId, lastNs.last],
+  );
   const engineBook = useMemo(() => {
     const e = useDesk.getState().vst;
     const stats = overallLiveStats(e, { seed: false });

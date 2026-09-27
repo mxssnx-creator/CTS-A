@@ -68,14 +68,20 @@ export const BOT_START_EQUITY = 10;
 export const BOT_NOTIONAL_PCT = 0.2;
 export const BOT_MARGIN_LEV = 125;
 
-/** Live notional. Default volume factor 1 is half the previous 1× cap, and never under the $2 minimum. */
+/** Live notional. Volume factor scales size, but one position never exceeds 12% of equity (20% only to hold the $2 floor on a $10 book). */
 export function botLiveNotional(equity: number, volumeFactor = BOT_DEFAULT_VOLUME_FACTOR): number {
-  const vf = Math.max(BOT_DEFAULT_VOLUME_FACTOR, Number(volumeFactor) || BOT_DEFAULT_VOLUME_FACTOR);
+  const vf = Math.min(10, Math.max(BOT_DEFAULT_VOLUME_FACTOR, Number(volumeFactor) || BOT_DEFAULT_VOLUME_FACTOR));
   const scale = vf / 2;
   const eq = Number(equity) > 0 ? Number(equity) : 0;
-  if (eq > 20) return Math.max(2, Math.min(8 * scale, eq * 0.15 * scale));
+  const equityCap = eq > 0 ? eq * 0.12 : 4;
+  if (eq > 20) {
+    const raw = Math.min(8 * scale, eq * 0.08 * scale);
+    return Math.max(2, Math.min(raw, equityCap));
+  }
   const raw = (eq > 0 ? eq * 0.8 : 4) * scale;
-  return Math.max(2, Math.min(4 * scale, raw));
+  const dollar = Math.min(4 * scale, raw);
+  const floor = eq > 0 ? Math.min(2, eq * 0.2) : 2;
+  return Math.max(floor, Math.min(dollar, equityCap, eq > 0 ? eq * 0.2 : 4));
 }
 
 export const BOT_TYPE_META: Record<BotTypeId, { label: string; blurb: string; thesis: string }> = {
@@ -750,7 +756,8 @@ function beLevel(side: 1 | -1, entry: number): number {
 }
 
 function qtyFor(equity: number, px: number, vf: number, mul: number): number {
-  const notional = Math.max(0, equity) * BOT_NOTIONAL_PCT * Math.max(0.2, vf) * mul;
+  const cut = Math.min(1, Math.max(0.2, mul));
+  const notional = botLiveNotional(equity, vf) * cut;
   if (!(px > 0) || notional <= 0) return 0;
   return notional / px;
 }
@@ -1466,7 +1473,7 @@ export function stepDeskBots(
       if (!sig) continue;
       const px = q.px;
       const atr = Number(q.atr) || 0;
-      const notional = eq * BOT_NOTIONAL_PCT * Math.max(1, cfg.volumeFactor);
+      const notional = botLiveNotional(eq, cfg.volumeFactor);
       const qty = Math.max(notional / px, 1e-8);
       const slDistPx = dynamicMinRateDist(px, floors.slPct, atr, 1.25);
       const tpDistPx = dynamicMinRateDist(px, Math.max(BOT_LIVE_MIN_TP, cfg.minTp), atr, 1.25);

@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Pause, Play, RotateCcw, Square } from "lucide-react";
+import { useMemo } from "react";
 import {
   COST_STEPS,
   DESK,
@@ -94,12 +95,22 @@ export function SessionProgress({
   const enabledKinds = useDesk((s) => s.enabledKinds);
   const toggleKind = useDesk((s) => s.toggleKind);
 
-  const tape = bookCounts(useDesk.getState().vst);
-  const sys = systemSnapshot(useDesk.getState().vst, {
-    combos: { total: book.totalCombos, positive: book.positiveCombos },
-    feed,
-    connections,
-  });
+  const tape = useMemo(
+    () => bookCounts(useDesk.getState().vst),
+    // Tick steps keep the meters live without scanning the book on every clock beat.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [Math.floor(tick / 4), activeConnId, liveSnap.livePos, liveSnap.liveOrd],
+  );
+  const sys = useMemo(
+    () =>
+      systemSnapshot(useDesk.getState().vst, {
+        combos: { total: book.totalCombos, positive: book.positiveCombos },
+        feed,
+        connections,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [Math.floor(tick / 4), book.totalCombos, book.positiveCombos, feed, connections, activeConnId],
+  );
   const occupiedN = liveSnap.hasLive
     ? liveSnap.occupied
     : tape.positions.symbols;

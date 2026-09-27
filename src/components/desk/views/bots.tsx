@@ -176,7 +176,8 @@ export function BotsView() {
   const running = useDesk((s) => s.botsRunning);
   const activeConnId = useDesk((s) => s.activeConnId);
   const botByConn = useDesk((s) => s.botByConn);
-  const vst = useDesk((s) => s.vst);
+  const bookStamp = useDesk((s) => Math.floor((s.vst.tick || 0) / 8));
+  const vst = useMemo(() => useDesk.getState().vst, [bookStamp, activeConnId]);
   const setSelected = useDesk((s) => s.setBotsSelected);
   const setHours = useDesk((s) => s.setBotsHours);
   const toggleArmed = useDesk((s) => s.toggleBotArmed);
