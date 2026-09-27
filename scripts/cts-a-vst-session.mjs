@@ -3,7 +3,7 @@
  * CTS-A BingX VST-02 session: 50 symbols, max orders, best-first, 2h monitor.
  * Keys from env — never printed.
  */
-import { writeFileSync, mkdirSync, readFileSync, renameSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, renameSync, appendFileSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, fetchPrehistory, loadLeverageCaps, cachedMaxLeverage, MIN_LIVE_SL_PCT, exchangeMinNotional } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, seedPreAtr, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts, seedIndicationHistory, shortControlPrices } from "../src/lib/desk/engine.ts";
@@ -2145,27 +2145,20 @@ async function mirrorToExchange(e, network, cfg) {
   const queueSource = [];
   if (!fat) queueSource.push(...rawQueue, ...engineResting);
   else {
-    let blocks = 0;
-    let entries = 0;
-    let idle = 0;
-    for (let i = rawQueue.length - 1; i >= 0; i -= 1) {
-      const o = rawQueue[i];
-      if (!o) continue;
-      const block = /Block/i.test(String(o.note || "")) || o.playbook === "block";
-      if (block ? blocks >= 800 : entries >= 280) {
-        idle += 1;
-        if (idle > 500 && (blocks >= 64 || entries >= 64)) break;
-        continue;
-      }
-      idle = 0;
-      if (block) blocks += 1;
-      else entries += 1;
-      queueSource.push(o);
-      if (blocks >= 800 && entries >= 280) break;
+    const bySym = new Map();
+    for (const o of rawQueue) {
+      if (!o?.symbol) continue;
+      const row = bySym.get(o.symbol) || [];
+      if (row.length < 12) row.push(o);
+      bySym.set(o.symbol, row);
     }
-    for (const o of engineResting) {
-      if (!o || queueSource.length >= 1200) break;
-      queueSource.push(o);
+    const bags = [...bySym.values()];
+    while (queueSource.length < 400 && bags.length) {
+      for (let i = bags.length - 1; i >= 0 && queueSource.length < 400; i -= 1) {
+        const o = bags[i].pop();
+        if (o) queueSource.push(o);
+        if (!bags[i].length) bags.splice(i, 1);
+      }
     }
   }
   const queueIntents = queueSource
@@ -2582,6 +2575,7 @@ async function mirrorToExchange(e, network, cfg) {
   if (IS_X01) {
     const line = `q ${queueIntents.length} scan ${scanIntents.length} jobs ${fillJobs.length} ok ${placed} ${Object.entries(skipN).map(([k, v]) => `${k}${v}`).join(" ") || firstWhy || "sent"}`;
     console.log(line);
+    try { appendFileSync("/var/log/cts-a/live-send.log", `${new Date().toISOString()} ${line}\n`); } catch { /* ignore */ }
     notes.push(line);
   }
   return notes.length ? notes.slice(-4).join(" · ") : null;
