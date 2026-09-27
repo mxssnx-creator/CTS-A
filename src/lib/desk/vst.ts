@@ -2624,7 +2624,8 @@ export function rankIndications(e: VstEngine, pack: Parameters<typeof indication
     }
     return (id === winner ? 80 : 0) + q * 8 + (ev && ev.n >= 3 ? ev.pf * 4 : 0) + mag + liveLaneScore(e, id);
   };
-  return catalog.slice().sort((a, b) => score(b) - score(a));
+  const skip = new Set(e.skipIndications ?? []);
+  return catalog.filter((id) => !skip.has(id)).slice().sort((a, b) => score(b) - score(a));
 }
 
 /** All enabled tactics, best validated PF first after the base exam. */
@@ -4743,6 +4744,7 @@ function dcaOverlayOff(e: VstEngine): boolean {
 
 function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   if (String(p.playbook || "").startsWith("bot:")) return;
+  if ((e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca === false) return;
   if (dcaOverlayOff(e)) return;
   if (p.legs.length < 1 || p.legs.length >= cfg.dcaCount) return;
   if (p.controllingRange === "volume") return;
@@ -4930,7 +4932,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       p.slDist = stop.slDist;
       p.tpDist = stop.tpDist;
     }
-    if (!botBook && (ownTactic === "dca" || (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca) && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
+    if (!botBook && (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca === true && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (!shortPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
     const holdR = shortPos && p.slOfTp != null && p.slOfTp > 0 ? Math.max(0.25, 1 / p.slOfTp) : e.tpRatio;
     if (!botBook) clampRatio(p, holdR, shortPos);
@@ -7229,7 +7231,10 @@ function overallWindowOk(
   const floor = next <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.max(1.05, Math.min(minPf || 1.05, 1.2));
   const pass = (w?: { closed?: number; lastPf?: number }) => {
     if (w && (w.closed || 0) >= need) return (Number(w.lastPf) || 0) + 1e-9 >= floor;
-    if (!e.liveTape) return true;
+    // Type / indication+type stay on their own PF after the exam. Other scopes keep coverage
+    // until that scope has a full window, so Block does not go dark while the book is still proving.
+    const typed = scope === "type" || scope === "indType";
+    if (!e.liveTape && !(typed && e.preEvalDone)) return true;
     let n = 0;
     for (const x of e.positions) {
       if (x.qty <= 0) continue;
@@ -7583,6 +7588,7 @@ export function adjustActiveBlocks(
       if (!ownedByDesk(p, conn)) continue;
       if (p.qty <= 0) continue;
       if (overlayOff) continue;
+      if (p.indication && e.skipIndications?.includes(p.indication)) continue;
       const realStage = Boolean(e.liveTape);
       if (e.preEvalDone && !internAllPhase(e) && !realStage && p.validExec !== true) continue;
       if (!overall) {
@@ -7731,9 +7737,15 @@ export function adjustActiveBlocks(
             if (next < minM || next > maxM) continue;
             if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
             const vrModeOv = mode === "shared" ? vrShared : vrOv;
+            const scopePos = {
+              symbol: p.symbol,
+              side: p.side,
+              indication: p.indication,
+              tactic: (p.tactic || tactic) as TacticKind,
+            };
             for (const scope of scopes) {
               if (adds + plannedCount() >= addCap) break;
-              if (!overallWindowOk(e, scope, p, next, minPf)) continue;
+              if (!overallWindowOk(e, scope, scopePos, next, minPf)) continue;
               if (liveOvLevels[scope].has(next)) continue;
               const vrThis = vrModeOv * ovVrScale;
               const ovCap = lane.baseQty * Math.min(next * vrThis, extraCap);
@@ -11090,22 +11102,25 @@ export function liveShouldExecute(
   },
 ): boolean {
   const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  const note = String(rel.note || "");
+  const play = String(rel.playbook || "");
+  if (rel.indication && e.skipIndications?.includes(rel.indication)) return false;
+  // Block / Overall are adds on a position the scope PF already accepted. They are not a new base set,
+  // so the last-N combo gate must not drop Overall type after the exam.
+  const overall = /Overall Block/i.test(note);
+  const blockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
+  if (blockFill) {
+    if (overall) return e.blockCfg?.overall !== false;
+    return t.block !== false;
+  }
+  const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
+  if (isDca && t.dca === false) return false;
   const ready = e.preEvalDone && validatedSet(e, rel);
   if (!t.normal && unadjustedNormalOrder(rel) && !ready) return false;
   if (e.preEvalDone && !validatedSet(e, rel)) return false;
-  const note = String(rel.note || "");
-  const play = String(rel.playbook || "");
   const extra = play === "block" || play === "axis" || play === "dca" || rel.tactic === "axis" || rel.tactic === "dca" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   if (t.trailing === false && rel.tactic === "trailing" && !extra) return false;
-  const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca) return t.dca;
-  const blockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
-  if (blockFill) {
-    if (t.block === false) return false;
-    const shortComboBlk = isShortComboRel(e, rel);
-    if (shortComboBlk && e.preEvalDone && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!) && !internRelProven(e, rel) && !relExamPass(e, rel)) return false;
-    return true;
-  }
   const shortCombo = isShortComboRel(e, rel);
   if (shortCombo && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!) && !internRelProven(e, rel) && !relExamPass(e, rel)) return false;
   if (!shortCombo && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, shortControlPrices } from "./engine.ts";
-import { adjustActiveBlocks, initVstEngine, LIVE_RUN_CFG, liveShouldExecute, simulateHours, tickVst, unadjustedNormalOrder, VST_DEFAULT_CONN } from "./vst.ts";
+import { adjustActiveBlocks, initVstEngine, LIVE_RUN_CFG, liveShouldExecute, rankIndications, simulateHours, tickVst, unadjustedNormalOrder, VST_DEFAULT_CONN } from "./vst.ts";
 
 const CFG = {
   ...DEFAULT_TACTIC_CONFIG,
@@ -130,7 +130,7 @@ describe("Block and DCA", () => {
     const lane = seedLong(e, 0.975);
     lane.pos.tactic = "dca";
     tickVst(e, CFG, "dca", { skipWalk: true, rangeType: "atr" });
-    assert.ok([...e.queue, ...e.orders].some((o) => /^DCA/.test(o.note)), "tactic dca still adds when the switch is off");
+    assert.equal([...e.queue, ...e.orders].some((o) => /^DCA/.test(o.note)), false, "DCA must stay off when the switch is off");
   });
 
   it("DCA adds inside a short stop instead of waiting past it", () => {
@@ -698,5 +698,73 @@ describe("Block and DCA", () => {
         assert.ok(p.slDist > 0 && p.tpDist > 0);
       }
     }
+  });
+
+  it("Overall type sizes only a high type PF, and DCA / MACD / Bollinger stay off", () => {
+    const e = book();
+    e.strategyToggles = { normal: true, trailing: false, axis: true, block: true, dca: false };
+    e.skipIndications = ["direction", "macd", "bollinger"];
+    e.blockCfg = {
+      ...DEFAULT_BLOCK_CONFIG,
+      ...e.blockCfg,
+      enabled: true,
+      overall: true,
+      overallType: true,
+      windows: true,
+      stack: true,
+      minRelPf: 1.2,
+      counts: [1],
+      maxMultiple: 6,
+      minActiveLevel: 1,
+      volumeMode: "parallel",
+      overallMode: "parallel",
+    };
+    const { pos } = seedLong(e, 1.01);
+    pos.unrealized = 1;
+    e.blockWindowsByType = { trailing: { 1: { closed: 12, lastPf: 0.7, wins: 2, n: 1, ring: [], pauseLeft: 0, lastAvg: 0, lastNet: 0, windows: 2, lossWindows: 1, adjusted: 0, losers: [] } } };
+    adjustActiveBlocks(e, CFG, "trailing", e.blockCfg, "atr");
+    assert.equal(e.queue.some((o) => /Overall Block type/.test(o.note || "")), false, "cold type still sized");
+    e.queue = [];
+    e.orders = [];
+    e.blockLanes = {};
+    e.blockWindowsByType = { trailing: { 1: { closed: 12, lastPf: 1.45, wins: 9, n: 1, ring: [], pauseLeft: 0, lastAvg: 0, lastNet: 0, windows: 2, lossWindows: 0, adjusted: 0, losers: [] } } };
+    const hot = adjustActiveBlocks(e, CFG, "trailing", e.blockCfg, "atr");
+    assert.ok(hot.added > 0, "high type PF added nothing");
+    assert.ok(e.queue.some((o) => /Overall Block type/.test(o.note || "")), "high type PF did not size Overall type");
+    assert.equal(
+      liveShouldExecute(e, {
+        symbol: pos.symbol,
+        side: "long",
+        playbook: "block",
+        note: "Overall Block type shared #1",
+        tactic: "trailing",
+        indication: "ema",
+        tpAtr: 0.48,
+        slOfTp: 0.75,
+      }),
+      true,
+    );
+    assert.equal(liveShouldExecute(e, { symbol: pos.symbol, side: "long", playbook: "dca", tactic: "dca", note: "DCA L2" }), false);
+    assert.equal(liveShouldExecute(e, { symbol: pos.symbol, side: "long", indication: "macd", tactic: "axis", playbook: "axis" }), false);
+    assert.equal(liveShouldExecute(e, { symbol: pos.symbol, side: "long", indication: "bollinger", tactic: "axis", playbook: "axis" }), false);
+    const ranked = rankIndications(e, {
+      trend: 0.2,
+      break: 0.2,
+      active: 0.2,
+      direction: 0.2,
+      move: 0.1,
+      rsi: 0.1,
+      bollinger: 0.9,
+      sar: 0.1,
+      macd: 0.9,
+      ema: 0.2,
+      agree: true,
+      activity: 0.4,
+      lastPart: 0,
+      drawdown: 0,
+      prevRel: 0,
+    }, "macd");
+    assert.equal(ranked.includes("macd"), false);
+    assert.equal(ranked.includes("bollinger"), false);
   });
 });

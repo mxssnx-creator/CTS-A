@@ -68,6 +68,9 @@ const CYCLE_MS = Number(process.env.CTS_A_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
 const SHORT_CYCLE_MS = Number(process.env.CTS_A_SHORT_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 2000);
+/** Resting LIMIT tickets x01 should hold. One rung stack per symbol, not a handful of markets. */
+const X01_LADDER_TARGET = 400;
+const X01_LADDER_PER_SYM = 8;
 const LIVE_MIN_PF = IS_X01
   ? Math.max(DEFAULT_MIN_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_MIN_PF) || DEFAULT_MIN_PF)
   : Math.max(DEFAULT_SHORT_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_SHORT_PF) || DEFAULT_SHORT_PF);
@@ -174,7 +177,7 @@ let lastOverallWrite = 0;
 
 const BLOCK = {
   ...DEFAULT_BLOCK_CONFIG,
-  enabled: !IS_X01,
+  enabled: true,
   endStageOnly: false,
   cadence: 4,
   flattenConflict: false,
@@ -216,13 +219,13 @@ const BLOCK = {
   lastNProgress: sanitizeLastNProgress(undefined),
 };
 
-const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: true, block: false, dca: false };
+const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: false, axis: true, block: true, dca: false };
 function pinX01Strat() {
   if (!IS_X01) return;
   STRAT.normal = true;
   STRAT.trailing = false;
   STRAT.axis = true;
-  STRAT.block = false;
+  STRAT.block = true;
   STRAT.dca = false;
 }
 pinX01Strat();
@@ -2041,7 +2044,7 @@ async function mirrorToExchange(e, network, cfg) {
         owned: true,
       };
     }),
-    orders: deskOrd.slice(0, 250).map((o) => ({
+    orders: deskOrd.slice(0, 500).map((o) => ({
       connId: CONN,
       id: String(o.id ?? ""),
       symbol: o.symbol,
@@ -2119,6 +2122,16 @@ async function mirrorToExchange(e, network, cfg) {
   const flat = await flattenBelowMinPf(network, book, e);
   if (flat) notes.push(flat);
   const protectGap = lastBook.pos - Math.min(lastBook.sl, lastBook.tp);
+  const restingLimits = (book.orders ?? []).filter(
+    (o) => isDeskOrder(o) && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition,
+  ).length;
+  const restingBySym = new Map();
+  for (const o of book.orders ?? []) {
+    if (!isDeskOrder(o) || o.closePosition) continue;
+    if (String(o.type || "").toUpperCase() !== "LIMIT") continue;
+    restingBySym.set(o.symbol, (restingBySym.get(o.symbol) || 0) + 1);
+  }
+  const ladderShort = IS_X01 && restingLimits < X01_LADDER_TARGET;
   const paperOpen = new Set((e.positions || []).map((p) => `${p.symbol}:${p.side}`));
   for (const k of paperOpen) mirrored.delete(`seed:${k}`);
   const ours = deskPos;
@@ -2130,7 +2143,7 @@ async function mirrorToExchange(e, network, cfg) {
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
   if (openN >= budget.maxPos) return notes.length ? notes.join(" · ") : null;
-  if (protectGap > 2 && openN >= 20) {
+  if (protectGap > 2 && openN >= 20 && !ladderShort) {
     notes.push(`protect gap ${protectGap}`);
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
@@ -2191,7 +2204,7 @@ async function mirrorToExchange(e, network, cfg) {
       _fromQueue: true,
     }));
   const entryIntents = IS_X01 ? diversifyLiveIntents(queueIntents) : queueIntents;
-  const entryCap = IS_X01 ? 48 : 16;
+  const entryCap = IS_X01 ? Math.min(120, Math.max(48, X01_LADDER_TARGET - restingLimits)) : 16;
   const occupiedSymbols = new Set([...exchangeOccupied].map((k) => String(k).split(":")[0]));
   const restingSymbols = new Set(
     (book.orders ?? [])
@@ -2214,7 +2227,38 @@ async function mirrorToExchange(e, network, cfg) {
           slim.push(f);
           if (slim.length >= 400) break;
         }
-        if (slim.length < 4 && e.strategyToggles?.normal !== false) {
+        const ladder = [];
+        if (IS_X01 && restingLimits < X01_LADDER_TARGET) {
+          const ids = universeSymbols(LIVE_SYMBOLS).map((s) => s.id);
+          for (const id of ids) {
+            if (ladder.length >= X01_LADDER_TARGET - restingLimits) break;
+            const have = restingBySym.get(id) || 0;
+            if (have >= X01_LADDER_PER_SYM) continue;
+            const q = e.quotes?.[id];
+            if (!q || !(q.px > 0) || !isUniverseSymbol(id)) continue;
+            const side = q.px >= (q.axis || q.px) ? "short" : "long";
+            for (let lvl = have + 1; lvl <= X01_LADDER_PER_SYM; lvl += 1) {
+              const dist = q.px * 0.0015 * lvl;
+              const px = side === "long" ? q.px - dist : q.px + dist;
+              ladder.push({
+                id: `flat:${id}:${side}:${lvl}`,
+                orderId: "",
+                symbol: id,
+                side,
+                px,
+                kind: "entry",
+                playbook: "axis",
+                note: "live flat",
+                tactic: "axis",
+                rangeType: e.lastRange || "atr",
+                indication: "break",
+                ladder: true,
+              });
+              if (ladder.length >= X01_LADDER_TARGET - restingLimits) break;
+            }
+          }
+        }
+        if (slim.length < 4 && e.strategyToggles?.normal !== false && !ladder.length) {
           for (const id of Object.keys(e.quotes || {})) {
             if (occupiedSymbols.has(id) || seen.has(id)) continue;
             const q = e.quotes[id];
@@ -2305,7 +2349,7 @@ async function mirrorToExchange(e, network, cfg) {
             if (slim.filter((x) => x.side === want).length >= 4) break;
           }
         }
-        return [...blockFirst, ...slim];
+        return [...ladder, ...blockFirst, ...slim];
       })()
     : entryIntents;
   let skipQuiet = 0;
@@ -2329,7 +2373,10 @@ async function mirrorToExchange(e, network, cfg) {
     const cap = liveNotionalCap(Number(book.equity) || Number(lastBook.equity) || 0);
     return minN > cap + 1e-6;
   };
-  for (const f of [...e.fills, ...scanIntents]) {
+  const ordered = ladderShort
+    ? [...scanIntents.filter((f) => f.ladder), ...e.fills, ...scanIntents.filter((f) => !f.ladder)]
+    : [...e.fills, ...scanIntents];
+  for (const f of ordered) {
     const blockish = isBlockIntent(f);
     const overallOrder = /Overall Block/i.test(String(f?.note || "")) || /^ob/i.test(String(f?.id || ""));
     if (overallOrder && BLOCK.overall === false) continue;
@@ -2346,7 +2393,11 @@ async function mirrorToExchange(e, network, cfg) {
       if (blockJobs >= blockCap) break;
       continue;
     }
-    if (mirrored.has(f.id) || skippedFills.has(f.id)) {
+    if (mirrored.has(f.id) && !f.ladder) {
+      markWhy(f, "mir");
+      continue;
+    }
+    if (skippedFills.has(f.id) && !f.ladder) {
       markWhy(f, "mir");
       continue;
     }
@@ -2370,7 +2421,7 @@ async function mirrorToExchange(e, network, cfg) {
       markWhy(f, "dead");
       continue;
     }
-    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 1)) && !(IS_X01 && openN < 30)) {
+    if (skipLiveSymbol(e, f.symbol, Math.round(BLOCK.evalPosCount || 1)) && !(IS_X01 && (openN < 30 || f.ladder)) && !f.ladder) {
       markWhy(f, "symskip");
       continue;
     }
@@ -2395,18 +2446,18 @@ async function mirrorToExchange(e, network, cfg) {
         tpAtr: Number(order?.tpAtr ?? pos?.tpAtr ?? currentPick?.cfg?.tpAtr ?? LIVE_CFG.tpAtr),
         slOfTp: Number(order?.slOfTp ?? pos?.slOfTp ?? currentPick?.cfg?.slOfTp ?? LIVE_CFG.slOfTp),
       };
-      if (indication === "direction" || (e.skipIndications || []).includes(indication)) {
+      if ((indication === "direction" || (e.skipIndications || []).includes(indication)) && !f.ladder) {
         markWhy(f, "direction");
         continue;
       }
-      if (rel.tactic === "trailing" && e.strategyToggles?.trailing === false) {
+      if (rel.tactic === "trailing" && e.strategyToggles?.trailing === false && !f.ladder) {
         markWhy(f, "trailing");
         continue;
       }
       const allowed = liveShouldExecute(e, rel) && !liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType });
       const normalOff = e.strategyToggles?.normal === false && unadjustedNormalOrder(rel);
       const needBook = IS_X01 && !normalOff && (openN + fillJobs.length) < 30;
-      if (!allowed && !needBook) {
+      if (!allowed && !needBook && !f.ladder) {
         markWhy(f, "gate");
         continue;
       }
@@ -2443,7 +2494,8 @@ async function mirrorToExchange(e, network, cfg) {
     }
     if (symbolTaken && !isBlockAdd && IS_X01) {
       const onSym = (book.orders ?? []).filter((o) => o.symbol === f.symbol && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition).length;
-      if (onSym + fillJobs.filter((x) => x.symbol === f.symbol).length >= 12) {
+      const symCap = f.ladder ? X01_LADDER_PER_SYM : 12;
+      if (onSym + fillJobs.filter((x) => x.symbol === f.symbol).length >= symCap) {
         skipTaken += 1;
         continue;
       }
@@ -2465,7 +2517,7 @@ async function mirrorToExchange(e, network, cfg) {
         continue;
       }
     }
-    if (IS_X01 && (Number(book.equity) || 0) < 8 && !X01_GROWTH.has(f.symbol) && fillJobs.length >= 1) continue;
+    if (IS_X01 && (Number(book.equity) || 0) < 8 && !X01_GROWTH.has(f.symbol) && fillJobs.length >= 1 && !f.ladder) continue;
     if (apiQuiet()) {
       skipQuiet += 1;
       break;
@@ -2481,7 +2533,7 @@ async function mirrorToExchange(e, network, cfg) {
       const blockAdd = /Overall Block|^Block|Block /i.test(String(f.note || ""));
       const blockQty = Number(f.qty) || 0;
       if (blockAdd && mark > 0) ladder = f.side === "long" ? mark * 0.9992 : mark * 1.0008;
-      else if (IS_X01 && mark > 0) {
+      else if (IS_X01 && mark > 0 && !f.ladder) {
         const raw = Number(f.px) || mark;
         const away = Math.min(0.008, Math.max(0.0008, Math.abs(raw - mark) / mark));
         if (f.side === "long") ladder = raw <= mark * 0.9995 ? Math.max(raw, mark * (1 - 0.008)) : mark * (1 - Math.min(away, 0.0012));
@@ -2507,8 +2559,8 @@ async function mirrorToExchange(e, network, cfg) {
           side: f.side === "long" ? "BUY" : "SELL",
           positionSide: f.side === "long" ? "LONG" : "SHORT",
           quantity: sized ? blockQty : 0,
-          type: resting ? "LIMIT" : "MARKET",
-          price: resting ? ladder : mark,
+          type: f.ladder || resting ? "LIMIT" : "MARKET",
+          price: f.ladder || resting ? ladder : mark,
           notional: sized ? blockQty * mark : liveNotional(e, f, book.equity, f._rel),
           exactQty: sized,
           confirmLive: true,
@@ -2516,7 +2568,7 @@ async function mirrorToExchange(e, network, cfg) {
           tpRatio: cell.tpRatio,
           slPrice: prot?.sl,
           tpPrice: prot?.tp,
-          attachProtect: !resting,
+          attachProtect: f.ladder ? false : !resting,
           equity: Number(book.equity) || 0,
         }),
       );
@@ -2530,14 +2582,14 @@ async function mirrorToExchange(e, network, cfg) {
     if (!f) continue;
     if (skip) continue;
     if (!r?.ok) {
-      skippedFills.add(f.id);
       const err = String(r?.error ?? "err");
+      const dead = markDeadSymbol(f.symbol, err);
+      if (!f.ladder || dead) skippedFills.add(f.id);
       if (/trial fund|long and short position concurrent/i.test(err)) {
         hedgeBlocked = true;
         notes.push(`one side ${f.symbol}`);
         continue;
       }
-      const dead = markDeadSymbol(f.symbol, err);
       if (!dead && isMarginFail(err)) {
         skipUntil.set(f.symbol, Date.now() + 12_000);
       } else if (!dead && isRateLimited(r?.error)) {
@@ -2692,12 +2744,15 @@ function applyPfGates(engine, remote) {
     overallSymbol: true,
     overallDirection: true,
     overallSharedStack: "additive",
-    enabled: IS_X01 ? false : true,
+    enabled: true,
     counts: sanitizeBlockCounts(bc.counts ?? BLOCK.counts),
     evalLastNs: [...BLOCK_POS_COUNTS],
     ...vol,
     overallMode: "parallel",
     volumeMode: "parallel",
+    overallIndication: true,
+    overallType: true,
+    overallIndicationType: true,
     minRelPf: blockPf,
     liveDisableMinPf: blockPf,
     lastNProgress: ln,
@@ -2774,7 +2829,7 @@ async function main() {
     pick.cfg = { ...pick.cfg, ...X01_LIVE_CFG, shortRange: true, trailingPct: 1.5, dcaCount: STRAT.dca ? 3 : 1 };
     currentPick = pick;
     engine.strategyToggles = { ...STRAT };
-    engine.skipIndications = ["direction"];
+    engine.skipIndications = ["direction", "macd", "bollinger"];
     engine.liveTape = false;
     engine.completeSim = true;
     engine.preEvalDone = false;
@@ -3354,11 +3409,12 @@ async function main() {
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
         if (remote.strategyToggles) {
-          if (IS_X01) Object.assign(STRAT, remote.strategyToggles, { dca: false, block: false });
+          if (IS_X01) Object.assign(STRAT, remote.strategyToggles, { dca: false, block: true, trailing: false });
           else Object.assign(STRAT, remote.strategyToggles, { dca: false, axis: false, trailing: true, normal: false });
         }
         pinX01Strat();
         engine.strategyToggles = { ...STRAT };
+        if (IS_X01) engine.skipIndications = ["direction", "macd", "bollinger"];
         if (remote.blockConfig) {
           const vol = IS_X01
             ? { volumeRatio: 0.4, relVolumeRatio: 0.4, sharedVolumeRatio: 1.5, overallVolumeRatio: 1.5 }
