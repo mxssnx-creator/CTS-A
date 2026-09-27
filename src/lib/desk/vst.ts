@@ -7190,7 +7190,9 @@ export function adjustActiveBlocks(
         ? (p.avgEntry - mark) / Math.max(p.avgEntry, 1e-12)
         : (mark - p.avgEntry) / Math.max(p.avgEntry, 1e-12);
       const stopFrac = p.slDist > 0 && p.avgEntry > 0 ? p.slDist / p.avgEntry : 0.008;
-      if (adverse > 0.0008 || adverse > stopFrac * 0.5) continue;
+      const stopOk = p.side === "long" ? p.sl < p.avgEntry : p.sl > p.avgEntry;
+      const through = stopOk && (p.side === "long" ? mark <= p.sl : mark >= p.sl);
+      if (through || adverse > stopFrac * 0.15) continue;
       const axisParent = p.playbook === "axis" || p.tactic === "axis";
       if (axisParent) {
         const withAxis = p.side === "long" ? q.px + 1e-12 >= p.avgEntry : q.px - 1e-12 <= p.avgEntry;

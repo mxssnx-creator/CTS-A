@@ -603,6 +603,38 @@ describe("Block and DCA", () => {
     assert.equal(stopped.added, 0, "overlay under the floor still added");
   });
 
+  it("Block still adds on a small dip inside the stop and not once the dip is halfway", () => {
+    const e = book();
+    const block = {
+      ...DEFAULT_BLOCK_CONFIG,
+      enabled: true,
+      overall: true,
+      stack: true,
+      windows: true,
+      addOnWin: false,
+      counts: [1],
+      maxMultiple: 2,
+      minActiveLevel: 1,
+      volumeMode: "shared" as const,
+      overallMode: "shared" as const,
+    };
+    const { pos, q, entry } = seedLong(e, 0.995);
+    pos.sl = entry * 0.94;
+    pos.slDist = entry * 0.06;
+    pos.unrealized = (q.px - entry) * pos.qty;
+    e.blockCfg = block;
+    const near = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.ok(near.added > 0, "small dip inside the stop got no Block add");
+    e.queue = [];
+    e.orders = [];
+    e.blockLanes = {};
+    q.px = entry * 0.95;
+    pos.mark = q.px;
+    pos.unrealized = (q.px - entry) * pos.qty;
+    const deep = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.equal(deep.added, 0, "added Block more than halfway to the stop");
+  });
+
   it("full compute keeps Block and DCA finite, joined, and busy", () => {
     const block = {
       ...DEFAULT_BLOCK_CONFIG,
