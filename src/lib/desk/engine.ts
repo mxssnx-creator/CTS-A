@@ -281,6 +281,23 @@ export function trailStopFromPeak(input: {
   }
   return Number.isFinite(next) && next > 0 ? next : sl;
 }
+
+/** Short-range stop and target from ATR. The range is independent of the Normal set. */
+export function shortControlPrices(
+  side: "long" | "short",
+  entry: number,
+  atr: number,
+  tpAtr = 0.48,
+  slOfTp = 1,
+): { sl: number; tp: number; slDist: number; tpDist: number } {
+  const px = Math.max(entry, 1e-12);
+  const a = Math.max(atr, px * 0.004);
+  const tpDist = Math.max(a * Math.max(0.2, tpAtr), px * 0.004);
+  const slDist = Math.max(tpDist * Math.max(0.4, slOfTp), px * 0.004);
+  const sl = side === "long" ? px - slDist : px + slDist;
+  const tp = side === "long" ? px + tpDist : px - tpDist;
+  return { sl, tp, slDist, tpDist };
+}
 /** Take-profit ATR multiples: 0.8 … 1.6 step 0.1. 0.3–0.7 disabled (live SL noise). */
 export const TP_ATR_MIN = 0.8;
 export const TP_ATR_MAX = 1.6;

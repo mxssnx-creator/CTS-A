@@ -91,6 +91,7 @@ import {
   DEFAULT_MAX_VOLUME_MULTIPLIER,
   clampAxisPartial,
   trailStopFromPeak,
+  shortControlPrices,
   symbolIndications,
   refreshLiveIndications,
   symbolSideSet,
@@ -3157,7 +3158,7 @@ export function classifyIndication(e: VstEngine, symbol: string): IndicationId {
   return ranked[0]?.[0] ?? lead?.[0] ?? "trend";
 }
 
-/** Unadjusted by Axis, Block, DCA, or Trailing. Range (short, ATR, fib, …) is not a strategy. */
+/** True when Axis, Block, and DCA have not adjusted this set. Trailing and hybrid bases are unadjusted. Short range, ATR, and fib are ranges, not strategies. */
 export function unadjustedNormalOrder(rel: {
   playbook?: string;
   kind?: string;
@@ -3173,7 +3174,6 @@ export function unadjustedNormalOrder(rel: {
   if (tac === "axis" || play === "axis") return false;
   if (tac === "dca" || play === "dca" || /^DCA/i.test(note)) return false;
   if (play === "block" || /Block/i.test(note) || (Number(rel.blockLevel) || 0) >= 1) return false;
-  if (tac === "trailing") return false;
   return true;
 }
 
@@ -4260,7 +4260,14 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       p.tactic === "axis" || p.tactic === "trailing" || p.tactic === "hybrid" || p.tactic === "dca" ? p.tactic : tactic;
     const partial = ownTactic === "axis" ? false : p.status === "partial" || fillRatio < 0.55;
     const botBook = String(p.playbook || "").startsWith("bot:");
-    const shortPos = botBook || cfgUsesShortRange(cfg) || p.playbook === "short";
+    const shortPos = botBook || cfgUsesShortRange(cfg) || p.playbook === "short" || (p.tpAtr != null && p.slOfTp != null);
+    if (shortPos && p.avgEntry > 0 && q.atr > 0 && !(p.sl > 0 && p.tp > 0 && (p.side === "long" ? p.sl < p.avgEntry && p.tp > p.avgEntry : p.sl > p.avgEntry && p.tp < p.avgEntry))) {
+      const stop = shortControlPrices(p.side, p.avgEntry, q.atr, p.tpAtr || cfg.tpAtr || 0.48, p.slOfTp || cfg.slOfTp || 1);
+      p.sl = stop.sl;
+      p.tp = stop.tp;
+      p.slDist = stop.slDist;
+      p.tpDist = stop.tpDist;
+    }
     if (!botBook && (ownTactic === "dca" || (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca) && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (!shortPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
     const holdR = shortPos && p.tpDist > 1e-12 && p.slDist > 1e-12 ? p.tpDist / p.slDist : e.tpRatio;
@@ -10210,40 +10217,16 @@ export function liveShouldExecute(
     return true;
   }
   const shortCombo = isShortComboRel(e, rel);
-  const shortLane = rel.kind === "short" || play === "short" || /short/i.test(note) || Boolean(e.shortRange && shortCombo);
-  if (shortCombo && !(e.shortComboOnly && paperMode(e))) {
-    if (!shortComboProven(e, rel.tpAtr!, rel.slOfTp!)) return false;
-    if (!(t.block || t.trailing || t.axis)) return false;
-    return true;
-  }
+  if (shortCombo && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!)) return false;
   if (!shortCombo && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
-  if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel)) return false;
-  if (shortCombo) {
-    if (!(t.block || t.trailing || t.axis)) return false;
-    return true;
-  }
+  if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel) && unadjustedNormalOrder(rel)) return false;
   const gated = Boolean(e.preEvalDone || e.liveTape);
   if (!blockFill && gated && laneExecProven(e, rel)) {
-    if (rel.kind === "normal" || play === "normal") return t.normal;
-    if (rel.kind === "short" || play === "short" || /short/i.test(note)) return Boolean(t.block || t.trailing || t.axis);
+    if (rel.kind === "normal" || play === "normal" || play === "short" || rel.kind === "short") return !unadjustedNormalOrder(rel) || t.normal;
     if (play === "axis" || rel.tactic === "axis") return t.axis;
     if (rel.tactic === "trailing") return t.trailing !== false;
     if (rel.tactic === "hybrid") return t.normal !== false;
     return Boolean(t.trailing || t.axis || t.block);
-  }
-  if (rel.kind === "short" || play === "short" || /short/i.test(note)) {
-    if (!(t.block || t.trailing || t.axis)) return false;
-    if (t.block && e.blockCfg?.activeLive !== false && e.liveTape) {
-      if (play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1) return true;
-      if (positionBlockAdjusted(e, rel.symbol, rel.side)) return true;
-      if (winningRelLive(e, rel) && !liveRelationDisabled(e, rel)) return true;
-      return true;
-    }
-    if (e.liveTape) {
-      const take = laneClosed(e, { indication: rel.indication, kind: rel.kind, tactic: rel.tactic, playbook: play || "short" }, 40);
-      if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, "shortBase")) return false;
-    }
-    return true;
   }
   if (t.block && winningRelLive(e, rel)) return true;
   const isBlockFill = play === "block" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;

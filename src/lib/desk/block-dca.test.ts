@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG } from "./engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, shortControlPrices } from "./engine.ts";
 import { adjustActiveBlocks, initVstEngine, LIVE_RUN_CFG, liveShouldExecute, simulateHours, tickVst, unadjustedNormalOrder, VST_DEFAULT_CONN } from "./vst.ts";
 
 const CFG = {
@@ -295,29 +295,27 @@ describe("Block and DCA", () => {
     );
   });
 
-  it("short range still executes when Normal is off", () => {
+  it("Normal is the unadjusted set, short range is only the distance", () => {
     const e = book();
     e.liveTape = true;
     e.preEvalDone = true;
     e.shortRange = true;
     e.strategyToggles = { normal: false, trailing: true, axis: true, block: true, dca: false };
-    const rel = {
-      symbol: "BTCUSDT",
-      side: "long" as const,
-      playbook: "short",
-      kind: "short" as const,
-      tactic: "trailing" as const,
-      tpAtr: 0.48,
-      slOfTp: 1,
-    };
-    assert.equal(unadjustedNormalOrder(rel), false);
-    assert.equal(liveShouldExecute(e, rel), true);
-    assert.equal(unadjustedNormalOrder({ playbook: "short", kind: "short", tactic: "hybrid", tpAtr: 0.48, slOfTp: 1 }), true);
-    assert.equal(liveShouldExecute(e, { symbol: "ETHUSDT", side: "long", playbook: "short", kind: "short", tactic: "hybrid", tpAtr: 0.48, slOfTp: 1 }), false);
+    const short = { playbook: "short", kind: "short" as const, tpAtr: 0.48, slOfTp: 1 };
+    assert.equal(unadjustedNormalOrder({ ...short, tactic: "trailing" }), true);
+    assert.equal(unadjustedNormalOrder({ ...short, tactic: "hybrid" }), true);
+    assert.equal(unadjustedNormalOrder({ ...short, tactic: "axis", playbook: "axis" }), false);
+    assert.equal(unadjustedNormalOrder({ tactic: "hybrid", playbook: "block", note: "Block #1", blockLevel: 1 }), false);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", ...short, tactic: "trailing" }), false);
+    assert.equal(liveShouldExecute(e, { symbol: "BTCUSDT", side: "long", tactic: "axis", playbook: "axis", kind: "mean", tpAtr: 0.48, slOfTp: 1 }), true);
+    const q = e.quotes.BTCUSDT!;
+    const stop = shortControlPrices("long", q.px, q.atr, 0.48, 1);
+    assert.ok(stop.sl < q.px && stop.tp > q.px);
+    assert.ok(Math.abs(stop.tpDist / stop.slDist - 1) < 0.05);
     const conn = e.activeConnId;
     e.queue.push(
       {
-        id: "s1",
+        id: "base",
         connId: conn,
         symbol: "BTCUSDT",
         side: "long",
@@ -336,7 +334,7 @@ describe("Block and DCA", () => {
         note: "short 0.48/1",
       },
       {
-        id: "n1",
+        id: "axis1",
         connId: conn,
         symbol: "ETHUSDT",
         side: "long",
@@ -347,16 +345,18 @@ describe("Block and DCA", () => {
         remaining: 1,
         status: "queued",
         rangeType: "atr",
-        playbook: "normal",
-        kind: "normal",
-        tactic: "hybrid",
-        note: "plain",
+        playbook: "axis",
+        kind: "mean",
+        tactic: "axis",
+        tpAtr: 0.48,
+        slOfTp: 1,
+        note: "axis",
       },
     );
-    tickVst(e, CFG, "trailing", { skipWalk: true, skipMatch: true, rangeType: "atr" });
+    tickVst(e, CFG, "axis", { skipWalk: true, skipMatch: true, rangeType: "atr" });
     const live = [...e.queue, ...e.orders];
-    assert.ok(live.some((o) => o.id === "s1" && o.status !== "cancelled"), "short range order was dropped");
-    assert.equal(live.some((o) => o.id === "n1" && o.status !== "cancelled"), false);
+    assert.equal(live.some((o) => o.id === "base" && o.status !== "cancelled"), false);
+    assert.ok(live.some((o) => o.id === "axis1" && o.status !== "cancelled"), "axis with short range was dropped");
   });
 
   it("each Overall scope, shared and additive, stays inside an 8x stack", () => {
