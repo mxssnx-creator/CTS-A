@@ -496,7 +496,7 @@ async function refreshVol1h(e, network) {
 let lastPreAt = 0;
 let preInFlight = false;
 async function refreshPrehistory(e, network) {
-  if (preInFlight || Date.now() - lastPreAt < 15 * 60 * 1000) return 0;
+  if (preInFlight || Date.now() - lastPreAt < 15 * 60 * 1000) return -1;
   preInFlight = true;
   try {
     const map = await fetchPrehistory(network);
@@ -581,8 +581,10 @@ function snapshot(e, extra) {
   }
   const last12 = overall.lastN?.["12"] ?? null;
   const tapeReady = (lastExec.n >= 2) || (e.ledger.trades >= 4 && Number(e.stats.pf) > 0);
-  const rawLive = lastExec.n >= 2 ? lastExec.pf : last12?.n >= 4 ? last12.pf : e.stats.pf;
-  const rawPf = lastExec.n >= 2 ? lastExec.pf : e.stats.pf;
+  const openLive = overall.open;
+  const openPf = lastExec.n < 2 && openLive && Number(openLive.n) >= 4 && Number(openLive.pf) > 0 ? Number(openLive.pf) : 0;
+  const rawLive = lastExec.n >= 2 ? lastExec.pf : last12?.n >= 4 ? last12.pf : openPf || e.stats.pf;
+  const rawPf = lastExec.n >= 2 ? lastExec.pf : openPf || e.stats.pf;
   const clampPf = (v, n) => {
     const x = Number(v);
     if (!Number.isFinite(x) || x <= 0) return 0;
@@ -2670,6 +2672,7 @@ async function main() {
             lastTape = Date.now();
             void refreshVol1h(engine, ping.network).catch(() => {});
             void refreshPrehistory(engine, ping.network).then((n) => {
+              if (!(n >= 0)) return;
               adjustments.push(n >= 8 ? `prehistory ${n} hourly bars · atr + indications` : `prehistory thin ${n}`);
             }).catch((err) => {
               adjustments.push(`prehistory ${err instanceof Error ? err.message : "fail"}`);
