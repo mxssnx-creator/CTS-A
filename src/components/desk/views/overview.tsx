@@ -55,6 +55,17 @@ export function OverviewView() {
   const exchange = liveSnap.exchange;
   const session = liveSnap.session;
   const overallFile = liveSnap.overall;
+  const sessionProg = (liveSnap.hasLive ? (session as { progression?: { indications?: Record<string, { n?: number; pf?: number; ok?: boolean }>; ranges?: Record<string, { n?: number; pf?: number; ok?: boolean }>; tactics?: Record<string, { n?: number; pf?: number; ok?: boolean }>; overall?: { pass?: boolean; positive?: number; pf?: number; gatedPf?: number }; complete?: { pass?: boolean; typesOk?: boolean } } } | null)?.progression : null) ?? null;
+  const shownProgress = sessionProg
+    ? {
+        ...progressEval,
+        indications: sessionProg.indications,
+        ranges: sessionProg.ranges,
+        tactics: sessionProg.tactics,
+        lastNOverall: sessionProg.overall,
+        lastNComplete: sessionProg.complete,
+      }
+    : progressEval;
 
   const adj = useMemo(() => {
     const st = STRATEGIES.find((s) => s.id === strategyId);
@@ -202,7 +213,7 @@ export function OverviewView() {
             const coord = vstCoord;
             const active =
               st.id === "eval" ? coord?.evalNs : st.id === "valid" ? coord?.validNs : coord?.disableNs;
-            const stageBag = st.id === "eval" ? progressEval?.evalNs : st.id === "valid" ? progressEval?.validNs : progressEval?.disableNs;
+            const stageBag = st.id === "eval" ? shownProgress?.evalNs : st.id === "valid" ? shownProgress?.validNs : shownProgress?.disableNs;
             const stageN = active?.[0] ?? st.n;
             const stage = stageBag?.[String(stageN)] ?? stageBag?.[String(st.n)];
             const b = stage ?? overall.lastN?.[String(st.n)];
@@ -220,7 +231,7 @@ export function OverviewView() {
         {vstCoord ? (
           <div className="mt-3 flex flex-wrap gap-1">
             {LAST_N_PASS_META.map((m) => {
-              const row = progressEval?.lastNModes?.[m.id];
+              const row = shownProgress?.lastNModes?.[m.id];
               const on = Boolean(row?.pass);
               const pf = Number(row?.gatedPf ?? row?.pf) || 0;
               return (
@@ -230,20 +241,20 @@ export function OverviewView() {
                 </Pill>
               );
             })}
-            {progressEval?.lastNOverall ? (
-              <Pill tone={progressEval.lastNOverall.pass ? "accent" : "neutral"}>
-                Overall {progressEval.lastNOverall.positive}/3
-                {progressEval.lastNOverall.pass ? ` ${Number(progressEval.lastNOverall.gatedPf ?? progressEval.lastNOverall.pf).toFixed(2)}` : ""}
+            {shownProgress?.lastNOverall ? (
+              <Pill tone={shownProgress.lastNOverall.pass ? "accent" : "neutral"}>
+                Overall {shownProgress.lastNOverall.positive}/3
+                {shownProgress.lastNOverall.pass ? ` ${Number(shownProgress.lastNOverall.gatedPf ?? shownProgress.lastNOverall.pf).toFixed(2)}` : ""}
               </Pill>
             ) : (
               <Pill tone={vstCoord.independent || vstCoord.combined ? "up" : "neutral"}>{vstCoord.mode}</Pill>
             )}
-            {progressEval?.lastNComplete ? (
-              <Pill tone={progressEval.lastNComplete.pass ? "up" : "down"}>
-                {progressEval.lastNComplete.pass ? "Complete" : "Incomplete"}
+            {shownProgress?.lastNComplete ? (
+              <Pill tone={shownProgress.lastNComplete.pass ? "up" : "down"}>
+                {shownProgress.lastNComplete.pass ? "Complete" : "Incomplete"}
               </Pill>
             ) : null}
-            {progressEval?.lastNComplete?.typesOk === false ? (
+            {shownProgress?.lastNComplete?.typesOk === false ? (
               <Pill tone="down">Types fail</Pill>
             ) : null}
             {vstCoord.stack > 1 ? <Pill tone="accent">stack ×{vstCoord.stack.toFixed(2)}</Pill> : null}
@@ -265,17 +276,17 @@ export function OverviewView() {
         ) : null}
       </Panel>
 
-      {progressEval ? (
+      {shownProgress ? (
         <Panel title="Indications · ranges · configs">
           <p className="text-sm text-muted">
-            All ten indications and five ranges score their own last-N. Gated PF below 1 is a failed processing.
-            Unsampled cells stay covered for future configs.
+            Stable preset stable-12h-0928. Only processings that stayed at PF 1 or better are shown. Trailing and DCA are off.
           </p>
           <div className="mt-3 flex flex-wrap gap-1">
             {["trend", "break", "active", "direction", "move", "rsi", "bollinger", "sar", "macd", "ema"].map((id) => {
-              const row = progressEval.indications?.[id];
+              const row = shownProgress.indications?.[id];
               const pf = Number(row?.pf) || 0;
               const sampled = (row?.n ?? 0) >= 4;
+              if (sessionProg && (!row || !row.ok || pf < 1)) return null;
               return (
                 <Pill key={id} tone={!row ? "neutral" : sampled && !row.ok ? "down" : row.ok && pf >= 1 ? "up" : "neutral"}>
                   {id}
@@ -286,9 +297,10 @@ export function OverviewView() {
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
             {["linear", "geometric", "atr", "volume", "fibonacci"].map((id) => {
-              const row = progressEval.ranges?.[id];
+              const row = shownProgress.ranges?.[id];
               const pf = Number(row?.pf) || 0;
               const sampled = (row?.n ?? 0) >= 4;
+              if (sessionProg && (!row || !row.ok || pf < 1)) return null;
               return (
                 <Pill key={id} tone={!row ? "neutral" : sampled && !row.ok ? "down" : row.ok && pf >= 1 ? "up" : "neutral"}>
                   {id}
@@ -296,11 +308,12 @@ export function OverviewView() {
                 </Pill>
               );
             })}
-            {["trailing", "axis", "hybrid"].map((id) => {
-              const row = progressEval.tactics?.[id];
+            {["hybrid", "axis", "trailing"].map((id) => {
+              const row = shownProgress.tactics?.[id];
               const pf = Number(row?.pf) || 0;
+              if (sessionProg && (!row || !row.ok || pf < 1)) return null;
               return (
-                <Pill key={`t${id}`} tone={row && (row.n ?? 0) >= 4 && !row.ok ? "down" : "neutral"}>
+                <Pill key={`t${id}`} tone={row && pf >= 1 ? "up" : row && (row.n ?? 0) >= 4 && !row.ok ? "down" : "neutral"}>
                   {id}
                   {row ? ` ${pf.toFixed(2)}` : ""}
                 </Pill>

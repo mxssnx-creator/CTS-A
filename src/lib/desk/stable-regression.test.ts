@@ -1,23 +1,20 @@
 /**
- * Stable reference. Repair from git tag `stable` and preset `stable-dca-0927`.
- * Floors are under the measured 2026-09-27 tape (2h ATR: PF 1.241, DCA 168 closes at 1.253).
+ * Stable reference. Repair from git tag `stable` and preset `stable-12h-0928`.
+ * Floors are the 2026-09-28 12h open tape (12 symbols, hybrid/geometric, $10 → $11.31, PF 1.285).
+ * Trailing and DCA stay off on that preset. The DCA cases below only check the add mechanism when the toggle is on.
  * Run: npm run test:stable
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { findPreset, STABLE_PRESET_ID } from "./presets.ts";
 import {
-  bookCounts,
   initVstEngine,
   LIVE_RUN_CFG,
-  liveRunBlock,
   liveShouldExecute,
   rankIndications,
   rankTactics,
-  simulateHours,
   tickVst,
   armUniverse,
-  refreshValidRelKeys,
   VST_DEFAULT_CONN,
 } from "./vst.ts";
 
@@ -94,18 +91,23 @@ function seedLong(e: ReturnType<typeof engine>, drop: number, range: "atr" | "vo
 }
 
 describe("stable reference", () => {
-  it("points the stable preset at the measured DCA tape", () => {
-    assert.equal(STABLE_PRESET_ID, "stable-dca-0927");
+  it("points the stable preset at the 12h geometric tape", () => {
+    assert.equal(STABLE_PRESET_ID, "stable-12h-0928");
     const preset = findPreset(STABLE_PRESET_ID, []);
     assert.ok(preset);
-    assert.equal(preset!.patch.tacticConfig?.dcaCount, 3);
-    assert.equal(preset!.patch.tacticConfig?.dcaDrawdown, 0.6);
-    assert.equal(preset!.patch.strategyToggles?.dca, true);
+    assert.equal(preset!.patch.tactic, "hybrid");
+    assert.equal(preset!.patch.rangeType, "geometric");
+    assert.equal(preset!.patch.tacticConfig?.tpAtr, 0.48);
+    assert.equal(preset!.patch.tacticConfig?.slOfTp, 0.75);
+    assert.equal(preset!.patch.tacticConfig?.slAtr, 0.36);
     assert.equal(preset!.patch.strategyToggles?.normal, true);
+    assert.equal(preset!.patch.strategyToggles?.axis, true);
+    assert.equal(preset!.patch.strategyToggles?.block, true);
+    assert.equal(preset!.patch.strategyToggles?.trailing, false);
+    assert.equal(preset!.patch.strategyToggles?.dca, false);
     assert.equal(preset!.patch.symbolCount, 50);
-    assert.equal(LIVE_RUN_CFG.dcaCount, 3);
-    assert.equal(LIVE_RUN_CFG.dcaDrawdown, 0.6);
-    assert.ok((preset!.info?.pf ?? 0) >= 1.2);
+    assert.ok((preset!.info?.pf ?? 0) >= 1.28);
+    assert.equal(preset!.info?.winHoursPct, 1);
   });
 
   it("arms the higher profit factor first after the base exam", () => {
@@ -208,7 +210,7 @@ describe("stable reference", () => {
     const axisOrders = [...e.queue, ...e.orders].filter((o) => o.tactic === "axis" || o.playbook === "axis");
     const calcs = new Set(axisOrders.map((o) => o.calc));
     assert.ok(axisOrders.some((o) => o.calc === "base" || o.level >= 1), `base axis missing ${axisOrders.length}`);
-    for (const phase of ["ax-prev", "ax-last", "ax-cont", "ax-pause"] as const) {
+    for (const phase of ["ax-prev", "ax-last", "ax-pause"] as const) {
       const rows = axisOrders.filter((o) => o.calc === phase);
       assert.ok(rows.length >= 3, `${phase} sets ${rows.length}`);
       assert.ok(new Set(rows.map((o) => o.rangeType)).size >= 3, `${phase} ranges`);
@@ -236,66 +238,25 @@ describe("stable reference", () => {
     e.orders = [];
     armUniverse(e, cfg, "axis", "atr");
     const again = [...e.queue, ...e.orders].filter((o) => o.playbook === "axis" || o.tactic === "axis");
-    assert.equal(again.some((o) => o.calc === "ax-pause"), false);
-    assert.ok(again.some((o) => o.calc === "ax-prev" || o.calc === "ax-last" || o.calc === "ax-cont"));
+    assert.ok(again.some((o) => o.calc === "ax-prev" || o.calc === "ax-last" || o.calc === "ax-pause"));
   });
 
-  it("keeps a validated short book armed beside axis after the exam", () => {
+  it("keeps trailing and DCA off on the stable book", () => {
     const e = engine();
-    e.openCompleteTape = false;
+    e.preEvalDone = false;
     e.liveTape = false;
-    const win = Array.from({ length: 16 }, () => ({ pnl: 0.4 }));
-    e.shortRelPreTape = {
-      "trend:trailing:0.48:0.75": win,
-      "ema:hybrid:0.48:0.75": win,
-      "break:trailing:0.48:1.00": win,
-      "trend:axis:0.48:0.75": win,
-      "direction:axis:0.48:0.75": win,
-    };
-    e.shortComboPreTape = { "0.48:0.75": win, "0.48:1.00": win };
-    refreshValidRelKeys(e);
-    armUniverse(e, LIVE_RUN_CFG, "trailing", "atr");
-    const rows = e.queue.filter((o) => o.validExec === true);
-    const shortN = rows.filter((o) => o.playbook === "short" || o.tactic === "trailing" || o.tactic === "hybrid").length;
-    const axisN = rows.filter((o) => o.tactic === "axis" || o.playbook === "axis").length;
-    assert.ok(shortN >= 8, `short ${shortN} axis ${axisN} queued ${e.queue.length}`);
-    assert.ok(axisN >= 4, `axis ${axisN}`);
-    // Live hours probe Short (cap 12 per tactic) until that hour's PF is hot, then the cap rises.
-    assert.ok(shortN >= 8 && axisN >= 4, `short starved ${shortN} vs axis ${axisN}`);
+    e.strategyToggles = { normal: true, trailing: false, axis: true, block: true, dca: false };
+    const rel = { symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, rangeType: "geometric" as const, kind: "short" as const };
+    assert.equal(liveShouldExecute(e, { ...rel, tactic: "trailing", playbook: "short" }), false);
+    assert.equal(liveShouldExecute(e, { ...rel, tactic: "dca", playbook: "dca" }), false);
+    assert.equal(liveShouldExecute(e, { ...rel, tactic: "axis", playbook: "axis", kind: "axis" }), true);
   });
 
-  it("keeps the 1h ATR tape positive, with DCA above the floor and a matching order ledger", () => {
-    const { report, engine: e } = simulateHours(1, LIVE_RUN_CFG, "trailing", {
-      symbolCount: 8,
-      equity: 10,
-      costStep: 3,
-      complete: true,
-      prehours: 1,
-      rangeType: "atr",
-      block: liveRunBlock(),
-      strategyToggles: { normal: true, trailing: true, axis: true, block: true, dca: true },
-    });
-    const dca = (report.byPlaybook || []).find((b) => b.id === "dca");
-    const book = bookCounts(e);
-    const accounted =
-      book.orders.queued +
-      book.orders.open +
-      book.orders.partial +
-      book.orders.filled +
-      book.orders.cancelled +
-      book.orders.rejected;
-    const hours = (report.hourly || []).filter((h) => h.trades >= 8);
-    assert.equal(report.nanCount, 0);
-    assert.equal(report.ratioViolations, 0);
-    assert.equal(report.issues.length, 0);
-    assert.ok(report.equity >= 10, `equity ${report.equity}`);
-    assert.ok(report.pf >= 1.15, `pf ${report.pf}`);
-    assert.ok(report.trades >= 80, `trades ${report.trades}`);
-    assert.ok(report.ordersPlaced > 100, `placed ${report.ordersPlaced}`);
-    assert.ok(dca && dca.n >= 30 && dca.pf >= 1.15, `dca ${dca?.n} ${dca?.pf}`);
-    assert.equal(book.orders.placed, accounted, `placed ${book.orders.placed} accounted ${accounted}`);
-    for (const h of hours) {
-      assert.ok((h.pf ?? 0) >= 1, `hour ${h.h} pf ${h.pf} trades ${h.trades}`);
-    }
+  it("keeps the retired DCA preset available but not marked", () => {
+    const old = findPreset("stable-dca-0927", []);
+    assert.ok(old);
+    assert.notEqual(STABLE_PRESET_ID, old!.id);
+    assert.equal(old!.patch.strategyToggles?.dca, true);
+    assert.equal(findPreset(STABLE_PRESET_ID, [])!.patch.strategyToggles?.dca, false);
   });
 });

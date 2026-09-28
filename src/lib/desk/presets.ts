@@ -732,6 +732,78 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       orders: 168,
     },
   },
+  {
+    id: "stable-12h-0928",
+    label: "Stable 12h 09-28",
+    blurb: "Marked stable. 12h open tape · 12 symbols · $10 · hybrid/geometric · short 0.48/0.75 · Axis+Block · no Trailing · no DCA · PF 1.285 · equity $11.31",
+    builtin: true,
+    patch: {
+      activeConnId: "bingx-x01",
+      symbolCount: 50,
+      evalSymbolCount: 300,
+      liveSymbolCap: 50,
+      tactic: "hybrid",
+      rangeType: "geometric",
+      orderType: "limit",
+      costStep: 3,
+      tacticConfig: {
+        trailingPct: 1.5,
+        dcaCount: 1,
+        dcaDrawdown: 0.6,
+        axisSpacing: 0.7,
+        axisLevels: 5,
+        axisPartialRatio: 3,
+        slAtr: 0.36,
+        tpRatio: 1 / 0.75,
+        tpAtr: 0.48,
+        slOfTp: 0.75,
+        shortRange: true,
+        maxHoldBars: 3,
+        maxHoldTicks: 8,
+      },
+      blockConfig: {
+        ...DEFAULT_BLOCK_CONFIG,
+        enabled: true,
+        counts: [1, 3, 4, 5, 6],
+        maxMultiple: 6,
+        minMultiple: 1,
+        volumeRatio: 0.4,
+        relVolumeRatio: 0.4,
+        sharedVolumeRatio: 1.5,
+        overallVolumeRatio: 1.5,
+        maxVolumeMultiplier: 8,
+        minActiveLevel: 1,
+        pauseCountRatio: 0,
+        windows: true,
+        stack: true,
+        sets: true,
+        overall: true,
+        overallSymbol: true,
+        overallDirection: true,
+        overallIndication: true,
+        overallType: true,
+        volumeMode: "parallel",
+        overallMode: "parallel",
+        sides: "both",
+      },
+      thresholds: { ...DEFAULT_THRESHOLDS, minPf: 1.1, maxDdt: 22 },
+      pfCoords: { hourKeep: true, bankWin: true, pairAdd: true, laneCool: true, winAgain: true },
+      strategyToggles: { normal: true, trailing: false, axis: true, block: true, dca: false },
+      enabledKinds: [...DEFAULT_ENABLED_KINDS],
+      minSizeRatio: 1,
+      liveTape: true,
+      sessionPhase: "running",
+      comboOnlyPositive: true,
+    },
+    info: {
+      winHoursPct: 1,
+      pf: 1.285,
+      ddt: 0,
+      tradesPerHour: 39671,
+      positions: 2807,
+      orders: 3657,
+    },
+  },
 ];
 
 export function measuredSlTrailBots() {
@@ -768,7 +840,7 @@ export function x01BotPreset() {
   return bots;
 }
 
-export const STABLE_PRESET_ID = "stable-dca-0927";
+export const STABLE_PRESET_ID = "stable-12h-0928";
 
 export function sanitizePreset(raw: unknown): SettingsPreset | null {
   if (!raw || typeof raw !== "object") return null;

@@ -8936,6 +8936,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   let hourPosAcc = 0;
   let hourOrdAcc = 0;
   let hourMarginAcc = 0;
+  let hourMaxMargin = 0;
   let hourNotionalAcc = 0;
   let hourTickN = 0;
   let prevSl = 0;
@@ -9241,6 +9242,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     const hourMargin = hourNotional / MARGIN_LEV;
     marginSum += hourMargin;
     if (hourMargin > maxMarginSeen) maxMarginSeen = hourMargin;
+    if (hourMargin > hourMaxMargin) hourMaxMargin = hourMargin;
     hourPosAcc += engine.positions.length;
     hourOrdAcc += engine.stats.openOrders || engine.orders.filter((o) => o.status === "open" || o.status === "partial").length;
     hourMarginAcc += hourMargin;
@@ -9330,6 +9332,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         notional: hourNotional,
         avgNotional: avgNotionalH,
         margin: hourMargin,
+        maxMargin: hourMaxMargin,
         avgMargin: avgMarginH,
         marginPct: eq > 0 ? hourMargin / eq : 0,
         eqUsePct: eq > 0 ? avgMarginH / eq : 0,
@@ -9364,6 +9367,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       hourPosAcc = 0;
       hourOrdAcc = 0;
       hourMarginAcc = 0;
+      hourMaxMargin = 0;
       hourNotionalAcc = 0;
       hourTickN = 0;
       if (markAt.has(h)) marks.push(horizonFromEngine(engine, h, peak));

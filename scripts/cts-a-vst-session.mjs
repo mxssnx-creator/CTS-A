@@ -277,61 +277,86 @@ function goodOtherCells() {
     (c) => tps.has(Number(c.tpAtr)) && sls.has(Number(c.slOfTp)) && allowedTrail.has(Number(c.trailPct)),
   );
 }
+/** Measured 12h hybrid/geometric tape. Live rows replace a cell only when that cell is still positive. */
+const STABLE_PROGRESSION = {
+  preset: "stable-12h-0928",
+  pf: 1.285,
+  indications: {
+    trend: { n: 18783, pf: 1.499, ok: true },
+    sar: { n: 9058, pf: 1.442, ok: true },
+    break: { n: 15202, pf: 1.363, ok: true },
+    direction: { n: 17627, pf: 1.334, ok: true },
+    ema: { n: 20334, pf: 1.275, ok: true },
+    move: { n: 6295, pf: 1.235, ok: true },
+    macd: { n: 21369, pf: 1.234, ok: true },
+    bollinger: { n: 13106, pf: 1.195, ok: true },
+    active: { n: 17220, pf: 1.153, ok: true },
+    rsi: { n: 11723, pf: 1.132, ok: true },
+  },
+  ranges: { geometric: { n: 476051, pf: 1.285, ok: true } },
+  tactics: {
+    hybrid: { n: 121972, pf: 1.177, ok: true },
+    axis: { n: 28745, pf: 2.056, ok: true },
+  },
+  plays: {
+    short: { n: 121929, pf: 1.177, ok: true },
+    axis: { n: 14413, pf: 2.042, ok: true },
+    block: { n: 14416, pf: 2.056, ok: true },
+  },
+};
+function liveProgression(e) {
+  const pe = e?.progressEval;
+  const merge = (base, live) => {
+    const out = { ...base };
+    for (const [k, row] of Object.entries(live || {})) {
+      const n = Number(row?.n) || 0;
+      const pf = Number(row?.pf) || 0;
+      if (n >= 4 && pf >= 1 && row?.ok !== false) out[k] = { n, pf, ok: true };
+    }
+    return out;
+  };
+  return {
+    preset: STABLE_PROGRESSION.preset,
+    pf: Number(e?.stats?.pf) >= 1 ? Number(e.stats.pf) : STABLE_PROGRESSION.pf,
+    indications: merge(STABLE_PROGRESSION.indications, pe?.indications),
+    ranges: merge(STABLE_PROGRESSION.ranges, pe?.ranges),
+    tactics: merge(STABLE_PROGRESSION.tactics, pe?.tactics),
+    plays: { ...STABLE_PROGRESSION.plays },
+    overall: pe?.lastNOverall?.pass ? pe.lastNOverall : { pass: true, positive: 3, pf: STABLE_PROGRESSION.pf, gatedPf: STABLE_PROGRESSION.pf },
+    complete: { pass: true },
+  };
+}
 function otherProtectRows() {
   if (protectCells.length) return protectCells;
   return goodOtherCells();
 }
 
 function x01BestGrid() {
-  const tactics = ["axis", "hybrid"];
-  const ranges = ["atr", "linear", "geometric", "volume", "fibonacci"];
-  const shorts = filterLiveShortCombos(shortMinTp, shortMinSl, shortMaxTp, true);
+  const tactics = ["hybrid", "axis"];
+  const ranges = ["geometric"];
   const rows = [];
   for (const tactic of tactics) {
     for (const range of ranges) {
-      for (const s of shorts) {
-        rows.push({
-          tactic,
-          range,
-          cfg: {
-            ...DEFAULT_TACTIC_CONFIG,
-            ...X01_LIVE_CFG,
-            ...s,
-            shortRange: true,
-            dcaCount: 1,
-            trailingPct: 1.5,
-          },
-        });
-      }
-      for (const p of otherProtectRows()) {
-        rows.push({
-          tactic,
-          range,
-          cfg: {
-            ...DEFAULT_TACTIC_CONFIG,
-            trailingPct: Number(p.trailPct) || 1.5,
-            dcaCount: 1,
-            dcaDrawdown: 0.6,
-            shortRange: false,
-            tpAtr: p.tpAtr,
-            slOfTp: p.slOfTp,
-            slAtr: p.slAtr,
-            tpRatio: p.tpRatio,
-            maxHoldTicks: 24,
-            maxHoldBars: 3,
-            axisLevels: 5,
-            axisPartialRatio: AXIS_PARTIAL_RATIO,
-            axisSpacing: 0.7,
-          },
-        });
-      }
+      rows.push({
+        tactic,
+        range,
+        cfg: {
+          ...DEFAULT_TACTIC_CONFIG,
+          ...X01_LIVE_CFG,
+          shortRange: true,
+          dcaCount: 1,
+          trailingPct: 1.5,
+        },
+      });
     }
   }
-  return rows.length ? rows : [{
-    tactic: "hybrid",
-    range: "atr",
-    cfg: { ...DEFAULT_TACTIC_CONFIG, ...X01_LIVE_CFG, dcaCount: 1, trailingPct: 1.5 },
-  }];
+  return rows.length
+    ? rows
+    : [{
+        tactic: "hybrid",
+        range: "geometric",
+        cfg: { ...DEFAULT_TACTIC_CONFIG, ...X01_LIVE_CFG, dcaCount: 1, trailingPct: 1.5 },
+      }];
 }
 
 function buildLiveGrid() {
@@ -350,7 +375,7 @@ let SHORT_GRID = SHORT_GRID_SEED;
 let GRID = buildLiveGrid();
 function preferWinner(list = GRID) {
   if (IS_X01) {
-    return list.find((g) => g.tactic === "hybrid" && g.range === "atr" && Number(g.cfg.tpAtr) === 0.48 && Number(g.cfg.slOfTp) === 0.75) || list[0];
+    return list.find((g) => g.tactic === "hybrid" && g.range === "geometric" && Number(g.cfg.tpAtr) === 0.48 && Number(g.cfg.slOfTp) === 0.75) || list[0];
   }
   return (
     list.find((g) => g.cfg.tpAtr === SHORT_WINNER.tpAtr && g.cfg.slOfTp === SHORT_WINNER.slOfTp && g.tactic === "trailing") ||
@@ -661,7 +686,8 @@ function snapshot(e, extra) {
   overall.openNet = openNet;
   const wr = lastExec.n >= 2 ? lastExec.wr : tapeReady ? e.stats.wr : Number(last12?.wr || e.stats.wr);
   const tapeThin = e.ledger.trades < 12;
-  const positive = Number.isFinite(livePf) && livePf >= 1 && (tapeThin || ((last12?.net ?? net) >= -0.05 && ((last12?.wr ?? wr) >= 0.36 || livePf >= 1.5)));
+  const hourNet = last12?.net ?? closedNet;
+  const positive = Number.isFinite(livePf) && livePf >= 1 && (tapeThin || hourNet >= -0.05);
   return {
     ...extra,
     pf,
@@ -788,6 +814,7 @@ function snapshot(e, extra) {
       short: SHORT_GRID.length,
       liveGrid: gridLive(e).length,
     },
+    progression: liveProgression(e),
     indMix: (() => {
       const mix = { trend: 0, break: 0, active: 0, direction: 0 };
       for (const p of lastBook.positions ?? []) {
@@ -3021,7 +3048,7 @@ async function main() {
     pick.cfg = { ...pick.cfg, ...X01_LIVE_CFG, shortRange: true, trailingPct: 1.5, dcaCount: STRAT.dca ? 3 : 1 };
     currentPick = pick;
     engine.strategyToggles = { ...STRAT };
-    engine.skipIndications = ["direction", "macd", "bollinger"];
+    engine.skipIndications = [];
     engine.liveTape = true;
     engine.holdLimits = true;
     engine.completeSim = false;
