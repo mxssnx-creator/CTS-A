@@ -51,6 +51,10 @@ describe("complete 24h open tape", () => {
     const quiet = indicationCalcLegs({ id: "break", primary: "atr", dd: 0, pxStretch: 0.1, pays: false, busy: true });
     assert.equal(quiet.length, 1);
     assert.equal(quiet[0]?.kind, "base");
+    const wide = indicationCalcLegs({ id: "break", primary: "atr", dd: 0.02, pxStretch: 0.4, pays: true, busy: true, tactic: "trailing" });
+    assert.ok(wide.some((l) => l.range === "fibonacci" || l.range === "geometric"), "break keeps a higher trail range");
+    const trendWide = indicationCalcLegs({ id: "trend", primary: "atr", dd: 0, pxStretch: 0, pays: true, busy: false, tactic: "trailing" });
+    assert.ok(trendWide.some((l) => l.range === "fibonacci" || l.range === "geometric"), "trend keeps a higher trail range");
     const bands = { low: "geometric" as const, mid: "atr" as const, high: "volume" as const };
     const ddLegs = indicationCalcLegs({ id: "direction", primary: "linear", dd: 0.02, pxStretch: 0.1, pays: true, busy: true, ddActivity: 0.4, relAlign: 0.3, bands });
     assert.equal(ddLegs.filter((l) => l.range === "volume" || l.range === "geometric").length, 0);

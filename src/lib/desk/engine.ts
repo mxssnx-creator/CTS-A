@@ -221,9 +221,10 @@ export function dynamicMinRateDist(px: number, specifiedPct: number, atr = 0, he
   return Number.isFinite(dyn) ? dyn : floor;
 }
 export const MIN_QUOTE_VOL = 0.006;
-/** Live: 0.8 too short; 1.0/1.2/1.7/2.0 lost. Keep 1.4 proven +, 1.5 slightly wider. */
+/** Live book stays on 1.5. Trend and Break ride the wider trails. */
 export const TRAIL_PCTS = [1.5] as const;
 export const DISABLED_TRAIL_PCTS = [0.8, 1.0, 1.2, 1.4, 1.7, 2.0] as const;
+export const TREND_BREAK_TRAIL_PCTS = [1.8, 2.2, 2.6] as const;
 /** Giveback of peak profit through the positive (0→TP) range. Tight 1.4 disabled. */
 export const TRAIL_POS_RATIOS = [0.9, 0.78, 0.66, 0.54, 0.44, 0.36] as const;
 
@@ -241,6 +242,13 @@ export function snapTrailPct(n: number): number {
   return best;
 }
 
+/** Higher trail for Trend and Break. `slot` walks 1.8 → 2.2 → 2.6. */
+export function trendBreakTrailPct(slot = 0): number {
+  const list = TREND_BREAK_TRAIL_PCTS;
+  const i = Math.abs(Math.floor(Number(slot) || 0)) % list.length;
+  return list[i]!;
+}
+
 export function trailGiveback(progress: number, trailPct: number): number {
   const p = Math.min(1.25, Math.max(0, Number(progress) || 0));
   const n = TRAIL_POS_RATIOS.length;
@@ -248,9 +256,12 @@ export function trailGiveback(progress: number, trailPct: number): number {
   const i = Math.min(n - 2, Math.max(0, Math.floor(x)));
   const t = x - i;
   const base = TRAIL_POS_RATIOS[i]! * (1 - t) + TRAIL_POS_RATIOS[i + 1]! * t;
-  const pct = snapTrailPct(trailPct);
-  const scale = 0.92 + ((pct - 1.5) / 0.1) * 0.12;
-  return Math.min(0.92, Math.max(0.28, base * scale));
+  const raw = Number(trailPct);
+  const pct = raw >= TREND_BREAK_TRAIL_PCTS[0] && raw <= TREND_BREAK_TRAIL_PCTS[TREND_BREAK_TRAIL_PCTS.length - 1]!
+    ? raw
+    : snapTrailPct(raw);
+  const scale = pct <= 1.5 ? 0.92 : Math.min(1.08, 0.92 + ((pct - 1.5) / 1.1) * 0.2);
+  return Math.min(0.97, Math.max(0.28, base * scale));
 }
 
 export function trailStopFromPeak(input: {
@@ -1649,6 +1660,9 @@ export const INDICATION_CONFIGS: IndicationConfig[] = [
   { id: "trend-adx", kind: "trend", label: "Trend ADX 26", params: { adx: 26 } },
   { id: "trend-st", kind: "trend", label: "Trend Supertrend", params: { multiplier: 3 } },
   { id: "trend-ribbon", kind: "trend", label: "Trend EMA ribbon 9/21/55", params: { adx: 14 } },
+  { id: "trend-pull", kind: "trend", label: "Trend pullback to 21", params: { adx: 16 } },
+  { id: "trend-di", kind: "trend", label: "Trend DI spread", params: { adx: 18 } },
+  { id: "trend-slope", kind: "trend", label: "Trend EMA21 slope", params: { adx: 18 } },
   { id: "break-vol", kind: "break", label: "Break volume 1.6×", params: { volMult: 1.45 } },
   { id: "break-atr", kind: "break", label: "Break ATR 1.15×", params: { atrMult: 1.15 } },
   { id: "break-hi", kind: "break", label: "Break 12-bar range", params: { lookback: 12 } },
@@ -1657,6 +1671,9 @@ export const INDICATION_CONFIGS: IndicationConfig[] = [
   { id: "break-fail", kind: "break", label: "Break failed fade", params: { lookback: 12 } },
   { id: "break-squeeze", kind: "break", label: "Break squeeze expand", params: { lookback: 10, atrMult: 1.08 } },
   { id: "break-nr", kind: "break", label: "Break NR7 expansion", params: { lookback: 7, atrMult: 1.1 } },
+  { id: "break-body", kind: "break", label: "Break body through range", params: { lookback: 8 } },
+  { id: "break-gap", kind: "break", label: "Break gap open", params: { lookback: 6 } },
+  { id: "break-hold", kind: "break", label: "Break hold above level", params: { lookback: 12 } },
   { id: "active-hf", kind: "active", label: "Active high-freq", params: { lookback: 4, volMult: 1.08 } },
   { id: "active-range", kind: "active", label: "Active range shift", params: { lookback: 6, volMult: 1.02 } },
   { id: "active-burst", kind: "active", label: "Active burst", params: { lookback: 3, volMult: 1.25 } },
@@ -2259,6 +2276,42 @@ export function processIndication(
         strength = 0;
       }
     }
+    if (cfg.id === "trend-pull" && finite(pack.ema9[i]) && finite(pack.ema21[i])) {
+      const up = pack.ema9[i]! > pack.ema21[i]!;
+      const dn = pack.ema9[i]! < pack.ema21[i]!;
+      const pulledLong = up && c.l <= pack.ema21[i]! * 1.004 && c.c >= pack.ema21[i]! && c.c >= c.o;
+      const pulledShort = dn && c.h >= pack.ema21[i]! * 0.996 && c.c <= pack.ema21[i]! && c.c <= c.o;
+      if (pulledLong || pulledShort) {
+        dir = pulledLong ? 1 : -1;
+        strength = Math.min(1, 0.66 + (adxOk ? 0.16 : 0));
+      } else {
+        dir = 0;
+        strength = 0;
+      }
+    }
+    if (cfg.id === "trend-di" && finite(pack.plusDI[i]) && finite(pack.minusDI[i])) {
+      const spread = Math.abs(pack.plusDI[i]! - pack.minusDI[i]!);
+      const rising = i >= 2 && finite(pack.adx[i - 2]) && pack.adx[i]! > pack.adx[i - 2]!;
+      if (adxOk && spread >= 4 && rising) {
+        dir = pack.plusDI[i]! > pack.minusDI[i]! ? 1 : -1;
+        strength = Math.min(1, 0.58 + Math.min(0.28, spread / 40));
+      } else {
+        dir = 0;
+        strength = 0;
+      }
+    }
+    if (cfg.id === "trend-slope") {
+      const slope = emaSlope(pack, i, "ema21", 5);
+      const withEma =
+        finite(pack.ema9[i]) && finite(pack.ema21[i]) && Math.sign(pack.ema9[i]! - pack.ema21[i]!) === Math.sign(slope);
+      if (adxOk && withEma && Math.abs(slope) > 0.0002) {
+        dir = slope > 0 ? 1 : -1;
+        strength = Math.min(1, 0.64 + Math.min(0.24, Math.abs(slope) * 90));
+      } else {
+        dir = 0;
+        strength = 0;
+      }
+    }
     const conv = closeConviction(c);
     if (dir === 1 && conv < 0.35) strength *= 0.55;
     if (dir === -1 && conv > 0.65) strength *= 0.55;
@@ -2324,6 +2377,44 @@ export function processIndication(
       if (isNestedRange(candles, i, Math.max(5, Math.min(9, look))) && expand && (beyond || barAtr >= 1.1) && !chasing) {
         dir = beyond || closeDir;
         strength = Math.min(1, 0.72 + (volOk ? 0.12 : 0.04) + (squeezed ? 0.08 : 0) + (beyond ? 0.06 : 0));
+      }
+    } else if (cfg.id === "break-body") {
+      const body = Math.abs(c.c - c.o) / atr;
+      const box = i >= 8 ? rangeOf(candles, i, 8) : { hi: Infinity, lo: -Infinity };
+      const thru = beyond || (c.c > box.hi ? 1 : c.c < box.lo ? -1 : 0);
+      if (thru && body >= 0.55 && (volSoft || expand) && !chasing) {
+        dir = thru;
+        strength = Math.min(1, 0.7 + Math.min(0.18, body * 0.12) + (volOk ? 0.08 : 0));
+      }
+    } else if (cfg.id === "break-gap" && i > 0) {
+      const prev = candles[i - 1]!;
+      const gapUp = c.o > prev.h && c.c >= c.o;
+      const gapDn = c.o < prev.l && c.c <= c.o;
+      if ((gapUp || gapDn) && (volSoft || barAtr >= 1.02) && !chasing) {
+        dir = gapUp ? 1 : -1;
+        strength = Math.min(1, 0.72 + (expand ? 0.1 : 0) + (withTrend ? 0.06 : 0));
+      }
+    } else if (cfg.id === "break-hold" && i >= look + 2) {
+      let broke = 0;
+      let level = 0;
+      for (let k = i - 1; k >= i - 4 && k >= look; k--) {
+        const rk = rangeOf(candles, k, look);
+        if (candles[k]!.c > rk.hi) {
+          broke = 1;
+          level = rk.hi;
+          break;
+        }
+        if (candles[k]!.c < rk.lo) {
+          broke = -1;
+          level = rk.lo;
+          break;
+        }
+      }
+      const held =
+        broke === 1 ? c.c > level && c.l >= level - atr * 0.35 : broke === -1 ? c.c < level && c.h <= level + atr * 0.35 : false;
+      if (broke && held && !chasing && (withTrend || volSoft || barAtr >= 0.8)) {
+        dir = broke;
+        strength = Math.min(1, 0.7 + (stAlign ? 0.08 : 0) + (withTrend ? 0.06 : 0));
       }
     } else if (wickOnly) {
       dir = 0;

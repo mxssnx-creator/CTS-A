@@ -65,6 +65,7 @@ import {
   snapTpRatio,
   snapSlAtr,
   snapTrailPct,
+  trendBreakTrailPct,
   profitFactor,
   ratioProfitFactor,
   pfFromPnls,
@@ -3398,7 +3399,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           grid = mine;
         }
         const hourBusy = livePace && hourTapeBusy(e);
-        const trailPct = snapTrailPct(cfg.trailingPct);
+        const trailBase = snapTrailPct(cfg.trailingPct);
         for (const prot of grid) {
           if (fresh >= freshCap || qn >= qStop || pn >= pMax) break;
           const comboKey = prot ? shortComboKey(prot.tpAtr, prot.slOfTp) : "";
@@ -3568,6 +3569,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           hi.levels.slice(0, Math.max(1, depth)).forEach((offset, li) => {
             if (fresh >= freshCap || qn >= qStop) return;
             if ((symLoad.get(s.id) || 0) >= symCap) return;
+            const trailPct =
+              ind === "trend" || ind === "break"
+                ? trendBreakTrailPct((leg.range === "geometric" ? 1 : leg.range === "fibonacci" ? 2 : 0) + li)
+                : trailBase;
             const nearBook = livePace || internAll0;
             const nearOff = nearBook
               ? Math.min(offset, atr * (leg.kind === "base" && li > 0 ? 0.24 : leg.near))
@@ -3960,8 +3965,8 @@ export function kindFromIndication(id: IndicationId, playbook: string, tactic: T
 }
 
 const IND_RANGE_PREF: Record<IndicationId, RangeType[]> = {
-  trend: ["atr", "geometric", "volume"],
-  break: ["atr", "linear", "fibonacci", "volume"],
+  trend: ["atr", "geometric", "volume", "fibonacci"],
+  break: ["atr", "linear", "fibonacci", "volume", "geometric"],
   active: ["atr", "geometric", "volume"],
   direction: ["fibonacci", "linear", "atr"],
   move: ["atr", "geometric"],
@@ -4115,8 +4120,18 @@ export function indicationCalcLegs(args: {
     const extra = expandPayRanges(args.id, args.primary).find((r) => r !== args.primary);
     if (extra) push({ kind: "rng", range: extra, spaceMul: 1, sizeMul: 0.55, near: 0.2 });
   }
+  if ((args.id === "trend" || args.id === "break") && args.pays && args.tactic !== "dca") {
+    const wide = args.tactic === "trailing";
+    for (const r of ["fibonacci", "geometric"] as RangeType[]) {
+      if (legs.length >= 4) break;
+      if (!paysRange(r) || r === args.primary) continue;
+      push({ kind: "rng", range: r, spaceMul: wide ? 1.22 : 1.08, sizeMul: 0.42, near: wide ? 0.07 : 0.1 });
+    }
+  }
   if (locked && legs.length > 1) {
-    return legs.filter((l) => l.kind === "base" || l.kind === "px").slice(0, 4);
+    return legs
+      .filter((l) => l.kind === "base" || l.kind === "px" || (args.id === "break" && l.kind === "rng" && (l.range === "fibonacci" || l.range === "geometric")))
+      .slice(0, 4);
   }
   if (args.id === "direction" && args.pays && args.bands) {
     if ((ddAct >= 0.08 || sessionDd >= 0.012) && paysRange(args.bands.high)) {
