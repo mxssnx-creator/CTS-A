@@ -1074,6 +1074,26 @@ function ingestExec(ex) {
   }
 }
 
+/** Realized PnL since the top of this clock hour. A red hour stops new risk. */
+function hourNetNow() {
+  const start = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+  let net = 0;
+  for (const r of lastPnl) {
+    if (Number(r.t) >= start) net += Number(r.v) || 0;
+  }
+  return net;
+}
+function hourOpenDrag() {
+  let net = 0;
+  for (const p of lastBook.positions || []) net += Number(p.pnl) || 0;
+  return net;
+}
+/** New entries only while this hour can still finish green. */
+function hourAllowsEntry() {
+  if (!IS_X01) return true;
+  return hourNetNow() + Math.min(0, hourOpenDrag()) >= -0.004;
+}
+
 async function pruneUnlisted(network) {
   try {
     const map = await fetchContractMap(network);
@@ -1366,8 +1386,11 @@ async function flattenBelowMinPf(network, book, e) {
     const mtmDist = p.side === "long" ? prot.entry - mark : mark - prot.entry;
     const pastSl = slDist > 0 && mtmDist > slDist * 1.05;
     const loser = Number(p.pnl) <= 0 || mtmDist > 0;
-    const timed = age >= MAX_HOLD_MS && loser;
-    if (!pastSl && !timed) continue;
+    const hourNet = IS_X01 ? hourNetNow() : 0;
+    const wouldRed = IS_X01 && hourNet + (Number(p.pnl) || 0) < -0.001;
+    const timed = age >= MAX_HOLD_MS && loser && !wouldRed;
+    const lockHour = IS_X01 && hourNet > 0.002 && Number(p.pnl) < 0 && hourNet + Number(p.pnl) >= 0 && age > 20_000;
+    if (!pastSl && !timed && !lockHour) continue;
     const r = await closeHit(network, p);
     if (r?.ok) {
       n += 1;
@@ -1955,7 +1978,7 @@ async function mirrorToExchange(e, network, cfg) {
   if (apiQuiet()) return null;
   if (e?.preEvalDone === false) return null;
   const gapNow = Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0));
-  if (Date.now() - liveLast < (gapNow > 0 ? 250 : 700)) return;
+  if (Date.now() - liveLast < (gapNow > 0 ? 250 : IS_X01 ? 400 : 700)) return;
   liveLast = Date.now();
   const keys = keysForConn(CONN);
   if (!keys.apiKey || !keys.secret) return "live no keys";
@@ -2354,7 +2377,42 @@ async function mirrorToExchange(e, network, cfg) {
             if (slim.filter((x) => x.side === want).length >= 4) break;
           }
         }
-        return [...ladder, ...blockFirst, ...slim];
+        const near = [];
+        const validated = slim.filter((x) => !x.ladder).length;
+        if (e.preEvalDone && validated < 8 && hourAllowsEntry()) {
+          const ids = universeSymbols(LIVE_SYMBOLS).map((s) => s.id);
+          for (const id of ids) {
+            if (near.length >= 72) break;
+            if (occupiedSymbols.has(id)) continue;
+            const have = restingBySym.get(id) || 0;
+            if (have >= 3) continue;
+            const q = e.quotes?.[id];
+            if (!q || !(q.px > 0) || !isUniverseSymbol(id)) continue;
+            const ind = classifyIndication(e, id);
+            if (ind === "direction" || (e.skipIndications || []).includes(ind)) continue;
+            const mid = q.hi > q.lo ? (q.hi + q.lo) / 2 : q.px;
+            const side = q.px >= mid ? "short" : "long";
+            for (let lvl = 1; lvl <= 3 - have; lvl += 1) {
+              const dist = q.px * 0.0004 * lvl;
+              const px = side === "long" ? q.px - dist : q.px + dist;
+              near.push({
+                id: `near:${id}:${side}:${Math.round(px * 1e5)}`,
+                orderId: "",
+                symbol: id,
+                side,
+                px,
+                kind: "entry",
+                playbook: "short",
+                note: "live near",
+                tactic: "hybrid",
+                rangeType: e.lastRange || "atr",
+                indication: "break",
+                near: true,
+              });
+            }
+          }
+        }
+        return [...ladder, ...blockFirst, ...slim, ...near];
       })()
     : entryIntents;
   let skipQuiet = 0;
@@ -2378,6 +2436,31 @@ async function mirrorToExchange(e, network, cfg) {
     const cap = liveNotionalCap(Number(book.equity) || Number(lastBook.equity) || 0);
     return minN > cap + 1e-6;
   };
+  if (IS_X01 && hourAllowsEntry()) {
+    const far = [];
+    for (const o of book.orders ?? []) {
+      if (far.length >= 4) break;
+      if (!isDeskOrder(o) || o.closePosition) continue;
+      if (String(o.type || "").toUpperCase() !== "LIMIT") continue;
+      const px = Number(e.quotes?.[o.symbol]?.px) || 0;
+      const op = Number(o.price) || 0;
+      if (!(px > 0) || !(op > 0)) continue;
+      if (Math.abs(op - px) / px < 0.004) continue;
+      far.push(o);
+    }
+    if (far.length) {
+      await mapLimit(far, 2, (o) =>
+        withLiveBusy(() =>
+          cancelSwapOrder({
+            network,
+            connId: CONN,
+            symbol: o.venueSymbol || o.symbol,
+            orderId: String(o.id || ""),
+          }),
+        ),
+      );
+    }
+  }
   const ordered = ladderShort
     ? [...scanIntents.filter((f) => f.ladder), ...e.fills, ...scanIntents.filter((f) => !f.ladder)]
     : [...e.fills, ...scanIntents];
@@ -2386,6 +2469,10 @@ async function mirrorToExchange(e, network, cfg) {
     const overallOrder = /Overall Block/i.test(String(f?.note || "")) || /^ob/i.test(String(f?.id || ""));
     if (overallOrder && BLOCK.overall === false) continue;
     if (blockish && !overallOrder && !STRAT.block) continue;
+    if (!blockish && !hourAllowsEntry()) {
+      markWhy(f, "hour");
+      continue;
+    }
     const entries = fillJobs.length - blockJobs;
     if (blockish) {
       const bk = `${f.symbol}:${f.side}`;
@@ -2394,6 +2481,8 @@ async function mirrorToExchange(e, network, cfg) {
       const q = Number(f.qty) || 0;
       if (px > 0 && q * px > Math.max(1, Number(lastBook.equity) || 0) * 0.35) continue;
       if (blockJobs >= blockCap) continue;
+    } else if (f.near && entries >= 4) {
+      continue;
     } else if (entries >= entryCap) {
       if (blockJobs >= blockCap) break;
       continue;
@@ -2433,37 +2522,42 @@ async function mirrorToExchange(e, network, cfg) {
     {
       const order = [...e.orders, ...e.queue].find((o) => o.id === f.orderId);
       const pos = e.positions.find((p) => p.symbol === f.symbol && p.side === f.side);
-      const ind = classifyIndication(e, f.symbol);
-      const kind = order?.kind ?? pos?.kind ?? kindFromIndication(ind, openPlaybook(e.lastTactic, ind), e.lastTactic);
-      const playbook = order?.playbook ?? pos?.playbook;
-      const rangeType = order?.rangeType ?? pos?.controllingRange ?? e.lastRange;
-      const indication = order?.indication ?? pos?.indication ?? ind;
+      const ind = f.near ? "break" : classifyIndication(e, f.symbol);
+      const kind = f.near ? "short" : order?.kind ?? pos?.kind ?? kindFromIndication(ind, openPlaybook(e.lastTactic, ind), e.lastTactic);
+      const playbook = f.near ? "short" : order?.playbook ?? pos?.playbook;
+      const rangeType = f.near ? (f.rangeType || e.lastRange || "atr") : order?.rangeType ?? pos?.controllingRange ?? e.lastRange;
+      const indication = f.near ? "break" : order?.indication ?? pos?.indication ?? ind;
       const rel = {
         symbol: f.symbol,
         side: f.side,
-        tactic: order?.tactic ?? e.lastTactic,
+        tactic: f.near ? "hybrid" : order?.tactic ?? e.lastTactic,
         playbook,
         kind,
         note: order?.note ?? f.note,
         blockLevel: order?.level ?? pos?.blockLevel,
         indication,
         rangeType,
-        tpAtr: Number(order?.tpAtr ?? pos?.tpAtr) || undefined,
-        slOfTp: Number(order?.slOfTp ?? pos?.slOfTp) || undefined,
+        tpAtr: Number(f.near ? X01_LIVE_CFG.tpAtr : order?.tpAtr ?? pos?.tpAtr) || undefined,
+        slOfTp: Number(f.near ? X01_LIVE_CFG.slOfTp : order?.slOfTp ?? pos?.slOfTp) || undefined,
       };
-      if ((indication === "direction" || (e.skipIndications || []).includes(indication)) && (!f.ladder || e.preEvalDone)) {
+      if (!f.near && (indication === "direction" || (e.skipIndications || []).includes(indication)) && (!f.ladder || e.preEvalDone)) {
         markWhy(f, "direction");
         continue;
       }
-      if (rel.tactic === "trailing" && e.strategyToggles?.trailing === false && (!f.ladder || e.preEvalDone)) {
+      if (!f.near && rel.tactic === "trailing" && e.strategyToggles?.trailing === false && (!f.ladder || e.preEvalDone)) {
         markWhy(f, "trailing");
         continue;
       }
       const allowed = liveShouldExecute(e, rel) && !liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType });
       const normalOff = e.strategyToggles?.normal === false && unadjustedNormalOrder(rel);
       const needBook = examOpen && IS_X01 && !normalOff && (openN + fillJobs.length) < 30;
-      if (!allowed && !needBook && !(f.ladder && examOpen)) {
+      const nearOk = f.near && hourAllowsEntry();
+      if (!allowed && !needBook && !(f.ladder && examOpen) && !nearOk) {
         markWhy(f, "gate");
+        continue;
+      }
+      if (f.near && !nearOk) {
+        markWhy(f, "hour");
         continue;
       }
       f._rel = rel;
@@ -3347,7 +3441,7 @@ async function main() {
   const ioTimer = setInterval(() => {
     if (hostPhase !== "running") return;
     void ioCycle();
-  }, 700);
+  }, IS_X01 ? 450 : 700);
   void ioCycle();
 
   let lastSettingsAt = Date.now();
