@@ -2963,7 +2963,7 @@ function applyPfGates(engine, remote) {
   const overall = IS_X01
     ? Math.max(DEFAULT_MIN_PF, Number(th.minPf) || LIVE_MIN_PF)
     : Math.max(DEFAULT_SHORT_PF, Number(th.shortPf) || LIVE_MIN_PF);
-  const base = Math.max(1.1, Number(th.basePf) || DEFAULT_BASE_PF);
+  const base = IS_X01 ? 1.1 : Math.max(1.1, Number(th.basePf) || DEFAULT_BASE_PF);
   const axis = Math.max(1, Number(th.axisPf) || DEFAULT_AXIS_PF);
   const blockPf = Math.max(1, Number(th.blockPf) || DEFAULT_BLOCK_PF);
   const shortPf = Math.max(0.8, Number(th.shortPf) || DEFAULT_SHORT_PF);
