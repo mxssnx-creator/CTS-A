@@ -4829,19 +4829,19 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   const bq = Math.min(p.qty, Math.max(0, p.blockQty || 0));
   const bpx = p.blockAvg || 0;
   if (!(bq > 1e-12) || !(bpx > 0) || !(p.qty > bq + 1e-8)) return;
-  const risk = Math.max((p.slDist || 0) * 0.28, bpx * 1e-8);
-  const gain = Math.max((p.tpDist || 0) * 0.8, risk * 2.4, bpx * 1e-8);
+  const risk = Math.max((p.slDist || 0) * 0.2, bpx * 1e-8);
+  const gain = Math.max((p.tpDist || 0) * 0.62, risk * 3.2, bpx * 1e-8);
   const move = p.side === "long" ? q.px - bpx : bpx - q.px;
   if ((p.blockTick || 0) >= e.tick) return;
   const fav = p.side === "long" ? Math.max(q.hi || 0, q.px) - bpx : bpx - Math.min(q.lo > 0 ? q.lo : q.px, q.px);
   const adverse = p.side === "long" ? bpx - Math.min(q.lo > 0 ? q.lo : q.px, q.px) : Math.max(q.hi || 0, q.px) - bpx;
-  if (adverse < risk && fav < gain && move < gain && move > -risk) return;
-  const win = (fav >= gain || move >= gain) && adverse < risk;
-  let exit = win
-    ? (move + 1e-12 >= gain ? (p.side === "long" ? bpx + gain : bpx - gain) : q.px)
-    : move <= -risk
-      ? (p.side === "long" ? bpx - risk : bpx + risk)
-      : q.px;
+  const green = move > 0;
+  const bank = fav >= gain && (green || adverse < risk);
+  const cut = !bank && adverse >= risk && move <= 0;
+  if (!bank && !cut) return;
+  let exit = bank
+    ? (p.side === "long" ? bpx + gain : bpx - gain)
+    : (p.side === "long" ? bpx - risk : bpx + risk);
   if (!(exit > 0)) return;
   const signed = p.side === "long" ? 1 : -1;
   const pnl0 = closePnl(signed, bpx, exit, bq);
@@ -4861,7 +4861,7 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   p.blockAvg = 0;
   p.blockTick = 0;
   p.realized = (p.realized || 0) + pnl;
-  const reason: "tp" | "sl" = laneBreak ? "sl" : win ? "tp" : "sl";
+  const reason: "tp" | "sl" = laneBreak ? "sl" : bank ? "tp" : "sl";
   if (!laneBreak) {
     bumpBookPf(e, "block", ratio);
     bumpBookPf(e, `block:${reason}`, ratio);
@@ -4901,6 +4901,7 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   e.closed.unshift(row);
   noteTickClose(e, row);
   if (!laneBreak && countsOnBlockTape(e, p.validExec === true)) recordBlockClose(e, p, ratio);
+  if (!laneBreak && bank && ratio > 0) queueWinAgain(e, p);
 }
 
 function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl" | "tp" | "time", opts?: { skipComboTape?: boolean }) {
@@ -7665,9 +7666,17 @@ function overallWindowOk(
   if (internAllPhase(e)) return true;
   if (e.blockCfg?.windows === false) return true;
   const need = Math.max(8, next);
-  const floor = next <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.max(1.05, Math.min(minPf || 1.05, 1.2));
+  const strict = completeOpenTape(e) || performingLive(e);
+  const floor = strict
+    ? next <= 1
+      ? 1.45
+      : 1.3
+    : next <= 1
+      ? Math.max(1.15, Math.min(minPf || 1.2, 1.25))
+      : Math.max(1.05, Math.min(minPf || 1.05, 1.2));
   const pass = (w?: { closed?: number; lastPf?: number }) => {
     if (w && (w.closed || 0) >= need) return (Number(w.lastPf) || 0) + 1e-9 >= floor;
+    if (strict && next > 1) return false;
     // Type / indication+type stay on their own PF after the exam. Other scopes keep coverage
     // until that scope has a full window, so Block does not go dark while the book is still proving.
     const typed = scope === "type" || scope === "indType";
@@ -7852,14 +7861,22 @@ function blockCountPositive(e: VstEngine, n: number, minPf: number) {
   if (internAllPhase(e)) return true;
   const w = e.blockWindows?.[n];
   const need = Math.max(8, n);
+  const strict = completeOpenTape(e) || performingLive(e);
+  const floor = strict
+    ? n <= 1
+      ? 1.45
+      : 1.3
+    : n <= 1
+      ? Math.max(1.15, Math.min(minPf || 1.2, 1.25))
+      : Math.max(1.05, Math.min(minPf || 1.05, 1.2));
   if (!w || w.closed < need) {
+    if (strict && n > 1) return false;
     if (!e.liveTape) return true;
     const openN = e.positions.filter((x) => x.qty > 0).length;
     if (openN < 4) return true;
-    const floor = n <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.max(1.05, minPf || 1.05);
-    return openScopePf(e, "book", { symbol: "", side: "long" }) + 1e-9 >= floor;
+    const openFloor = n <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.max(1.05, minPf || 1.05);
+    return openScopePf(e, "book", { symbol: "", side: "long" }) + 1e-9 >= openFloor;
   }
-  const floor = n <= 1 ? Math.max(1.15, Math.min(minPf || 1.2, 1.25)) : Math.min(minPf || 1.05, 1.2);
   return w.lastPf + 1e-9 >= floor;
 }
 
@@ -7907,6 +7924,36 @@ export function collectActiveOrderBlocks(e: VstEngine, connId?: string) {
     const [symbol, side] = k.split(":") as [string, Side];
     return { id: k, symbol, side, orders, multiple: orders.length };
   });
+}
+
+function blockProveScale(e: VstEngine, next: number): number {
+  if (!(completeOpenTape(e) || performingLive(e))) return 1;
+  if (e.blockCfg?.windows === false) return 1;
+  const w = e.blockWindows?.[next];
+  const need = Math.max(8, next);
+  const pf = w && (w.closed || 0) >= need ? Number(w.lastPf) || 0 : 0;
+  if (pf >= 1.8) return 1;
+  if (pf >= 1.35) return 0.7;
+  return 0.4;
+}
+
+/** Hour, bank, and lane-cool have to agree before another Block add. Pair and win-again stay on their own paths. */
+function blockCoordsAllow(e: VstEngine, p: LivePosition, move: number): boolean {
+  if (!(completeOpenTape(e) || performingLive(e))) return true;
+  if (e.blockCfg?.windows === false) return true;
+  if (pfCoordOn(e, "laneCool") && p.indication && laneCooled(e, p.symbol, p.indication, String(p.tactic || "x"))) return false;
+  if (pfCoordOn(e, "hourKeep")) {
+    const bag = hourLaneOf(e, "play:block");
+    if (bag.p + bag.l > 1e-6) {
+      const pf = bag.l > 1e-12 ? bag.p / bag.l : 9;
+      if (pf + 1e-9 < STABLE_HOUR_PF) return false;
+    }
+  }
+  if (pfCoordOn(e, "bankWin")) {
+    const tpFrac = p.avgEntry > 0 && p.tpDist > 0 ? p.tpDist / p.avgEntry : 0.004;
+    if (!(move >= Math.max(0.0004, tpFrac * 0.2))) return false;
+  }
+  return true;
 }
 
 export function adjustActiveBlocks(
@@ -8055,6 +8102,7 @@ export function adjustActiveBlocks(
       }
       if ((p.playbook === "dca" || p.tactic === "dca") && move < 0) continue;
       if ((e.cooldown[cooldownKey(conn, p.symbol)] ?? 0) > e.tick) continue;
+      if (!blockCoordsAllow(e, p, move)) continue;
       let usedQty = 0;
       for (const o of legBlocks(p.symbol, p.side)) {
         if (o.status === "cancelled" || o.status === "filled" || o.status === "rejected") continue;
@@ -8119,7 +8167,8 @@ export function adjustActiveBlocks(
         const plan = (kind: "relation" | "overall", next: number, vr: number, extraQty: number, scope: OverallScope = "book", relExtra = false) => {
           const overallKind = kind === "overall";
           const stepMode: "additive" | "shared" = mode;
-          const step = relExtra ? 0 : blockStepQty(lane.baseQty, next, vr, maxMul, 1, 0, stepMode);
+          const prove = blockProveScale(e, next);
+          const step = relExtra ? 0 : blockStepQty(lane.baseQty, next, vr * prove, maxMul, 1, 0, stepMode);
           const qty = step + Math.max(0, extraQty);
           if (!(qty > 0)) return false;
           (overallKind ? plannedOv : plannedRel).push({ overallKind, next, qty, scope, mode, lane, relExtra });

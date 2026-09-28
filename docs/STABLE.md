@@ -58,10 +58,12 @@ Block:
 - volume 0.4, relation 0.4, shared 1.5, overall 1.5, max multiplier 8
 - parallel shared and parallel overall
 - book, symbol, direction, indication, and type layers on
+- adds only while hour, bank, and lane-cool agree. Counts above 1 wait for window PF 1.30 (first count 1.45). Size is 0.4× until that window is proven, 0.7× from 1.35, full from 1.8
+- overlay banks at 0.62 of the target and at least 3.2× the cut. It does not scratch at the mark. A winning peel can re-enter through win-again
 
-Toggles: `normal` true, `axis` true, `block` true, `trailing` false, `dca` false.
+Toggles: `normal` true, `axis` true, `block` true, `trailing` true, `dca` false.
 
-Live x01 runs this cell only: tactic hybrid and axis, range geometric. Other ranges and the long protect grid are not armed. A processing replaces a stable cell on the site only after 4 closes with PF at least 1. A worse sample is not shown and is not the seed.
+Live x01 runs hybrid, trailing, and axis on geometric. Other ranges and the long protect grid are not armed. A processing replaces a stable cell on the site only after 4 closes with PF at least 1. A worse sample is not shown and is not the seed.
 
 Volume factor 1 means twice the exchange minimum (the old 0.5 setting was lifted to the same minimum, so it did not change size). A confirming volume factor can scale that up to 1.5×. It cannot go under the exchange minimum.
 
