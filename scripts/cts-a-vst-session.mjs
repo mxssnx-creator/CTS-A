@@ -386,9 +386,12 @@ function loadManualClosed() {
     const raw = JSON.parse(readFileSync(MANUAL_FILE, "utf8"));
     const rows = raw && typeof raw === "object" ? raw : {};
     const out = {};
+    const now = Date.now();
     for (const [k, v] of Object.entries(rows)) {
       if (!/:(long|short)$/.test(k)) continue;
-      out[k] = Number(v) || 1;
+      const t = Number(v) || 0;
+      // Tick counts from vanished paper legs banned the whole book. Only a recent wall-clock hold sticks.
+      if (t > 1e12 && now - t < 6 * 3_600_000) out[k] = t;
     }
     return out;
   } catch {
@@ -2101,15 +2104,7 @@ async function mirrorToExchange(e, network, cfg) {
     const k = `${p.symbol}:${p.side}`;
     if (!ownedOccupied.has(k)) vanished.add(k);
   }
-  const dropped = releaseVanished(e, ownedOccupied, CONN, (() => {
-    const manual = new Set();
-    for (const k of vanished) {
-      const [sym, side] = String(k).split(":");
-      if (systemClosed.has(k) || deskClosedRecently(sym)) continue;
-      if (side === "long" || side === "short") manual.add(k);
-    }
-    return manual;
-  })());
+  const dropped = releaseVanished(e, ownedOccupied, CONN, new Set());
   if (e.manualClosed && Object.keys(e.manualClosed).length) saveManualClosed(e.manualClosed);
   const forget = (key) => {
     mirrored.delete(`own:${key}`);
