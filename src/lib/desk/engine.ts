@@ -1678,6 +1678,7 @@ export const INDICATION_CONFIGS: IndicationConfig[] = [
   { id: "active-range", kind: "active", label: "Active range shift", params: { lookback: 6, volMult: 1.02 } },
   { id: "active-burst", kind: "active", label: "Active burst", params: { lookback: 3, volMult: 1.25 } },
   { id: "active-chop", kind: "active", label: "Active chop fade", params: { lookback: 5, volMult: 1.12 } },
+  { id: "active-align", kind: "active", label: "Active with trend", params: { lookback: 4, volMult: 1.05 } },
   { id: "dir-cross", kind: "direction", label: "Dir EMA cross", params: { lookback: 6 } },
   { id: "dir-st", kind: "direction", label: "Dir Supertrend flip", params: { lookback: 8 } },
   { id: "dir-axis", kind: "direction", label: "Dir axis VWAP", params: { lookback: 6 } },
@@ -1686,6 +1687,7 @@ export const INDICATION_CONFIGS: IndicationConfig[] = [
   { id: "dir-hold", kind: "direction", label: "Dir hold after flip", params: { lookback: 5 } },
   { id: "dir-thrust", kind: "direction", label: "Dir 3-bar thrust", params: { lookback: 3 } },
   { id: "dir-reclaim", kind: "direction", label: "Dir EMA21 reclaim", params: { lookback: 3 } },
+  { id: "dir-confirm", kind: "direction", label: "Dir flip with trend", params: { lookback: 4 } },
   { id: "move-impulse", kind: "move", label: "Move impulse", params: { atrMult: 1.2, lookback: 4 } },
   { id: "move-swing", kind: "move", label: "Move swing 8", params: { atrMult: 1.05, lookback: 8 } },
   { id: "move-cont", kind: "move", label: "Move continuation", params: { atrMult: 0.95, lookback: 3 } },
@@ -1697,6 +1699,7 @@ export const INDICATION_CONFIGS: IndicationConfig[] = [
   { id: "bb-walk", kind: "bollinger", label: "Bollinger walk", params: { lookback: 4 } },
   { id: "bb-mean", kind: "bollinger", label: "Bollinger mid reclaim", params: { lookback: 3 } },
   { id: "bb-tag", kind: "bollinger", label: "Bollinger wick tag", params: { lookback: 2 } },
+  { id: "bb-fade", kind: "bollinger", label: "Bollinger quiet fade", params: { lookback: 3 } },
   { id: "sar-flip", kind: "sar", label: "SAR / Supertrend flip", params: { lookback: 4 } },
   { id: "sar-hold", kind: "sar", label: "SAR hold", params: { lookback: 6 } },
   { id: "sar-trail", kind: "sar", label: "SAR trail with trend", params: { lookback: 8 } },
@@ -2312,6 +2315,17 @@ export function processIndication(
         strength = 0;
       }
     }
+    if (cfg.id === "trend-ema") {
+      const slope = emaSlope(pack, i, "ema21", 4);
+      const raw = finite(pack.ema9[i]) && finite(pack.ema21[i]) ? (pack.ema9[i]! > pack.ema21[i]! ? 1 : -1) : 0;
+      if (raw !== 0 && adxOk && Math.abs(slope) > 0.00018 && Math.sign(slope) === raw) {
+        dir = raw;
+        strength = Math.min(1, 0.62 + Math.min(0.22, Math.abs(slope) * 70));
+      } else {
+        dir = 0;
+        strength = 0;
+      }
+    }
     const conv = closeConviction(c);
     if (dir === 1 && conv < 0.35) strength *= 0.55;
     if (dir === -1 && conv > 0.65) strength *= 0.55;
@@ -2469,26 +2483,36 @@ export function processIndication(
     for (let k = from; k <= i; k++) act += pack.activity[k] ?? 0;
     act /= Math.max(1, i - from + 1);
     const volOk = finite(pack.volSma[i]) && c.v > pack.volSma[i]! * volMult;
-    const ranging = (pack.rangeChange[i] ?? 0) > 0.85;
-    if (act >= 0.92 && (volOk || ranging || act >= 1.15)) {
-      dir = c.c >= c.o ? 1 : -1;
-      strength = Math.min(1, 0.35 + act * 0.28);
-    }
+    const emaDir = finite(pack.ema9[i]) && finite(pack.ema21[i]) ? Math.sign(pack.ema9[i]! - pack.ema21[i]!) : 0;
+    const barDir = c.c >= c.o ? 1 : -1;
+    const conv = closeConviction(c);
+    const adx = pack.adx[i] ?? 0;
+    const convOk = (barDir === 1 && conv >= 0.55) || (barDir === -1 && conv <= 0.45);
+    const withTrend = emaDir === 0 || emaDir === barDir;
     if (cfg.id === "active-chop") {
-      const adx = pack.adx[i] ?? 0;
       const rc = pack.rangeChange[i] ?? 0;
-      if (act >= 1.05 && adx < 22 && rc < 1.18) {
+      if (act >= 1.05 && adx < 18 && rc < 1.12) {
         const mid = pack.bbMid[i];
         if (finite(mid)) {
           dir = c.c >= mid! ? -1 : 1;
-          strength = Math.min(1, 0.4 + act * 0.22);
+          strength = Math.min(1, 0.46 + act * 0.18);
         }
-      } else {
-        dir = 0;
-        strength = 0;
+      }
+    } else if (cfg.id === "active-align") {
+      if (act >= 0.95 && emaDir !== 0 && barDir === emaDir && convOk && (volOk || act >= 1.1) && adx >= 14) {
+        dir = emaDir;
+        strength = Math.min(1, 0.58 + act * 0.16 + (volOk ? 0.08 : 0));
+      }
+    } else {
+      const burst = cfg.id === "active-burst";
+      const need = burst ? 1.02 : 1.0;
+      const shifted = (pack.rangeChange[i] ?? 0) >= 1.04;
+      if (act >= need && convOk && (volOk || shifted) && (adx < 18 || withTrend) && withTrend) {
+        dir = barDir;
+        strength = Math.min(1, 0.48 + act * 0.2 + (volOk ? 0.06 : 0));
       }
     }
-    if (dir !== 0 && (pack.rangeChange[i] ?? 0) > 1.35 && cfg.id !== "active-burst") strength *= 0.45;
+    if (dir !== 0 && (pack.rangeChange[i] ?? 0) > 1.35 && cfg.id !== "active-burst" && cfg.id !== "active-align") strength *= 0.45;
   } else if (cfg.kind === "direction" && i > 0) {
     const look = Math.max(2, Math.round(cfg.params.lookback ?? 8));
     const signAt = (k: number): number => {
@@ -2580,6 +2604,15 @@ export function processIndication(
         strength *= 0.45;
       } else if ((pack.activity[i] ?? 0) >= 1.05) {
         strength = Math.min(1, strength + 0.12);
+      }
+      const bar = (c.h - c.l) / Math.max(pack.atr[i] ?? 1e-9, 1e-9);
+      const stNow = pack.stDir[i] ?? 0;
+      if (cfg.id === "dir-confirm" && stNow !== dir && trendDir !== dir) {
+        dir = 0;
+        strength = 0;
+      } else if (cfg.id !== "dir-div" && cfg.id !== "dir-confirm" && adx >= 24 && trendDir !== 0 && dir !== trendDir && stNow === trendDir && bar < 1.15) {
+        dir = 0;
+        strength = 0;
       }
     }
   } else if (cfg.kind === "move") {
@@ -2703,14 +2736,25 @@ export function processIndication(
       } else if (cfg.id === "bb-tag") {
         const tagLo = c.l <= lo! * 1.002 && c.c > lo! && conv >= 0.48;
         const tagUp = c.h >= up! * 0.998 && c.c < up! && conv <= 0.52;
-        if (tagLo && adx < 30) {
+        if (tagLo && adx < 20 && width < 0.03) {
           dir = 1;
           strength = 0.8 + (volOk ? 0.06 : 0);
-        } else if (tagUp && adx < 30) {
+        } else if (tagUp && adx < 20 && width < 0.03) {
           dir = -1;
           strength = 0.8 + (volOk ? 0.06 : 0);
         }
-      } else if (cfg.id === "bb-bounce" && adx < 28) {
+      } else if (cfg.id === "bb-fade") {
+        const quiet = adx < 16 && width < 0.022 && (pack.rangeChange[i] ?? 0) < 1.08;
+        const rejectLo = c.l <= lo! * 1.001 && c.c > lo! && conv >= 0.55;
+        const rejectUp = c.h >= up! * 0.999 && c.c < up! && conv <= 0.45;
+        if (quiet && rejectLo) {
+          dir = 1;
+          strength = 0.74;
+        } else if (quiet && rejectUp) {
+          dir = -1;
+          strength = 0.74;
+        }
+      } else if (cfg.id === "bb-bounce" && adx < 18) {
         const nearLo = c.l <= lo! * 1.002 || c.c <= lo! * 1.003;
         const nearUp = c.h >= up! * 0.998 || c.c >= up! * 0.997;
         if (nearLo && conv >= 0.48) {
@@ -2722,7 +2766,7 @@ export function processIndication(
         }
         if (dir !== 0 && ((dir === 1 && conv < 0.48) || (dir === -1 && conv > 0.52))) strength *= 0.6;
       }
-      if (dir !== 0 && (cfg.id === "bb-bounce" || cfg.id === "bb-tag") && adx >= 22 && emaDir !== 0 && dir !== emaDir) {
+      if (dir !== 0 && (cfg.id === "bb-bounce" || cfg.id === "bb-tag" || cfg.id === "bb-fade") && adx >= 16 && emaDir !== 0 && dir !== emaDir) {
         dir = 0;
         strength = 0;
       }
@@ -3064,17 +3108,17 @@ export function indicationQuality(id: IndicationId, pack: IndicationSummary): nu
     0.2 * Math.min(1, Math.abs(pack.prevRel ?? 0));
   let q = mag * 0.72 + agree + rel * 0.18;
   const trendAlign = Math.abs(pack.trend) >= 0.18 && Math.sign(signed || 0) === Math.sign(pack.trend || 0);
-  if (id === "trend") q *= 1.18;
+  if (id === "trend") q *= mag >= 0.22 && (trendAlign || mag >= 0.4) ? 1.12 : mag >= 0.14 ? 0.9 : 0.55;
   if (id === "break") {
     q *= mag >= 0.18 ? 1.22 : mag >= 0.12 ? 1.04 : mag >= 0.08 ? 0.82 : 0.48;
     if (pack.activity >= 1.02 && mag >= 0.12) q *= 1.1;
     if (pack.agree && mag >= 0.14) q *= 1.06;
   }
-  if (id === "active") q *= pack.activity >= 0.85 && mag >= 0.12 && Math.abs(pack.break) < 0.8 ? 1.12 : mag >= 0.08 ? 0.7 : 0.48;
-  if (id === "direction") q *= mag >= 0.16 ? (mag >= 0.28 ? 1.16 : 0.98) : mag >= 0.08 ? 0.72 : 0.42;
+  if (id === "active") q *= pack.activity >= 1 && mag >= 0.16 && (trendAlign || Math.abs(pack.break) < 0.45) ? 1.08 : mag >= 0.1 ? 0.62 : 0.4;
+  if (id === "direction") q *= mag >= 0.22 && (trendAlign || mag >= 0.36) ? 1.1 : mag >= 0.14 ? 0.7 : 0.4;
   if (id === "move") q *= mag >= 0.22 && (trendAlign || mag >= 0.3) && (pack.drawdown ?? 0) < 0.45 ? 1.14 : mag >= 0.12 ? 0.78 : 0.46;
   if (id === "rsi") q *= mag >= 0.5 ? (Math.abs(pack.trend) < 0.7 ? 1.12 : 0.9) : mag >= 0.35 ? 0.86 : 0.4;
-  if (id === "bollinger") q *= mag >= 0.18 ? (mag >= 0.32 ? 1.18 : 1.0) : mag >= 0.1 ? 0.78 : 0.48;
+  if (id === "bollinger") q *= mag >= 0.22 && (Math.abs(pack.trend) < 0.55 || trendAlign) ? 1.08 : mag >= 0.12 ? 0.66 : 0.42;
   if (id === "ema") q *= mag >= 0.18 && (trendAlign || mag >= 0.28) ? 1.2 : mag >= 0.1 ? 0.82 : 0.48;
   if (id === "macd") q *= mag >= 0.22 && (trendAlign || pack.agree || mag >= 0.32) ? 1.12 : mag >= 0.12 ? 0.76 : 0.46;
   if (id === "sar") q *= mag >= 0.24 && (trendAlign || Math.abs(pack.direction) >= 0.12 || mag >= 0.36) ? 1.12 : mag >= 0.14 ? 0.74 : 0.44;
@@ -3084,13 +3128,13 @@ export function indicationQuality(id: IndicationId, pack: IndicationSummary): nu
 export const INDICATION_QUALITY_FLOOR = 0.34;
 
 export const INDICATION_QUALITY_FLOORS: Record<IndicationId, number> = {
-  trend: 0.3,
+  trend: 0.34,
   break: 0.32,
-  active: 0.28,
-  direction: 0.3,
+  active: 0.36,
+  direction: 0.34,
   move: 0.36,
   rsi: 0.32,
-  bollinger: 0.3,
+  bollinger: 0.34,
   sar: 0.36,
   macd: 0.36,
   ema: 0.3,

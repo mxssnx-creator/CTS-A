@@ -3992,10 +3992,10 @@ export function indicationProtect(id: IndicationId): { slMul: number; tpMul: num
   if (id === "break") return { slMul: 1.18, tpMul: 1.55, holdMul: 1.45 };
   if (id === "move") return { slMul: 1.06, tpMul: 1.64, holdMul: 1.2 };
   if (id === "sar") return { slMul: 1.16, tpMul: 1.40, holdMul: 1.32 };
-  if (id === "active") return { slMul: 1.18, tpMul: 1.55, holdMul: 1.45 };
-  if (id === "direction") return { slMul: 1.08, tpMul: 1.72, holdMul: 1.58 };
+  if (id === "active") return { slMul: 1.05, tpMul: 1.28, holdMul: 0.85 };
+  if (id === "direction") return { slMul: 1.08, tpMul: 1.72, holdMul: 1.12 };
   if (id === "rsi") return { slMul: 0.92, tpMul: 1.18, holdMul: 0.8 };
-  if (id === "bollinger") return { slMul: 1.18, tpMul: 1.55, holdMul: 1.45 };
+  if (id === "bollinger") return { slMul: 1.08, tpMul: 1.35, holdMul: 0.95 };
   if (id === "ema") return { slMul: 1.16, tpMul: 1.40, holdMul: 1.32 };
   if (id === "macd") return { slMul: 1.14, tpMul: 1.42, holdMul: 1.34 };
   if (id === "trend") return { slMul: 1.18, tpMul: 1.55, holdMul: 1.45 };
