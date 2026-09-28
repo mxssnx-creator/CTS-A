@@ -2435,7 +2435,10 @@ async function mirrorToExchange(e, network, cfg) {
           const ids = universeSymbols(LIVE_SYMBOLS).map((s) => s.id);
           for (const id of ids) {
             if (near.length >= 36) break;
-            if (occupiedSymbols.has(id)) continue;
+            const longTaken = exchangeOccupied.has(`${id}:long`);
+            const shortTaken = exchangeOccupied.has(`${id}:short`);
+            if (longTaken && shortTaken) continue;
+            if (occupiedSymbols.has(id) && isOwnedLeg(id, "long") && isOwnedLeg(id, "short")) continue;
             const have = restingBySym.get(id) || 0;
             if (have >= 2) continue;
             const q = e.quotes?.[id];
@@ -2443,7 +2446,7 @@ async function mirrorToExchange(e, network, cfg) {
             const ind = classifyIndication(e, id);
             if (ind === "direction" || (e.skipIndications || []).includes(ind)) continue;
             const mid = q.hi > q.lo ? (q.hi + q.lo) / 2 : q.px;
-            const side = q.px >= mid ? "short" : "long";
+            const side = longTaken ? "short" : shortTaken ? "long" : q.px >= mid ? "short" : "long";
             for (let lvl = 1; lvl <= 2 - have; lvl += 1) {
               const dist = q.px * 0.0008 * lvl;
               const px = side === "long" ? q.px - dist : q.px + dist;
@@ -2660,8 +2663,13 @@ async function mirrorToExchange(e, network, cfg) {
       }
     }
     const otherSide = f.side === "long" ? "short" : "long";
-    const otherOpen = exchangeOccupied.has(`${f.symbol}:${otherSide}`) || fillJobs.some((x) => x.symbol === f.symbol && x.side === otherSide);
-    if (otherOpen && (hedgeBlocked || IS_X01) && !isBlockAdd) continue;
+    const sideTaken = exchangeOccupied.has(`${f.symbol}:${f.side}`);
+    if (sideTaken && !isBlockAdd) {
+      skipTaken += 1;
+      continue;
+    }
+    const ourOther = isOwnedLeg(f.symbol, otherSide) || fillJobs.some((x) => x.symbol === f.symbol && x.side === otherSide);
+    if (ourOther && (hedgeBlocked || IS_X01) && !isBlockAdd) continue;
     if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && /Block/i.test(String(x.note || "")))) continue;
     if (isBlockAdd && fillJobs.filter((x) => /Block/i.test(String(x.note || x._rel?.note || ""))).length >= budget.maxNew) continue;
     if (!isBlockAdd && openN + fillJobs.length >= budget.maxPos) break;
