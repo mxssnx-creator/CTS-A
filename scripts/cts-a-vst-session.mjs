@@ -1796,12 +1796,12 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       notional: Math.max(1, (q > 0 ? q : p.qty) * px),
       confirmLive: true,
       attachProtect: false,
-      reduceOnly: true,
+      reduceOnly: false,
     };
     let r = q > 0
       ? await withLiveBusy(() => placeSwapOrder({ ...base, quantity: q, closePosition: false, exactQty: true }))
       : { ok: false, error: "control qty" };
-    if (!r.ok && q > 0 && /available amount|reduceOnly/i.test(String(r.error || "")) && !/stopPrice is must/i.test(String(r.error || ""))) {
+    if (!r.ok && q > 0 && /available amount/i.test(String(r.error || "")) && !/stopPrice is must/i.test(String(r.error || ""))) {
       const first = String(r.error || "err");
       r = await withLiveBusy(() => placeSwapOrder({ ...base, quantity: q, closePosition: true, exactQty: true, reduceOnly: false }));
       if (!r.ok) r = { ...r, error: `${first} | ${r.error || "err"}` };
