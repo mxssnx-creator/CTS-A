@@ -3614,7 +3614,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               trailPct,
               calc: leg.kind,
             });
-            if (e.completeSim && paperMode(e) && axisInd && short) {
+            if (e.completeSim && paperMode(e) && axisInd && short && e.strategyToggles?.block !== false) {
               e.queue.push({
                 id: nextId(e, "q"),
                 connId,
