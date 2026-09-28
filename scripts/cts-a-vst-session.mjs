@@ -533,6 +533,7 @@ function applyTape(e, tickers) {
       e.lastMsg = `vol confirm diverge ${vc.vf.toFixed(2)} · low-vol WR ${(vc.lowVolWr * 100).toFixed(0)}%`;
     }
   }
+  refreshCoordVolume(e);
   return tickers.filter((t) => t.last > 0 && e.quotes[t.id]).map((t) => t.id);
 }
 
@@ -1216,6 +1217,28 @@ function liveVolMul(e) {
   if (vf < 0.95) return Math.max(0.7, Math.min(1, vf));
   if (vf >= 1.05) return Math.min(1.5, vf);
   return 1;
+}
+function refreshCoordVolume(e) {
+  const rows = [];
+  for (const r of lastPnl) {
+    const pnl = Number(r?.v);
+    if (!Number.isFinite(pnl)) continue;
+    const q = e?.quotes?.[r.symbol];
+    const volume = Math.max(1e-9, Number(q?.vol) || Number(q?.vol1h) || Math.abs(pnl) || 1);
+    rows.push({ volume, pnl });
+  }
+  if (rows.length < 2) return;
+  e.coordVolumeFactor = volumeCoord(rows).vf;
+}
+/** Paper cents sit under the exchange minimum, so the factor scales that minimum. 0.5 was lifted back to 1× min, so 1 is 2× min. */
+function entryNotional(e, equity, minN) {
+  const mul = liveVolMul(e);
+  const floor = Math.max(0, Number(minN) || 0);
+  const paper = sizeNotional(equity) * mul;
+  const cap = liveNotionalCap(equity);
+  const grown = Math.max(1, LIVE_VOL_FACTOR / 0.5);
+  const target = floor > 0 ? Math.max(paper, floor * grown * mul) : paper;
+  return Math.min(cap, target);
 }
 function liveNotional(e, f, equity, rel) {
   const note = String(f?.note || rel?.note || rel?.playbook || "");
@@ -2711,6 +2734,8 @@ async function mirrorToExchange(e, network, cfg) {
         return { f, r: { ok: false, error: "block size" }, skip: true };
       }
       const sized = blockAdd && blockQty > 0 && blockQty * mark >= 2;
+      const minN = mark > 0 ? exchangeMinNotional(contractMap?.get(BINGX_SYMBOL[f.symbol] ?? (f.symbol.includes("-") ? f.symbol : `${f.symbol.replace(/USDT$/i, "")}-USDT`)), mark) : 0;
+      refreshCoordVolume(e);
       const cell = protectFor(f.symbol);
       const prot = shortStopPrices(
         { symbol: f.symbol, side: f.side, mark, entry: mark, qty: 1 },
@@ -2728,7 +2753,7 @@ async function mirrorToExchange(e, network, cfg) {
           quantity: sized ? blockQty : 0,
           type: f.ladder || resting ? "LIMIT" : "MARKET",
           price: f.ladder || resting ? ladder : mark,
-          notional: sized ? blockQty * mark : liveNotional(e, f, book.equity, f._rel),
+          notional: sized ? blockQty * mark * liveVolMul(e) : entryNotional(e, book.equity, minN),
           exactQty: sized,
           confirmLive: true,
           slAtr: cell.slAtr,
