@@ -1077,7 +1077,7 @@ function ingestExec(ex) {
   }
 }
 
-/** Realized PnL since the top of this clock hour. A red hour stops new risk. */
+/** Realized PnL since the top of this clock hour. A deep red hour stops new risk. */
 function hourNetNow() {
   const start = Math.floor(Date.now() / 3_600_000) * 3_600_000;
   let net = 0;
@@ -1091,10 +1091,18 @@ function hourOpenDrag() {
   for (const p of lastBook.positions || []) net += Number(p.pnl) || 0;
   return net;
 }
-/** New entries only while this hour can still finish green. */
+/** Loss the hour can still absorb and finish green. Open noise alone must not freeze the book. */
+function hourBand() {
+  const eq = Math.max(1, Number(lastBook.equity) || 0);
+  return Math.max(0.015, eq * 0.002);
+}
+/** New entries while this hour can still finish green. */
 function hourAllowsEntry() {
   if (!IS_X01) return true;
-  return hourNetNow() + Math.min(0, hourOpenDrag()) >= -0.004;
+  const net = hourNetNow();
+  const band = hourBand();
+  if (net < -band) return false;
+  return net + Math.min(0, hourOpenDrag()) >= -band * 2.5;
 }
 
 async function pruneUnlisted(network) {
@@ -1376,9 +1384,62 @@ async function flattenBelowMinPf(network, book, e) {
   const notes = [];
   let n = 0;
   const ranked = [...owned].sort((a, b) => Number(a.pnl || 0) - Number(b.pnl || 0));
+  const closedKeys = new Set();
+  if (IS_X01 && !apiQuiet()) {
+    const band = hourBand();
+    const hourNet = hourNetNow();
+    const banked = [...owned].filter((p) => {
+      const pnl = Number(p.pnl) || 0;
+      const notional = Math.abs(Number(p.qty) * (Number(p.mark) || Number(p.entry) || 0));
+      const key = `${p.symbol}:${p.side}`;
+      if (!openedAt.has(key)) openedAt.set(key, now);
+      return pnl >= Math.max(0.008, notional * 0.0007) && now - openedAt.get(key) > 8_000;
+    });
+    for (const p of banked) {
+      if (n >= 2 || apiQuiet()) break;
+      const key = `${p.symbol}:${p.side}`;
+      const r = await closeHit(network, p);
+      if (r?.ok) {
+        n += 1;
+        closedKeys.add(key);
+        systemClosed.add(key);
+        openedAt.delete(key);
+        mirrored.delete(`own:${key}`);
+        mirrored.delete(`live:${key}`);
+        taggedKeys.delete(key);
+        notes.push(`bank ${p.symbol}`);
+      } else noteApiFail(r);
+    }
+    const worst = ranked.find((p) => !closedKeys.has(`${p.symbol}:${p.side}`));
+    if (worst && n < 3 && !apiQuiet()) {
+      const pnl = Number(worst.pnl) || 0;
+      const notional = Math.abs(Number(worst.qty) * (Number(worst.mark) || Number(worst.entry) || 0));
+      const key = `${worst.symbol}:${worst.side}`;
+      if (!openedAt.has(key)) openedAt.set(key, now);
+      const age = now - openedAt.get(key);
+      const pathRed = hourNet + Math.min(0, hourOpenDrag()) < 0;
+      const adverse = pnl <= -Math.max(0.01, notional * 0.0012);
+      const keeps = hourNet + pnl >= -band;
+      const lock = hourNet > 0.004 && pnl < 0 && hourNet + pnl >= 0;
+      if (adverse && age > 15_000 && keeps && (pathRed || lock)) {
+        const r = await closeHit(network, worst);
+        if (r?.ok) {
+          n += 1;
+          closedKeys.add(key);
+          systemClosed.add(key);
+          openedAt.delete(key);
+          mirrored.delete(`own:${key}`);
+          mirrored.delete(`live:${key}`);
+          taggedKeys.delete(key);
+          notes.push(`scratch ${worst.symbol}`);
+        } else noteApiFail(r);
+      }
+    }
+  }
   for (const p of ranked) {
     if (n >= 3 || apiQuiet()) break;
     const key = `${p.symbol}:${p.side}`;
+    if (closedKeys.has(key)) continue;
     if (!openedAt.has(key)) openedAt.set(key, now);
     const age = now - openedAt.get(key);
     const spec = map.get(p.venueSymbol);
@@ -2373,22 +2434,21 @@ async function mirrorToExchange(e, network, cfg) {
           }
         }
         const near = [];
-        const validated = slim.filter((x) => !x.ladder).length;
-        if (e.preEvalDone && validated < 8 && hourAllowsEntry()) {
+        if (e.preEvalDone && hourAllowsEntry() && restingLimits < 48) {
           const ids = universeSymbols(LIVE_SYMBOLS).map((s) => s.id);
           for (const id of ids) {
-            if (near.length >= 72) break;
+            if (near.length >= 36) break;
             if (occupiedSymbols.has(id)) continue;
             const have = restingBySym.get(id) || 0;
-            if (have >= 3) continue;
+            if (have >= 2) continue;
             const q = e.quotes?.[id];
             if (!q || !(q.px > 0) || !isUniverseSymbol(id)) continue;
             const ind = classifyIndication(e, id);
             if (ind === "direction" || (e.skipIndications || []).includes(ind)) continue;
             const mid = q.hi > q.lo ? (q.hi + q.lo) / 2 : q.px;
             const side = q.px >= mid ? "short" : "long";
-            for (let lvl = 1; lvl <= 3 - have; lvl += 1) {
-              const dist = q.px * 0.0004 * lvl;
+            for (let lvl = 1; lvl <= 2 - have; lvl += 1) {
+              const dist = q.px * 0.0008 * lvl;
               const px = side === "long" ? q.px - dist : q.px + dist;
               near.push({
                 id: `near:${id}:${side}:${Math.round(px * 1e5)}`,
@@ -2403,6 +2463,7 @@ async function mirrorToExchange(e, network, cfg) {
                 rangeType: e.lastRange || "atr",
                 indication: "break",
                 near: true,
+                ladder: true,
               });
             }
           }
@@ -2434,13 +2495,13 @@ async function mirrorToExchange(e, network, cfg) {
   if (IS_X01 && hourAllowsEntry()) {
     const far = [];
     for (const o of book.orders ?? []) {
-      if (far.length >= 4) break;
+      if (far.length >= 8) break;
       if (!isDeskOrder(o) || o.closePosition) continue;
       if (String(o.type || "").toUpperCase() !== "LIMIT") continue;
       const px = Number(e.quotes?.[o.symbol]?.px) || 0;
       const op = Number(o.price) || 0;
       if (!(px > 0) || !(op > 0)) continue;
-      if (Math.abs(op - px) / px < 0.004) continue;
+      if (Math.abs(op - px) / px < 0.0022) continue;
       far.push(o);
     }
     if (far.length) {
@@ -2456,9 +2517,11 @@ async function mirrorToExchange(e, network, cfg) {
       );
     }
   }
-  const ordered = ladderShort
-    ? [...scanIntents.filter((f) => f.ladder), ...e.fills, ...scanIntents.filter((f) => !f.ladder)]
-    : [...e.fills, ...scanIntents];
+  const ordered = IS_X01
+    ? [...scanIntents.filter((f) => f.near || f.ladder), ...scanIntents.filter((f) => !f.near && !f.ladder), ...e.fills]
+    : ladderShort
+      ? [...scanIntents.filter((f) => f.ladder), ...e.fills, ...scanIntents.filter((f) => !f.ladder)]
+      : [...e.fills, ...scanIntents];
   for (const f of ordered) {
     const blockish = isBlockIntent(f);
     const overallOrder = /Overall Block/i.test(String(f?.note || "")) || /^ob/i.test(String(f?.id || ""));
@@ -2476,7 +2539,7 @@ async function mirrorToExchange(e, network, cfg) {
       const q = Number(f.qty) || 0;
       if (px > 0 && q * px > Math.max(1, Number(lastBook.equity) || 0) * 0.35) continue;
       if (blockJobs >= blockCap) continue;
-    } else if (f.near && entries >= 4) {
+    } else if (f.near && entries >= 12) {
       continue;
     } else if (entries >= entryCap) {
       if (blockJobs >= blockCap) break;
@@ -2625,7 +2688,7 @@ async function mirrorToExchange(e, network, cfg) {
     if (blockish) blockJobs += 1;
   }
   if (IS_X01) fillJobs.sort((a, b) => Number(X01_GROWTH.has(b.symbol)) - Number(X01_GROWTH.has(a.symbol)));
-  const fillOut = await mapLimit(fillJobs, 4, async (f) => {
+  const fillOut = await mapLimit(fillJobs, IS_X01 ? 6 : 4, async (f) => {
     try {
       const mark = Number(e.quotes?.[f.symbol]?.px) || Number(f.px) || 0;
       let ladder = Number(f.px) || mark;
