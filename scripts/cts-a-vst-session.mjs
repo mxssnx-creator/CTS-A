@@ -1199,8 +1199,8 @@ function diversifyLiveIntents(list) {
   }
   return out;
 }
-/** Paper-unit scale for a live entry. Raised from 0.25. */
-const LIVE_VOL_FACTOR = 0.5;
+/** Paper-unit scale for a live entry. Was 0.25, then 0.5. */
+const LIVE_VOL_FACTOR = 1;
 function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
   return eq * POSITION_COST_PCT * LIVE_VOL_FACTOR;
@@ -1214,6 +1214,7 @@ function liveVolMul(e) {
   const vf = Number(e?.coordVolumeFactor);
   if (!Number.isFinite(vf) || vf <= 0) return 1;
   if (vf < 0.95) return Math.max(0.7, Math.min(1, vf));
+  if (vf >= 1.05) return Math.min(1.5, vf);
   return 1;
 }
 function liveNotional(e, f, equity, rel) {
