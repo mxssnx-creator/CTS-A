@@ -178,14 +178,14 @@ let lastOverallWrite = 0;
 
 const BLOCK = {
   ...DEFAULT_BLOCK_CONFIG,
-  enabled: true,
+  enabled: false,
   endStageOnly: false,
   cadence: 4,
   flattenConflict: false,
   addOnWin: false,
   maxMultiple: 6,
   minMultiple: 1,
-  overall: true,
+  overall: false,
   overallSymbol: true,
   overallDirection: true,
   overallIndication: true,
@@ -2969,7 +2969,7 @@ function applyPfGates(engine, remote) {
   engine.blockCfg = {
     ...(engine.blockCfg || BLOCK),
     ...BLOCK,
-    overall: true,
+    overall: false,
     overallSymbol: true,
     overallDirection: true,
     overallSharedStack: "additive",
@@ -3228,7 +3228,7 @@ async function main() {
         ...BLOCK,
         ...(engine.blockCfg || {}),
         enabled: STRAT.block,
-        overall: true,
+        overall: false,
         minRelPf: engine.blockPf || DEFAULT_BLOCK_PF,
         liveDisableMinPf: engine.blockPf || DEFAULT_BLOCK_PF,
       };
@@ -3654,7 +3654,7 @@ async function main() {
             activeLive: true,
             volumeMode: "parallel",
             overallMode: "parallel",
-            overall: true,
+            overall: false,
             overallSymbol: true,
             overallDirection: true,
             overallSharedStack: "additive",
