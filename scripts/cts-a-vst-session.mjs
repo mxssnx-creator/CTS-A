@@ -1229,8 +1229,8 @@ function diversifyLiveIntents(list) {
   }
   return out;
 }
-/** Paper-unit scale for a live entry. Was 0.25, then 0.5. */
-const LIVE_VOL_FACTOR = 1;
+/** Paper-unit scale for a live entry. Was 0.25, then 0.5, then 1 (2× exchange min). */
+const LIVE_VOL_FACTOR = 2;
 function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
   return eq * POSITION_COST_PCT * LIVE_VOL_FACTOR;
@@ -1259,7 +1259,7 @@ function refreshCoordVolume(e) {
   if (rows.length < 2) return;
   e.coordVolumeFactor = volumeCoord(rows).vf;
 }
-/** Paper cents sit under the exchange minimum, so the factor scales that minimum. 0.5 was lifted back to 1× min, so 1 is 2× min. */
+/** Paper cents sit under the exchange minimum, so the factor scales that minimum. 1 is 2× min. 2 is 4× min, still capped at 2× equity. */
 function entryNotional(e, equity, minN) {
   const mul = liveVolMul(e);
   const floor = Math.max(0, Number(minN) || 0);
