@@ -154,7 +154,7 @@ async function raiseOwnedLeverage(network, positions) {
   const current = {};
   for (const p of owned) current[`${p.symbol}:${p.side}`] = Number(p.leverage) || 0;
   const armed = await armMaxLeverage({ network, connId: CONN, symbols: take, current });
-  if (armed.paused) noteApiFail({ error: "100410 frequency limit" });
+  if (armed.paused) return `lev pause ${take.length}`;
   else for (const id of take) levDone.add(id);
   if (armed.raised) return `lev raise ${armed.raised}/${take.length} · peak ${armed.max}x`;
   return `lev hold ${take.length} · peak ${armed.max}x`;
@@ -962,6 +962,7 @@ function quietMs(s) {
       if (wait > 2000) return Math.min(480_000, wait);
     }
   }
+  if (/trigger frequency/i.test(msg)) return 4_000;
   return /109418|480000|over 20/i.test(msg) ? 120_000 : 25_000;
 }
 
@@ -1794,11 +1795,13 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       notional: Math.max(1, (q > 0 ? q : p.qty) * px),
       confirmLive: true,
       attachProtect: false,
-      reduceOnly: false,
+      reduceOnly: true,
     };
-    let r = await withLiveBusy(() => placeSwapOrder({ ...base, quantity: 0, closePosition: true, exactQty: false }));
-    if (!r.ok && closeRetry(r.error) && q > 0) {
-      r = await withLiveBusy(() => placeSwapOrder({ ...base, quantity: q, closePosition: false, exactQty: true }));
+    let r = q > 0
+      ? await withLiveBusy(() => placeSwapOrder({ ...base, quantity: q, closePosition: false, exactQty: true }))
+      : { ok: false, error: "control qty" };
+    if (!r.ok && closeRetry(r.error)) {
+      r = await withLiveBusy(() => placeSwapOrder({ ...base, quantity: 0, closePosition: true, exactQty: false, reduceOnly: false }));
     }
     return r;
   };
@@ -1926,7 +1929,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift, missing: !hasSl.has(key) || !hasTp.has(key) });
   }
   need.sort((a, b) => Number(b.missing) - Number(a.missing) || Number(a.p.pnl || 0) - Number(b.p.pnl || 0));
-  for (let i = 0; i < need.length && posts < 40; i += 1) {
+  for (let i = 0; i < need.length && posts < 2; i += 1) {
     if (apiQuiet()) break;
     const row = need[i];
     const r = await protectOne(row.p, row.missing ? false : row.slDrift, row.missing ? false : row.tpDrift);
@@ -1938,7 +1941,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const trailT0 = Date.now();
   let trailed = 0;
   const protectGapNow = Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0));
-  if (posts < 48 && !apiQuiet() && STRAT.trailing) {
+  if (posts < 2 && !apiQuiet() && STRAT.trailing && protectGapNow === 0) {
     const mode = network === "mainnet" ? "main" : "vst";
     const trailNeed = [];
     for (const p of posByVol) {
@@ -2270,11 +2273,10 @@ async function mirrorToExchange(e, network, cfg) {
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
   if (openN >= budget.maxPos) return notes.length ? notes.join(" · ") : null;
-  if (protectGap > 2 && openN >= 20 && !ladderShort) {
+  if (protectGap > 0) {
     notes.push(`protect gap ${protectGap}`);
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
-  if (protectGap > 0) notes.push(`protect gap ${protectGap}`);
 
   let placed = 0;
   let failed = 0;
@@ -3333,7 +3335,7 @@ async function main() {
         levWalkI += 1;
         try {
           const armed = await withTimeout(armMaxLeverage({ network: ping.network, connId: CONN, symbols: [id] }), 8000, "lev-walk");
-          if (armed.paused) noteApiFail({ error: "100410 frequency limit" });
+          if (armed.paused) adjustments.push(`lev walk pause ${id}`);
           if (armed.raised) {
             adjustments.push(`lev ${id} ${armed.max}x`);
             noteOp(`lev ${id} ${armed.max}x`);
