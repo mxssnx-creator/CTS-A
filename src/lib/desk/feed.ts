@@ -164,7 +164,7 @@ export function clientOrderKindOf(type: string | undefined, closePosition?: bool
   return "E";
 }
 
-/** BingX rejects quantity together with closePosition. A control closes the whole leg, or it sends a qty — never both. */
+/** BingX requires quantity and stopPrice on a control, including when closePosition is set. closePosition must not also send reduceOnly. */
 export function buildControlParams(input: {
   type?: string;
   quantity?: number;
@@ -176,8 +176,10 @@ export function buildControlParams(input: {
   const params: Record<string, string | number> = {};
   const u = String(input.type || "").toUpperCase();
   const stop = u === "STOP_MARKET" || u === "TAKE_PROFIT_MARKET";
-  if (input.closePosition) params.closePosition = "true";
-  else {
+  if (input.closePosition) {
+    params.closePosition = "true";
+    if ((input.quantity ?? 0) > 0) params.quantity = input.quantity as number;
+  } else {
     if ((input.quantity ?? 0) > 0) params.quantity = input.quantity as number;
     if (input.reduceOnly) params.reduceOnly = "true";
   }

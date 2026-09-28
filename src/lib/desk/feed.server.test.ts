@@ -82,7 +82,7 @@ describe("live feed", () => {
     assert.notEqual(String(parsed.data.orders[0].orderId), String(parsed.data.orders[1].orderId));
   });
 
-  it("control orders never send quantity together with closePosition", () => {
+  it("control close sends quantity and stopPrice, never reduceOnly", () => {
     const closeAll = buildControlParams({
       type: "STOP_MARKET",
       quantity: 0.02,
@@ -91,7 +91,7 @@ describe("live feed", () => {
       stopPrice: 2500,
     });
     assert.equal(closeAll.closePosition, "true");
-    assert.equal(closeAll.quantity, undefined);
+    assert.equal(closeAll.quantity, 0.02);
     assert.equal(closeAll.reduceOnly, undefined);
     assert.equal(closeAll.stopPrice, 2500);
     assert.equal(closeAll.workingType, "MARK_PRICE");

@@ -167,6 +167,7 @@ let lastPnl = [];
 let sessionStarted = Date.now();
 let lastIncomeOrders = [];
 const lastPostedSl = new Map();
+const protectHold = new Map();
 const lastPostedTp = new Map();
 const lastPeakPx = new Map();
 const lastProtectQty = new Map();
@@ -1800,9 +1801,12 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     let r = q > 0
       ? await withLiveBusy(() => placeSwapOrder({ ...base, quantity: q, closePosition: false, exactQty: true }))
       : { ok: false, error: "control qty" };
-    if (!r.ok && closeRetry(r.error)) {
-      r = await withLiveBusy(() => placeSwapOrder({ ...base, quantity: 0, closePosition: true, exactQty: false, reduceOnly: false }));
+    if (!r.ok && q > 0 && /available amount|reduceOnly/i.test(String(r.error || "")) && !/stopPrice is must/i.test(String(r.error || ""))) {
+      const first = String(r.error || "err");
+      r = await withLiveBusy(() => placeSwapOrder({ ...base, quantity: q, closePosition: true, exactQty: true, reduceOnly: false }));
+      if (!r.ok) r = { ...r, error: `${first} | ${r.error || "err"}` };
     }
+    if (!r.ok) r = { ...r, error: `${r.error || "err"} @${stop} q${q}` };
     return r;
   };
   let posts = 0;
@@ -1842,7 +1846,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (!r.ok) {
         mirrored.delete(tag);
         noteApiFail(r);
-        return `${kind} skip ${p.symbol} ${String(r.error ?? "err").slice(0, 80)}`;
+        if (/stopPrice is must|control price|below exchange minimum|must be/i.test(String(r.error || ""))) {
+          protectHold.set(key, Date.now() + 20_000);
+        }
+        return `${kind} skip ${p.symbol} ${String(r.error ?? "err").slice(0, 120)}`;
       }
       lastProtectQty.set(key, qty);
       if (kind === "sl") hasSl.add(key);
@@ -1899,6 +1906,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   for (const p of posByVol) {
     if (!isOwnedLeg(p.symbol, p.side)) continue;
     const key = `${p.symbol}:${p.side}`;
+    if ((protectHold.get(key) || 0) > Date.now()) continue;
     if (!(p.qty > 0) || !((p.mark || p.entry) > 0)) continue;
     const g = grouped.get(key);
     const slQ = Number(g?.sl?.[0]?.remaining ?? g?.sl?.[0]?.qty ?? 0);
