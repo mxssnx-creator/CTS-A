@@ -51,7 +51,7 @@ want = {
   "CTS_A_OVERALL": "/var/lib/cts-a/overall-stats.json",
   "CTS_A_DISABLED": "/var/lib/cts-a/live-disabled.json",
   "CTS_A_PROTECT": "/var/lib/cts-a/protect-grid.json",
-  "CTS_A_SYMBOLS": "50",
+  "CTS_A_SYMBOLS": "40",
   "CTS_A_EVAL_SYMBOLS": "300",
   "CTS_A_LIVE_MAX_POS": "100",
   "CTS_A_TICK_MS": "1000",
@@ -87,4 +87,4 @@ sleep 2
 systemctl start cts-a-vst.service
 echo "== started =="
 systemctl is-active cts-a-desk cts-a-vst
-echo "reinstall $STAMP $(git -C "$ROOT" rev-parse --short HEAD) x01 50 symbols"
+echo "reinstall $STAMP $(git -C "$ROOT" rev-parse --short HEAD) x01 40 symbols"
