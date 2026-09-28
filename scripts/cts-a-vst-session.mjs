@@ -278,31 +278,30 @@ function goodOtherCells() {
     (c) => tps.has(Number(c.tpAtr)) && sls.has(Number(c.slOfTp)) && allowedTrail.has(Number(c.trailPct)),
   );
 }
-/** Coordination mark. Live rows replace a cell only when that cell is still positive. */
+/** Coordination mark from the block-off 12×12. Live rows replace a cell only when that cell is still positive. */
 const STABLE_PROGRESSION = {
   preset: "stable-12h-0928",
-  pf: 2.034,
+  pf: 1.194,
   indications: {
-    trend: { n: 18783, pf: 1.499, ok: true },
-    sar: { n: 9058, pf: 1.442, ok: true },
-    break: { n: 15202, pf: 1.363, ok: true },
-    direction: { n: 17627, pf: 1.334, ok: true },
-    ema: { n: 20334, pf: 1.275, ok: true },
-    move: { n: 6295, pf: 1.235, ok: true },
-    macd: { n: 21369, pf: 1.234, ok: true },
-    bollinger: { n: 13106, pf: 1.195, ok: true },
-    active: { n: 17220, pf: 1.153, ok: true },
-    rsi: { n: 11723, pf: 1.132, ok: true },
+    trend: { n: 21391, pf: 1.257, ok: true },
+    macd: { n: 26277, pf: 1.252, ok: true },
+    break: { n: 17463, pf: 1.25, ok: true },
+    move: { n: 7366, pf: 1.193, ok: true },
+    direction: { n: 20863, pf: 1.187, ok: true },
+    ema: { n: 18438, pf: 1.175, ok: true },
+    rsi: { n: 14507, pf: 1.167, ok: true },
+    bollinger: { n: 19016, pf: 1.14, ok: true },
+    sar: { n: 8173, pf: 1.133, ok: true },
+    active: { n: 17412, pf: 1.131, ok: true },
   },
-  ranges: { geometric: { n: 91813, pf: 2.034, ok: true } },
+  ranges: { geometric: { n: 170906, pf: 1.194, ok: true } },
   tactics: {
-    hybrid: { n: 36241, pf: 1.664, ok: true },
-    axis: { n: 3876, pf: 5.129, ok: true },
+    hybrid: { n: 163171, pf: 1.161, ok: true },
+    axis: { n: 7735, pf: 2.347, ok: true },
   },
   plays: {
-    short: { n: 36241, pf: 1.664, ok: true },
-    axis: { n: 3876, pf: 5.129, ok: true },
-    block: { n: 3882, pf: 5.153, ok: true },
+    short: { n: 163171, pf: 1.161, ok: true },
+    axis: { n: 7735, pf: 2.347, ok: true },
   },
 };
 function liveProgression(e) {
@@ -1229,8 +1228,8 @@ function diversifyLiveIntents(list) {
   }
   return out;
 }
-/** Paper-unit scale for a live entry. Was 0.25, then 0.5, then 1 (2× exchange min). */
-const LIVE_VOL_FACTOR = 2;
+/** Paper-unit scale for a live entry. Was 0.25, then 0.5, then 1 (2× min), then 2 (4× min). */
+const LIVE_VOL_FACTOR = 3;
 function sizeNotional(equity) {
   const eq = Math.max(0, Number(equity) || 0);
   return eq * POSITION_COST_PCT * LIVE_VOL_FACTOR;
@@ -1259,7 +1258,7 @@ function refreshCoordVolume(e) {
   if (rows.length < 2) return;
   e.coordVolumeFactor = volumeCoord(rows).vf;
 }
-/** Paper cents sit under the exchange minimum, so the factor scales that minimum. 1 is 2× min. 2 is 4× min, still capped at 2× equity. */
+/** Paper cents sit under the exchange minimum, so the factor scales that minimum. 2 is 4× min. 3 is 6× min, still capped at 2× equity. */
 function entryNotional(e, equity, minN) {
   const mul = liveVolMul(e);
   const floor = Math.max(0, Number(minN) || 0);
