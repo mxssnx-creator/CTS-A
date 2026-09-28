@@ -8913,7 +8913,15 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   engine.preEvalDone = preTicks <= 0;
   engine.shortRange = Boolean(use.shortRange);
   engine.shortComboOnly = Boolean(comboOnly);
-  if (opts?.strategyToggles) engine.strategyToggles = { ...(engine.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES), ...opts.strategyToggles };
+  engine.lastTactic = tactic;
+  engine.lastRange = rangeType;
+  // Default sims count the tactic under test. Normal-off drops trailing/hybrid and prints PF 0.
+  // An explicit normal:false still keeps that book calc-only.
+  engine.strategyToggles = {
+    ...(engine.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES),
+    ...(opts?.strategyToggles ?? {}),
+  };
+  if (opts?.strategyToggles?.normal == null) engine.strategyToggles.normal = true;
   if (opts?.skipIndications?.length) engine.skipIndications = opts.skipIndications;
   if (opts?.pfCoords === false) {
     engine.pfCoords = { hourKeep: false, bankWin: false, pairAdd: false, laneCool: false, winAgain: false };
@@ -10724,7 +10732,7 @@ function completeCellsForPair(
   range: RangeType,
   hours: number[],
   symbolCount: number,
-  sim?: { prehours?: number; complete?: boolean },
+  sim?: { prehours?: number; complete?: boolean; strategyToggles?: Partial<StrategyToggles> },
 ): CompleteCell[] {
   const prehours = Math.max(0, Math.round(sim?.prehours ?? 0));
   const need = Math.max(...hours, hours.some((h) => h < 8) ? 16 : 0);
@@ -10733,6 +10741,7 @@ function completeCellsForPair(
     rangeType: range,
     prehours,
     complete: Boolean(sim?.complete),
+    strategyToggles: sim?.strategyToggles,
   });
   return hours.map((h) => {
     if (h >= need) {
@@ -10790,7 +10799,7 @@ function foldComplete(cells: CompleteCell[], hours: number[], playbooks: ReturnT
 /** Independent full compute: every live tactic × range × stage hours. Optional independent short TP×SL. */
 export function completeComputations(
   cfg: TacticConfig = DEFAULT_CFG,
-  opts?: { symbolCount?: number; hours?: number[]; shorts?: boolean; prehours?: number; complete?: boolean },
+  opts?: { symbolCount?: number; hours?: number[]; shorts?: boolean; prehours?: number; complete?: boolean; strategyToggles?: Partial<StrategyToggles> },
 ): CompleteComputeReport {
   const hours = (opts?.hours ?? [...STAGE_HOURS]).map((n) => Math.max(1, Math.round(n)));
   const symbolCount = opts?.symbolCount ?? 8;
@@ -10799,7 +10808,7 @@ export function completeComputations(
   const cells: CompleteCell[] = [];
   for (const tactic of LIVE_TACTICS) {
     for (const range of RANGE_TYPES) {
-      cells.push(...completeCellsForPair(cfg, tactic, range, hours, symbolCount, { prehours, complete: Boolean(opts?.complete) }));
+      cells.push(...completeCellsForPair(cfg, tactic, range, hours, symbolCount, { prehours, complete: Boolean(opts?.complete), strategyToggles: opts?.strategyToggles }));
     }
   }
   if (opts?.shorts) {
@@ -11106,6 +11115,8 @@ export async function completeComputationsAsync(
     prehours?: number;
     /** Also run one full book (every tactic, range and indication) after that prehistory. */
     complete?: boolean;
+    /** Live switches. Omitted cells still turn Normal on so trailing/hybrid are not an empty book. */
+    strategyToggles?: Partial<StrategyToggles>;
   },
 ): Promise<CompleteComputeReport> {
   const hours = (opts?.hours ?? [...STAGE_HOURS]).map((n) => Math.max(1, Math.round(n)));
@@ -11124,7 +11135,7 @@ export async function completeComputationsAsync(
   let i = 0;
   for (const tactic of LIVE_TACTICS) {
     for (const range of RANGE_TYPES) {
-      const batch = completeCellsForPair(cfg, tactic, range, hours, symbolCount, { prehours });
+      const batch = completeCellsForPair(cfg, tactic, range, hours, symbolCount, { prehours, strategyToggles: opts?.strategyToggles });
       for (const cell of batch) {
         cells.push(cell);
         i += 1;
@@ -11136,7 +11147,7 @@ export async function completeComputationsAsync(
   for (const tactic of LIVE_TACTICS) {
     for (const prot of combos) {
       const cfg2 = { ...cfg, slAtr: prot.slAtr, tpRatio: prot.tpRatio, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp };
-      const batch = completeCellsForPair(cfg2, tactic, "atr", [4], Math.min(8, symbolCount), { prehours });
+      const batch = completeCellsForPair(cfg2, tactic, "atr", [4], Math.min(8, symbolCount), { prehours, strategyToggles: opts?.strategyToggles });
       for (const cell of batch) {
         cells.push({ ...cell, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp, slAtr: prot.slAtr, tpRatio: prot.tpRatio });
         i += 1;
@@ -11160,6 +11171,7 @@ export async function completeComputationsAsync(
         rangeType: "atr",
         complete: false,
         prehours,
+        strategyToggles: opts?.strategyToggles,
       });
       cells.push({
         tactic,
@@ -11628,6 +11640,47 @@ export function isShortComboRel(
   return Number.isFinite(tp) && Number.isFinite(sl) && tp <= 0.6 + 1e-9;
 }
 
+/** Sampled and failed. An empty paper cell is not a miss. */
+function judgedMiss(
+  e: VstEngine,
+  rel: { tpAtr?: number; slOfTp?: number },
+): boolean {
+  if (rel.tpAtr == null || rel.slOfTp == null) return false;
+  const floor = Math.min(baseStageFloor(e), GATED_MIN_PF);
+  const key = shortComboKey(rel.tpAtr, rel.slOfTp);
+  const row = e.progressEval?.shortCombos?.[key];
+  if (row && row.n >= 8) {
+    const ok = row.ok !== false && row.net > 0 && row.pf + 1e-9 >= floor;
+    if (!ok) return true;
+  }
+  const rings = [e.shortComboLiveTape?.[key], e.shortComboPreTape?.[key], e.shortComboTape?.[key]];
+  for (const ring of rings) {
+    if (!ring || ring.length < 8) continue;
+    const st = comboTapeStats(ring);
+    if (!(st.net > 0 && st.pf + 1e-9 >= floor)) return true;
+  }
+  return false;
+}
+
+/** Paper measurement only. Live after the exam still requires a validated set. */
+function paperCellOpen(
+  e: VstEngine,
+  rel: { tactic?: string; playbook?: string; note?: string; tpAtr?: number; slOfTp?: number },
+): boolean {
+  if (e.liveTape || !e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return false;
+  if (validatedSet(e, rel)) return false;
+  if (judgedMiss(e, rel)) return false;
+  const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  if (t.normal !== true) return false;
+  const play = String(rel.playbook || "");
+  const tac = String(rel.tactic || "");
+  if (tac === "dca" || play === "dca") return t.dca === true;
+  if (play === "block" || /Block/i.test(String(rel.note || ""))) return t.block !== false;
+  if (tac === "axis" || play === "axis") return t.axis !== false;
+  if (tac === "trailing" && t.trailing === false) return false;
+  return true;
+}
+
 export function liveShouldExecute(
   e: VstEngine,
   rel: {
@@ -11659,20 +11712,21 @@ export function liveShouldExecute(
   }
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca && t.dca === false) return false;
-  const ready = e.preEvalDone && validatedSet(e, rel);
+  const ready = Boolean(e.preEvalDone && validatedSet(e, rel));
+  const paperOpen = paperCellOpen(e, rel);
   if (!t.normal && unadjustedNormalOrder(rel) && !ready) return false;
-  if (e.preEvalDone && !validatedSet(e, rel)) return false;
+  if (e.preEvalDone && !validatedSet(e, rel) && !paperOpen) return false;
   const extra = play === "block" || play === "axis" || play === "dca" || rel.tactic === "axis" || rel.tactic === "dca" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   if (t.trailing === false && rel.tactic === "trailing" && !extra) return false;
   if (isDca) return t.dca;
   const shortCombo = isShortComboRel(e, rel);
-  if (shortCombo && !ready && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!) && !internRelProven(e, rel) && !relExamPass(e, rel)) return false;
-  if (!ready && !shortCombo && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
-  if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel) && unadjustedNormalOrder(rel)) return false;
+  if (shortCombo && !ready && !paperOpen && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!) && !internRelProven(e, rel) && !relExamPass(e, rel)) return false;
+  if (!ready && !paperOpen && !shortCombo && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
+  if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel) && unadjustedNormalOrder(rel) && !paperOpen) return false;
   const gated = Boolean(e.preEvalDone || e.liveTape);
   if (!blockFill && gated && laneExecProven(e, rel)) {
     if (rel.kind === "normal" || play === "normal" || play === "short" || rel.kind === "short") {
-      return !unadjustedNormalOrder(rel) || t.normal || ready;
+      return !unadjustedNormalOrder(rel) || t.normal || ready || paperOpen;
     }
     if (play === "axis" || rel.tactic === "axis") return t.axis;
     if (rel.tactic === "trailing") return t.trailing !== false;
@@ -11704,6 +11758,6 @@ export function liveShouldExecute(
     const take = laneClosed(e, { tactic: rel.tactic, indication: rel.indication, kind: rel.kind, playbook: play }, 40);
     if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, e.shortRange ? "short" : "overall")) return false;
   }
-  if (rel.kind === "normal" || play === "normal") return t.normal || ready;
-  return t.normal || ready;
+  if (rel.kind === "normal" || play === "normal") return t.normal || ready || paperOpen;
+  return t.normal || ready || paperOpen;
 }

@@ -380,6 +380,18 @@ describe("Block and DCA", () => {
     assert.ok(live.some((o) => o.id === "axis1" && o.status !== "cancelled"), "axis with short range was dropped");
   });
 
+  it("trailing linear sim still closes trades when Normal starts off", () => {
+    const { report, engine } = simulateHours(1, { ...DEFAULT_TACTIC_CONFIG, shortRange: false }, "trailing", {
+      symbolCount: 4,
+      rangeType: "linear",
+      prehours: 0,
+    });
+    assert.equal(engine.strategyToggles?.normal, true);
+    assert.ok(report.trades >= 1, `trades ${report.trades}`);
+    assert.ok(engine.ledger.ordersPlaced >= 1, `placed ${engine.ledger.ordersPlaced}`);
+    assert.equal(report.issues?.includes("No closed trades") ?? false, false);
+  });
+
   it("a fat queue is capped on the next tick and Block orders stay", () => {
     const e = book();
     e.liveTape = true;

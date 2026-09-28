@@ -2099,6 +2099,23 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   return null;
 }
 
+/** True once this book has a real sample. An empty exam must not zero the live queue. */
+function exchangeTapeJudged(e) {
+  const combos = e?.progressEval?.shortCombos;
+  if (combos && typeof combos === "object") {
+    for (const row of Object.values(combos)) {
+      if (row && Number(row.n) >= 8) return true;
+    }
+  }
+  let n = 0;
+  for (const c of e?.closed || []) {
+    if (!c || c.validExec !== true || !String(c.id || "").startsWith("x:")) continue;
+    n += 1;
+    if (n >= 8) return true;
+  }
+  return false;
+}
+
 async function mirrorToExchange(e, network, cfg) {
   if (apiQuiet()) return null;
   if (e?.preEvalDone === false) return null;
@@ -2294,7 +2311,8 @@ async function mirrorToExchange(e, network, cfg) {
   const fillJobs = [];
   const engineResting = (e.orders ?? []).filter((o) => o && (o.status === "open" || o.status === "queued" || o.status === "partial") && (o.type === "limit" || o.type === "market"));
   const rawQueue = e.queue ?? [];
-  const liveQueue = e?.preEvalDone ? rawQueue.filter((o) => o && o.validExec === true) : rawQueue;
+  const judged = Boolean(e?.preEvalDone) && exchangeTapeJudged(e);
+  const liveQueue = judged ? rawQueue.filter((o) => o && o.validExec === true) : rawQueue;
   const pickFrom = liveQueue.length ? liveQueue : rawQueue;
   const fat = pickFrom.length + engineResting.length > 1600;
   const queueSource = [];
@@ -2320,7 +2338,7 @@ async function mirrorToExchange(e, network, cfg) {
     .filter((o) => {
       if (!o) return false;
       if (o.playbook === "dca" || o.tactic === "dca" || /^DCA/i.test(String(o.note || ""))) return Boolean((e.strategyToggles ?? STRAT).dca);
-      if (IS_X01) return !e.preEvalDone || o.validExec === true;
+      if (IS_X01) return !judged || o.validExec === true;
       if (o.validExec === false) return false;
       return (
         o.kind === "short" ||
@@ -2671,9 +2689,17 @@ async function mirrorToExchange(e, network, cfg) {
       }
       const allowed = liveShouldExecute(e, rel) && !liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType });
       const normalOff = e.strategyToggles?.normal === false && unadjustedNormalOrder(rel);
+      const unjudgedOpen =
+        IS_X01 &&
+        !judged &&
+        !normalOff &&
+        rel.tactic !== "dca" &&
+        rel.playbook !== "dca" &&
+        rel.playbook !== "block" &&
+        !/Block/i.test(String(rel.note || rel.playbook || ""));
       const needBook = examOpen && IS_X01 && !normalOff && (openN + fillJobs.length) < 30;
       const nearOk = f.near && hourAllowsEntry();
-      if (!allowed && !needBook && !(f.ladder && examOpen) && !nearOk) {
+      if (!allowed && !unjudgedOpen && !needBook && !(f.ladder && examOpen) && !nearOk) {
         markWhy(f, "gate");
         continue;
       }
@@ -3448,6 +3474,7 @@ async function main() {
         hours: [...AUTO_EVAL_HOURS],
         prehours: SHORT_EVAL_HOURS,
         complete: false,
+        strategyToggles: { ...STRAT },
         yieldFn: async () => {
           if (stopAsked) throw new Error("stop");
           await sleep(IS_X01 ? 40 : 120);
