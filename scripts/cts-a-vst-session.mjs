@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync, appendFileSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, fetchPrehistory, loadLeverageCaps, cachedMaxLeverage, MIN_LIVE_SL_PCT, exchangeMinNotional } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, seedPreAtr, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts, seedIndicationHistory, shortControlPrices } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, SYSTEM_MIN_SL_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts, seedIndicationHistory, shortControlPrices } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -851,7 +851,7 @@ function writeSettingsPick(pick, extra = {}) {
     lastNs: { picks: VALID_EXEC_POS_N, lanes: VALID_EXEC_POS_N, last: VALID_EXEC_POS_N, ongoing: VALID_EXEC_POS_N, next: VALID_EXEC_POS_N, combos: VALID_EXEC_POS_N },
     lastNLinked: true,
     lastNProgress: sanitizeLastNProgress(undefined),
-    costStep: IS_X01 ? 3 : 10,
+    costStep: IS_X01 ? 18 : 10,
     liveTape: true,
     comboOnlyPositive: true,
     comboTactic: "all",
@@ -1229,11 +1229,10 @@ function diversifyLiveIntents(list) {
   }
   return out;
 }
-/** Paper-unit scale for a live entry. Was 0.25, then 0.5, then 1 (2× min), then 2 (4× min). */
-const LIVE_VOL_FACTOR = 3;
-function sizeNotional(equity) {
-  const eq = Math.max(0, Number(equity) || 0);
-  return eq * POSITION_COST_PCT * LIVE_VOL_FACTOR;
+/** Live ticket cost in USDT. Exchange minimum wins when it is larger. Cap stays 2× equity. */
+const LIVE_COST = 18;
+function sizeNotional() {
+  return LIVE_COST;
 }
 /** Exchange minimums may not exceed this. 2× equity keeps small alts and skips majors on a small book. */
 function liveNotionalCap(equity) {
@@ -1259,20 +1258,17 @@ function refreshCoordVolume(e) {
   if (rows.length < 2) return;
   e.coordVolumeFactor = volumeCoord(rows).vf;
 }
-/** Paper cents sit under the exchange minimum, so the factor scales that minimum. 2 is 4× min. 3 is 6× min, still capped at 2× equity. */
+/** Aim at the live cost. A higher exchange minimum is used as-is. */
 function entryNotional(e, equity, minN) {
   const mul = liveVolMul(e);
   const floor = Math.max(0, Number(minN) || 0);
-  const paper = sizeNotional(equity) * mul;
-  const cap = liveNotionalCap(equity);
-  const grown = Math.max(1, LIVE_VOL_FACTOR / 0.5);
-  const target = floor > 0 ? Math.max(paper, floor * grown * mul) : paper;
-  return Math.min(cap, target);
+  const target = Math.max(LIVE_COST, floor) * (mul > 0 ? mul : 1);
+  return Math.min(liveNotionalCap(equity), target);
 }
 function liveNotional(e, f, equity, rel) {
   const note = String(f?.note || rel?.note || rel?.playbook || "");
   const blockHit = /Block/i.test(note) || rel?.playbook === "block";
-  const base = sizeNotional(equity) * liveVolMul(e);
+  const base = sizeNotional() * liveVolMul(e);
   if (!blockHit) return base;
   const n = Math.max(1, Number(rel?.blockLevel) || 1);
   const overall = /Overall Block/i.test(note);
@@ -1392,7 +1388,7 @@ function x01CanAfford(symbol, equity) {
   const eq = Number(equity) || 0;
   if (!(eq > 0)) return false;
   const lev = Math.max(10, Number(cachedMaxLeverage(symbol)) || 25);
-  return 2 / lev <= eq * 0.55;
+  return LIVE_COST / lev <= eq * 0.55;
 }
 
 function liveBudgetNow() {
@@ -1495,7 +1491,7 @@ async function flattenBelowMinPf(network, book, e) {
     if (closedKeys.has(key)) continue;
     if (!openedAt.has(key)) openedAt.set(key, now);
     const age = now - openedAt.get(key);
-    const spec = map.get(p.venueSymbol);
+    const spec = map.get(p.venueSymbol) || map.get(BINGX_SYMBOL[p.symbol] || "") || null;
     const prot = cellProtectOf(p, spec, network);
     if (!(prot.entry > 0)) continue;
     const mark = Number(p.mark || prot.entry);
@@ -1760,17 +1756,34 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const posByVol = [...owned].sort(
     (a, b) => vol1hOf(e?.quotes?.[b.symbol]) - vol1hOf(e?.quotes?.[a.symbol]),
   );
-  const closeRetry = (err) => /closePosition|close position|available amount|quantity|position|reduceOnly/i.test(String(err || ""));
+  const closeRetry = (err) => /closePosition|close position|available amount|quantity|position|reduceOnly|precision|lot size|size/i.test(String(err || ""));
+  const priceRetry = (err) => /stopPrice|trigger|price|must be|greater|lower|above|below|control price/i.test(String(err || ""));
+  const specFor = (p) => map.get(p?.venueSymbol) || map.get(BINGX_SYMBOL[p?.symbol] || "") || null;
   const clampControl = (side, kind, mark, want, spec) => {
     const px = Number(mark);
-    const raw = Number(want);
-    if (!(px > 0) || !(raw > 0)) return 0;
-    const tick = spec?.pxPrec != null ? Math.pow(10, -Math.max(0, spec.pxPrec)) : px * 1e-4;
-    const gap = Math.max(px * 0.0012, tick * 3);
-    let stop = kind === "sl"
-      ? (side === "long" ? Math.min(raw, px - gap) : Math.max(raw, px + gap))
-      : (side === "long" ? Math.max(raw, px + gap) : Math.min(raw, px - gap));
+    if (!(px > 0)) return 0;
+    const tick = spec?.pxPrec != null ? Math.pow(10, -Math.max(0, spec.pxPrec)) : Math.max(px * 1e-6, 1e-8);
+    const gap = Math.max(px * 0.0015, tick * 5);
+    const floor = px * (SYSTEM_MIN_SL_PCT / 100);
+    let stop = Number(want);
+    if (!(stop > 0)) {
+      stop = kind === "sl"
+        ? (side === "long" ? px - Math.max(gap, floor) : px + Math.max(gap, floor))
+        : (side === "long" ? px + Math.max(gap, floor) : px - Math.max(gap, floor));
+    }
+    if (kind === "sl") stop = side === "long" ? Math.min(stop, px - gap) : Math.max(stop, px + gap);
+    else stop = side === "long" ? Math.max(stop, px + gap) : Math.min(stop, px - gap);
     stop = snapPx(stop, spec);
+    const wrong = (kind === "sl" && side === "long" && !(stop < px))
+      || (kind === "sl" && side === "short" && !(stop > px))
+      || (kind === "tp" && side === "long" && !(stop > px))
+      || (kind === "tp" && side === "short" && !(stop < px));
+    if (wrong) {
+      const nudged = kind === "sl"
+        ? (side === "long" ? px - Math.max(gap, floor) : px + Math.max(gap, floor))
+        : (side === "long" ? px + Math.max(gap, floor) : px - Math.max(gap, floor));
+      stop = snapPx(nudged, spec);
+    }
     if (kind === "sl" && side === "long" && !(stop < px)) return 0;
     if (kind === "sl" && side === "short" && !(stop > px)) return 0;
     if (kind === "tp" && side === "long" && !(stop > px)) return 0;
@@ -1779,12 +1792,12 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   };
   const placeControl = async (p, qty, type, stopPrice, mark) => {
     const kind = type === "STOP_MARKET" ? "sl" : "tp";
-    const spec = map.get(p.venueSymbol);
-    const stop = clampControl(p.side, kind, mark, stopPrice, spec);
+    const spec = specFor(p);
+    let stop = clampControl(p.side, kind, mark, stopPrice, spec);
     if (!(stop > 0)) return { ok: false, error: "control price" };
-    const q = qty > 0 ? qty : snapQtyDown(p.qty, spec);
+    const q = qty > 0 ? snapQtyDown(qty, spec) : snapQtyDown(p.qty, spec);
     const px = mark > 0 ? mark : p.mark || p.entry || stop;
-    const base = {
+    const send = async (stopPx, quantity, closePosition) => withLiveBusy(() => placeSwapOrder({
       network,
       connId: CONN,
       symbol: p.symbol,
@@ -1792,18 +1805,33 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       positionSide: p.side === "long" ? "LONG" : "SHORT",
       type,
       price: px,
-      stopPrice: stop,
-      notional: Math.max(1, (q > 0 ? q : p.qty) * px),
+      stopPrice: stopPx,
+      quantity,
+      notional: Math.max(1, (quantity > 0 ? quantity : p.qty) * px),
       confirmLive: true,
       attachProtect: false,
       reduceOnly: false,
-    };
+      exactQty: true,
+      closePosition,
+    }));
     let r = q > 0
-      ? await withLiveBusy(() => placeSwapOrder({ ...base, quantity: q, closePosition: false, exactQty: true }))
-      : { ok: false, error: "control qty" };
-    if (!r.ok && q > 0 && /available amount/i.test(String(r.error || "")) && !/stopPrice is must/i.test(String(r.error || ""))) {
+      ? await send(stop, q, false)
+      : await send(stop, Math.max(p.qty || 0, 0), true);
+    if (!r.ok && priceRetry(r.error)) {
+      const wider = clampControl(p.side, kind, mark, kind === "sl"
+        ? (p.side === "long" ? px * (1 - 0.008) : px * (1 + 0.008))
+        : (p.side === "long" ? px * (1 + 0.008) : px * (1 - 0.008)), spec);
+      if (wider > 0 && Math.abs(wider - stop) / px > 1e-6) {
+        const first = String(r.error || "err");
+        r = await send(wider, q > 0 ? q : snapQtyDown(p.qty, spec), false);
+        stop = wider;
+        if (!r.ok) r = { ...r, error: `${first} | ${r.error || "err"}` };
+      }
+    }
+    if (!r.ok && closeRetry(r.error)) {
       const first = String(r.error || "err");
-      r = await withLiveBusy(() => placeSwapOrder({ ...base, quantity: q, closePosition: true, exactQty: true, reduceOnly: false }));
+      const qClose = q > 0 ? q : snapQtyDown(p.qty, spec);
+      r = await send(stop, qClose, true);
       if (!r.ok) r = { ...r, error: `${first} | ${r.error || "err"}` };
     }
     if (!r.ok) r = { ...r, error: `${r.error || "err"} @${stop} q${q}` };
@@ -1818,7 +1846,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     if (!isOwnedLeg(p.symbol, p.side)) return { notes: local, posts: n };
     const px = p.mark || p.entry || 0;
     if (!(px > 0) || !(p.qty > 0)) return { notes: local, posts: n };
-    const spec = map.get(p.venueSymbol);
+    const spec = specFor(p);
     const cell = protectFor(p.symbol);
     const slAtr = cell.slAtr;
     const tpRatio = cell.tpRatio;
@@ -1918,7 +1946,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const curSl = Number(g?.sl?.[0]?.stopPrice || lastPostedSl.get(key) || 0);
     const curTp = Number(g?.tp?.[0]?.stopPrice || lastPostedTp.get(key) || 0);
     const cell = protectFor(p.symbol);
-    const spec = map.get(p.venueSymbol);
+    const spec = specFor(p);
     const cellProt = liveProtectPrices(entry || p.mark, p.side, cell.slAtr, cell.tpRatio, spec, network === "mainnet" ? "main" : "vst");
     const shortLive = cfgUsesShortRange(cfg) || cfgUsesShortRange(currentPick?.cfg);
     const wantProt = (shortLive && shortStopPrices(p, { ...cell, ...(cfg || {}), ...(currentPick?.cfg || {}) }, spec, e)) || cellProt;
@@ -1937,7 +1965,9 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift, missing: !hasSl.has(key) || !hasTp.has(key) });
   }
   need.sort((a, b) => Number(b.missing) - Number(a.missing) || Number(a.p.pnl || 0) - Number(b.p.pnl || 0));
-  for (let i = 0; i < need.length && posts < 2; i += 1) {
+  const missingN = need.filter((row) => row.missing).length;
+  const postCap = missingN > 0 ? Math.min(16, Math.max(6, missingN * 2)) : 2;
+  for (let i = 0; i < need.length && posts < postCap; i += 1) {
     if (apiQuiet()) break;
     const row = need[i];
     const r = await protectOne(row.p, row.missing ? false : row.slDrift, row.missing ? false : row.tpDrift);
@@ -1948,8 +1978,13 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
 
   const trailT0 = Date.now();
   let trailed = 0;
-  const protectGapNow = Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0));
-  if (posts < 2 && !apiQuiet() && STRAT.trailing && protectGapNow === 0) {
+  let covered = 0;
+  for (const p of owned) {
+    const key = `${p.symbol}:${p.side}`;
+    if (hasSl.has(key) && hasTp.has(key)) covered += 1;
+  }
+  const protectGapNow = Math.max(0, owned.length - covered);
+  if (protectGapNow === 0 && !apiQuiet() && STRAT.trailing) {
     const mode = network === "mainnet" ? "main" : "vst";
     const trailNeed = [];
     for (const p of posByVol) {
@@ -1962,7 +1997,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (!(mark > 0) || !(entry > 0) || !(p.qty > 0)) continue;
       const profit = p.side === "long" ? mark - entry : entry - mark;
       if (!(profit > 0)) continue;
-      const spec = map.get(p.venueSymbol);
+      const spec = specFor(p);
       const cell = protectFor(p.symbol);
       const shortLive = cfgUsesShortRange(cfg) || cfgUsesShortRange(currentPick?.cfg);
       const shortProt = shortLive
@@ -2051,7 +2086,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const mark = p.mark || p.entry || q.px;
       const entry = p.entry || mark;
       if (!(mark > 0) || !(entry > 0)) continue;
-      const spec = map.get(p.venueSymbol);
+      const spec = specFor(p);
       const spacing = Math.max(q.atr * 0.5, entry * 0.001);
       const axis = q.axis > 0 ? q.axis : q.px;
       const risk = Math.max(spacing, Math.abs(entry - mark) * 0.5, q.atr * 0.45);
@@ -2091,11 +2126,15 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     for (const t of axisOut) if (t) notes.push(t);
   }
   lastTrail = { n: trailed, ms: Date.now() - trailT0, at: Date.now() };
-  const prot = countProtect(lastBook.positions ?? book.positions ?? [], lastBook.orders ?? book.orders ?? []);
-  const taggedSl = [...mirrored].filter((t) => String(t).startsWith("sl:")).length;
-  const taggedTp = [...mirrored].filter((t) => String(t).startsWith("tp:")).length;
-  lastBook.sl = Math.max(prot.sl, taggedSl);
-  lastBook.tp = Math.max(prot.tp, taggedTp);
+  let slN = 0;
+  let tpN = 0;
+  for (const p of owned) {
+    const key = `${p.symbol}:${p.side}`;
+    if (hasSl.has(key)) slN += 1;
+    if (hasTp.has(key)) tpN += 1;
+  }
+  lastBook.sl = slN;
+  lastBook.tp = tpN;
   if (notes.length) return notes.filter(Boolean).slice(0, 4).join(" · ");
   return null;
 }
@@ -3028,7 +3067,7 @@ async function main() {
   const ends = started + HOURS * 3600 * 1000;
   let pick = pickFromSweep();
   currentPick = pick;
-  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: IS_X01 ? LIVE_SYMBOLS : EVAL_SYMBOLS, liveSymbolCap: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK, costStep: IS_X01 ? 3 : 3 });
+  const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: IS_X01 ? LIVE_SYMBOLS : EVAL_SYMBOLS, liveSymbolCap: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK, costStep: IS_X01 ? 18 : 3 });
   engine.manualClosed = loadManualClosed();
   const seededOff = loadDisabled(engine);
   engine.running = true;
