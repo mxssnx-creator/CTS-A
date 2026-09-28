@@ -220,13 +220,13 @@ const BLOCK = {
   lastNProgress: sanitizeLastNProgress(undefined),
 };
 
-const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: true, block: true, dca: false };
+const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: true, block: false, dca: false };
 function pinX01Strat() {
   if (!IS_X01) return;
   STRAT.normal = true;
   STRAT.trailing = true;
   STRAT.axis = true;
-  STRAT.block = true;
+  STRAT.block = false;
   STRAT.dca = false;
 }
 pinX01Strat();
@@ -3639,7 +3639,7 @@ async function main() {
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
         if (remote.strategyToggles) {
-          if (IS_X01) Object.assign(STRAT, remote.strategyToggles, { dca: false, block: true, trailing: false });
+          if (IS_X01) Object.assign(STRAT, remote.strategyToggles, { dca: false, block: false, trailing: false });
           else Object.assign(STRAT, remote.strategyToggles, { dca: false, axis: false, trailing: true, normal: false });
         }
         pinX01Strat();

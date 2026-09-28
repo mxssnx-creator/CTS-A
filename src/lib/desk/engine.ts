@@ -202,8 +202,8 @@ export function unitClosePnl(side: number, entry: number, exit: number, notional
 
 /** Hard floor — volume factor cannot be gated below this. */
 export const MIN_VOLUME_FACTOR = 1.05;
-/** Price-percent stop floor. 24h×10 bot grid: 0.4% stayed green; 0.5% pushed sandwich MDD to 14.8%. ATR may widen only to 1.25×. */
-export const SYSTEM_MIN_SL_PCT = 0.4;
+/** Price-percent stop floor. Stops may not sit closer than this. ATR may widen only to 1.25×. */
+export const SYSTEM_MIN_SL_PCT = 0.5;
 
 /**
  * Price distance. `specifiedPct` is the minimum rate (percent of price).
@@ -309,9 +309,12 @@ export function shortControlPrices(
   slOfTp = 1,
 ): { sl: number; tp: number; slDist: number; tpDist: number } {
   const px = Math.max(entry, 1e-12);
+  const minSl = px * (SYSTEM_MIN_SL_PCT / 100);
   const a = Math.max(atr, px * 0.004);
-  const tpDist = Math.max(a * Math.max(0.2, tpAtr), px * 0.004);
-  const slDist = Math.max(tpDist * Math.max(0.4, slOfTp), px * 0.004);
+  const slOf = Math.max(0.4, slOfTp);
+  let tpDist = Math.max(a * Math.max(0.2, tpAtr), px * 0.004);
+  let slDist = Math.max(tpDist * slOf, minSl);
+  if (slDist > tpDist * slOf + 1e-12) tpDist = slDist / slOf;
   const sl = side === "long" ? px - slDist : px + slDist;
   const tp = side === "long" ? px + tpDist : px - tpDist;
   return { sl, tp, slDist, tpDist };

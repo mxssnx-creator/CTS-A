@@ -753,7 +753,7 @@ function queueWinAgain(e: VstEngine, p: LivePosition) {
   if (e.queue.some((o) => o.symbol === p.symbol && o.side === p.side && o.indication === p.indication && o.note.includes("pf-again"))) return;
   bag.n[k] = (bag.n[k] ?? 0) + 1;
   const px = q.px;
-  const sl0 = Math.max(p.slDist, px * 0.004);
+  const sl0 = Math.max(p.slDist, px * (SYSTEM_MIN_SL_PCT / 100));
   const tp0 = Math.max(p.tpDist, sl0 * 0.9);
   const lv = protectLevels(px, p.side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
   const unitQty = sizeUnit(e) / px;
