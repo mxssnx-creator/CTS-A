@@ -1594,10 +1594,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const owned = (book.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
   const liveOwnedSet = new Set(owned.map((p) => `${p.symbol}:${p.side}`));
   for (const o of book.orders ?? []) {
-    if (!mayCancelOrder(o)) continue;
     const key = `${o.symbol}:${o.side}`;
     const k = kindOf(o.type);
     if (!k) continue;
+    if (!mayCancelOrder(o) && !liveOwnedSet.has(key)) continue;
     if (k === "sl") hasSl.add(key);
     else hasTp.add(key);
     const cur = grouped.get(key) ?? { sl: [], tp: [] };
@@ -1614,10 +1614,12 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const stray = [...grouped.keys()].some((key) => !liveOwnedSet.has(key));
   const map = await fetchContractMap(network);
   const notes = [];
-  const cancelOne = async (o) => {
+  const cancelOne = async (o, force = false) => {
     const oid = String(o?.id || "");
     if (!oid || cancelFailed.has(oid)) return { ok: false, id: oid };
-    if (!mayCancelOrder(o)) return { ok: false, id: oid, error: "foreign" };
+    const key = `${o?.symbol}:${o?.side}`;
+    const controlOnOwned = Boolean(kindOf(o?.type)) && liveOwnedSet.has(key);
+    if (!force && !mayCancelOrder(o) && !controlOnOwned) return { ok: false, id: oid, error: "foreign" };
     const r = await withLiveBusy(() =>
       cancelSwapOrder({
         network,
@@ -1706,29 +1708,47 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const posByVol = [...owned].sort(
     (a, b) => vol1hOf(e?.quotes?.[b.symbol]) - vol1hOf(e?.quotes?.[a.symbol]),
   );
-  const closeRetry = (err) => /closePosition|close position|available amount|quantity|position/i.test(String(err || ""));
+  const closeRetry = (err) => /closePosition|close position|available amount|quantity|position|reduceOnly/i.test(String(err || ""));
+  const clampControl = (side, kind, mark, want, spec) => {
+    const px = Number(mark);
+    const raw = Number(want);
+    if (!(px > 0) || !(raw > 0)) return 0;
+    const tick = spec?.pxPrec != null ? Math.pow(10, -Math.max(0, spec.pxPrec)) : px * 1e-4;
+    const gap = Math.max(px * 0.0012, tick * 3);
+    let stop = kind === "sl"
+      ? (side === "long" ? Math.min(raw, px - gap) : Math.max(raw, px + gap))
+      : (side === "long" ? Math.max(raw, px + gap) : Math.min(raw, px - gap));
+    stop = snapPx(stop, spec);
+    if (kind === "sl" && side === "long" && !(stop < px)) return 0;
+    if (kind === "sl" && side === "short" && !(stop > px)) return 0;
+    if (kind === "tp" && side === "long" && !(stop > px)) return 0;
+    if (kind === "tp" && side === "short" && !(stop < px)) return 0;
+    return stop;
+  };
   const placeControl = async (p, qty, type, stopPrice, mark) => {
-    const q = qty > 0 ? qty : snapQtyDown(p.qty, null);
-    const px = mark > 0 ? mark : p.mark || p.entry || stopPrice;
+    const kind = type === "STOP_MARKET" ? "sl" : "tp";
+    const spec = map.get(p.venueSymbol);
+    const stop = clampControl(p.side, kind, mark, stopPrice, spec);
+    if (!(stop > 0)) return { ok: false, error: "control price" };
+    const q = qty > 0 ? qty : snapQtyDown(p.qty, spec);
+    const px = mark > 0 ? mark : p.mark || p.entry || stop;
     const base = {
       network,
       connId: CONN,
       symbol: p.symbol,
       side: p.side === "long" ? "SELL" : "BUY",
       positionSide: p.side === "long" ? "LONG" : "SHORT",
-      quantity: q,
       type,
       price: px,
-      stopPrice,
-      notional: Math.max(1, q * px),
+      stopPrice: stop,
+      notional: Math.max(1, (q > 0 ? q : p.qty) * px),
       confirmLive: true,
       attachProtect: false,
       reduceOnly: false,
-      exactQty: true,
     };
-    let r = await withLiveBusy(() => placeSwapOrder({ ...base, closePosition: true }));
-    if (!r.ok && closeRetry(r.error)) {
-      r = await withLiveBusy(() => placeSwapOrder({ ...base, closePosition: false }));
+    let r = await withLiveBusy(() => placeSwapOrder({ ...base, quantity: 0, closePosition: true, exactQty: false }));
+    if (!r.ok && closeRetry(r.error) && q > 0) {
+      r = await withLiveBusy(() => placeSwapOrder({ ...base, quantity: q, closePosition: false, exactQty: true }));
     }
     return r;
   };
@@ -1757,26 +1777,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       return q;
     };
     const placeProtect = async (type, qty) => {
-      const body = {
-        network,
-        connId: CONN,
-        symbol: p.symbol,
-        side: p.side === "long" ? "SELL" : "BUY",
-        positionSide: p.side === "long" ? "LONG" : "SHORT",
-        quantity: qty > 0 ? qty : p.qty,
-        type,
-        price: px,
-        stopPrice: type === "STOP_MARKET" ? prot.sl : prot.tp,
-        notional: Math.max(1, (qty > 0 ? qty : p.qty) * px),
-        confirmLive: true,
-        slAtr,
-        tpRatio,
-        attachProtect: false,
-        closePosition: true,
-        reduceOnly: false,
-        exactQty: true,
-      };
-      const r = await withLiveBusy(() => placeSwapOrder(body));
+      const r = await placeControl(p, qty, type, type === "STOP_MARKET" ? prot.sl : prot.tp, px);
       n += 1;
       return r;
     };
@@ -1800,9 +1801,14 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const qty = protectQty();
       const qPlace = qty > 0 ? qty : snapQtyDown(p.qty, spec);
       const replaceKind = async (kind, type, list) => {
+        const prev = Number(list?.[0]?.stopPrice || list?.[0]?.price || 0);
+        if (list?.length) {
+          await mapLimit(list, 2, (o) => cancelOne(o, true));
+          if (kind === "sl") hasSl.delete(key);
+          else hasTp.delete(key);
+        }
         const r = await placeProtect(type, qPlace);
         if (r.ok) {
-          await mapLimit(list || [], 2, cancelOne);
           if (kind === "sl") hasSl.add(key);
           else hasTp.add(key);
           lastProtectQty.set(key, qPlace);
@@ -1810,24 +1816,18 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
           return;
         }
         noteApiFail(r);
-        const err = String(r.error ?? "err");
-        if (/exist|already|duplicate|stop/i.test(err) && (list || []).length) {
-          await mapLimit(list, 2, cancelOne);
-          if (kind === "sl") hasSl.delete(key);
-          else hasTp.delete(key);
-          const r2 = await placeProtect(type, qPlace);
-          if (r2.ok) {
+        if (prev > 0 && !apiQuiet()) {
+          const back = await placeControl(p, qPlace, type, prev, px);
+          if (back.ok) {
             if (kind === "sl") hasSl.add(key);
             else hasTp.add(key);
             lastProtectQty.set(key, qPlace);
-            local.push(`${kind} ${p.symbol}`);
+            local.push(`${kind} restore ${p.symbol}`);
             return;
           }
-          noteApiFail(r2);
-          local.push(`${kind} skip ${p.symbol} ${String(r2.error ?? err).slice(0, 60)}`);
-          return;
+          noteApiFail(back);
         }
-        local.push(`${kind} skip ${p.symbol} ${err.slice(0, 60)}`);
+        local.push(`${kind} skip ${p.symbol} ${String(r.error ?? "err").slice(0, 60)}`);
       };
       if (driftSl && !apiQuiet()) await replaceKind("sl", "STOP_MARKET", g?.sl || []);
       if (driftTp && !apiQuiet()) await replaceKind("tp", "TAKE_PROFIT_MARKET", g?.tp || []);
@@ -1850,8 +1850,9 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const g = grouped.get(key);
     const slQ = Number(g?.sl?.[0]?.remaining ?? g?.sl?.[0]?.qty ?? 0);
     const tpQ = Number(g?.tp?.[0]?.remaining ?? g?.tp?.[0]?.qty ?? 0);
+    const slFull = Boolean(g?.sl?.some((o) => o.closePosition));
+    const tpFull = Boolean(g?.tp?.some((o) => o.closePosition));
     const wantQ = p.qty;
-    const prevQ = Number(lastProtectQty.get(key) || 0);
     const entry = Number(p.entry || p.mark || 0);
     const curSl = Number(g?.sl?.[0]?.stopPrice || lastPostedSl.get(key) || 0);
     const curTp = Number(g?.tp?.[0]?.stopPrice || lastPostedTp.get(key) || 0);
@@ -1868,13 +1869,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const slDrift =
       hasSl.has(key) &&
       wantQ > 0 &&
-      (slWrong ||
-        slLoose ||
-        (slQ > 0 && Math.abs(wantQ - slQ) / Math.max(wantQ, slQ) > 0.03) ||
-        (prevQ > 0 && slQ <= 0 && Math.abs(wantQ - prevQ) / Math.max(wantQ, prevQ) > 0.03));
+      (slWrong || slLoose || (!slFull && slQ > 0 && Math.abs(wantQ - slQ) / Math.max(wantQ, slQ) > 0.08));
     const tpDrift =
       hasTp.has(key) &&
-      (tpWrong || tpLoose || (tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.03));
+      (tpWrong || tpLoose || (!tpFull && tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.08));
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift, missing: !hasSl.has(key) || !hasTp.has(key) });
   }
   need.sort((a, b) => Number(b.missing) - Number(a.missing) || Number(a.p.pnl || 0) - Number(b.p.pnl || 0));
@@ -1943,21 +1941,19 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const slId = String(slOrd?.id || "");
       const prev = Number(slOrd?.stopPrice || lastPostedSl.get(key) || 0);
       const qty = snapQtyDown(p.qty, spec);
-      let r = await placeControl(p, qty, "STOP_MARKET", next, mark);
-      if (!r.ok && slId && mayCancelOrder(slOrd)) {
-        const c = await cancelOne(slOrd);
+      if (slId) {
+        const c = await cancelOne(slOrd, true);
         if (!c.ok && !/not exist|filled|nothing to cancel|no need/i.test(String(c.error || ""))) return null;
         hasSl.delete(key);
-        r = await placeControl(p, qty, "STOP_MARKET", next, mark);
       }
+      let r = await placeControl(p, qty, "STOP_MARKET", next, mark);
       if (r.ok) {
-        if (slId && mayCancelOrder(slOrd)) await cancelOne(slOrd);
         lastPostedSl.set(key, next);
         lastProtectQty.set(key, qty);
         hasSl.add(key);
         return `trail ${p.symbol}`;
       }
-      if (!hasSl.has(key) && prev > 0) {
+      if (prev > 0) {
         const back = await placeControl(p, qty, "STOP_MARKET", prev, mark);
         if (back.ok) {
           lastPostedSl.set(key, prev);

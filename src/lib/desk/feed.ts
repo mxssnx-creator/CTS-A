@@ -164,6 +164,34 @@ export function clientOrderKindOf(type: string | undefined, closePosition?: bool
   return "E";
 }
 
+/** BingX rejects quantity together with closePosition. A control closes the whole leg, or it sends a qty — never both. */
+export function buildControlParams(input: {
+  type?: string;
+  quantity?: number;
+  closePosition?: boolean;
+  reduceOnly?: boolean;
+  stopPrice?: number;
+  price?: number;
+}): Record<string, string | number> {
+  const params: Record<string, string | number> = {};
+  const u = String(input.type || "").toUpperCase();
+  const stop = u === "STOP_MARKET" || u === "TAKE_PROFIT_MARKET";
+  if (input.closePosition) params.closePosition = "true";
+  else {
+    if ((input.quantity ?? 0) > 0) params.quantity = input.quantity as number;
+    if (input.reduceOnly) params.reduceOnly = "true";
+  }
+  if (u === "LIMIT" && (input.price ?? 0) > 0) {
+    params.price = input.price as number;
+    params.timeInForce = "GTC";
+  }
+  if (stop && (input.stopPrice ?? 0) > 0) {
+    params.stopPrice = input.stopPrice as number;
+    params.workingType = "MARK_PRICE";
+  }
+  return params;
+}
+
 export function isOwnedExchangeOrder(
   o: { clientOrderId?: string; owned?: boolean } | null | undefined,
   connId?: string | null,

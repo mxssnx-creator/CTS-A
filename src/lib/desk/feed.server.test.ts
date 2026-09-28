@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, deskClientPrefix, filterDeskRealized, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, systemProcessedNet } from "./feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, buildControlParams, deskClientPrefix, filterDeskRealized, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, systemProcessedNet } from "./feed.ts";
 import {
   buildCanonical,
   configureLiveExecution,
@@ -80,6 +80,34 @@ describe("live feed", () => {
     assert.equal(parsed.data.orders[0].orderId, sl);
     assert.equal(parsed.data.orders[1].orderId, tp);
     assert.notEqual(String(parsed.data.orders[0].orderId), String(parsed.data.orders[1].orderId));
+  });
+
+  it("control orders never send quantity together with closePosition", () => {
+    const closeAll = buildControlParams({
+      type: "STOP_MARKET",
+      quantity: 0.02,
+      closePosition: true,
+      reduceOnly: true,
+      stopPrice: 2500,
+    });
+    assert.equal(closeAll.closePosition, "true");
+    assert.equal(closeAll.quantity, undefined);
+    assert.equal(closeAll.reduceOnly, undefined);
+    assert.equal(closeAll.stopPrice, 2500);
+    assert.equal(closeAll.workingType, "MARK_PRICE");
+    const sized = buildControlParams({
+      type: "TAKE_PROFIT_MARKET",
+      quantity: 0.02,
+      closePosition: false,
+      stopPrice: 2700,
+    });
+    assert.equal(sized.quantity, 0.02);
+    assert.equal(sized.closePosition, undefined);
+    assert.equal(sized.stopPrice, 2700);
+    const limit = buildControlParams({ type: "LIMIT", price: 100, quantity: 1 });
+    assert.equal(limit.price, 100);
+    assert.equal(limit.timeInForce, "GTC");
+    assert.equal(limit.stopPrice, undefined);
   });
 
   it("parses independent filled and remaining on control orders", () => {

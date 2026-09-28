@@ -6,6 +6,7 @@ import {
   deskIdFromVenue,
   LIVE_IDS,
   MIN_SIZE_RATIO,
+  buildControlParams,
   clientOrderKindOf,
   filterDeskRealized,
   isDeskClientOrderId,
@@ -980,17 +981,23 @@ export async function placeSwapOrder(input: {
       recvWindow: 20000,
       timestamp: Date.now(),
     };
-    if (sendQty > 0) params.quantity = sendQty;
-    if (input.type === "LIMIT") {
-      if (!(px > 0)) return { ok: false, error: "Limit price required" };
-      params.price = snapPx(px, spec);
-      params.timeInForce = "GTC";
-    } else if (input.type === "STOP_MARKET" || input.type === "TAKE_PROFIT_MARKET") {
-      const trigger = input.stopPrice ?? px;
-      if (!(trigger > 0)) return { ok: false, error: "Stop price required" };
-      params.stopPrice = snapPx(trigger, spec);
-      params.workingType = "MARK_PRICE";
-    } else if (input.type === "MARKET" && !input.closePosition && input.attachProtect !== false && withProtect) {
+    if (sendQty > 0 && !input.closePosition) params.quantity = sendQty;
+    const stopType = input.type === "STOP_MARKET" || input.type === "TAKE_PROFIT_MARKET";
+    const trigger = stopType ? snapPx(input.stopPrice ?? px, spec) : 0;
+    if (input.type === "LIMIT" && !(px > 0)) return { ok: false, error: "Limit price required" };
+    if (stopType && !(trigger > 0)) return { ok: false, error: "Stop price required" };
+    Object.assign(
+      params,
+      buildControlParams({
+        type: input.type,
+        quantity: input.closePosition ? 0 : sendQty,
+        closePosition: Boolean(input.closePosition),
+        reduceOnly: Boolean(input.reduceOnly),
+        stopPrice: trigger,
+        price: input.type === "LIMIT" ? snapPx(px, spec) : 0,
+      }),
+    );
+    if ((input.type === "MARKET" || input.type === "LIMIT") && !input.closePosition && input.attachProtect !== false && withProtect) {
       const ref = px > 0 ? px : sendQty > 0 ? usedNotional / sendQty : 0;
       if (ref > 0) {
         const given = Number(input.slPrice) > 0 && Number(input.tpPrice) > 0
@@ -1014,8 +1021,7 @@ export async function placeSwapOrder(input: {
         });
       }
     }
-    if (input.closePosition) params.closePosition = "true";
-    if (input.reduceOnly) params.reduceOnly = "true";
+    if (input.reduceOnly && !input.closePosition && params.reduceOnly == null) params.reduceOnly = "true";
     const tagged =
       input.clientOrderId && isDeskClientOrderId(input.clientOrderId, input.connId)
         ? input.clientOrderId
