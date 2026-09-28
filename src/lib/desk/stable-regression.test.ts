@@ -103,7 +103,7 @@ describe("stable reference", () => {
     assert.equal(preset!.patch.strategyToggles?.normal, true);
     assert.equal(preset!.patch.strategyToggles?.axis, true);
     assert.equal(preset!.patch.strategyToggles?.block, true);
-    assert.equal(preset!.patch.strategyToggles?.trailing, false);
+    assert.equal(preset!.patch.strategyToggles?.trailing, true);
     assert.equal(preset!.patch.strategyToggles?.dca, false);
     assert.equal(preset!.patch.symbolCount, 50);
     assert.ok((preset!.info?.pf ?? 0) >= 1.28);
@@ -241,13 +241,13 @@ describe("stable reference", () => {
     assert.ok(again.some((o) => o.calc === "ax-prev" || o.calc === "ax-last" || o.calc === "ax-pause"));
   });
 
-  it("keeps trailing and DCA off on the stable book", () => {
+  it("keeps trailing on and DCA off on the stable book", () => {
     const e = engine();
     e.preEvalDone = false;
     e.liveTape = false;
-    e.strategyToggles = { normal: true, trailing: false, axis: true, block: true, dca: false };
+    e.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: false };
     const rel = { symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, rangeType: "geometric" as const, kind: "short" as const };
-    assert.equal(liveShouldExecute(e, { ...rel, tactic: "trailing", playbook: "short" }), false);
+    assert.equal(liveShouldExecute(e, { ...rel, tactic: "trailing", playbook: "short" }), true);
     assert.equal(liveShouldExecute(e, { ...rel, tactic: "dca", playbook: "dca" }), false);
     assert.equal(liveShouldExecute(e, { ...rel, tactic: "axis", playbook: "axis", kind: "axis" }), true);
   });

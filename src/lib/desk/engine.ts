@@ -279,10 +279,14 @@ export function trailStopFromPeak(input: {
   const peakProfit = signed * (peak - entry);
   const tpDist = Math.abs(tp - entry);
   if (peakProfit <= 1e-12 || !(tpDist > 0)) return sl;
-  if (peakProfit < tpDist * (input.shortRange ? 0.52 : 0.55)) return sl;
+  const short = input.shortRange === true;
+  const wide = Number(trailPct) >= TREND_BREAK_TRAIL_PCTS[0];
+  const armAt = short ? (wide ? 0.7 : 0.78) : 0.55;
+  if (peakProfit < tpDist * armAt) return sl;
   const give = trailGiveback(peakProfit / tpDist, trailPct);
-  const minGap = tpDist * (input.shortRange ? 0.42 : 0.45);
-  const gap = Math.max(peakProfit * give, minGap);
+  const used = wide ? give : Math.min(give, short ? 0.5 : give);
+  const minFrac = short ? (wide ? 0.22 : 0.16) : 0.45;
+  const gap = Math.max(peakProfit * used, tpDist * minFrac);
   let next = peak - signed * gap;
   if (side === "long") {
     next = Math.max(next, sl);

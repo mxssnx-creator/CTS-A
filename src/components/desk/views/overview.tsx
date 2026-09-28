@@ -279,7 +279,7 @@ export function OverviewView() {
       {shownProgress ? (
         <Panel title="Indications · ranges · configs">
           <p className="text-sm text-muted">
-            Stable preset stable-12h-0928. Only processings that stayed at PF 1 or better are shown. Trailing and DCA are off.
+            Stable preset stable-12h-0928. Trailing stays on and only locks after most of the target is open. DCA stays off. A cell is shown once it is still at PF 1 or better.
           </p>
           <div className="mt-3 flex flex-wrap gap-1">
             {["trend", "break", "active", "direction", "move", "rsi", "bollinger", "sar", "macd", "ema"].map((id) => {
@@ -311,6 +311,13 @@ export function OverviewView() {
             {["hybrid", "axis", "trailing"].map((id) => {
               const row = shownProgress.tactics?.[id];
               const pf = Number(row?.pf) || 0;
+              if (id === "trailing" && sessionProg && !row) {
+                return (
+                  <Pill key={`t${id}`} tone="neutral">
+                    trailing
+                  </Pill>
+                );
+              }
               if (sessionProg && (!row || !row.ok || pf < 1)) return null;
               return (
                 <Pill key={`t${id}`} tone={row && pf >= 1 ? "up" : row && (row.n ?? 0) >= 4 && !row.ok ? "down" : "neutral"}>

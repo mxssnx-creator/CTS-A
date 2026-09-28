@@ -18,7 +18,7 @@
   },
   "tactic": "hybrid",
   "rangeType": "geometric",
-  "toggles": { "normal": true, "trailing": false, "axis": true, "block": true, "dca": false },
+  "toggles": { "normal": true, "trailing": true, "axis": true, "block": true, "dca": false },
   "tacticConfig": {
     "trailingPct": 1.5,
     "dcaCount": 1,
@@ -60,5 +60,6 @@
     "active": 1.153,
     "rsi": 1.132
   },
-  "off": ["trailing", "dca", "ranges other than geometric"]
+  "off": ["dca", "ranges other than geometric"],
+  "trailing": "on after 78% of the short target; trend/break use 1.8, 2.2, 2.6"
 }

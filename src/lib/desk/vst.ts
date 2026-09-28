@@ -5720,6 +5720,8 @@ function clampRatio(p: LivePosition, ratio = TP_SL_RATIO, raw = false) {
   const tpD = Math.abs(p.tp - p.avgEntry);
   if (!(tpD > 0) || !Number.isFinite(slD) || !Number.isFinite(tpD)) return;
   if (slD > tpD / r + 1e-9) {
+    const locked = p.side === "long" ? p.sl >= p.avgEntry : p.sl <= p.avgEntry;
+    if (locked) return;
     const next = tpD / r;
     p.slDist = next;
     p.tpDist = tpD;

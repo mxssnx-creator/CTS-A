@@ -735,7 +735,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
   {
     id: "stable-12h-0928",
     label: "Stable 12h 09-28",
-    blurb: "Marked stable. 12h open tape · 12 symbols · $10 · hybrid/geometric · short 0.48/0.75 · Axis+Block · no Trailing · no DCA · PF 1.285 · equity $11.31",
+    blurb: "Marked stable. 12h open tape · 12 symbols · $10 · hybrid/geometric · short 0.48/0.75 · trailing arms after 78% of target · Axis+Block · no DCA · PF 1.285 · equity $11.31",
     builtin: true,
     patch: {
       activeConnId: "bingx-x01",
@@ -788,7 +788,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       },
       thresholds: { ...DEFAULT_THRESHOLDS, minPf: 1.1, maxDdt: 22 },
       pfCoords: { hourKeep: true, bankWin: true, pairAdd: true, laneCool: true, winAgain: true },
-      strategyToggles: { normal: true, trailing: false, axis: true, block: true, dca: false },
+      strategyToggles: { normal: true, trailing: true, axis: true, block: true, dca: false },
       enabledKinds: [...DEFAULT_ENABLED_KINDS],
       minSizeRatio: 1,
       liveTape: true,

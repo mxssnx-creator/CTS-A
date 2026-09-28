@@ -219,11 +219,11 @@ const BLOCK = {
   lastNProgress: sanitizeLastNProgress(undefined),
 };
 
-const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: false, axis: true, block: true, dca: false };
+const STRAT = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: true, block: true, dca: false };
 function pinX01Strat() {
   if (!IS_X01) return;
   STRAT.normal = true;
-  STRAT.trailing = false;
+  STRAT.trailing = true;
   STRAT.axis = true;
   STRAT.block = true;
   STRAT.dca = false;
@@ -332,7 +332,7 @@ function otherProtectRows() {
 }
 
 function x01BestGrid() {
-  const tactics = ["hybrid", "axis"];
+  const tactics = ["hybrid", "trailing", "axis"];
   const ranges = ["geometric"];
   const rows = [];
   for (const tactic of tactics) {

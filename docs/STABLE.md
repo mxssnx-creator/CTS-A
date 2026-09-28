@@ -14,7 +14,7 @@ Machine copy: [stable-12h-0928.json](stable-12h-0928.json). Builtin list: [src/l
 
 ## Measured tape
 
-12 hours, 12 symbols, complete open tape, prehours 0, limit orders, start equity $10, cost step 3. Tactic hybrid, range geometric. Normal, Axis, and Block on. Trailing and DCA off.
+12 hours, 12 symbols, complete open tape, prehours 0, limit orders, start equity $10, cost step 3. Tactic hybrid, range geometric. Normal, Axis, Block, and Trailing are on. DCA is off. Trailing does not move the stop until 78% of the short target is open. Trend and Break use the wider 1.8 / 2.2 / 2.6 trails and may arm a little earlier. A stop that is already in profit is not pulled back out by the TP/SL ratio.
 
 | | |
 |---|---|
@@ -75,7 +75,7 @@ That script is the 12×12 open tape this preset was taken from.
 
 ## What stays off
 
-- Trailing. The green tape was hybrid.
 - DCA. The DCA-on 12h book dipped under $10 and is not this mark.
-- Direction, MACD, and Bollinger skips. On this cell they finished above 1.19, so x01 does not skip them.
 - Any range other than geometric, until a later tape beats this equity and keeps Axis and Block above Normal.
+
+Trailing is on. It is the 1.5 giveback for the book, and the higher 1.8–2.6 set for Trend and Break. It waits until most of the target is open, then locks. It does not replace Hybrid.
