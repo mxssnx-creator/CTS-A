@@ -30,7 +30,7 @@ Environment=CTS_A_CONN=bingx-x01
 Environment=CTS_A_NETWORK=mainnet
 Environment=CTS_A_LIVE_MIN_PF=1.35
 Environment=CTS_A_LIVE_MAX_POS=100
-Environment=CTS_A_SYMBOLS=40
+Environment=CTS_A_SYMBOLS=35
 Environment=CTS_A_EVAL_SYMBOLS=300
 Environment=CTS_A_TICK_MS=1000
 Environment=CTS_A_CYCLE_MS=1000
