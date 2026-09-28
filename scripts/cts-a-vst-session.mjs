@@ -277,10 +277,10 @@ function goodOtherCells() {
     (c) => tps.has(Number(c.tpAtr)) && sls.has(Number(c.slOfTp)) && allowedTrail.has(Number(c.trailPct)),
   );
 }
-/** Measured 12h hybrid/geometric tape. Live rows replace a cell only when that cell is still positive. */
+/** Coordination mark. Live rows replace a cell only when that cell is still positive. */
 const STABLE_PROGRESSION = {
   preset: "stable-12h-0928",
-  pf: 1.285,
+  pf: 2.034,
   indications: {
     trend: { n: 18783, pf: 1.499, ok: true },
     sar: { n: 9058, pf: 1.442, ok: true },
@@ -293,15 +293,15 @@ const STABLE_PROGRESSION = {
     active: { n: 17220, pf: 1.153, ok: true },
     rsi: { n: 11723, pf: 1.132, ok: true },
   },
-  ranges: { geometric: { n: 476051, pf: 1.285, ok: true } },
+  ranges: { geometric: { n: 91813, pf: 2.034, ok: true } },
   tactics: {
-    hybrid: { n: 121972, pf: 1.177, ok: true },
-    axis: { n: 28745, pf: 2.056, ok: true },
+    hybrid: { n: 36241, pf: 1.664, ok: true },
+    axis: { n: 3876, pf: 5.129, ok: true },
   },
   plays: {
-    short: { n: 121929, pf: 1.177, ok: true },
-    axis: { n: 14413, pf: 2.042, ok: true },
-    block: { n: 14416, pf: 2.056, ok: true },
+    short: { n: 36241, pf: 1.664, ok: true },
+    axis: { n: 3876, pf: 5.129, ok: true },
+    block: { n: 3882, pf: 5.153, ok: true },
   },
 };
 function liveProgression(e) {

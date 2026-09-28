@@ -1,6 +1,7 @@
 /**
  * Stable reference. Repair from git tag `stable` and preset `stable-12h-0928`.
- * Floors are the 2026-09-28 12h open tape (12 symbols, hybrid/geometric, $10 → $11.31, PF 1.285).
+ * The mark is the 2026-09-28 coordination cell: geometric short 0.48/0.75, five coords on.
+ * The 2h check after the Block gate printed book PF 2.034, Block 5.153, Axis 5.129, Normal 1.664.
  * Trailing and DCA stay off on that preset. The DCA cases below only check the add mechanism when the toggle is on.
  * Run: npm run test:stable
  */
@@ -105,8 +106,13 @@ describe("stable reference", () => {
     assert.equal(preset!.patch.strategyToggles?.block, true);
     assert.equal(preset!.patch.strategyToggles?.trailing, true);
     assert.equal(preset!.patch.strategyToggles?.dca, false);
+    assert.equal(preset!.patch.pfCoords?.hourKeep, true);
+    assert.equal(preset!.patch.pfCoords?.bankWin, true);
+    assert.equal(preset!.patch.pfCoords?.pairAdd, true);
+    assert.equal(preset!.patch.pfCoords?.laneCool, true);
+    assert.equal(preset!.patch.pfCoords?.winAgain, true);
     assert.equal(preset!.patch.symbolCount, 50);
-    assert.ok((preset!.info?.pf ?? 0) >= 1.28);
+    assert.ok((preset!.info?.pf ?? 0) >= 2);
     assert.equal(preset!.info?.winHoursPct, 1);
   });
 

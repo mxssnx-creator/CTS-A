@@ -734,8 +734,8 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
   },
   {
     id: "stable-12h-0928",
-    label: "Stable 12h 09-28",
-    blurb: "Marked stable. 12h open tape · 12 symbols · $10 · hybrid/geometric · short 0.48/0.75 · trailing arms after 78% of target · Axis+Block · no DCA · PF 1.285 · equity $11.31",
+    label: "Stable coord 09-28",
+    blurb: "Coordination mark. Geometric 0.48/0.75 · trail on after 78% · Block PF 5.15 on the 2h check · Axis above Normal · five coords on · no DCA",
     builtin: true,
     patch: {
       activeConnId: "bingx-x01",
@@ -797,11 +797,11 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
     },
     info: {
       winHoursPct: 1,
-      pf: 1.285,
+      pf: 2.034,
       ddt: 0,
-      tradesPerHour: 39671,
-      positions: 2807,
-      orders: 3657,
+      tradesPerHour: 45906,
+      positions: 4,
+      orders: 91813,
     },
   },
 ];

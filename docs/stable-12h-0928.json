@@ -1,29 +1,25 @@
 {
   "id": "stable-12h-0928",
-  "label": "Stable 12h 09-28",
+  "label": "Stable coordination 09-28",
   "marked": "2026-09-28",
-  "tape": {
-    "hours": 12,
-    "symbols": 12,
-    "prehours": 0,
-    "complete": true,
-    "equityStart": 10,
-    "equityEnd": 11.3064,
-    "pf": 1.285,
-    "mdd": 0.1338,
-    "trades": 476051,
-    "winHours": 12,
-    "orderType": "limit",
-    "costStep": 3
-  },
+  "role": "Later coordinations start from this commit. Tag stable.",
+  "toggles": { "normal": true, "trailing": true, "axis": true, "block": true, "dca": false },
+  "pfCoords": { "hourKeep": true, "bankWin": true, "pairAdd": true, "laneCool": true, "winAgain": true },
   "tactic": "hybrid",
   "rangeType": "geometric",
-  "toggles": { "normal": true, "trailing": true, "axis": true, "block": true, "dca": false },
+  "liveTactics": ["hybrid", "trailing", "axis"],
+  "symbolCount": 50,
+  "orderType": "limit",
+  "costStep": 3,
   "tacticConfig": {
     "trailingPct": 1.5,
+    "trendBreakTrailPcts": [1.8, 2.2, 2.6],
+    "trailingArmsAfter": 0.78,
     "dcaCount": 1,
+    "dcaEnabled": false,
     "axisSpacing": 0.7,
     "axisLevels": 5,
+    "axisPartialRatio": 3,
     "slAtr": 0.36,
     "tpRatio": 1.3333333333333333,
     "tpAtr": 0.48,
@@ -34,6 +30,8 @@
   },
   "block": {
     "counts": [1, 3, 4, 5, 6],
+    "maxMultiple": 6,
+    "minMultiple": 1,
     "volumeRatio": 0.4,
     "relVolumeRatio": 0.4,
     "sharedVolumeRatio": 1.5,
@@ -41,25 +39,62 @@
     "maxVolumeMultiplier": 8,
     "volumeMode": "parallel",
     "overallMode": "parallel",
-    "overall": true
+    "windows": true,
+    "stack": true,
+    "sets": true,
+    "overall": true,
+    "scopes": ["book", "symbol", "dir", "indication", "type"],
+    "proveScale": { "unproven": 0.4, "pf1.35": 0.7, "pf1.8": 1 },
+    "windowFloor": { "count1": 1.45, "higher": 1.3 },
+    "peel": { "bankFracOfTarget": 0.62, "cutFracOfStop": 0.2, "minRewardMultiple": 3.2 }
   },
-  "plays": {
-    "normal": { "n": 121929, "pf": 1.177 },
-    "axis": { "n": 14413, "pf": 2.042 },
-    "block": { "n": 14416, "pf": 2.056 }
+  "coords": {
+    "hourKeep": "Block add stops when the block hour has samples and PF is under 1.08. A loss that would break the hour is scratched.",
+    "bankWin": "Block add needs 20% of the way to the target, and at least 0.04%.",
+    "laneCool": "Two losses on the same symbol, indication, and tactic in the hour stop further Block adds.",
+    "pairAdd": "First rung can add a second indication on the same symbol and side.",
+    "winAgain": "A winning Block peel may re-enter, at most 4 times an hour per symbol, side, indication, and tactic."
   },
-  "indications": {
-    "trend": 1.499,
-    "sar": 1.442,
-    "break": 1.363,
-    "direction": 1.334,
-    "ema": 1.275,
-    "move": 1.235,
-    "macd": 1.234,
-    "bollinger": 1.195,
-    "active": 1.153,
-    "rsi": 1.132
+  "coordinationCheck": {
+    "hours": 2,
+    "symbols": 4,
+    "complete": true,
+    "prehours": 0,
+    "equityStart": 10,
+    "equityEnd": 10.1351,
+    "pf": 2.034,
+    "trades": 91813,
+    "winHours": 2,
+    "hourPf": [2.341, 2.034],
+    "normal": { "n": 36241, "pf": 1.664 },
+    "axis": { "n": 3876, "pf": 5.129 },
+    "block": { "n": 3882, "pf": 5.153 },
+    "hits": { "pair": 12, "bank": 2720, "cool": 196, "again": 97, "scratch": 47814 }
   },
-  "off": ["dca", "ranges other than geometric"],
-  "trailing": "on after 78% of the short target; trend/break use 1.8, 2.2, 2.6"
+  "indicationCensus12h": {
+    "note": "Same short cell before the Block gate. Not the coordination-check book.",
+    "equityEnd": 11.3064,
+    "pf": 1.285,
+    "mdd": 0.1338,
+    "trades": 476051,
+    "winHours": 12,
+    "plays": {
+      "normal": { "n": 121929, "pf": 1.177 },
+      "axis": { "n": 14413, "pf": 2.042 },
+      "block": { "n": 14416, "pf": 2.056 }
+    },
+    "indications": {
+      "trend": 1.499,
+      "sar": 1.442,
+      "break": 1.363,
+      "direction": 1.334,
+      "ema": 1.275,
+      "move": 1.235,
+      "macd": 1.234,
+      "bollinger": 1.195,
+      "active": 1.153,
+      "rsi": 1.132
+    }
+  },
+  "off": ["dca", "ranges other than geometric"]
 }

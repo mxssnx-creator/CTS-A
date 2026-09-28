@@ -1,6 +1,6 @@
-# Stable — 12h geometric, 2026-09-28
+# Stable — coordination mark, 2026-09-28
 
-Marked preset: `stable-12h-0928`. Git tag `stable` points at this commit. Later coordinations start here. Do not turn Trailing or DCA back on unless a new tape beats this one on equity and on Axis and Block versus Normal.
+This commit is the version later coordinations repair from. Preset id: `stable-12h-0928`. Git tag `stable` points here. Live x01 runs this cell. Do not turn DCA on, and do not leave this geometric short cell, unless a new tape beats it on equity and keeps Axis and Block above Normal.
 
 Reference check:
 
@@ -8,26 +8,103 @@ Reference check:
 npm run test:stable
 ```
 
-That file is [src/lib/desk/stable-regression.test.ts](../src/lib/desk/stable-regression.test.ts). The preset lock fails if the id, the hybrid/geometric cell, or the toggles move. The older DCA add checks stay in the file only as a mechanism test. They are not the live book.
+The lock is [src/lib/desk/stable-regression.test.ts](../src/lib/desk/stable-regression.test.ts). It fails if the preset id, the hybrid/geometric short cell, the toggles, or the five coordination switches move. The DCA cases in that file only check the add mechanism when the toggle is on. They are not the live book.
 
-Machine copy: [stable-12h-0928.json](stable-12h-0928.json). Builtin list: [src/lib/desk/presets.ts](../src/lib/desk/presets.ts).
+Machine copy: [stable-12h-0928.json](stable-12h-0928.json). Builtin list: [src/lib/desk/presets.ts](../src/lib/desk/presets.ts). Live session: [scripts/cts-a-vst-session.mjs](../scripts/cts-a-vst-session.mjs).
 
-## Measured tape
+## What is on
 
-12 hours, 12 symbols, complete open tape, prehours 0, limit orders, start equity $10, cost step 3. Tactic hybrid, range geometric. Normal, Axis, Block, and Trailing are on. DCA is off. Trailing does not move the stop until 78% of the short target is open. Trend and Break use the wider 1.8 / 2.2 / 2.6 trails and may arm a little earlier. A stop that is already in profit is not pulled back out by the TP/SL ratio.
+| Switch | State |
+|---|---|
+| Normal | on |
+| Trailing | on |
+| Axis | on |
+| Block | on |
+| DCA | off |
+| Hour keep | on |
+| Bank win | on |
+| Pair add | on |
+| Lane cool | on |
+| Win again | on |
+
+Live tactics are hybrid, trailing, and axis. Range is geometric only. Connection is BingX x01, 50 live symbols, hedge, cross, max leverage. Limit orders. Cost step on the measured tapes is 3. No indication is skipped.
+
+## Short cell
+
+- `tpAtr` 0.48, `slOfTp` 0.75, `slAtr` 0.36, `tpRatio` 1/0.75
+- `shortRange` true
+- `trailingPct` 1.5 for the book
+- Trend and Break use 1.8, then 2.2, then 2.6
+- `maxHoldTicks` 8, `maxHoldBars` 3
+- `axisLevels` 5, `axisSpacing` 0.7, `axisPartialRatio` 3
+- `dcaCount` 1 is stored and does nothing, because the DCA toggle is off
+
+Trailing does not move the stop until 78% of the short target is open (70% for the wider Trend/Break trails). A stop that is already in profit is not pulled back through entry by the TP/SL ratio.
+
+Volume factor 1 is twice the exchange minimum. The old 0.5 setting was lifted onto that same minimum, so it did not change size. A confirming factor can scale up to 1.5×. It cannot go under the exchange minimum.
+
+## Block factors
+
+Counts `[1, 3, 4, 5, 6]`, max multiple 6, min multiple 1, min active level 1, pause count 0. Windows, stack, and sets are on. Sides are both.
+
+| Factor | Value |
+|---|---|
+| Relation volume | 0.4 |
+| Shared volume | 1.5 |
+| Overall volume | 1.5 |
+| Max volume multiplier | 8 |
+| Shared mode | parallel |
+| Overall mode | parallel |
+
+Layers that size on their own: book, symbol, direction, indication, type.
+
+Size while a window is still proving, on a complete tape or on live:
+
+| Window PF | Size |
+|---|---|
+| not yet proven | 0.4× the ratio above |
+| at least 1.35 | 0.7× |
+| at least 1.8 | full ratio |
+
+Count 1 may add while the window is still filling. Counts above 1 wait until that window is at least PF 1.30. The first count, once it has a full window, needs PF 1.45.
+
+The overlay does not scratch at the mark. It banks when the favorable move reaches 0.62 of the parent target, and that bank is at least 3.2× the cut. The cut is 0.20 of the parent stop distance. A winning peel may open one more order through win-again (at most 4 per symbol, side, indication, and tactic in an hour).
+
+## Coordinations
+
+All five are on in the preset (`pfCoords`). A missing coord map still keeps hour-keep. The others run only when their switch is on.
+
+| Coord | What it does on this mark |
+|---|---|
+| Hour keep | A Block add is refused when the Block hour already has samples and its PF is under 1.08. A loss that would push the hour net negative, or the hour PF under 1.08, is scratched flat instead of booked. |
+| Bank win | A Block add needs the parent at least 20% of the way to the target (and at least 0.04%). A parent that has already traveled and then given back locks a stop just past cost. |
+| Lane cool | Two losses on the same symbol, indication, and tactic in the hour stop further Block adds there. |
+| Pair add | The first rung of a live or complete-tape entry can add a second indication on the same symbol and side. |
+| Win again | After a winning Block peel, one re-entry is queued. The hour cap is 4. |
+
+Pair, bank, cool, again, and scratch all fired on the coordination check below. Later work should keep these five paths live. Do not bypass them to force more adds.
+
+## Coordination check
+
+Same cell, after the Block gate. 2 hours, 4 symbols, complete open tape, prehours 0, limit, equity $10, cost step 3. Hybrid, geometric, trailing on, DCA off.
 
 | | |
 |---|---|
-| Equity | $10.00 → $11.31 |
-| PF | 1.285 |
-| Hours green | 12 / 12 |
-| Max drawdown | 13.38% |
-| Trades | 476051 |
-| Normal | PF 1.177, n=121929 |
-| Axis | PF 2.042, n=14413 |
-| Block / Overall | PF 2.056, n=14416 |
+| Equity | $10.00 → $10.14 |
+| Book PF | 2.034 |
+| Hours | 2 / 2 green (2.341, then 2.034) |
+| Closes | 91813 |
+| Normal | PF 1.664, n=36241 |
+| Axis | PF 5.129, n=3876 |
+| Block | PF 5.153, n=3882 |
 
-Every indication on this cell finished above 1.13. None are skipped on x01.
+Coordination hits on that run: pair 12, bank 2720, lane-cool 196, win-again 97, hour scratch 47814.
+
+Axis and Block stay far above Normal. That is the relation later coordinations have to keep.
+
+## Indication census
+
+This table is the earlier 12×12 open tape on the same short cell, before the Block gate. It is the indication census, not the coordination-check book. Every indication finished above 1.13, which is why none are skipped.
 
 | Indication | n | PF |
 |---|---|---|
@@ -42,42 +119,22 @@ Every indication on this cell finished above 1.13. None are skipped on x01.
 | active | 17220 | 1.153 |
 | rsi | 11723 | 1.132 |
 
-Hour PF, equity from $10: h1 1.239 / 9.36, h2 1.099 / 10.01, h3 1.260 / 10.13, h4 1.831 / 10.47, h5 1.657 / 10.50, h6 1.224 / 10.60, h7 1.088 / 10.42, h8 1.309 / 10.70, h9 1.080 / 10.84, h10 1.090 / 11.02, h11 1.523 / 10.94, h12 1.965 / 11.31. Hour 1 is green on the hour PF and dips only on open marks.
-
-## Config to recreate
-
-Short cell:
-
-- `tpAtr` 0.48, `slOfTp` 0.75, `slAtr` 0.36, `tpRatio` 1/0.75
-- `shortRange` true, `trailingPct` 1.5, `maxHoldTicks` 8, `maxHoldBars` 3
-- `axisLevels` 5, `axisSpacing` 0.7, `dcaCount` 1 (toggle off, so it does not add)
-
-Block:
-
-- counts `[1, 3, 4, 5, 6]`, max multiple 6
-- volume 0.4, relation 0.4, shared 1.5, overall 1.5, max multiplier 8
-- parallel shared and parallel overall
-- book, symbol, direction, indication, and type layers on
-- adds only while hour, bank, and lane-cool agree. Counts above 1 wait for window PF 1.30 (first count 1.45). Size is 0.4× until that window is proven, 0.7× from 1.35, full from 1.8
-- overlay banks at 0.62 of the target and at least 3.2× the cut. It does not scratch at the mark. A winning peel can re-enter through win-again
-
-Toggles: `normal` true, `axis` true, `block` true, `trailing` true, `dca` false.
-
-Live x01 runs hybrid, trailing, and axis on geometric. Other ranges and the long protect grid are not armed. A processing replaces a stable cell on the site only after 4 closes with PF at least 1. A worse sample is not shown and is not the seed.
-
-Volume factor 1 means twice the exchange minimum (the old 0.5 setting was lifted to the same minimum, so it did not change size). A confirming volume factor can scale that up to 1.5×. It cannot go under the exchange minimum.
+That 12×12 run ended at equity $11.31, book PF 1.285, max drawdown 13.38%, 476051 trades, all 12 hours green. Normal was 1.177, Axis 2.042, Block 2.056. The gate above is what lifted Block and Axis on the later check.
 
 ## Replay
+
+12×12 cell:
 
 ```bash
 node --experimental-strip-types scripts/sim-12x12.mjs
 ```
 
-That script is the 12×12 open tape this preset was taken from.
+The coordination check is `simulateHours(2, CFG, "hybrid")` with 4 symbols, `complete: true`, `prehours: 0`, `rangeType: "geometric"`, and the toggles and block config in this file.
 
 ## What stays off
 
-- DCA. The DCA-on 12h book dipped under $10 and is not this mark.
+- DCA. An earlier DCA-on tape dipped under $10.
 - Any range other than geometric, until a later tape beats this equity and keeps Axis and Block above Normal.
+- Skipping direction, MACD, or Bollinger. On this cell they are above 1.19.
 
-Trailing is on. It is the 1.5 giveback for the book, and the higher 1.8–2.6 set for Trend and Break. It waits until most of the target is open, then locks. It does not replace Hybrid.
+The site shows a processing only after 4 closes at PF 1 or better. A worse sample does not replace the seed.
