@@ -4618,15 +4618,24 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       pos.tpDist = Math.abs(pos.tp - entry);
       const slOf = Number(pos.slOfTp);
       if (slOf > 0 && pos.tpDist > 0 && pos.slDist > pos.tpDist * slOf + 1e-9) {
-        pos.slDist = pos.tpDist * slOf;
-        pos.sl = pos.side === "long" ? entry - pos.slDist : entry + pos.slDist;
+        const floor = entry * (SYSTEM_MIN_SL_PCT / 100);
+        let next = pos.tpDist * slOf;
+        if (floor > 0 && next < floor) {
+          next = floor;
+          const tpNeed = next / slOf;
+          pos.tpDist = tpNeed;
+          pos.tp = pos.side === "long" ? entry + tpNeed : entry - tpNeed;
+        }
+        pos.slDist = next;
+        pos.sl = pos.side === "long" ? entry - next : entry + next;
       }
     } else if (/Block/i.test(o.note || "")) {
       // Overlay keeps the parent's bracket. The add is peeled on its own risk.
     } else {
       const entry = pos.avgEntry;
+      const floor = entry * (SYSTEM_MIN_SL_PCT / 100);
       const dists = [Number(o.slDist), Number(pos.slDist)].filter((n) => n > 0);
-      const slKeep = Math.max(dists.length ? Math.min(...dists) : 1e-12, 1e-12);
+      const slKeep = Math.max(dists.length ? Math.min(...dists) : 1e-12, floor, 1e-12);
       const tpKeep = Math.max(Number(o.tpDist) || Number(pos.tpDist) || 0, 1e-12);
       if (pos.side === "long") {
         const tight = entry - slKeep;
@@ -4643,8 +4652,16 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       pos.tpDist = Math.abs(pos.tp - entry);
       const slOf = Number(pos.slOfTp);
       if (slOf > 0 && pos.tpDist > 0 && pos.slDist > pos.tpDist * slOf + 1e-9) {
-        pos.slDist = pos.tpDist * slOf;
-        pos.sl = pos.side === "long" ? entry - pos.slDist : entry + pos.slDist;
+        const floor = entry * (SYSTEM_MIN_SL_PCT / 100);
+        let next = pos.tpDist * slOf;
+        if (floor > 0 && next < floor) {
+          next = floor;
+          const tpNeed = next / slOf;
+          pos.tpDist = tpNeed;
+          pos.tp = pos.side === "long" ? entry + tpNeed : entry - tpNeed;
+        }
+        pos.slDist = next;
+        pos.sl = pos.side === "long" ? entry - next : entry + next;
       }
     }
   }
@@ -5337,11 +5354,13 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       p.slDist = stop.slDist;
       p.tpDist = stop.tpDist;
     }
+    holdLossSlFloor(p);
     if (!botBook && (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca === true && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (!shortPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
     const holdR = shortPos && p.slOfTp != null && p.slOfTp > 0 ? Math.max(0.25, 1 / p.slOfTp) : e.tpRatio;
     if (!botBook) clampRatio(p, holdR, shortPos);
     if (!botBook) peelBlockOverlay(e, p, q);
+    holdLossSlFloor(p);
     if (e.tick === p.openedTick || e.tick - p.openedTick < Math.max(1, opts?.minHold ?? 1)) {
       keep.push(p);
       continue;
@@ -5400,6 +5419,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
           clampRatio(p, holdR, shortPos);
         }
       }
+      holdLossSlFloor(p);
       if (hitSl || (hitTp && !partial)) {
         closePosition(e, p, hitSl ? p.sl : p.tp, hitSl ? "sl" : "tp");
         continue;
@@ -5458,6 +5478,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
         clampRatio(p, holdR, shortPos);
       }
     }
+    holdLossSlFloor(p);
     keep.push(p);
   }
   e.positions = keep;
@@ -5715,6 +5736,22 @@ function safeStage(e: VstEngine, name: string, fn: () => void) {
   }
 }
 
+function holdLossSlFloor(p: LivePosition) {
+  const entry = p.avgEntry;
+  if (!(entry > 0) || !(p.sl > 0)) return;
+  const lossSide = p.side === "long" ? p.sl < entry : p.sl > entry;
+  if (!lossSide) return;
+  const floor = entry * (SYSTEM_MIN_SL_PCT / 100);
+  if (!(floor > 0) || Math.abs(p.sl - entry) + 1e-12 >= floor) return;
+  p.sl = p.side === "long" ? entry - floor : entry + floor;
+  p.slDist = floor;
+  const slOf = Number(p.slOfTp);
+  if (slOf > 0 && (p.tpDist || 0) + 1e-12 < floor / slOf) {
+    p.tpDist = floor / slOf;
+    p.tp = p.side === "long" ? entry + p.tpDist : entry - p.tpDist;
+  }
+}
+
 function clampRatio(p: LivePosition, ratio = TP_SL_RATIO, raw = false) {
   const r = raw ? Math.max(0.25, Number(ratio) || 1) : snapTpRatio(ratio);
   const slD = Math.abs(p.sl - p.avgEntry);
@@ -5723,9 +5760,18 @@ function clampRatio(p: LivePosition, ratio = TP_SL_RATIO, raw = false) {
   if (slD > tpD / r + 1e-9) {
     const locked = p.side === "long" ? p.sl >= p.avgEntry : p.sl <= p.avgEntry;
     if (locked) return;
-    const next = tpD / r;
+    const floor = p.avgEntry > 0 ? p.avgEntry * (SYSTEM_MIN_SL_PCT / 100) : 0;
+    let next = tpD / r;
+    if (floor > 0 && next < floor) {
+      next = floor;
+      const tpNeed = next * r;
+      if (tpNeed > tpD + 1e-12) {
+        p.tp = p.side === "long" ? p.avgEntry + tpNeed : p.avgEntry - tpNeed;
+        p.tpDist = tpNeed;
+      }
+    }
     p.slDist = next;
-    p.tpDist = tpD;
+    p.tpDist = Math.abs(p.tp - p.avgEntry);
     p.sl = p.side === "long" ? p.avgEntry - next : p.avgEntry + next;
   }
 }

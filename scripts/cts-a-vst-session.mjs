@@ -1963,7 +1963,11 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (!(profit > 0)) continue;
       const spec = map.get(p.venueSymbol);
       const cell = protectFor(p.symbol);
-      const atEntry = liveProtectPrices(entry, p.side, cell.slAtr, cell.tpRatio, spec, mode);
+      const shortLive = cfgUsesShortRange(cfg) || cfgUsesShortRange(currentPick?.cfg);
+      const shortProt = shortLive
+        ? shortStopPrices({ ...p, mark: entry, entry }, { ...cell, ...(cfg || {}), ...(currentPick?.cfg || {}) }, spec, e)
+        : null;
+      const atEntry = shortProt || liveProtectPrices(entry, p.side, cell.slAtr, cell.tpRatio, spec, mode);
       const peak = p.side === "long"
         ? Math.max(mark, Number(lastPeakPx.get(key) || mark))
         : Math.min(mark, Number(lastPeakPx.get(key) || mark));
@@ -2040,7 +2044,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (!q || !(q.px > 0)) continue;
       const indication = classifyIndication(e, p.symbol);
       const tactic = tacticForIndication(indication, e?.strategyToggles ?? STRAT);
-      if (tactic !== "axis" && tactic !== "hybrid") continue;
+      if (tactic !== "axis") continue;
       const key = `${p.symbol}:${p.side}`;
       if (!hasTp.has(key)) continue;
       const mark = p.mark || p.entry || q.px;
