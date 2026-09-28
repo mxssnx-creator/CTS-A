@@ -665,11 +665,14 @@ function snapshot(e, extra) {
     overlayLiveExecutions(overall, lastPnl, Date.now(), e);
   }
   const last12 = overall.lastN?.["12"] ?? null;
-  const tapeReady = (lastExec.n >= 2) || (e.ledger.trades >= 4 && Number(e.stats.pf) > 0);
+  const exchangeExec = lastExec.n >= 2;
+  // x01 scoreboard is the exchange tape. The paper ledger must not impersonate a live PF.
+  const paperScore = !IS_X01;
+  const tapeReady = exchangeExec || (paperScore && e.ledger.trades >= 4 && Number(e.stats.pf) > 0);
   const openLive = overall.open;
-  const openPf = lastExec.n < 2 && openLive && Number(openLive.n) >= 4 && Number(openLive.pf) > 0 ? Number(openLive.pf) : 0;
-  const rawLive = lastExec.n >= 2 ? lastExec.pf : last12?.n >= 4 ? last12.pf : openPf || e.stats.pf;
-  const rawPf = lastExec.n >= 2 ? lastExec.pf : openPf || e.stats.pf;
+  const openPf = !exchangeExec && paperScore && openLive && Number(openLive.n) >= 4 && Number(openLive.pf) > 0 ? Number(openLive.pf) : 0;
+  const rawLive = exchangeExec ? lastExec.pf : paperScore && last12?.n >= 4 ? last12.pf : openPf || (paperScore ? e.stats.pf : 0);
+  const rawPf = exchangeExec ? lastExec.pf : paperScore ? openPf || e.stats.pf : 0;
   const clampPf = (v, n) => {
     const x = Number(v);
     if (!Number.isFinite(x) || x <= 0) return 0;
@@ -677,14 +680,14 @@ function snapshot(e, extra) {
   };
   const livePf = clampPf(rawLive, last12?.n ?? e.ledger.trades);
   const pf = clampPf(rawPf, e.ledger.trades);
-  const closedNet = lastExec.n >= 2 ? lastExec.net : e.ledger.profit - e.ledger.loss;
+  const closedNet = exchangeExec ? lastExec.net : paperScore ? e.ledger.profit - e.ledger.loss : 0;
   const openNet = Number.isFinite(lastBook.pnl) ? lastBook.pnl : 0;
   const { systemNet } = systemProcessedNet(closedNet, openNet);
   const net = systemNet;
   overall.systemNet = systemNet;
   overall.closedNet = closedNet;
   overall.openNet = openNet;
-  const wr = lastExec.n >= 2 ? lastExec.wr : tapeReady ? e.stats.wr : Number(last12?.wr || e.stats.wr);
+  const wr = exchangeExec ? lastExec.wr : paperScore ? (tapeReady ? e.stats.wr : Number(last12?.wr || e.stats.wr)) : 0;
   const tapeThin = e.ledger.trades < 12;
   const hourNet = last12?.net ?? closedNet;
   const positive = Number.isFinite(livePf) && livePf >= 1 && (tapeThin || hourNet >= -0.05);
@@ -694,8 +697,8 @@ function snapshot(e, extra) {
     wr,
     net,
     mdd: e.stats.mdd,
-    trades: lastExec.n >= 2 ? lastExec.n : e.ledger.trades,
-    wins: lastExec.n >= 2 ? lastExec.wins : e.ledger.wins,
+    trades: exchangeExec ? lastExec.n : paperScore ? e.ledger.trades : 0,
+    wins: exchangeExec ? lastExec.wins : paperScore ? e.ledger.wins : 0,
     slots: lastBook.pos || book.positions.slots,
     legs: lastBook.pos || (lastBook.positions ?? []).length,
     long: (lastBook.positions ?? []).filter((p) => p.side === "long").length,
@@ -1125,13 +1128,11 @@ function hourBand() {
   const eq = Math.max(1, Number(lastBook.equity) || 0);
   return Math.max(0.015, eq * 0.002);
 }
-/** New entries while this hour can still finish green. */
+/** New entries while this hour's realized result can still finish green.
+ * Open mark noise must not freeze the book by itself. */
 function hourAllowsEntry() {
   if (!IS_X01) return true;
-  const net = hourNetNow();
-  const band = hourBand();
-  if (net < -band) return false;
-  return net + Math.min(0, hourOpenDrag()) >= -band * 2.5;
+  return hourNetNow() >= -hourBand();
 }
 
 async function pruneUnlisted(network) {
@@ -2099,21 +2100,16 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   return null;
 }
 
-/** True once this book has a real sample. An empty exam must not zero the live queue. */
-function exchangeTapeJudged(e) {
-  const combos = e?.progressEval?.shortCombos;
-  if (combos && typeof combos === "object") {
-    for (const row of Object.values(combos)) {
-      if (row && Number(row.n) >= 8) return true;
-    }
-  }
-  let n = 0;
-  for (const c of e?.closed || []) {
-    if (!c || c.validExec !== true || !String(c.id || "").startsWith("x:")) continue;
-    n += 1;
-    if (n >= 8) return true;
-  }
-  return false;
+/** A combo that already failed its own last 8. An unsampled set is not a miss, so the live book does not collapse to zero. */
+function comboMiss(e, rel) {
+  const tp = Number(rel?.tpAtr);
+  const sl = Number(rel?.slOfTp);
+  if (!(tp > 0) || !(sl > 0)) return false;
+  const row = e?.progressEval?.shortCombos?.[shortComboKey(tp, sl)];
+  if (!row || Number(row.n) < 8) return false;
+  const pf = Number(row.pf) || 0;
+  const net = Number(row.net) || 0;
+  return !(row.ok !== false && net > 0 && pf >= 1);
 }
 
 async function mirrorToExchange(e, network, cfg) {
@@ -2311,8 +2307,11 @@ async function mirrorToExchange(e, network, cfg) {
   const fillJobs = [];
   const engineResting = (e.orders ?? []).filter((o) => o && (o.status === "open" || o.status === "queued" || o.status === "partial") && (o.type === "limit" || o.type === "market"));
   const rawQueue = e.queue ?? [];
-  const judged = Boolean(e?.preEvalDone) && exchangeTapeJudged(e);
-  const liveQueue = judged ? rawQueue.filter((o) => o && o.validExec === true) : rawQueue;
+  const liveQueue = IS_X01
+    ? rawQueue.filter((o) => o && !comboMiss(e, o))
+    : e?.preEvalDone
+      ? rawQueue.filter((o) => o && o.validExec === true)
+      : rawQueue;
   const pickFrom = liveQueue.length ? liveQueue : rawQueue;
   const fat = pickFrom.length + engineResting.length > 1600;
   const queueSource = [];
@@ -2338,7 +2337,13 @@ async function mirrorToExchange(e, network, cfg) {
     .filter((o) => {
       if (!o) return false;
       if (o.playbook === "dca" || o.tactic === "dca" || /^DCA/i.test(String(o.note || ""))) return Boolean((e.strategyToggles ?? STRAT).dca);
-      if (IS_X01) return !judged || o.validExec === true;
+      if (IS_X01) {
+        if (comboMiss(e, o)) return false;
+        if (o.playbook === "block" || /Block/i.test(String(o.note || ""))) return Boolean((e.strategyToggles ?? STRAT).block);
+        if (o.validExec === true) return true;
+        if ((e.strategyToggles ?? STRAT).normal === false && unadjustedNormalOrder(o)) return false;
+        return true;
+      }
       if (o.validExec === false) return false;
       return (
         o.kind === "short" ||
@@ -2525,7 +2530,7 @@ async function mirrorToExchange(e, network, cfg) {
             const q = e.quotes?.[id];
             if (!q || !(q.px > 0) || !isUniverseSymbol(id)) continue;
             const ind = classifyIndication(e, id);
-            if (ind === "direction" || (e.skipIndications || []).includes(ind)) continue;
+            if ((e.skipIndications || []).includes(ind)) continue;
             const mid = q.hi > q.lo ? (q.hi + q.lo) / 2 : q.px;
             const side = longTaken ? "short" : shortTaken ? "long" : q.px >= mid ? "short" : "long";
             for (let lvl = 1; lvl <= 2 - have; lvl += 1) {
@@ -2679,7 +2684,7 @@ async function mirrorToExchange(e, network, cfg) {
         tpAtr: Number(f.near ? X01_LIVE_CFG.tpAtr : order?.tpAtr ?? pos?.tpAtr) || undefined,
         slOfTp: Number(f.near ? X01_LIVE_CFG.slOfTp : order?.slOfTp ?? pos?.slOfTp) || undefined,
       };
-      if (!f.near && (indication === "direction" || (e.skipIndications || []).includes(indication)) && (!f.ladder || e.preEvalDone)) {
+      if (!f.near && (e.skipIndications || []).includes(indication) && (!f.ladder || e.preEvalDone)) {
         markWhy(f, "direction");
         continue;
       }
@@ -2691,7 +2696,7 @@ async function mirrorToExchange(e, network, cfg) {
       const normalOff = e.strategyToggles?.normal === false && unadjustedNormalOrder(rel);
       const unjudgedOpen =
         IS_X01 &&
-        !judged &&
+        !comboMiss(e, rel) &&
         !normalOff &&
         rel.tactic !== "dca" &&
         rel.playbook !== "dca" &&
@@ -3481,7 +3486,7 @@ async function main() {
         },
         onCell: (cell, i, total) => {
           if (i === 1 || i === total || i % 5 === 0) {
-            adjustments.push(`compute ${i}/${total} ${cell.tactic}/${cell.range} ${cell.hours}h PF ${cell.pf.toFixed(2)}`);
+            adjustments.push(`compute ${i}/${total} ${cell.tactic}/${cell.range} ${cell.hours}h PF ${cell.pf.toFixed(2)} n ${cell.trades}`);
           }
         },
       });
@@ -3536,7 +3541,7 @@ async function main() {
       adjustments.push(
         w
           ? `complete ${complete.cells.length} cells · prehistory ${complete.prehours ?? SHORT_EVAL_HOURS}h · full ${complete.full ? `PF ${Number(complete.full.pf).toFixed(2)} n ${complete.full.trades}` : "off"} · winner ${w.tactic}/${w.range} ${w.hours}h PF ${w.pf.toFixed(2)} · ${complete.elapsedMs}ms`
-          : "complete compute empty",
+          : `complete no lock · cells ${complete.cells.length} · best ${complete.winner ? `${complete.winner.tactic}/${complete.winner.range} ${complete.winner.hours}h PF ${Number(complete.winner.pf).toFixed(2)} n ${complete.winner.trades}` : "none"}`,
       );
       computeDone = true;
       adjustments.push("symbol 100h stays on the live cadence");
@@ -3674,7 +3679,7 @@ async function main() {
         }
         pinX01Strat();
         engine.strategyToggles = { ...STRAT };
-        if (IS_X01) engine.skipIndications = ["direction", "macd", "bollinger"];
+        if (IS_X01) engine.skipIndications = [];
         if (remote.blockConfig) {
           const vol = IS_X01
             ? { volumeRatio: 0.4, relVolumeRatio: 0.4, sharedVolumeRatio: 1.5, overallVolumeRatio: 1.5 }
