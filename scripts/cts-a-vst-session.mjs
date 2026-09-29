@@ -1744,19 +1744,25 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const pos = owned.find((p) => `${p.symbol}:${p.side}` === key);
     const entry = Number(pos?.entry || pos?.mark || 0);
     const side = pos?.side === "short" ? "short" : "long";
+    const wantQ = Number(pos?.qty) || 0;
     for (const kind of ["sl", "tp"]) {
       const list = (g[kind] || []).filter((o) => mayCancelOrder(o));
       if (!list || list.length <= 1) continue;
       const tk = `${key}:${kind}`;
       if ((trimHits.get(tk) || 0) >= 3) continue;
       list.sort((a, b) => {
+        const covers = (o) => Boolean(o.closePosition) || (Number(o.remaining ?? o.qty) || 0) >= wantQ * 0.92;
+        const ca = covers(a) ? 1 : 0;
+        const cb = covers(b) ? 1 : 0;
+        if (ca !== cb) return cb - ca;
         const pa = Number(a.stopPrice || a.price || 0);
         const pb = Number(b.stopPrice || b.price || 0);
         if (kind === "sl") return side === "long" ? pb - pa : pa - pb;
-        const da = Math.abs(pa - entry);
-        const db = Math.abs(pb - entry);
-        return db - da;
+        return Math.abs(pb - entry) - Math.abs(pa - entry);
       });
+      const kept = list[0];
+      const keptQty = kept?.closePosition ? wantQ : Number(kept?.remaining ?? kept?.qty) || 0;
+      if (!(wantQ > 0) || !(kept?.closePosition || keptQty >= wantQ * 0.92)) continue;
       for (const extra of list.slice(1)) extraJobs.push({ tk, kind, extra });
     }
   }
@@ -1831,24 +1837,21 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       exactQty: true,
       closePosition,
     }));
-    let r = await send(stop, 0, true);
+    let r = q > 0 ? await send(stop, q, false) : await send(stop, 0, true);
     if (!r.ok && priceRetry(r.error)) {
       const wider = clampControl(p.side, kind, mark, kind === "sl"
         ? (p.side === "long" ? px * (1 - 0.008) : px * (1 + 0.008))
         : (p.side === "long" ? px * (1 + 0.008) : px * (1 - 0.008)), spec);
       if (wider > 0 && Math.abs(wider - stop) / px > 1e-6) {
         const first = String(r.error || "err");
-        r = await send(wider, 0, true);
+        r = q > 0 ? await send(wider, q, false) : await send(wider, 0, true);
         stop = wider;
         if (!r.ok) r = { ...r, error: `${first} | ${r.error || "err"}` };
       }
     }
-    if (!r.ok) {
+    if (!r.ok && closeRetry(r.error)) {
       const first = String(r.error || "err");
-      r = q > 0 ? await send(stop, q, false) : await send(stop, Math.max(p.qty || 0, 0), true);
-      if (!r.ok && closeRetry(r.error)) {
-        r = await send(stop, q > 0 ? q : snapQtyDown(p.qty, spec), true);
-      }
+      r = await send(stop, 0, true);
       if (!r.ok) r = { ...r, error: `${first} | ${r.error || "err"}` };
     }
     if (!r.ok) r = { ...r, error: `${r.error || "err"} @${stop} q${q}` };
@@ -1937,21 +1940,12 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (driftSl && !apiQuiet()) await replaceKind("sl", "STOP_MARKET", g?.sl || []);
       if (driftTp && !apiQuiet()) await replaceKind("tp", "TAKE_PROFIT_MARKET", g?.tp || []);
     }
-    const retireShort = async (kind) => {
-      const ours = (grouped.get(key)?.[kind] || []).filter((o) => mayCancelOrder(o));
-      if (!ours.length) return;
-      await mapLimit(ours.slice(0, 3), 2, (o) => cancelOne(o, true));
-    };
     if (!hasSl.has(key) && !apiQuiet()) {
-      const note = await attach("sl", "STOP_MARKET", `sl:${key}`);
-      local.push(note);
-      if (!String(note).includes(" skip ")) await retireShort("sl");
+      local.push(await attach("sl", "STOP_MARKET", `sl:${key}`));
       await sleep(80);
     }
     if (!hasTp.has(key) && !apiQuiet()) {
-      const note = await attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`);
-      local.push(note);
-      if (!String(note).includes(" skip ")) await retireShort("tp");
+      local.push(await attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`));
     }
     return { notes: local, posts: n };
   };
@@ -2348,7 +2342,7 @@ async function mirrorToExchange(e, network, cfg) {
   if (guard) notes.push(guard);
   const flat = await flattenBelowMinPf(network, book, e);
   if (flat) notes.push(flat);
-  const protectGap = Math.max(0, Number(lastBook.unprotected) || 0);
+  const protectGap = Math.max(prot.gap, Number(lastBook.unprotected) || 0);
   const restingLimits = (book.orders ?? []).filter(
     (o) => isDeskOrder(o) && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition,
   ).length;
