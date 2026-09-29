@@ -22,6 +22,7 @@ import {
   recalcVolumeFactor,
   runBotBacktest,
   runParallelBots,
+  defaultBotsPersist,
   sanitizeArmed,
   sanitizeBotConfig,
   sanitizeBotsPersist,
@@ -52,7 +53,7 @@ describe("sandwich bots — config + volume", () => {
     assert.equal(raw.configs.clamp.type, "clamp");
     assert.equal(raw.configs.magnet.selectMode, "atrRank");
     assert.equal(raw.configs.pivot.selectMode, "range15");
-    assert.ok(raw.armed.includes("clamp") || raw.armed.includes("sandwich"));
+    assert.deepEqual(raw.armed, []);
     assert.ok(raw.armed.length <= 3);
     for (const t of BOT_TYPES) assert.equal(raw.configs[t].type, t);
   });
@@ -211,11 +212,12 @@ describe("other high-freq bots", () => {
 });
 
 describe("best 3 parallel bots — independent process + results", () => {
-  it("sanitizeArmed caps at 3, drops dupes, never empty", () => {
+  it("sanitizeArmed caps at 3, drops dupes, and stays empty when nothing is armed", () => {
     assert.deepEqual(sanitizeArmed(["sandwich", "clamp", "magnet", "pivot"]), ["sandwich", "clamp", "magnet"]);
     assert.deepEqual(sanitizeArmed(["sandwich", "sandwich", "clamp"]), ["sandwich", "clamp"]);
-    assert.deepEqual(sanitizeArmed(["nope"]), ["sandwich"]);
-    assert.equal(sanitizeArmed([]).length, 1);
+    assert.deepEqual(sanitizeArmed(["nope"]), []);
+    assert.deepEqual(sanitizeArmed([]), []);
+    assert.equal(defaultBotsPersist().armed.length, 0);
     assert.equal(BOT_PARALLEL_CAP, 3);
   });
 

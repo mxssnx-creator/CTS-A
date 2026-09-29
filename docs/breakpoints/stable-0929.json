@@ -31,6 +31,7 @@
     "trailOnlyWhenGapIsZero": true,
     "entriesPerCycle": 8
   },
+  "bots": { "armed": [], "autoStart": false },
   "desk": {
     "connectionSticks": true,
     "hostDoesNotOverwriteSelection": true

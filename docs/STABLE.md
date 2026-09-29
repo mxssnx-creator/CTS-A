@@ -19,6 +19,7 @@ npm run test:stable
 | Controls | Trigger-rate limit pauses stops only. At most 2 protects per cycle. One trail, and only when the gap is 0. |
 | Entries | At most 8 new orders per cycle. |
 | Desk connection | The chosen session stays. The host poll does not put it back. |
+| Bots | Off. Sandwich, clamp, and pivot do not arm on open. |
 
 The 09-28 coordination note below is the cell this book still trades. Do not treat it as a newer breakpoint.
 

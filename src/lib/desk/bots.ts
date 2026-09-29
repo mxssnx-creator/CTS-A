@@ -286,10 +286,10 @@ export function defaultBotConfig(type: BotTypeId = "sandwich"): BotConfig {
 export function defaultBotsPersist(): BotsPersist {
   const configs = {} as Record<BotTypeId, BotConfig>;
   for (const t of BOT_TYPES) configs[t] = defaultBotConfig(t);
-  return { selected: "sandwich", armed: ["sandwich", "clamp", "pivot"], hours: 24, configs };
+  return { selected: "sandwich", armed: [], hours: 24, configs };
 }
 
-export function sanitizeArmed(raw: unknown, fallback: readonly BotTypeId[] = ["sandwich"]): BotTypeId[] {
+export function sanitizeArmed(raw: unknown, fallback: readonly BotTypeId[] = []): BotTypeId[] {
   const src = Array.isArray(raw) ? raw : fallback;
   const out: BotTypeId[] = [];
   for (const item of src) {
@@ -299,7 +299,6 @@ export function sanitizeArmed(raw: unknown, fallback: readonly BotTypeId[] = ["s
     out.push(t);
     if (out.length >= BOT_PARALLEL_CAP) break;
   }
-  if (!out.length) out.push(fallback[0] && BOT_TYPES.includes(fallback[0]) ? fallback[0] : "sandwich");
   return out;
 }
 

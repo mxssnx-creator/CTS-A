@@ -510,7 +510,7 @@ function queuePersist(snap: DeskSettingsSnap) {
 
 const boot = initVstEngine(DEFAULT_TACTIC_CONFIG, { warmup: 0, symbolCount: 12, arm: false, equity: 10 });
 {
-  boot.botMode = true;
+  boot.botMode = false;
   boot.x01Progress = true;
   boot.running = true;
   boot.phase = "running";
@@ -586,8 +586,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
   intervalStrategy: sanitizeIntervalStrategy(DEFAULT_INTERVAL_STRATEGY),
   lastNProgress: sanitizeLastNProgress(DEFAULT_LAST_N_PROGRESS),
   bots: defaultBotsPersist(),
-  botByConn: Object.fromEntries(DESK_CONN_IDS.map((id) => [id, { ...freshConnBots(), running: id === "bingx-vst-01", touched: true }])),
-  botsRunning: true,
+  botByConn: emptyBotByConn(),
+  botsRunning: false,
   exchange: null,
   liveSession: null,
   liveOverall: null,
@@ -2259,15 +2259,6 @@ export const useDesk = create<DeskStore>((set, get) => ({
     } catch {
       /* stay on local */
     } finally {
-      if (!get().botByConn["bingx-x01"]?.running) get().runLiveBots();
-      const x02 = get().botByConn["bingx-vst-02"];
-      if (x02?.running) {
-        const botByConn = { ...get().botByConn, "bingx-vst-02": { ...x02, running: false } };
-        set({
-          botByConn,
-          connections: get().connections.map((c) => ({ ...c, armed: c.id === "bingx-vst-02" ? false : Boolean(botByConn[c.id]?.running) })),
-        });
-      }
       connLocked = true;
     }
   },
