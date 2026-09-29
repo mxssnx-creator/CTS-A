@@ -256,10 +256,7 @@ export function isOwnedExchangeOrder(
   connId?: string | null,
 ): boolean {
   if (!o) return false;
-  if (isDeskClientOrderId(o.clientOrderId, connId)) return true;
-  // API omitted clientOrderId but the parser already marked this connection's ticket.
-  if (o.owned === true && !o.clientOrderId) return true;
-  return false;
+  return isDeskClientOrderId(o.clientOrderId, connId);
 }
 
 export function ownKeysFromOrders(

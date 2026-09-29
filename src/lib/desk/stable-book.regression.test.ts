@@ -167,6 +167,8 @@ describe("stable-0929 live book", () => {
     assert.match(session, /let triggerQuietUntil = 0/);
     assert.match(session, /const postCap = missingN > 0 \? Math\.min\(2, missingN \* 2\) : 0/);
     assert.match(session, /if \(protectGapNow === 0 && !apiQuiet\(\) && !triggerQuiet\(\) && STRAT\.trailing\)/);
+    assert.doesNotMatch(session, /controlOnOwned/);
+    assert.doesNotMatch(session, /send\(stop, 0, true\)/);
     const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
     assert.doesNotMatch(store, /get\(\)\.runLiveBots\(\)/);
     assert.match(store, /botsRunning: false/);

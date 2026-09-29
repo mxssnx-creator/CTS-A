@@ -159,6 +159,7 @@ function markLiveOrder(orderId, status, extra = {}) {
 function syncOrderLedger(orders) {
   const seen = new Set();
   for (const o of orders ?? []) {
+    if (!isDeskOrder(o)) continue;
     const id = exchangeOrderId(o?.id);
     if (!id) continue;
     seen.add(id);
@@ -202,6 +203,7 @@ function controlsForLeg(symbol, side) {
     if (rec.symbol !== symbol || rec.side !== side) continue;
     if (rec.role !== "sl" && rec.role !== "tp") continue;
     if (rec.status !== "open" && rec.status !== "partial") continue;
+    if (!isDeskClientOrderId(rec.clientOrderId, CONN)) continue;
     rows.push(rec);
   }
   return rows;
@@ -223,11 +225,15 @@ function isOwnedLeg(symbol, side) {
   return mirrored.has(`seed:${k}`);
 }
 function isDeskOrder(o) {
-  return isOwnedExchangeOrder(o, CONN) || isDeskClientOrderId(o?.clientOrderId, CONN);
+  if (!o) return false;
+  if (isOwnedExchangeOrder(o, CONN) || isDeskClientOrderId(o?.clientOrderId, CONN)) return true;
+  const id = exchangeOrderId(o?.id);
+  if (!id || !orderLedger.has(id)) return false;
+  return isDeskClientOrderId(orderLedger.get(id)?.clientOrderId, CONN);
 }
 /** Cancel/replace only tickets tagged for this connection. Never touch foreign or other CTS slots. */
 function mayCancelOrder(o) {
-  return Boolean(o) && isDeskOrder(o);
+  return isDeskOrder(o);
 }
 function refreshTaggedKeys(orders) {
   taggedKeys.clear();
@@ -1832,10 +1838,10 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const legQty = new Map(legs.map((p) => [`${p.symbol}:${p.side}`, Number(p.qty) || 0]));
   const liveOwnedSet = new Set(owned.map((p) => `${p.symbol}:${p.side}`));
   for (const o of book.orders ?? []) {
+    if (!mayCancelOrder(o)) continue;
     const key = `${o.symbol}:${o.side}`;
     const k = kindOf(o.type);
     if (!k) continue;
-    if (!legSet.has(key) && !mayCancelOrder(o)) continue;
     const cur = grouped.get(key) ?? { sl: [], tp: [] };
     cur[k].push(o);
     grouped.set(key, cur);
@@ -1845,18 +1851,16 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     if (orderCovered(g.sl, q)) hasSl.add(key);
     if (orderCovered(g.tp, q)) hasTp.add(key);
   }
-  const coverNow = countProtect(legs, book.orders ?? []);
+  const coverNow = countProtect(owned, (book.orders ?? []).filter((o) => mayCancelOrder(o)));
   lastBook.sl = coverNow.sl;
   lastBook.tp = coverNow.tp;
   lastBook.unprotected = coverNow.gap;
   const map = await fetchContractMap(network);
   const notes = [];
-  const cancelOne = async (o, force = false) => {
+  const cancelOne = async (o) => {
     const oid = exchangeOrderId(o?.id);
     if (!oid || cancelFailed.has(oid)) return { ok: false, id: oid, error: oid ? "held" : "bad orderId" };
-    const key = `${o?.symbol}:${o?.side}`;
-    const controlOnOwned = Boolean(kindOf(o?.type)) && liveOwnedSet.has(key);
-    if (!force && !mayCancelOrder(o) && !controlOnOwned) return { ok: false, id: oid, error: "foreign" };
+    if (!mayCancelOrder(o)) return { ok: false, id: oid, error: "foreign" };
     const r = await withLiveBusy(() =>
       cancelSwapOrder({
         network,
@@ -1951,10 +1955,9 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   });
   notes.push(...extraOut.filter(Boolean));
 
-  const posByVol = [...legs].sort(
+  const posByVol = [...owned].sort(
     (a, b) => vol1hOf(e?.quotes?.[b.symbol]) - vol1hOf(e?.quotes?.[a.symbol]),
   );
-  const closeRetry = (err) => /closePosition|close position|available amount|quantity|position|reduceOnly|precision|lot size|size/i.test(String(err || ""));
   const priceRetry = (err) => /stopPrice|trigger|price|must be|greater|lower|above|below|control price/i.test(String(err || ""));
   const specFor = (p) => map.get(p?.venueSymbol) || map.get(BINGX_SYMBOL[p?.symbol] || "") || null;
   const clampControl = (side, kind, mark, want, spec) => {
@@ -1996,7 +1999,8 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     if (!(stop > 0)) return { ok: false, error: "control price" };
     const q = qty > 0 ? snapQtyDown(qty, spec) : snapQtyDown(p.qty, spec);
     const px = mark > 0 ? mark : p.mark || p.entry || stop;
-    const send = async (stopPx, quantity, closePosition) => withLiveBusy(() => placeSwapOrder({
+    if (!(q > 0)) return { ok: false, error: "own qty" };
+    const send = async (stopPx, quantity) => withLiveBusy(() => placeSwapOrder({
       network,
       connId: CONN,
       symbol: p.symbol,
@@ -2006,30 +2010,25 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       price: px,
       stopPrice: stopPx,
       quantity,
-      notional: Math.max(1, (quantity > 0 ? quantity : p.qty) * px),
+      notional: Math.max(1, quantity * px),
       confirmLive: true,
       attachProtect: false,
       reduceOnly: false,
       exactQty: true,
-      closePosition,
+      closePosition: false,
       clientOrderId: makeClientOrderId(CONN, kind === "sl" ? "S" : "T"),
     }));
-    let r = q > 0 ? await send(stop, q, false) : await send(stop, 0, true);
+    let r = await send(stop, q);
     if (!r.ok && priceRetry(r.error)) {
       const wider = clampControl(p.side, kind, mark, kind === "sl"
         ? (p.side === "long" ? px * (1 - 0.008) : px * (1 + 0.008))
         : (p.side === "long" ? px * (1 + 0.008) : px * (1 - 0.008)), spec);
       if (wider > 0 && Math.abs(wider - stop) / px > 1e-6) {
         const first = String(r.error || "err");
-        r = q > 0 ? await send(wider, q, false) : await send(wider, 0, true);
+        r = await send(wider, q);
         stop = wider;
         if (!r.ok) r = { ...r, error: `${first} | ${r.error || "err"}` };
       }
-    }
-    if (!r.ok && closeRetry(r.error)) {
-      const first = String(r.error || "err");
-      r = await send(stop, 0, true);
-      if (!r.ok) r = { ...r, error: `${first} | ${r.error || "err"}` };
     }
     if (!r.ok) r = { ...r, error: `${r.error || "err"} @${stop} q${q}` };
     if (r.ok) {
@@ -2209,11 +2208,11 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const trailT0 = Date.now();
   let trailed = 0;
   let covered = 0;
-  for (const p of legs) {
+  for (const p of owned) {
     const key = `${p.symbol}:${p.side}`;
     if (hasSl.has(key) && hasTp.has(key)) covered += 1;
   }
-  const protectGapNow = Math.max(0, legs.length - covered);
+  const protectGapNow = Math.max(0, owned.length - covered);
   if (protectGapNow === 0 && !apiQuiet() && !triggerQuiet() && STRAT.trailing) {
     const mode = network === "mainnet" ? "main" : "vst";
     const trailNeed = [];
@@ -3037,7 +3036,7 @@ async function mirrorToExchange(e, network, cfg) {
       restingEntry;
     if (symbolTaken && !isBlockAdd && !IS_X01) {
       const onSym =
-        (book.orders ?? []).filter((o) => o.symbol === f.symbol && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition).length +
+        (book.orders ?? []).filter((o) => isDeskOrder(o) && o.symbol === f.symbol && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition).length +
         fillJobs.filter((x) => x.symbol === f.symbol).length;
       if (onSym >= 6) {
         skipTaken += 1;
@@ -3045,7 +3044,7 @@ async function mirrorToExchange(e, network, cfg) {
       }
     }
     if (symbolTaken && !isBlockAdd && IS_X01) {
-      const onSym = (book.orders ?? []).filter((o) => o.symbol === f.symbol && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition).length;
+      const onSym = (book.orders ?? []).filter((o) => isDeskOrder(o) && o.symbol === f.symbol && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition).length;
       const symCap = f.ladder ? X01_LADDER_PER_SYM : 12;
       if (onSym + fillJobs.filter((x) => x.symbol === f.symbol).length >= symCap) {
         skipTaken += 1;
