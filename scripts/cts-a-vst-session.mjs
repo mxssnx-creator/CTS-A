@@ -161,7 +161,7 @@ async function raiseOwnedLeverage(network, positions) {
   return `lev hold ${take.length} · peak ${armed.max}x`;
 }
 
-let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0, foreignPos: 0, foreignOrd: 0 };
+let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0, foreignPos: 0, foreignOrd: 0, unprotected: 0 };
 let lastTrail = { n: 0, ms: 0, at: 0 };
 let lastExec = { n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 };
 let lastPnl = [];
@@ -775,7 +775,7 @@ function snapshot(e, extra) {
     trailN: lastTrail.n,
     trailMs: lastTrail.ms,
     partials: e.stats?.partials ?? book.orders.partial,
-    controlGap: Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0)),
+    controlGap: Math.max(0, Number(lastBook.unprotected) || 0),
     minPf: LIVE_MIN_PF,
     pfGate: pfGateClosed(),
     liveDisabled: Object.keys(e.liveDisabled ?? {}).length,
@@ -977,23 +977,37 @@ function protectKind(t) {
   return "";
 }
 
+function orderCovered(list, qty) {
+  if (!list?.length || !(Number(qty) > 0)) return false;
+  if (list.some((o) => o.closePosition)) return true;
+  const q = list.reduce((s, o) => s + (Number(o.remaining ?? o.qty) || 0), 0);
+  return q + 1e-9 >= Number(qty) * 0.92;
+}
+
 function countProtect(positions, orders) {
-  const sl = new Set();
-  const tp = new Set();
+  const sl = new Map();
+  const tp = new Map();
   for (const o of orders ?? []) {
     const k = `${o.symbol}:${o.side}`;
     const kind = protectKind(o.type);
-    if (kind === "sl") sl.add(k);
-    else if (kind === "tp") tp.add(k);
+    if (kind !== "sl" && kind !== "tp") continue;
+    const cur = (kind === "sl" ? sl : tp).get(k) ?? [];
+    cur.push(o);
+    (kind === "sl" ? sl : tp).set(k, cur);
   }
   let nSl = 0;
   let nTp = 0;
+  let gap = 0;
   for (const p of positions ?? []) {
+    if (!(Number(p.qty) > 0)) continue;
     const k = `${p.symbol}:${p.side}`;
-    if (sl.has(k)) nSl += 1;
-    if (tp.has(k)) nTp += 1;
+    const okSl = orderCovered(sl.get(k), p.qty);
+    const okTp = orderCovered(tp.get(k), p.qty);
+    if (okSl) nSl += 1;
+    if (okTp) nTp += 1;
+    if (!okSl || !okTp) gap += 1;
   }
-  return { sl: nSl, tp: nTp };
+  return { sl: nSl, tp: nTp, gap };
 }
 
 function deskExecRows(rows) {
@@ -1641,26 +1655,28 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     return "";
   };
   const owned = (book.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
+  const legs = (book.positions ?? []).filter((p) => Number(p.qty) > 0);
+  const legSet = new Set(legs.map((p) => `${p.symbol}:${p.side}`));
+  const legQty = new Map(legs.map((p) => [`${p.symbol}:${p.side}`, Number(p.qty) || 0]));
   const liveOwnedSet = new Set(owned.map((p) => `${p.symbol}:${p.side}`));
   for (const o of book.orders ?? []) {
     const key = `${o.symbol}:${o.side}`;
     const k = kindOf(o.type);
     if (!k) continue;
-    if (!mayCancelOrder(o) && !liveOwnedSet.has(key)) continue;
-    if (k === "sl") hasSl.add(key);
-    else hasTp.add(key);
+    if (!legSet.has(key) && !mayCancelOrder(o)) continue;
     const cur = grouped.get(key) ?? { sl: [], tp: [] };
     cur[k].push(o);
     grouped.set(key, cur);
   }
-  lastBook.sl = countProtect(owned, (book.orders ?? []).filter((o) => mayCancelOrder(o))).sl;
-  lastBook.tp = countProtect(owned, (book.orders ?? []).filter((o) => mayCancelOrder(o))).tp;
-  const missing = owned.filter((p) => {
-    const key = `${p.symbol}:${p.side}`;
-    return !hasSl.has(key) || !hasTp.has(key);
-  });
-  const extras = [...grouped.entries()].some(([key, g]) => liveOwnedSet.has(key) && ((g.sl?.length ?? 0) > 1 || (g.tp?.length ?? 0) > 1));
-  const stray = [...grouped.keys()].some((key) => !liveOwnedSet.has(key));
+  for (const [key, g] of grouped) {
+    const q = legQty.get(key) || 0;
+    if (orderCovered(g.sl, q)) hasSl.add(key);
+    if (orderCovered(g.tp, q)) hasTp.add(key);
+  }
+  const coverNow = countProtect(legs, book.orders ?? []);
+  lastBook.sl = coverNow.sl;
+  lastBook.tp = coverNow.tp;
+  lastBook.unprotected = coverNow.gap;
   const map = await fetchContractMap(network);
   const notes = [];
   const cancelOne = async (o, force = false) => {
@@ -1686,7 +1702,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
 
   const strayJobs = [];
   for (const [key, g] of grouped) {
-    if (liveOwnedSet.has(key)) continue;
+    if (legSet.has(key)) continue;
     for (const o of [...(g.sl || []), ...(g.tp || [])]) {
       if (mayCancelOrder(o)) strayJobs.push({ key, o });
     }
@@ -1754,7 +1770,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   });
   notes.push(...extraOut.filter(Boolean));
 
-  const posByVol = [...owned].sort(
+  const posByVol = [...legs].sort(
     (a, b) => vol1hOf(e?.quotes?.[b.symbol]) - vol1hOf(e?.quotes?.[a.symbol]),
   );
   const closeRetry = (err) => /closePosition|close position|available amount|quantity|position|reduceOnly|precision|lot size|size/i.test(String(err || ""));
@@ -1815,24 +1831,24 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       exactQty: true,
       closePosition,
     }));
-    let r = q > 0
-      ? await send(stop, q, false)
-      : await send(stop, Math.max(p.qty || 0, 0), true);
+    let r = await send(stop, 0, true);
     if (!r.ok && priceRetry(r.error)) {
       const wider = clampControl(p.side, kind, mark, kind === "sl"
         ? (p.side === "long" ? px * (1 - 0.008) : px * (1 + 0.008))
         : (p.side === "long" ? px * (1 + 0.008) : px * (1 - 0.008)), spec);
       if (wider > 0 && Math.abs(wider - stop) / px > 1e-6) {
         const first = String(r.error || "err");
-        r = await send(wider, q > 0 ? q : snapQtyDown(p.qty, spec), false);
+        r = await send(wider, 0, true);
         stop = wider;
         if (!r.ok) r = { ...r, error: `${first} | ${r.error || "err"}` };
       }
     }
-    if (!r.ok && closeRetry(r.error)) {
+    if (!r.ok) {
       const first = String(r.error || "err");
-      const qClose = q > 0 ? q : snapQtyDown(p.qty, spec);
-      r = await send(stop, qClose, true);
+      r = q > 0 ? await send(stop, q, false) : await send(stop, Math.max(p.qty || 0, 0), true);
+      if (!r.ok && closeRetry(r.error)) {
+        r = await send(stop, q > 0 ? q : snapQtyDown(p.qty, spec), true);
+      }
       if (!r.ok) r = { ...r, error: `${first} | ${r.error || "err"}` };
     }
     if (!r.ok) r = { ...r, error: `${r.error || "err"} @${stop} q${q}` };
@@ -1844,7 +1860,6 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const local = [];
     let n = 0;
     const key = `${p.symbol}:${p.side}`;
-    if (!isOwnedLeg(p.symbol, p.side)) return { notes: local, posts: n };
     const px = p.mark || p.entry || 0;
     if (!(px > 0) || !(p.qty > 0)) return { notes: local, posts: n };
     const spec = specFor(p);
@@ -1892,7 +1907,8 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const replaceKind = async (kind, type, list) => {
         const prev = Number(list?.[0]?.stopPrice || list?.[0]?.price || 0);
         if (list?.length) {
-          await mapLimit(list, 2, (o) => cancelOne(o, true));
+          const ours = list.filter((o) => mayCancelOrder(o));
+          if (ours.length) await mapLimit(ours, 2, (o) => cancelOne(o, true));
           if (kind === "sl") hasSl.delete(key);
           else hasTp.delete(key);
         }
@@ -1921,25 +1937,33 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (driftSl && !apiQuiet()) await replaceKind("sl", "STOP_MARKET", g?.sl || []);
       if (driftTp && !apiQuiet()) await replaceKind("tp", "TAKE_PROFIT_MARKET", g?.tp || []);
     }
+    const retireShort = async (kind) => {
+      const ours = (grouped.get(key)?.[kind] || []).filter((o) => mayCancelOrder(o));
+      if (!ours.length) return;
+      await mapLimit(ours.slice(0, 3), 2, (o) => cancelOne(o, true));
+    };
     if (!hasSl.has(key) && !apiQuiet()) {
-      local.push(await attach("sl", "STOP_MARKET", `sl:${key}`));
-      await sleep(120);
+      const note = await attach("sl", "STOP_MARKET", `sl:${key}`);
+      local.push(note);
+      if (!String(note).includes(" skip ")) await retireShort("sl");
+      await sleep(80);
     }
     if (!hasTp.has(key) && !apiQuiet()) {
-      local.push(await attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`));
+      const note = await attach("tp", "TAKE_PROFIT_MARKET", `tp:${key}`);
+      local.push(note);
+      if (!String(note).includes(" skip ")) await retireShort("tp");
     }
     return { notes: local, posts: n };
   };
 
   const need = [];
   for (const p of posByVol) {
-    if (!isOwnedLeg(p.symbol, p.side)) continue;
     const key = `${p.symbol}:${p.side}`;
     if ((protectHold.get(key) || 0) > Date.now()) continue;
     if (!(p.qty > 0) || !((p.mark || p.entry) > 0)) continue;
     const g = grouped.get(key);
-    const slQ = Number(g?.sl?.[0]?.remaining ?? g?.sl?.[0]?.qty ?? 0);
-    const tpQ = Number(g?.tp?.[0]?.remaining ?? g?.tp?.[0]?.qty ?? 0);
+    const slQ = (g?.sl || []).reduce((s, o) => s + (Number(o.remaining ?? o.qty) || 0), 0);
+    const tpQ = (g?.tp || []).reduce((s, o) => s + (Number(o.remaining ?? o.qty) || 0), 0);
     const slFull = Boolean(g?.sl?.some((o) => o.closePosition));
     const tpFull = Boolean(g?.tp?.some((o) => o.closePosition));
     const wantQ = p.qty;
@@ -1951,26 +1975,30 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const cellProt = liveProtectPrices(entry || p.mark, p.side, cell.slAtr, cell.tpRatio, spec, network === "mainnet" ? "main" : "vst");
     const shortLive = cfgUsesShortRange(cfg) || cfgUsesShortRange(currentPick?.cfg);
     const wantProt = (shortLive && shortStopPrices(p, { ...cell, ...(cfg || {}), ...(currentPick?.cfg || {}) }, spec, e)) || cellProt;
-    const slLoose = hasSl.has(key) && slIsLooser(p.side, curSl, wantProt.sl);
-    const tpLoose = hasTp.has(key) && tpIsLooser(p.side, curTp, wantProt.tp);
+    const ownedLeg = isOwnedLeg(p.symbol, p.side);
+    const slLoose = ownedLeg && hasSl.has(key) && slIsLooser(p.side, curSl, wantProt.sl);
+    const tpLoose = ownedLeg && hasTp.has(key) && tpIsLooser(p.side, curTp, wantProt.tp);
     const mark = Number(p.mark || p.entry || 0);
-    const slWrong = hasSl.has(key) && mark > 0 && (p.side === "short" ? !(curSl > mark) : !(curSl > 0 && curSl < mark));
-    const tpWrong = hasTp.has(key) && mark > 0 && (p.side === "short" ? !(curTp > 0 && curTp < mark) : !(curTp > mark));
+    const slWrong = ownedLeg && hasSl.has(key) && mark > 0 && (p.side === "short" ? !(curSl > mark) : !(curSl > 0 && curSl < mark));
+    const tpWrong = ownedLeg && hasTp.has(key) && mark > 0 && (p.side === "short" ? !(curTp > 0 && curTp < mark) : !(curTp > mark));
     const slDrift =
+      ownedLeg &&
       hasSl.has(key) &&
       wantQ > 0 &&
       (slWrong || slLoose || (!slFull && slQ > 0 && Math.abs(wantQ - slQ) / Math.max(wantQ, slQ) > 0.08));
     const tpDrift =
+      ownedLeg &&
       hasTp.has(key) &&
       (tpWrong || tpLoose || (!tpFull && tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.08));
     if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift, missing: !hasSl.has(key) || !hasTp.has(key) });
   }
   need.sort((a, b) => Number(b.missing) - Number(a.missing) || Number(a.p.pnl || 0) - Number(b.p.pnl || 0));
   const missingN = need.filter((row) => row.missing).length;
-  const postCap = missingN > 0 ? Math.min(16, Math.max(6, missingN * 2)) : 2;
-  for (let i = 0; i < need.length && posts < postCap; i += 1) {
+  const postCap = missingN > 0 ? Math.min(12, Math.max(8, missingN * 2)) : 2;
+  const work = missingN > 0 ? need.filter((row) => row.missing) : need;
+  for (let i = 0; i < work.length && posts < postCap; i += 1) {
     if (apiQuiet()) break;
-    const row = need[i];
+    const row = work[i];
     const r = await protectOne(row.p, row.missing ? false : row.slDrift, row.missing ? false : row.tpDrift);
     posts += r.posts;
     notes.push(...r.notes);
@@ -1980,11 +2008,11 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const trailT0 = Date.now();
   let trailed = 0;
   let covered = 0;
-  for (const p of owned) {
+  for (const p of legs) {
     const key = `${p.symbol}:${p.side}`;
     if (hasSl.has(key) && hasTp.has(key)) covered += 1;
   }
-  const protectGapNow = Math.max(0, owned.length - covered);
+  const protectGapNow = Math.max(0, legs.length - covered);
   if (protectGapNow === 0 && !apiQuiet() && STRAT.trailing) {
     const mode = network === "mainnet" ? "main" : "vst";
     const trailNeed = [];
@@ -2129,14 +2157,19 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   lastTrail = { n: trailed, ms: Date.now() - trailT0, at: Date.now() };
   let slN = 0;
   let tpN = 0;
-  for (const p of owned) {
+  for (const p of legs) {
     const key = `${p.symbol}:${p.side}`;
     if (hasSl.has(key)) slN += 1;
     if (hasTp.has(key)) tpN += 1;
   }
   lastBook.sl = slN;
   lastBook.tp = tpN;
-  if (notes.length) return notes.filter(Boolean).slice(0, 4).join(" · ");
+  lastBook.unprotected = legs.filter((p) => {
+    const key = `${p.symbol}:${p.side}`;
+    return !hasSl.has(key) || !hasTp.has(key);
+  }).length;
+  if (lastBook.unprotected > 0) notes.unshift(`gap ${lastBook.unprotected}`);
+  if (notes.length) return notes.filter(Boolean).slice(0, 6).join(" · ");
   return null;
 }
 
@@ -2155,7 +2188,7 @@ function comboMiss(e, rel) {
 async function mirrorToExchange(e, network, cfg) {
   if (apiQuiet()) return null;
   if (e?.preEvalDone === false) return null;
-  const gapNow = Math.max(0, (lastBook.pos || 0) - Math.min(lastBook.sl || 0, lastBook.tp || 0));
+  const gapNow = Math.max(0, Number(lastBook.unprotected) || 0);
   if (Date.now() - liveLast < (gapNow > 0 ? 250 : IS_X01 ? 400 : 700)) return;
   liveLast = Date.now();
   const keys = keysForConn(CONN);
@@ -2202,7 +2235,7 @@ async function mirrorToExchange(e, network, cfg) {
   const deskOrd = (book.orders ?? []).filter((o) => isDeskOrder(o));
   const foreignPosN = (book.positions ?? []).filter((p) => !isOwnedLeg(p.symbol, p.side)).length;
   const foreignOrdN = (book.orders ?? []).filter((o) => !isDeskOrder(o)).length;
-  const prot = countProtect(deskPos, deskOrd);
+  const prot = countProtect(book.positions ?? [], book.orders ?? []);
   lastBook = {
     pos: deskPos.length,
     ord: deskOrd.length,
@@ -2210,6 +2243,7 @@ async function mirrorToExchange(e, network, cfg) {
     ok: true,
     sl: prot.sl,
     tp: prot.tp,
+    unprotected: prot.gap,
     equity: Number(book.equity) || lastBook.equity || 0,
     latencyMs: Number(book.latencyMs) || 0,
     foreignPos: foreignPosN,
@@ -2314,7 +2348,7 @@ async function mirrorToExchange(e, network, cfg) {
   if (guard) notes.push(guard);
   const flat = await flattenBelowMinPf(network, book, e);
   if (flat) notes.push(flat);
-  const protectGap = lastBook.pos - Math.min(lastBook.sl, lastBook.tp);
+  const protectGap = Math.max(0, Number(lastBook.unprotected) || 0);
   const restingLimits = (book.orders ?? []).filter(
     (o) => isDeskOrder(o) && String(o.type || "").toUpperCase() === "LIMIT" && !o.closePosition,
   ).length;
