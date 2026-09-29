@@ -8,6 +8,8 @@ Machine copy: [breakpoints/stable-0929.json](breakpoints/stable-0929.json).
 npm run test:stable
 ```
 
+`test:stable` runs the coordination cell and [src/lib/desk/stable-book.regression.test.ts](../src/lib/desk/stable-book.regression.test.ts). That file locks the 100-signal cap, unlimited orders, the control pins, and bots staying off.
+
 ## Live book
 
 | Rule | Value |
