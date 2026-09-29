@@ -2187,6 +2187,7 @@ async function mirrorToExchange(e, network, cfg) {
   const gapNow = Math.max(0, Number(lastBook.unprotected) || 0);
   if (Date.now() - liveLast < (gapNow > 0 ? 250 : IS_X01 ? 400 : 700)) return;
   liveLast = Date.now();
+  const mirrorDeadline = Date.now() + (IS_X01 ? 16_000 : 40_000);
   const keys = keysForConn(CONN);
   if (!keys.apiKey || !keys.secret) return "live no keys";
   let book;
@@ -2369,6 +2370,18 @@ async function mirrorToExchange(e, network, cfg) {
   if (openN >= budget.maxPos) return notes.length ? notes.join(" · ") : null;
   if (protectGap > 0) {
     notes.push(`protect gap ${protectGap}`);
+    return notes.filter(Boolean).slice(0, 4).join(" · ");
+  }
+  if (IS_X01 && !hourAllowsEntry()) {
+    const line = `q ${(e.queue ?? []).length} scan 0 jobs 0 ok 0 hour`;
+    const now = Date.now();
+    if (line !== lastLiveLine || now - lastLiveLineAt > 30_000) {
+      lastLiveLine = line;
+      lastLiveLineAt = now;
+      console.log(line);
+      try { appendFileSync("/var/log/cts-a/live-send.log", `${new Date(now).toISOString()} ${line}\n`); } catch { /* ignore */ }
+    }
+    notes.push(line);
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
 
@@ -2679,6 +2692,10 @@ async function mirrorToExchange(e, network, cfg) {
       ? [...scanIntents.filter((f) => f.ladder), ...e.fills, ...scanIntents.filter((f) => !f.ladder)]
       : [...e.fills, ...scanIntents];
   for (const f of ordered) {
+    if (Date.now() > mirrorDeadline) {
+      notes.push("mirror budget");
+      break;
+    }
     const blockish = isBlockIntent(f);
     const overallOrder = /Overall Block/i.test(String(f?.note || "")) || /^ob/i.test(String(f?.id || ""));
     if (overallOrder && BLOCK.overall === false) continue;
@@ -3539,13 +3556,17 @@ async function main() {
   const askStop = (sig) => {
     if (stopAsked) return;
     stopAsked = true;
-    hostPhase = "stopped";
-    adjustments.push(`stop ${sig}`);
+    adjustments.push(`stop ${sig} · book kept`);
   };
   process.on("SIGTERM", () => askStop("SIGTERM"));
   process.on("SIGINT", () => askStop("SIGINT"));
 
   void (async () => {
+    if (IS_X01) {
+      computeDone = true;
+      adjustments.push("complete compute off · live x01 pinned · book not stalled");
+      return;
+    }
     while (examLeft > 0 && !stopAsked) await sleep(200);
     if (stopAsked) return;
     await sleep(IS_X01 ? 15000 : 180_000);
@@ -3704,18 +3725,22 @@ async function main() {
         } else if (hostPhase === "stopped") {
           haltEngine(engine, CONN);
           engine.phase = "stopped";
-          adjustments.push("host stop");
-          if (ping.pingOk) {
-            try {
-              const book = await withTimeout(fetchExchangeBook({ network: ping.network, connId: CONN }), 8000, "stop book");
-              for (const p of book?.positions ?? []) {
-                const k = `${p.symbol}:${p.side}`;
-                if (!isOwnedLeg(p.symbol, p.side) && !mirrored.has(`own:${k}`) && !mirrored.has(`live:${k}`)) continue;
-                await withTimeout(closeHit(ping.network, p), 8000, "stop flat");
-                adjustments.push(`stop flat ${p.symbol}`);
+          if (IS_X01 || stopAsked) {
+            adjustments.push("host stop · book kept");
+          } else {
+            adjustments.push("host stop");
+            if (ping.pingOk) {
+              try {
+                const book = await withTimeout(fetchExchangeBook({ network: ping.network, connId: CONN }), 8000, "stop book");
+                for (const p of book?.positions ?? []) {
+                  const k = `${p.symbol}:${p.side}`;
+                  if (!isOwnedLeg(p.symbol, p.side) && !mirrored.has(`own:${k}`) && !mirrored.has(`live:${k}`)) continue;
+                  await withTimeout(closeHit(ping.network, p), 8000, "stop flat");
+                  adjustments.push(`stop flat ${p.symbol}`);
+                }
+              } catch (err) {
+                adjustments.push(`stop flat ${err instanceof Error ? err.message : "err"}`);
               }
-            } catch (err) {
-              adjustments.push(`stop flat ${err instanceof Error ? err.message : "err"}`);
             }
           }
         } else if (hostPhase === "running") {

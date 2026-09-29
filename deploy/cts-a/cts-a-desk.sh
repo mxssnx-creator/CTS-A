@@ -10,6 +10,8 @@ export PORT="${PORT:-3202}"
 export PATH="${ROOT}/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 # Never inherit the 2GB heap from cts-a.env. Vite dev stays inside the unit cap.
 export NODE_OPTIONS="--max-old-space-size=640"
+# Remote desk does not need HMR. Watching scripts/sim dumps was growing the process.
+export CTS_A_DESK_HMR=0
 
 mkdir -p "$LOG_DIR" /var/lib/cts-a
 

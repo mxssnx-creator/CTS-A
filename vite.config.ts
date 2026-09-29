@@ -275,13 +275,17 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
-    hmr: { overlay: false },
+    hmr: process.env.CTS_A_DESK_HMR === "0" ? false : { overlay: false },
     watch: {
       ignored: [
         "**/node_modules/**",
         "**/.git/**",
         "**/artifacts/**",
         "**/.output/**",
+        "**/scripts/**",
+        "**/deploy/**",
+        "**/public/sim-*",
+        "**/*.log",
         "**/public/live-session.json",
         "**/public/overall-stats.json",
         "**/public/config-results.html",
