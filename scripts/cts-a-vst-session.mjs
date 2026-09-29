@@ -74,6 +74,7 @@ const X01_LADDER_PER_SYM = 8;
 const LIVE_MIN_PF = IS_X01
   ? 1.15
   : Math.max(DEFAULT_SHORT_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_SHORT_PF) || DEFAULT_SHORT_PF);
+const LIVE_MAX_DDT = IS_X01 ? 14 : 22;
 const LIVE_SYMBOLS = clampLiveSymbolCap(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? 50 : VST_LIVE_SYMBOLS)));
 const EVAL_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_EVAL_SYMBOLS ?? VST_MAX_SYMBOLS));
 const UNI = new Set(universeSymbols(EVAL_SYMBOLS).map((s) => s.id));
@@ -859,7 +860,7 @@ function writeSettingsPick(pick, extra = {}) {
     enabledKinds: [...DEFAULT_ENABLED_KINDS],
     strategyId: "normal",
     minPf: LIVE_MIN_PF,
-    thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, shortPf: DEFAULT_SHORT_PF, shortBasePf: DEFAULT_SHORT_BASE_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: 22 },
+    thresholds: { minPf: LIVE_MIN_PF, basePf: DEFAULT_BASE_PF, axisPf: DEFAULT_AXIS_PF, blockPf: DEFAULT_BLOCK_PF, shortPf: DEFAULT_SHORT_PF, shortBasePf: DEFAULT_SHORT_BASE_PF, maxMdd: 0.12, minWr: 0.55, minVf: 1.12, maxDdt: LIVE_MAX_DDT },
     activeConnId: CONN,
     evalHours: [...AUTO_EVAL_HOURS],
     evalLastNs: [EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N],
