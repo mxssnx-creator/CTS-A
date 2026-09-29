@@ -485,6 +485,10 @@ function alignConnOrders(conns: Connection[], orderType: OrderTypeId): Connectio
   );
 }
 
+function hostPinned(state: { liveSession: Record<string, unknown> | null }): boolean {
+  return String(state.liveSession?.conn || "") === "bingx-x01";
+}
+
 function queuePersist(snap: DeskSettingsSnap) {
   writeLocalSettings(snap);
   if (typeof window === "undefined") return;
@@ -696,6 +700,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     get().applyLiveConfig();
   },
   setCostStep: (costStep) => {
+    if (hostPinned(get())) return;
     set({ costStep: Math.min(30, Math.max(3, costStep)) });
     get().syncSettings();
   },
@@ -793,7 +798,14 @@ export const useDesk = create<DeskStore>((set, get) => ({
     }
   },
   setThresholds: (p) => {
-    const thresholds = { ...get().thresholds, ...p };
+    const patch = { ...p };
+    if (hostPinned(get())) {
+      delete patch.minPf;
+      delete patch.basePf;
+      delete patch.maxDdt;
+      if (!Object.keys(patch).length) return;
+    }
+    const thresholds = { ...get().thresholds, ...patch };
     const shortProgress = { ...get().shortProgress };
     if (p.shortPf != null) shortProgress.overallPf = p.shortPf;
     if (p.shortBasePf != null) shortProgress.basePf = p.shortBasePf;
@@ -1268,6 +1280,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     get().syncSettings();
   },
   pauseEngine: () => {
+    if (hostPinned(get())) return;
     const e = get().vst;
     if (e.phase !== "running" && !get().liveSession) return;
     e.running = false;
@@ -1277,6 +1290,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     get().syncSettings();
   },
   stopEngine: () => {
+    if (hostPinned(get())) return;
     const e = get().vst;
     if (!get().liveSession && (e.phase === "stopped" || e.phase === "idle")) return;
     haltEngine(e, get().activeConnId);
@@ -1290,6 +1304,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     get().syncSettings();
   },
   resetSession: () => {
+    if (hostPinned(get())) return;
     if (!get().liveSession) {
       set({
         tactic: "trailing",
@@ -1962,6 +1977,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
       prevSess.pingOk === sess.pingOk;
     if (sameShape && prevSess && sess) {
       Object.assign(prevSess, sess);
+      const host = typeof sess.conn === "string" ? sess.conn : "";
+      if (host && isDeskConn(host) && get().activeConnId !== host) set({ activeConnId: host });
       const heldEx = get().exchange;
       if (book?.ok && heldEx?.ok && heldEx.positions.length === book.positions.length) {
         for (let i = 0; i < heldEx.positions.length; i++) {
@@ -2015,8 +2032,10 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const conn = prevConn.find((c) => c.id === liveId) ?? prevConn.find((c) => c.id === "bingx-vst-02");
     const sameConn = conn && conn.positionCount === nextPos && conn.openOrderCount === nextOrd && conn.equity === (equity > 0 ? equity : conn.equity) && conn.network === liveNet;
     pinDeskScroll();
+    const hostConn = typeof sess?.conn === "string" && isDeskConn(sess.conn) ? sess.conn : "";
     set({
       liveSession: sess,
+      ...(hostConn ? { activeConnId: hostConn } : {}),
       liveOverall: keepOv,
       liveElapsed: Number(sess?.elapsedMin ?? get().liveElapsed),
       liveMark: Math.round(Number(sess?.livePnl ?? 0) * 1000),
@@ -2206,7 +2225,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       if (remote) {
         const curAt = get().settingsAt;
         const curRev = get().settingsRev;
-        if (remote.at > curAt || remote.rev > curRev) {
+        if (remote.activeConnId === "bingx-x01" || remote.at > curAt || remote.rev > curRev) {
           get().applySettingsSnap(remote, "server");
           writeLocalSettings(sanitizeDeskSettings(remote));
         }
@@ -2234,7 +2253,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const current = collectDeskSettings(get());
       current.rev = get().settingsRev;
       current.at = get().settingsAt;
-      if (remote.at <= current.at && remote.rev <= current.rev) return;
+      if (remote.activeConnId !== "bingx-x01" && remote.at <= current.at && remote.rev <= current.rev) return;
       if (!settingsDiffer(sanitizeDeskSettings(current), remote) && remote.rev <= current.rev) return;
       get().applySettingsSnap(remote, "server");
       writeLocalSettings(sanitizeDeskSettings(remote));
@@ -2292,6 +2311,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     get().syncSettings();
   },
   setSymbolCount: (n) => {
+    if (hostPinned(get())) return;
     const symbolCount = clampSymbolCount(n);
     const e = get().vst;
     applyUniverse(e, symbolCount, get().orderType);
@@ -2334,6 +2354,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     get().syncSettings();
   },
   setActiveConn: (id) => {
+    if (hostPinned(get()) && id !== "bingx-x01") return;
     if (!isDeskConn(id) || id === get().activeConnId) {
       if (id === get().activeConnId) void get().connectActive();
       return;

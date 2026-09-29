@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { lockDeskSettings } from "../../../scripts/lock-desk-settings.mjs";
 import { liveSettingsCandidates, pickLiveJsonFile } from "./live-files.ts";
 import { sanitizeDeskSettings, type DeskSettingsSnap } from "./settings-sync.ts";
 
@@ -45,7 +46,7 @@ function atomicWrite(dest: string, body: string) {
 }
 
 export function writeSettingsFile(snap: DeskSettingsSnap, path = settingsWritePath()) {
-  const body = JSON.stringify(snap, null, 2);
+  const body = JSON.stringify(lockDeskSettings(snap, path), null, 2);
   try {
     atomicWrite(path, body);
   } catch {

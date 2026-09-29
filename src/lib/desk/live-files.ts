@@ -35,6 +35,12 @@ export function preferLiveConn(): string {
 }
 
 export function pickLiveJsonFile(cands: string[], preferConn = preferLiveConn()): string | null {
+  const pins = [process.env.CTS_A_STATUS, process.env.CTS_A_SETTINGS, process.env.CTS_A_OVERALL].filter(
+    (p): p is string => Boolean(p),
+  );
+  for (const pinned of pins) {
+    if (cands.includes(pinned) && existsSync(pinned)) return pinned;
+  }
   let best: string | null = null;
   let bestScore = -1;
   const seen = new Set<string>();

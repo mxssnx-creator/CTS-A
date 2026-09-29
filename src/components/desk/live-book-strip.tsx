@@ -36,6 +36,7 @@ export function LiveBookStrip({ title }: { title?: string }) {
         <StatLine k="Positions" v={String(posN)} />
         <StatLine k="Orders" v={String(ordN)} />
         <StatLine k="Foreign held" v={`${live.foreignPos}p / ${live.foreignOrd}o`} />
+        <StatLine k="Control gap" v={String(live.controlGap)} tone={live.controlGap > 0 ? "down" : "up"} />
         <StatLine k="Leverage" v={live.liveLevMax ? `${Math.round(live.liveLevMin)}–${Math.round(live.liveLevMax)}x` : "max / contract"} />
         <StatLine k="Closed" v={String(real ? trades : live.trades)} />
         <StatLine

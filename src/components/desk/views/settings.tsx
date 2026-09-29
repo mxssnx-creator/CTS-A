@@ -561,7 +561,7 @@ export function SettingsView() {
           <StatLine k="Max DD" v={`${(th.maxMdd * 100).toFixed(0)}%`} />
           <StatLine k="Min WR" v={`${(th.minWr * 100).toFixed(0)}%`} />
           <StatLine k="Min VF" v={th.minVf.toFixed(2)} />
-          <StatLine k="Max DDT" v={`${th.maxDdt} bars`} />
+          <StatLine k="Max DDT" v={`${th.maxDdt}h`} />
           <StatLine k="Trailing" v={`${cfg.trailingPct.toFixed(1)}%`} />
           <StatLine k="DCA" v="off" />
           <StatLine k="Axis" v={`${cfg.axisLevels} × ${cfg.axisSpacing.toFixed(1)}`} />
@@ -1191,7 +1191,7 @@ export function SettingsView() {
               min={8}
               max={36}
               step={1}
-              format={(n) => `${n} bars`}
+              format={(n) => `${n}h`}
               onChange={(n) => setTh({ maxDdt: n })}
               ariaLabel="Maximal drawdown time"
             />

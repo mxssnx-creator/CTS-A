@@ -45,6 +45,7 @@ export type LiveNumbers = {
   foreignPos: number;
   foreignOrd: number;
   liveOwned: number;
+  controlGap: number;
   at: number;
   hasLive: boolean;
   conn: string;
@@ -166,6 +167,7 @@ export function liveNumbers(
     foreignPos: num(session?.foreignPos),
     foreignOrd: num(session?.foreignOrd),
     liveOwned: num(session?.liveOwned, livePos),
+    controlGap: num(session?.controlGap),
     at: num(session?.at, payload?.at ?? 0),
     hasLive: Boolean(session || (exchange && exchange.ok)),
     conn,
@@ -212,6 +214,7 @@ function sameSnap(a: LiveNumbers, b: LiveNumbers) {
     a.systemNet === b.systemNet &&
     a.foreignPos === b.foreignPos &&
     a.foreignOrd === b.foreignOrd &&
+    a.controlGap === b.controlGap &&
     a.lastMsg === b.lastMsg &&
     a.at === b.at &&
     a.overall === b.overall &&

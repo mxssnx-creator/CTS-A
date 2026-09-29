@@ -280,6 +280,11 @@ function DeskSidebar({ rail }: { rail?: boolean }) {
   const hasLive = Boolean(liveSession) || liveSnap.hasLive;
   const pingOk = Boolean((liveSession as { pingOk?: boolean } | null)?.pingOk) || liveSnap.pingOk;
   const livePos = Number((liveSession as { livePos?: number } | null)?.livePos ?? liveSnap.livePos ?? 0);
+  const owned = Number((liveSession as { liveOwned?: number } | null)?.liveOwned ?? liveSnap.liveOwned ?? livePos);
+  const foreign = Number((liveSession as { foreignPos?: number } | null)?.foreignPos ?? liveSnap.foreignPos ?? 0);
+  const gap = Number((liveSession as { controlGap?: number } | null)?.controlGap ?? liveSnap.controlGap ?? 0);
+  const hostId = String((liveSession as { conn?: string } | null)?.conn || activeConnId);
+  const hostTag = hostId === "bingx-x01" ? "x01" : hostId === "bingx-vst-01" ? "vst-01" : "vst-02";
   const venueLabel = liveSnap.venueLabel;
 
   return (
@@ -309,7 +314,7 @@ function DeskSidebar({ rail }: { rail?: boolean }) {
         {rail ? null : (
           <div className="mt-1">
             {hasLive
-              ? `desk ${bookPos} pos · exch ${livePos} · ${activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : "vst-02"}`
+              ? `owned ${owned} · exch ${owned + foreign} · gap ${gap} · ${hostTag}`
               : `${bookPos} pos · ${bookOrd} wrk · ${activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : "vst-02"}`}
           </div>
         )}
@@ -418,6 +423,7 @@ function DeskToolbar() {
   const setLastN = useDesk((s) => s.setLastN);
   const costStep = useDesk((s) => s.costStep);
   const setCostStep = useDesk((s) => s.setCostStep);
+  const hostLock = useDesk((s) => String(s.liveSession?.conn || "") === "bingx-x01");
   const tactic = useDesk((s) => s.tactic);
   const rangeType = useDesk((s) => s.rangeType);
 
@@ -425,6 +431,7 @@ function DeskToolbar() {
     <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface px-3 py-2 text-xs text-muted sm:px-4">
       <span>
         Cost <span className="font-mono text-fg tabular">{costStep}</span>
+        {hostLock ? " pinned" : ""}
       </span>
       <input
         aria-label="Position cost step"
@@ -432,8 +439,9 @@ function DeskToolbar() {
         min={3}
         max={30}
         value={costStep}
+        disabled={hostLock}
         onChange={(e) => setCostStep(Number(e.target.value))}
-        className="w-28 sm:w-40"
+        className="w-28 sm:w-40 disabled:opacity-40"
       />
       <span className="hidden sm:inline">
         {TACTIC_META[tactic].label} · {RANGE_META[rangeType].label}

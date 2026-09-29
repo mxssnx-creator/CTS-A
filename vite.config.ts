@@ -11,6 +11,7 @@ import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
 // @ts-expect-error JS plugin alongside the TS vite config
 import { appEnvPlugin } from "./scripts/app-env-plugin.mjs";
 import { isMigrationFile } from "./scripts/migration-plan.mjs";
+import { lockDeskSettings } from "./scripts/lock-desk-settings.mjs";
 
 /** The files `src/lib/db.ts` globs — same directory, same non-recursive scope. */
 function hasGlobbedMigrations(root: string): boolean {
@@ -56,6 +57,12 @@ function liveJsonPlugin(): Plugin {
     ].filter((p): p is string => Boolean(p)),
   };
   function pickFile(cands: string[]): string | null {
+    const pins = [process.env.CTS_A_STATUS, process.env.CTS_A_SETTINGS, process.env.CTS_A_OVERALL].filter(
+      (p): p is string => Boolean(p),
+    );
+    for (const pinned of pins) {
+      if (cands.includes(pinned) && existsSync(pinned)) return pinned;
+    }
     let best: string | null = null;
     let bestScore = -1;
     const seen = new Set<string>();
@@ -112,10 +119,11 @@ function liveJsonPlugin(): Plugin {
                 return;
               }
               const raw = Buffer.concat(chunks).toString("utf8");
-              JSON.parse(raw);
+              const parsed = JSON.parse(raw);
+              const merged = lockDeskSettings(parsed, settingsDest);
               mkdirSync(dirname(settingsDest), { recursive: true });
               const tmp = `${settingsDest}.tmp`;
-              writeFileSync(tmp, raw);
+              writeFileSync(tmp, JSON.stringify(merged, null, 2));
               renameSync(tmp, settingsDest);
               res.statusCode = 200;
               res.setHeader("content-type", "application/json; charset=utf-8");

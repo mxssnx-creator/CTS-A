@@ -124,8 +124,9 @@ export function SessionProgress({
   const hourPct = Math.round((hourTick / TICKS_PER_HOUR) * 100);
   const liveRunning = liveSnap.hasLive && (String(liveSnap.session?.phase ?? liveSnap.session?.sessionPhase ?? "running") !== "paused") && String(liveSnap.session?.phase ?? "") !== "stopped";
   const shownPhase = liveSnap.hasLive ? (liveRunning ? "running" : String(liveSnap.session?.phase ?? "running")) : phase;
-  const canPause = (running && phase === "running") || liveRunning;
-  const canStop = phase === "running" || phase === "paused" || liveSnap.hasLive;
+  const hostLock = liveSnap.conn === "bingx-x01" && liveSnap.hasLive;
+  const canPause = !hostLock && ((running && phase === "running") || liveRunning);
+  const canStop = !hostLock && (phase === "running" || phase === "paused" || liveSnap.hasLive);
   const startLabel = phase === "paused" || String(liveSnap.session?.phase ?? "") === "paused" ? "Resume" : "Start";
 
   const pickRange = (r: RangeType) => {
@@ -176,13 +177,15 @@ export function SessionProgress({
           <Square className="size-4" />
           Stop
         </Button>
-        <Button size="sm" variant="ghost" className="h-11 sm:h-8" onClick={resetSession} aria-label="Reset">
+        <Button size="sm" variant="ghost" className="h-11 sm:h-8" disabled={hostLock} onClick={resetSession} aria-label="Reset">
           <RotateCcw className="size-4" />
           Reset
         </Button>
       </div>
       <p className="mt-2 text-xs text-muted">
-        Stop / Reset / Rearm cancel only {activeConnId} orders and positions. Other exchange sessions stay.
+        {hostLock
+          ? "x01 host is locked. Pause, stop, and reset do not flatten the live book from this desk."
+          : `Stop / Reset / Rearm cancel only ${activeConnId} orders and positions. Other exchange sessions stay.`}
       </p>
       {liveSnap.hasLive && Array.isArray(liveSnap.session?.adjustments) && (liveSnap.session?.adjustments as string[]).length ? (
         <p className="mt-2 font-mono text-[11px] text-muted">

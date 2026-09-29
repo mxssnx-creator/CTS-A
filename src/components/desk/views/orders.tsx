@@ -14,17 +14,18 @@ export function OrdersView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Exchange</p>
         <h1 className="text-2xl font-semibold tracking-tight">Orders</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Open BingX {live.network} control orders for {live.venueLabel}: one SL and one TP per position
-          ({live.livePos} × 2 = {live.liveSl + live.liveTp}).
+          Full stop and target on every open leg for {live.venueLabel}. Owned {live.liveOwned} · other {live.foreignPos} · SL {live.liveSl} · TP {live.liveTp} · gap {live.controlGap}.
         </p>
       </div>
       <LiveBookStrip />
       <Panel title={`Open orders · ${orders.length}`}>
         <div className="mb-3 grid grid-cols-2 gap-x-6 sm:grid-cols-4">
           <StatLine k="Orders" v={String(live.liveOrd)} />
-          <StatLine k="SL + TP" v={`${live.liveSl} + ${live.liveTp}`} />
-          <StatLine k="Expect" v={String(live.livePos * 2)} />
-          <StatLine k="Positions" v={String(live.livePos)} />
+          <StatLine k="SL" v={String(live.liveSl)} />
+          <StatLine k="TP" v={String(live.liveTp)} />
+          <StatLine k="Gap" v={String(live.controlGap)} />
+          <StatLine k="Owned" v={String(live.liveOwned)} />
+          <StatLine k="Other" v={String(live.foreignPos)} />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] text-left text-sm">

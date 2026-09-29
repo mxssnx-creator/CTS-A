@@ -162,7 +162,7 @@ export function StatisticsView() {
           label="Orders"
           value={String(liveSnap.liveOrd)}
           progress={Math.min(1, liveSnap.liveOrd / Math.max(8, liveSnap.livePos * 2 || 8))}
-          hint={`SL ${liveSnap.liveSl} · TP ${liveSnap.liveTp}`}
+          hint={`SL ${liveSnap.liveSl} · TP ${liveSnap.liveTp} · gap ${liveSnap.controlGap}`}
           tone="accent"
         />
       </div>
