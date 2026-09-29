@@ -83,6 +83,13 @@ import {
   shortTpRatioOf,
   snapShortTacticConfig,
   cfgUsesShortRange,
+  cfgUsesMinimalRange,
+  minimalControlPrices,
+  snapMinimalTpCost,
+  snapMinimalSlOfTp,
+  MINIMAL_WINNER,
+  minimalTrailPct,
+  resolveRangeTouch,
   BUSY_HOUR_WEAK_PROTECT,
   HIGH_TRADE_PAY_INDICATIONS,
   clampBlockVol,
@@ -3662,9 +3669,18 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             if (px <= 0) return;
             const baseQty = notional / px;
             const qty = axisInd ? baseQty * axisPartial : baseQty;
-            const lv = !short && (axisInd || book === "dca")
+            const lv0 = !short && (axisInd || book === "dca")
               ? axisProtect(px, side, q, hi.spacing, cfg, hi.rangeType)
               : protectLevels(px, side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
+            const minimalOn = cfgUsesMinimalRange(cfg);
+            const mini = minimalOn
+              ? minimalControlPrices(side, px, cfg.tpAtr ?? MINIMAL_WINNER.tpCost, cfg.slOfTp ?? MINIMAL_WINNER.slOfTp)
+              : null;
+            const lv = mini
+              ? { sl: mini.sl, tp: mini.tp, slDist: mini.slDist, tpDist: mini.tpDist }
+              : lv0;
+            const miniTp = minimalOn ? snapMinimalTpCost(cfg.tpAtr ?? MINIMAL_WINNER.tpCost) : prot?.tpAtr;
+            const miniSl = minimalOn ? snapMinimalSlOfTp(cfg.slOfTp ?? MINIMAL_WINNER.slOfTp) : prot?.slOfTp;
             e.queue.push({
               id: nextId(e, "q"),
               connId,
@@ -3689,9 +3705,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               playbook: book,
               tactic: tac,
               validExec: legOk,
-              tpAtr: prot?.tpAtr,
-              slOfTp: prot?.slOfTp,
+              tpAtr: miniTp,
+              slOfTp: miniSl,
               trailPct,
+              minimalRange: minimalOn || undefined,
               calc: leg.kind,
             });
             if (e.completeSim && paperMode(e) && axisInd && short && e.strategyToggles?.block !== false) {
@@ -3719,9 +3736,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 playbook: "block",
                 tactic: "axis",
                 validExec: legOk,
-                tpAtr: prot?.tpAtr,
-                slOfTp: prot?.slOfTp,
+                tpAtr: miniTp,
+                slOfTp: miniSl,
                 trailPct,
+                minimalRange: minimalOn || undefined,
                 calc: leg.kind,
               });
               qn += 1;
@@ -3755,8 +3773,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                   playbook: book,
                   tactic: tac,
                   validExec: legOk,
-                  tpAtr: prot?.tpAtr,
-                  slOfTp: prot?.slOfTp,
+                  tpAtr: miniTp,
+                  slOfTp: miniSl,
                   trailPct,
                 };
                 pairBook.set(pk, row);
@@ -3910,6 +3928,7 @@ function walkQuotes(e: VstEngine, freeze?: Set<string>) {
     const open = q.px;
     const close = Math.max(open * (1 + ret), open * 1e-8);
     const span = q.atr * (frozen ? 0.02 : .06 + rand(e.tick, q.id + "w") * .14);
+    q.open = open;
     q.lo = Math.min(open, close) - span * rand(e.tick, q.id + "lo");
     q.hi = Math.max(open, close) + span * rand(e.tick, q.id + "hi");
     if (q.lo <= 0) q.lo = close * .5;
@@ -4614,7 +4633,9 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       return;
     }
     const rawR = o.slDist > 1e-12 ? o.tpDist / o.slDist : 1;
-    const lv = protectLevels(px, o.side, o.slDist, o.tpDist, rawR, true);
+    const lv = o.minimalRange
+      ? minimalControlPrices(o.side, px, o.tpAtr ?? MINIMAL_WINNER.tpCost, o.slOfTp ?? MINIMAL_WINNER.slOfTp)
+      : protectLevels(px, o.side, o.slDist, o.tpDist, rawR, true);
     pos = {
       id: nextId(e, "p"),
       connId: o.connId,
@@ -4645,6 +4666,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       tpAtr: o.tpAtr,
       slOfTp: o.slOfTp,
       trailPct: o.trailPct,
+      minimalRange: o.minimalRange,
       calc: o.calc ?? "base",
     };
     e.positions.push(pos);
@@ -5147,6 +5169,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     tpAtr: p.tpAtr,
     slOfTp: p.slOfTp,
     trailPct: p.trailPct,
+    minimalRange: p.minimalRange,
     calc: p.calc,
   };
   e.closed.unshift(closedRow);
@@ -5428,7 +5451,18 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       p.tactic === "axis" || p.tactic === "trailing" || p.tactic === "hybrid" || p.tactic === "dca" ? p.tactic : tactic;
     const partial = ownTactic === "axis" ? false : p.status === "partial" || fillRatio < 0.55;
     const botBook = String(p.playbook || "").startsWith("bot:");
-    const shortPos = botBook || cfgUsesShortRange(cfg) || p.playbook === "short" || (p.tpAtr != null && p.slOfTp != null);
+    if (cfgUsesMinimalRange(cfg)) p.minimalRange = true;
+    const minimalPos = Boolean(p.minimalRange);
+    const shortPos = !minimalPos && (botBook || cfgUsesShortRange(cfg) || p.playbook === "short" || (p.tpAtr != null && p.slOfTp != null));
+    if (minimalPos && p.avgEntry > 0 && !(p.sl > 0 && p.tp > 0 && (p.side === "long" ? p.sl < p.avgEntry && p.tp > p.avgEntry : p.sl > p.avgEntry && p.tp < p.avgEntry))) {
+      const stop = minimalControlPrices(p.side, p.avgEntry, p.tpAtr || cfg.tpAtr || MINIMAL_WINNER.tpCost, p.slOfTp || cfg.slOfTp || MINIMAL_WINNER.slOfTp);
+      p.sl = stop.sl;
+      p.tp = stop.tp;
+      p.slDist = stop.slDist;
+      p.tpDist = stop.tpDist;
+      p.tpAtr = snapMinimalTpCost(p.tpAtr || cfg.tpAtr || MINIMAL_WINNER.tpCost);
+      p.slOfTp = snapMinimalSlOfTp(p.slOfTp || cfg.slOfTp || MINIMAL_WINNER.slOfTp);
+    }
     if (shortPos && p.avgEntry > 0 && q.atr > 0 && !(p.sl > 0 && p.tp > 0 && (p.side === "long" ? p.sl < p.avgEntry && p.tp > p.avgEntry : p.sl > p.avgEntry && p.tp < p.avgEntry))) {
       const stop = shortControlPrices(p.side, p.avgEntry, q.atr, p.tpAtr || cfg.tpAtr || 0.48, p.slOfTp || cfg.slOfTp || 1);
       p.sl = stop.sl;
@@ -5438,7 +5472,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     }
     holdLossSlFloor(p);
     if (!botBook && (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca === true && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
-    if (!shortPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
+    if (!shortPos && !minimalPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
     const holdR = shortPos && p.slOfTp != null && p.slOfTp > 0 ? Math.max(0.25, 1 / p.slOfTp) : e.tpRatio;
     if (!botBook) clampRatio(p, holdR, shortPos);
     if (!botBook) peelBlockOverlay(e, p, q);
@@ -5473,15 +5507,22 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
         ? (p.side === "long" ? Math.max(p.peakPx, favNow) : Math.min(p.peakPx, favNow))
         : favNow;
     }
-    const tightened = stable02ExitSl(p.side, p.avgEntry, p.peakPx || q.px, p.sl, e.tick - p.openedTick);
+    const tightened = minimalPos ? null : stable02ExitSl(p.side, p.avgEntry, p.peakPx || q.px, p.sl, e.tick - p.openedTick);
     if (tightened != null && (p.side === "long" ? tightened < q.px : tightened > q.px)) {
       p.sl = tightened;
       p.slDist = Math.abs(p.sl - p.avgEntry);
     }
-    const hitSl = p.side === "long" ? q.lo <= p.sl : q.hi >= p.sl;
-    const hitTp = p.side === "long" ? q.hi >= p.tp : q.lo <= p.tp;
+    const miniTrail = minimalPos ? minimalTrailPct(p.tpAtr || cfg.tpAtr || 0, p.slOfTp || cfg.slOfTp || 0) : null;
+    let hitSl = p.side === "long" ? q.lo <= p.sl : q.hi >= p.sl;
+    let hitTp = p.side === "long" ? q.hi >= p.tp : q.lo <= p.tp;
+    if (minimalPos) {
+      const openPx = q.open && q.open > 0 ? q.open : q.px;
+      const touch = resolveRangeTouch(p.side, openPx, q.hi, q.lo, q.px, p.sl, p.tp);
+      hitSl = touch === "sl";
+      hitTp = touch === "tp";
+    }
     if (opts?.liveTape || e.liveTape) {
-      if (trailingOverlayOn(e) && !botBook) {
+      if (trailingOverlayOn(e) && !botBook && (!minimalPos || miniTrail != null)) {
         const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
         p.peakPx = p.peakPx && p.peakPx > 0
           ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
@@ -5492,8 +5533,9 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
           peak: p.peakPx,
           tp: p.tp,
           sl: p.sl,
-          trailPct: p.trailPct ?? cfg.trailingPct,
-          shortRange: cfgUsesShortRange(cfg) || p.playbook === "short",
+          trailPct: miniTrail ?? p.trailPct ?? cfg.trailingPct,
+          shortRange: !minimalPos && (cfgUsesShortRange(cfg) || p.playbook === "short"),
+          minimalRange: Boolean(minimalPos && miniTrail != null),
         });
         if (p.side === "long" ? next > p.sl : next < p.sl) {
           p.sl = next;
@@ -5517,7 +5559,9 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
         ? Math.min(baseHold, 0.5)
         : baseHold;
     const slow =
-      p.playbook === "dca"
+      p.minimalRange
+        ? 1
+        : p.playbook === "dca"
         ? 1
         : (p.playbook === "axis" || p.tactic === "axis") && shortPos
           ? 1
@@ -5540,7 +5584,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       closePosition(e, p, reason === "sl" ? p.sl : p.tp, reason);
       continue;
     }
-    if (!botBook && trailingOverlayOn(e)) {
+    if (!botBook && trailingOverlayOn(e) && (!minimalPos || miniTrail != null)) {
       const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
       p.peakPx = p.peakPx && p.peakPx > 0
         ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
@@ -5551,8 +5595,9 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
         peak: p.peakPx,
         tp: p.tp,
         sl: p.sl,
-        trailPct: p.trailPct ?? cfg.trailingPct,
-        shortRange: cfgUsesShortRange(cfg) || p.playbook === "short",
+        trailPct: miniTrail ?? p.trailPct ?? cfg.trailingPct,
+        shortRange: !minimalPos && (cfgUsesShortRange(cfg) || p.playbook === "short"),
+        minimalRange: Boolean(minimalPos && miniTrail != null),
       });
       if (p.side === "long" ? next > p.sl : next < p.sl) {
         p.sl = next;
@@ -5820,6 +5865,7 @@ function safeStage(e: VstEngine, name: string, fn: () => void) {
 }
 
 function holdLossSlFloor(p: LivePosition) {
+  if (p.minimalRange) return;
   const entry = p.avgEntry;
   if (!(entry > 0) || !(p.sl > 0)) return;
   const lossSide = p.side === "long" ? p.sl < entry : p.sl > entry;
@@ -5836,6 +5882,7 @@ function holdLossSlFloor(p: LivePosition) {
 }
 
 function clampRatio(p: LivePosition, ratio = TP_SL_RATIO, raw = false) {
+  if (p.minimalRange) return;
   const r = raw ? Math.max(0.25, Number(ratio) || 1) : snapTpRatio(ratio);
   const slD = Math.abs(p.sl - p.avgEntry);
   const tpD = Math.abs(p.tp - p.avgEntry);
@@ -8437,6 +8484,7 @@ export function adjustActiveBlocks(
             tpAtr: p.tpAtr,
             slOfTp: p.slOfTp,
             trailPct: p.trailPct,
+            minimalRange: p.minimalRange,
             calc: p.calc ?? "base",
             note: `${tag} ${item.mode} #${item.next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
           });
@@ -8987,6 +9035,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   engine.openCompleteTape = complete && preTicks <= 0;
   engine.preEvalDone = preTicks <= 0;
   engine.shortRange = Boolean(use.shortRange);
+  engine.minimalRange = Boolean(use.minimalRange);
   engine.shortComboOnly = Boolean(comboOnly);
   engine.lastTactic = tactic;
   engine.lastRange = rangeType;
@@ -11778,7 +11827,7 @@ function paperCellOpen(
   if (validatedSet(e, rel)) return false;
   if (judgedMiss(e, rel)) return false;
   const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
-  if (t.normal !== true) return false;
+  if (t.normal !== true && !e.minimalRange) return false;
   const play = String(rel.playbook || "");
   const tac = String(rel.tactic || "");
   if (tac === "dca" || play === "dca") return t.dca === true;

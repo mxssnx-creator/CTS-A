@@ -55,6 +55,12 @@ import {
   DEFAULT_LAST_N_PROGRESS,
   shortSlAtrOf,
   shortTpRatioOf,
+  MINIMAL_TP_COST,
+  MINIMAL_SL_OF_TP,
+  MINIMAL_WINNER,
+  MINIMAL_BLOCK,
+  snapMinimalTpCost,
+  snapMinimalSlOfTp,
   DEFAULT_BLOCK_VOLUME_RATIO,
   DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
   DEFAULT_SHARED_BLOCK_VOLUME_RATIO,
@@ -1258,11 +1264,12 @@ export function SettingsView() {
                   aria-pressed={Boolean(cfg.shortRange)}
                   onClick={() => {
                     if (cfg.shortRange) {
-                      setCfg({ shortRange: false, tpAtr: 1, slOfTp: 1, slAtr: slAtrOf(1, 1), tpRatio: tpRatioOf(1) });
+                      setCfg({ shortRange: false, minimalRange: false, tpAtr: 1, slOfTp: 1, slAtr: slAtrOf(1, 1), tpRatio: tpRatioOf(1) });
                     } else {
                       const { tpAtr, slOfTp } = clampLiveShortProtect(cfg.tpAtr ?? SHORT_WINNER.tpAtr, cfg.slOfTp ?? SHORT_WINNER.slOfTp);
                       setCfg({
                         shortRange: true,
+                        minimalRange: false,
                         tpAtr,
                         slOfTp,
                         slAtr: shortSlAtrOf(tpAtr, slOfTp),
@@ -1288,6 +1295,7 @@ export function SettingsView() {
                         const slOfTp = Math.max(DEFAULT_SHORT_MIN_SL_OF_TP, snapShortSlOfTp(cfg.slOfTp ?? SHORT_WINNER.slOfTp));
                         setCfg({
                           shortRange: true,
+                          minimalRange: false,
                           tpAtr: t,
                           slOfTp,
                           slAtr: shortSlAtrOf(t, slOfTp),
@@ -1312,6 +1320,7 @@ export function SettingsView() {
                         const tpAtr = clampLiveShortProtect(cfg.shortRange && cfg.tpAtr ? cfg.tpAtr : SHORT_WINNER.tpAtr, r).tpAtr;
                         setCfg({
                           shortRange: true,
+                          minimalRange: false,
                           tpAtr,
                           slOfTp: r,
                           slAtr: shortSlAtrOf(tpAtr, r),
@@ -1328,6 +1337,108 @@ export function SettingsView() {
               </div>
               <span className="text-[11px] text-subtle">
                 Live TP/SL chips start at {DEFAULT_SHORT_MIN_TP_ATR.toFixed(2)} / {DEFAULT_SHORT_MIN_SL_OF_TP.toFixed(2)} (0.30–0.45 and 0.50× failed). Intern still scores the full grid. overall PF {th.shortPf?.toFixed(2) ?? "0.95"} · base PF {th.shortBasePf?.toFixed(2) ?? "0.70"}
+              </span>
+            </div>
+            <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
+              <span className="text-xs font-medium text-muted">Minimal range (under short) · TP {MINIMAL_TP_COST[0]}–{MINIMAL_TP_COST[MINIMAL_TP_COST.length - 1]}× position cost · SL 1–3× TP</span>
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  aria-pressed={Boolean(cfg.minimalRange)}
+                  onClick={() => {
+                    if (cfg.minimalRange) {
+                      setCfg({ minimalRange: false, shortRange: false, tpAtr: 1, slOfTp: 1, slAtr: slAtrOf(1, 1), tpRatio: tpRatioOf(1) });
+                    } else {
+                      const tpAtr = MINIMAL_WINNER.tpCost;
+                      const slOfTp = MINIMAL_WINNER.slOfTp;
+                      setCfg({
+                        minimalRange: true,
+                        shortRange: false,
+                        tpAtr,
+                        slOfTp,
+                        slAtr: Math.round(tpAtr * slOfTp * 1000) / 1000,
+                        tpRatio: Math.round((1 / slOfTp) * 1000) / 1000,
+                        trailingPct: MINIMAL_WINNER.trailPct,
+                        maxHoldBars: 2,
+                        maxHoldTicks: MINIMAL_WINNER.maxHoldTicks,
+                      });
+                      setBlockCfg({
+                        enabled: true,
+                        volumeRatio: MINIMAL_BLOCK.volumeRatio,
+                        overallVolumeRatio: MINIMAL_BLOCK.overallVolumeRatio,
+                        sharedVolumeRatio: MINIMAL_BLOCK.sharedVolumeRatio,
+                        relVolumeRatio: MINIMAL_BLOCK.relVolumeRatio,
+                        volumeMode: MINIMAL_BLOCK.volumeMode,
+                        overallMode: MINIMAL_BLOCK.overallMode,
+                        overall: MINIMAL_BLOCK.overall,
+                        stack: MINIMAL_BLOCK.stack,
+                        windows: MINIMAL_BLOCK.windows,
+                        sides: MINIMAL_BLOCK.sides,
+                        counts: [...MINIMAL_BLOCK.counts],
+                      });
+                      setStrategyToggles({ axis: true, block: true, trailing: true, dca: false });
+                    }
+                    applyLive();
+                  }}
+                  className={`${chip} ${cfg.minimalRange ? chipOn : chipOff}`}
+                >
+                  {cfg.minimalRange ? "Minimal on" : "Minimal off"}
+                </button>
+                {MINIMAL_TP_COST.map((t) => {
+                  const on = Boolean(cfg.minimalRange) && snapMinimalTpCost(cfg.tpAtr ?? 0) === t;
+                  return (
+                    <button
+                      key={`mtp-${t}`}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => {
+                        const slOfTp = snapMinimalSlOfTp(cfg.slOfTp ?? MINIMAL_WINNER.slOfTp);
+                        setCfg({
+                          minimalRange: true,
+                          shortRange: false,
+                          tpAtr: t,
+                          slOfTp,
+                          slAtr: Math.round(t * slOfTp * 1000) / 1000,
+                          tpRatio: Math.round((1 / slOfTp) * 1000) / 1000,
+                          maxHoldTicks: MINIMAL_WINNER.maxHoldTicks,
+                        });
+                        applyLive();
+                      }}
+                      className={`${chip} min-w-11 ${on ? chipOn : chipOff}`}
+                    >
+                      {t.toFixed(2)}×
+                    </button>
+                  );
+                })}
+                {MINIMAL_SL_OF_TP.map((r) => {
+                  const on = Boolean(cfg.minimalRange) && snapMinimalSlOfTp(cfg.slOfTp ?? 0) === r;
+                  return (
+                    <button
+                      key={`msl-${r}`}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => {
+                        const tpAtr = snapMinimalTpCost(cfg.minimalRange && cfg.tpAtr ? cfg.tpAtr : MINIMAL_WINNER.tpCost);
+                        setCfg({
+                          minimalRange: true,
+                          shortRange: false,
+                          tpAtr,
+                          slOfTp: r,
+                          slAtr: Math.round(tpAtr * r * 1000) / 1000,
+                          tpRatio: Math.round((1 / r) * 1000) / 1000,
+                          maxHoldTicks: MINIMAL_WINNER.maxHoldTicks,
+                        });
+                        applyLive();
+                      }}
+                      className={`${chip} min-w-11 ${on ? chipOn : chipOff}`}
+                    >
+                      SL {r.toFixed(2)}×
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="text-[11px] text-subtle">
+                Default {MINIMAL_WINNER.tpCost.toFixed(2)}× cost / SL {MINIMAL_WINNER.slOfTp.toFixed(2)}× · hold {MINIMAL_WINNER.maxHoldTicks} · trail 3.00×/1.75 and 3.00×/1.25. Axis + Block. Under the 0.5% floor.
               </span>
             </div>
             <RangeKnob

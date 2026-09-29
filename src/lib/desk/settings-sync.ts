@@ -37,6 +37,10 @@ import {
   shortSlAtrOf,
   shortTpRatioOf,
   cfgUsesShortRange,
+  cfgUsesMinimalRange,
+  snapMinimalTpCost,
+  snapMinimalSlOfTp,
+  MINIMAL_WINNER,
   SHORT_WINNER,
   clampLiveShortProtect,
   clampBlockVol,
@@ -245,6 +249,26 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     },
     tacticConfig: (() => {
       const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;
+      if (asBool(cfg.minimalRange, false) || cfgUsesMinimalRange(cfg)) {
+        const tpAtr = snapMinimalTpCost(asNum(cfg.tpAtr, MINIMAL_WINNER.tpCost));
+        const slOfTp = snapMinimalSlOfTp(asNum(cfg.slOfTp, MINIMAL_WINNER.slOfTp));
+        return {
+          trailingPct: snapTrailPct(asNum(cfg.trailingPct, MINIMAL_WINNER.trailPct)),
+          dcaCount: 1,
+          dcaDrawdown: Math.max(0.3, asNum(cfg.dcaDrawdown, d.tacticConfig.dcaDrawdown)),
+          axisSpacing: Math.max(0.2, asNum(cfg.axisSpacing, d.tacticConfig.axisSpacing)),
+          axisLevels: Math.max(2, Math.round(asNum(cfg.axisLevels, d.tacticConfig.axisLevels))),
+          axisPartialRatio: clampAxisPartial(cfg.axisPartialRatio, d.tacticConfig.axisPartialRatio ?? 3),
+          slAtr: Math.round(tpAtr * slOfTp * 1000) / 1000,
+          tpRatio: Math.round((1 / slOfTp) * 1000) / 1000,
+          tpAtr,
+          slOfTp,
+          shortRange: false,
+          minimalRange: true,
+          maxHoldBars: Math.min(8, Math.max(1, Math.round(asNum(cfg.maxHoldBars, 2)))),
+          maxHoldTicks: Math.min(48, Math.max(4, Math.round(asNum(cfg.maxHoldTicks, MINIMAL_WINNER.maxHoldTicks)))),
+        };
+      }
       const short = asBool(cfg.shortRange, false) || cfgUsesShortRange(cfg);
       if (short) {
         const clamped = clampLiveShortProtect(asNum(cfg.tpAtr, SHORT_WINNER.tpAtr), asNum(cfg.slOfTp, SHORT_WINNER.slOfTp));

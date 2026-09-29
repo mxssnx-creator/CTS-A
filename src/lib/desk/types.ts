@@ -553,6 +553,8 @@ export interface TacticConfig {
   tpAtr?: number;
   slOfTp?: number;
   shortRange?: boolean;
+  /** Under short. tpAtr is position-cost steps (1–3), slOfTp is SL/TP (1–3). */
+  minimalRange?: boolean;
   maxHoldBars?: number;
   maxHoldTicks?: number;
 }
@@ -749,6 +751,8 @@ export interface VstQuote {
   hi1h?: number;
   lo1h?: number;
   vol1hAt?: number;
+  /** Bar open (previous close). Minimal exits use it when both barriers sit in the bar. */
+  open?: number;
   /** Recent closes for Stable-02 indication and strategy entry. */
   pxHist?: number[];
 }
@@ -780,6 +784,7 @@ export interface LiveOrder {
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
+  minimalRange?: boolean;
   calc?: IndCalcKind;
 }
 
@@ -819,6 +824,7 @@ export interface LivePosition {
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
+  minimalRange?: boolean;
   calc?: IndCalcKind;
 }
 
@@ -878,6 +884,7 @@ export interface ClosedTrade {
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
+  minimalRange?: boolean;
   calc?: IndCalcKind;
 }
 
@@ -1442,6 +1449,7 @@ export interface VstEngine {
   botHist?: Record<string, { o: number; h: number; l: number; c: number; v: number }[]>;
   botHistTick?: number;
   shortRange?: boolean;
+  minimalRange?: boolean;
   strategyToggles?: StrategyToggles;
   /** PF coordinations. Missing = hour-keep only (older books). */
   pfCoords?: PfCoordToggles;

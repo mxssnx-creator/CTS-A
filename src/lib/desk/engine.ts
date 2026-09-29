@@ -272,6 +272,8 @@ export function trailStopFromPeak(input: {
   sl: number;
   trailPct: number;
   shortRange?: boolean;
+  /** Minimal range: trailPct is 1–2.6 and is not snapped onto the short 1.5 pin. */
+  minimalRange?: boolean;
 }): number {
   const { side, entry, peak, tp, sl, trailPct } = input;
   if (!(entry > 0) || !(peak > 0) || !(tp > 0)) return sl;
@@ -279,13 +281,17 @@ export function trailStopFromPeak(input: {
   const peakProfit = signed * (peak - entry);
   const tpDist = Math.abs(tp - entry);
   if (peakProfit <= 1e-12 || !(tpDist > 0)) return sl;
-  const short = input.shortRange === true;
-  const wide = Number(trailPct) >= TREND_BREAK_TRAIL_PCTS[0];
-  const armAt = short ? (wide ? 0.7 : 0.78) : 0.55;
+  const minimal = input.minimalRange === true;
+  const short = !minimal && input.shortRange === true;
+  const wide = !minimal && Number(trailPct) >= TREND_BREAK_TRAIL_PCTS[0];
+  const armAt = minimal ? 0.5 : short ? (wide ? 0.7 : 0.78) : 0.55;
   if (peakProfit < tpDist * armAt) return sl;
-  const give = trailGiveback(peakProfit / tpDist, trailPct);
-  const used = wide ? give : Math.min(give, short ? 0.5 : give);
-  const minFrac = short ? (wide ? 0.22 : 0.16) : 0.45;
+  const pct = minimal ? Math.min(2.6, Math.max(1, Number(trailPct) || 1.5)) : Number(trailPct);
+  const give = minimal
+    ? Math.min(0.72, Math.max(0.22, 0.34 + (pct - 1) * 0.22))
+    : trailGiveback(peakProfit / tpDist, trailPct);
+  const used = minimal ? give : wide ? give : Math.min(give, short ? 0.5 : give);
+  const minFrac = minimal ? 0.1 : short ? (wide ? 0.22 : 0.16) : 0.45;
   const gap = Math.max(peakProfit * used, tpDist * minFrac);
   let next = peak - signed * gap;
   if (side === "long") {
@@ -319,6 +325,132 @@ export function shortControlPrices(
   const tp = side === "long" ? px + tpDist : px - tpDist;
   return { sl, tp, slDist, tpDist };
 }
+
+/** Minimal range sits under short. TP is 1–3× position cost, step 0.25. SL is 1–3× that TP, step 0.25. */
+export const MINIMAL_TP_COST_MIN = 1;
+export const MINIMAL_TP_COST_MAX = 3;
+export const MINIMAL_TP_COST_STEP = 0.25;
+export const MINIMAL_TP_COST = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3] as const;
+export const MINIMAL_SL_OF_TP_MIN = 1;
+export const MINIMAL_SL_OF_TP_MAX = 3;
+export const MINIMAL_SL_OF_TP_STEP = 0.25;
+export const MINIMAL_SL_OF_TP = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3] as const;
+export type MinimalTpCost = (typeof MINIMAL_TP_COST)[number];
+export type MinimalSlOfTp = (typeof MINIMAL_SL_OF_TP)[number];
+/** 12h axis+block book. TP 3× position cost, SL 1.5× that TP, hold 36. Fixed target. Stayed net-positive at 16 and 20 symbols with the lowest drawdown of that pair. */
+export const MINIMAL_WINNER = { tpCost: 3 as MinimalTpCost, slOfTp: 1.5 as MinimalSlOfTp, trailPct: 1.5, maxHoldTicks: 36 };
+/** Trailing ranges. 3×/1.75 stayed net-positive on the 16- and 20-symbol 12h books. 3×/1.25 is the tighter trail (green at 16 symbols). */
+export const MINIMAL_OPTIMAL: readonly { tpCost: MinimalTpCost; slOfTp: MinimalSlOfTp; trailPct: number }[] = [
+  { tpCost: 3, slOfTp: 1.75, trailPct: 1.5 },
+  { tpCost: 3, slOfTp: 1.25, trailPct: 1.5 },
+];
+
+export function snapMinimalStep(n: number, grid: readonly number[], fallback: number): number {
+  if (!Number.isFinite(n)) return fallback;
+  let best = grid[0] ?? fallback;
+  let dist = Infinity;
+  for (const r of grid) {
+    const d = Math.abs(r - n);
+    if (d < dist || (d <= dist + 1e-15 && r > best)) {
+      dist = d;
+      best = r;
+    }
+  }
+  return best;
+}
+export function snapMinimalTpCost(n: number): MinimalTpCost {
+  return snapMinimalStep(n, MINIMAL_TP_COST, MINIMAL_WINNER.tpCost) as MinimalTpCost;
+}
+export function snapMinimalSlOfTp(n: number): MinimalSlOfTp {
+  return snapMinimalStep(n, MINIMAL_SL_OF_TP, MINIMAL_WINNER.slOfTp) as MinimalSlOfTp;
+}
+export function minimalComboKey(tpCost: number, slOfTp: number): string {
+  return `${snapMinimalTpCost(tpCost).toFixed(2)}:${snapMinimalSlOfTp(slOfTp).toFixed(2)}`;
+}
+/** Price distances in position-cost units. No 0.5% short floor — that floor is the short range. */
+export function minimalControlPrices(
+  side: "long" | "short",
+  entry: number,
+  tpCost = MINIMAL_WINNER.tpCost,
+  slOfTp = MINIMAL_WINNER.slOfTp,
+): { sl: number; tp: number; slDist: number; tpDist: number } {
+  const px = Math.max(entry, 1e-12);
+  const cost = px * POSITION_COST_PCT;
+  const tpDist = cost * snapMinimalTpCost(tpCost);
+  const slDist = tpDist * snapMinimalSlOfTp(slOfTp);
+  const sl = side === "long" ? px - slDist : px + slDist;
+  const tp = side === "long" ? px + tpDist : px - tpDist;
+  return { sl, tp, slDist, tpDist };
+}
+export function allMinimalCombos(): { tpCost: MinimalTpCost; slOfTp: MinimalSlOfTp; tpAtr: number; slAtr: number; tpRatio: number; minimalRange: true }[] {
+  const out: { tpCost: MinimalTpCost; slOfTp: MinimalSlOfTp; tpAtr: number; slAtr: number; tpRatio: number; minimalRange: true }[] = [];
+  for (const tpCost of MINIMAL_TP_COST) {
+    for (const slOfTp of MINIMAL_SL_OF_TP) {
+      out.push({
+        tpCost,
+        slOfTp,
+        tpAtr: tpCost,
+        slAtr: Math.round(tpCost * slOfTp * 1000) / 1000,
+        tpRatio: Math.round((1 / slOfTp) * 1000) / 1000,
+        minimalRange: true,
+      });
+    }
+  }
+  return out;
+}
+export function cfgUsesMinimalRange(cfg: { minimalRange?: boolean } | undefined | null): boolean {
+  return cfg?.minimalRange === true;
+}
+/** Trail percent for a minimal cell, or null when that cell stays a fixed target. */
+export function minimalTrailPct(tpCost: number, slOfTp: number): number | null {
+  const tp = snapMinimalTpCost(tpCost);
+  const sl = snapMinimalSlOfTp(slOfTp);
+  const hit = MINIMAL_OPTIMAL.find((c) => c.tpCost === tp && c.slOfTp === sl);
+  return hit ? hit.trailPct : null;
+}
+/**
+ * Which barrier a bar touches first. When both sit inside the bar, the one closer
+ * to the open is first — a wick must not turn a filled bounce into a stop.
+ */
+export function resolveRangeTouch(
+  side: "long" | "short",
+  open: number,
+  hi: number,
+  lo: number,
+  close: number,
+  sl: number,
+  tp: number,
+): "sl" | "tp" | null {
+  const hitSl = side === "long" ? lo <= sl : hi >= sl;
+  const hitTp = side === "long" ? hi >= tp : lo <= tp;
+  if (hitSl && hitTp) {
+    const o = open > 0 ? open : close;
+    const dSl = Math.abs(o - sl);
+    const dTp = Math.abs(o - tp);
+    if (dTp + 1e-12 < dSl) return "tp";
+    if (dSl + 1e-12 < dTp) return "sl";
+    const fav = side === "long" ? close >= o : close <= o;
+    return fav ? "tp" : "sl";
+  }
+  if (hitSl) return "sl";
+  if (hitTp) return "tp";
+  return null;
+}
+/** Block preset for minimal range. Parallel overall (counts 1/3/4/5/6) beat shared and the short 1–3 count set on net and drawdown time. Volume ratio did not move the result. */
+export const MINIMAL_BLOCK = {
+  enabled: true,
+  volumeRatio: 0.2,
+  overallVolumeRatio: 1.5,
+  sharedVolumeRatio: 1.5,
+  relVolumeRatio: 0.2,
+  volumeMode: "parallel" as const,
+  overallMode: "parallel" as const,
+  overall: true,
+  stack: true,
+  windows: true,
+  sides: "both" as const,
+  counts: [1, 3, 4, 5, 6] as number[],
+};
 /** Take-profit ATR multiples: 0.8 … 1.6 step 0.1. 0.3–0.7 disabled (live SL noise). */
 export const TP_ATR_MIN = 0.8;
 export const TP_ATR_MAX = 1.6;
