@@ -914,6 +914,8 @@ export interface BookCounts {
     cancelled: number;
     rejected: number;
     working: number;
+    /** Engine rows on an existing symbol+direction. They count as orders, not extra positions. */
+    internal?: number;
     live: number;
     placed: number;
   };

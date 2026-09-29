@@ -270,8 +270,14 @@ function DeskRuntime() {
 function DeskSidebar({ rail }: { rail?: boolean }) {
   const connected = useDesk((s) => s.connections.filter((c) => c.status === "connected").length);
   const activeConnId = useDesk((s) => s.activeConnId);
-  const bookPos = useDesk((s) => s.vst.positions.filter((p) => p.connId === s.activeConnId && p.qty > 0).length);
-  const bookOrd = useDesk((s) => s.vst.orders.filter((o) => o.connId === s.activeConnId && (o.status === "open" || o.status === "partial")).length);
+  const bookPos = useDesk((s) => {
+    const keys = new Set<string>();
+    for (const p of s.vst.positions) {
+      if (p.connId === s.activeConnId && p.qty > 0) keys.add(`${p.symbol}:${p.side}`);
+    }
+    return keys.size;
+  });
+  const bookOrd = useDesk((s) => s.vst.orders.filter((o) => o.connId === s.activeConnId && (o.status === "open" || o.status === "partial" || o.status === "queued")).length);
   const liveTape = useDesk((s) => s.liveTape);
   const feed = useDesk((s) => s.feed);
   const liveSession = useDesk((s) => s.liveSession);
@@ -281,8 +287,9 @@ function DeskSidebar({ rail }: { rail?: boolean }) {
   const pingOk = Boolean((liveSession as { pingOk?: boolean } | null)?.pingOk) || liveSnap.pingOk;
   const livePos = Number((liveSession as { livePos?: number } | null)?.livePos ?? liveSnap.livePos ?? 0);
   const owned = Number((liveSession as { livePos?: number } | null)?.livePos ?? livePos);
-  const foreign = Number((liveSession as { foreignPos?: number } | null)?.foreignPos ?? liveSnap.foreignPos ?? 0);
-  const gap = Number((liveSession as { controlGap?: number } | null)?.controlGap ?? liveSnap.controlGap ?? 0);
+  const liveOrd = Number((liveSession as { liveOrd?: number } | null)?.liveOrd ?? liveSnap.liveOrd ?? 0);
+  const posShown = hasLive ? owned : bookPos;
+  const ordShown = hasLive ? Math.max(liveOrd, liveSnap.liveOrd) : bookOrd;
   const hostId = String((liveSession as { conn?: string } | null)?.conn || activeConnId);
   const hostTag = hostId === "bingx-x01" ? "x01" : hostId === "bingx-vst-01" ? "vst-01" : "vst-02";
   const venueLabel = liveSnap.venueLabel;
@@ -312,11 +319,14 @@ function DeskSidebar({ rail }: { rail?: boolean }) {
           {rail ? null : hasLive ? `${venueLabel} live` : feed.state === "live" ? "BingX live tape" : `${connected} BingX sessions`}
         </div>
         {rail ? null : (
-          <div className="mt-1">
-            {hasLive
-              ? `owned ${owned} · exch ${owned + foreign} · gap ${gap} · ${hostTag}`
-              : `${bookPos} pos · ${bookOrd} wrk · ${activeConnId === "bingx-x01" ? "x01" : activeConnId === "bingx-vst-01" ? "vst-01" : "vst-02"}`}
-          </div>
+          <>
+            <div className="mt-1">{`Positions/Orders ${posShown}/${ordShown}`}</div>
+            <div className="mt-0.5">
+              {hasLive
+                ? `${liveSnap.liveLong}L ${liveSnap.liveShort}S · partials ${liveSnap.livePartials} · signals 100 · orders ∞`
+                : hostTag}
+            </div>
+          </>
         )}
         {liveTape && !hasLive && !rail ? <div className="mt-1">tape on</div> : null}
       </div>
@@ -383,7 +393,6 @@ function DeskHeader({ onMenu }: { onMenu: () => void }) {
         <select
           aria-label="Connection"
           className="h-8 max-w-[9.5rem] border-0 bg-primary-hover px-2 text-sm text-header-fg sm:max-w-none"
-          disabled={Boolean(liveSession && String((liveSession as { conn?: string }).conn) === "bingx-x01")}
           value={activeConnId}
           onChange={(e) => setActiveConn(e.target.value)}
         >

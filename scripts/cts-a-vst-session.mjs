@@ -5,7 +5,7 @@
  */
 import { writeFileSync, mkdirSync, readFileSync, renameSync, appendFileSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, fetchPrehistory, loadLeverageCaps, cachedMaxLeverage, MIN_LIVE_SL_PCT, exchangeMinNotional } from "../src/lib/desk/feed.server.ts";
-import { applyLiveTape, seedPreAtr, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
+import { applyLiveTape, seedPreAtr, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf, countPositionSlots, countWorkingOrders, LIVE_MAX_POSITIONS, exchangeOrderId, makeClientOrderId } from "../src/lib/desk/feed.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, SYSTEM_MIN_SL_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts, seedIndicationHistory, shortControlPrices } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
@@ -67,9 +67,8 @@ const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CYCLE_MS = Number(process.env.CTS_A_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
 const SHORT_CYCLE_MS = Number(process.env.CTS_A_SHORT_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
-const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 2000);
-/** Resting LIMIT tickets x01 should hold. One rung stack per symbol, not a handful of markets. */
-const X01_LADDER_TARGET = 400;
+const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? LIVE_MAX_POSITIONS);
+/** Resting LIMIT rungs per symbol. No global order cap — every partial counts. */
 const X01_LADDER_PER_SYM = 8;
 const LIVE_MIN_PF = IS_X01
   ? 1.15
@@ -93,8 +92,127 @@ function isUniverseSymbol(sym) {
 function isDeskSymbol(sym) {
   return isUniverseSymbol(sym);
 }
+function collapsePositions(rows) {
+  const map = new Map();
+  for (const p of rows ?? []) {
+    const side = p?.side === "short" ? "short" : "long";
+    const key = `${p.symbol}:${side}`;
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, { ...p, side });
+      continue;
+    }
+    prev.qty = Number(prev.qty) + Number(p.qty || 0);
+    prev.pnl = Number(prev.pnl || 0) + Number(p.pnl || 0);
+  }
+  return [...map.values()];
+}
 function ownKey(symbol, side) {
   return `${symbol}:${side}`;
+}
+
+const ORDER_LEDGER_MAX = 4000;
+const orderLedger = new Map();
+function noteLiveOrder(orderId, row) {
+  const id = exchangeOrderId(orderId);
+  if (!id) return null;
+  const prev = orderLedger.get(id);
+  const stop = Number(row?.stopPrice) || 0;
+  const updates = (prev?.updates || 0) + (prev && stop > 0 && prev.stopPrice > 0 && Math.abs(prev.stopPrice - stop) / prev.stopPrice > 1e-8 ? 1 : 0);
+  const next = {
+    id,
+    clientOrderId: row?.clientOrderId || prev?.clientOrderId || "",
+    symbol: row?.symbol || prev?.symbol || "",
+    side: row?.side || prev?.side || "",
+    type: row?.type || prev?.type || "",
+    role: row?.role || prev?.role || "entry",
+    qty: Number(row?.qty ?? prev?.qty) || 0,
+    filled: Number(row?.filled ?? prev?.filled) || 0,
+    remaining: row?.remaining != null ? Number(row.remaining) : prev?.remaining,
+    stopPrice: stop || prev?.stopPrice || 0,
+    status: row?.status || prev?.status || "open",
+    replaces: row?.replaces || prev?.replaces || "",
+    pnl: Number(row?.pnl ?? prev?.pnl) || 0,
+    updates,
+    openedAt: prev?.openedAt || Date.now(),
+    updatedAt: Date.now(),
+    closedAt: row?.closedAt || prev?.closedAt || 0,
+  };
+  orderLedger.set(id, next);
+  while (orderLedger.size > ORDER_LEDGER_MAX) {
+    const oldest = orderLedger.keys().next().value;
+    if (!oldest) break;
+    orderLedger.delete(oldest);
+  }
+  return next;
+}
+function markLiveOrder(orderId, status, extra = {}) {
+  const id = exchangeOrderId(orderId);
+  if (!id) return null;
+  const prev = orderLedger.get(id);
+  if (!prev) return noteLiveOrder(id, { ...extra, status, closedAt: Date.now() });
+  if (prev.status === "filled" || prev.status === "cancelled") return prev;
+  const next = { ...prev, ...extra, id, status, closedAt: Date.now(), updatedAt: Date.now() };
+  orderLedger.set(id, next);
+  return next;
+}
+function syncOrderLedger(orders) {
+  const seen = new Set();
+  for (const o of orders ?? []) {
+    const id = exchangeOrderId(o?.id);
+    if (!id) continue;
+    seen.add(id);
+    const role = protectKind(o.type) || (String(o.type || "").toUpperCase() === "LIMIT" ? "entry" : "entry");
+    const st = String(o.status || "open").toLowerCase();
+    noteLiveOrder(id, {
+      clientOrderId: o.clientOrderId,
+      symbol: o.symbol,
+      side: o.side,
+      type: o.type,
+      role: role === "sl" || role === "tp" ? role : "entry",
+      qty: o.qty,
+      filled: o.filled,
+      remaining: o.remaining,
+      stopPrice: Number(o.stopPrice || o.price) || 0,
+      status: st === "partial" || st === "partially_filled" ? "partial" : "open",
+    });
+  }
+  for (const rec of orderLedger.values()) {
+    if (rec.status !== "open" && rec.status !== "partial") continue;
+    if (seen.has(rec.id)) continue;
+    rec.missing = (rec.missing || 0) + 1;
+    if (rec.missing >= 2) markLiveOrder(rec.id, "closed", { missing: rec.missing });
+  }
+}
+function orderTrackStats() {
+  const out = { open: 0, partial: 0, filled: 0, cancelled: 0, closed: 0, updated: 0, tracked: orderLedger.size };
+  for (const rec of orderLedger.values()) {
+    if (rec.status === "open") out.open += 1;
+    else if (rec.status === "partial") out.partial += 1;
+    else if (rec.status === "filled") out.filled += 1;
+    else if (rec.status === "cancelled") out.cancelled += 1;
+    else out.closed += 1;
+    out.updated += Number(rec.updates) || 0;
+  }
+  return out;
+}
+function controlsForLeg(symbol, side) {
+  const rows = [];
+  for (const rec of orderLedger.values()) {
+    if (rec.symbol !== symbol || rec.side !== side) continue;
+    if (rec.role !== "sl" && rec.role !== "tp") continue;
+    if (rec.status !== "open" && rec.status !== "partial") continue;
+    rows.push(rec);
+  }
+  return rows;
+}
+function ledgerSide(info, symbol) {
+  const id = exchangeOrderId(info);
+  if (id && orderLedger.has(id)) {
+    const rec = orderLedger.get(id);
+    if (!symbol || rec.symbol === symbol) return rec.side || undefined;
+  }
+  return undefined;
 }
 function isOwnedLeg(symbol, side) {
   const k = ownKey(symbol, side);
@@ -163,7 +281,7 @@ async function raiseOwnedLeverage(network, positions) {
   return `lev hold ${take.length} · peak ${armed.max}x`;
 }
 
-let lastBook = { pos: 0, ord: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0, foreignPos: 0, foreignOrd: 0, unprotected: 0 };
+let lastBook = { pos: 0, ord: 0, partial: 0, pnl: 0, ok: false, sl: 0, tp: 0, equity: 0, positions: [], orders: [], latencyMs: 0, foreignPos: 0, foreignOrd: 0, unprotected: 0 };
 let lastTrail = { n: 0, ms: 0, at: 0 };
 let lastExec = { n: 0, wins: 0, pf: 0, wr: 0, net: 0, ddt: 0, mdd: 0 };
 let lastPnl = [];
@@ -776,7 +894,8 @@ function snapshot(e, extra) {
     bookMs: lastBook.latencyMs || 0,
     trailN: lastTrail.n,
     trailMs: lastTrail.ms,
-    partials: e.stats?.partials ?? book.orders.partial,
+    partials: lastBook.ok ? Number(lastBook.partial) || 0 : (e.stats?.partials ?? book.orders.partial),
+    orderTrack: orderTrackStats(),
     controlGap: Math.max(0, Number(lastBook.unprotected) || 0),
     minPf: LIVE_MIN_PF,
     pfGate: pfGateClosed(),
@@ -1102,6 +1221,11 @@ function ingestExec(ex) {
   if (!ex?.ok) return;
   const desk = filterDeskRealized(ex.orders, ex.income, CONN);
   lastIncomeOrders = desk.tagged;
+  for (const row of desk.pnl) {
+    const id = exchangeOrderId(row.info);
+    if (!id) continue;
+    markLiveOrder(id, "filled", { pnl: Number(row.income) || 0, symbol: row.symbol, role: "close" });
+  }
   const rows = desk.pnl
     .filter((x) => isDeskSymbol(x.symbol))
     .map((x) => {
@@ -1112,7 +1236,7 @@ function ingestExec(ex) {
         t,
         v: Number(x.income) || 0,
         symbol,
-        side: h?.side || sideFromOrders(symbol, t),
+        side: h?.side || ledgerSide(x.info, symbol) || sideFromOrders(symbol, t),
         indication: h?.indication,
         playbook: h?.playbook,
         kind: h?.kind,
@@ -1190,6 +1314,7 @@ let liveLast = 0;
 let claimed = false;
 let emptyHold = 0;
 let apiQuietUntil = 0;
+let triggerQuietUntil = 0;
 let lastApiError = "";
 const cancelFailed = new Set();
 const skipUntil = new Map();
@@ -1410,8 +1535,9 @@ function x01CanAfford(symbol, equity) {
 
 function liveBudgetNow() {
   const b = liveEntryBudget(Number(lastBook.equity) || 0);
-  if (IS_X01) return b;
-  return { ...b, trade: true, block: true, maxNew: Math.max(b.maxNew, 48), maxPos: Math.max(b.maxPos, LIVE_MAX_POS || 2000) };
+  if (!b.trade) return b;
+  const maxPos = Math.min(LIVE_MAX_POS, Number(b.maxPos) || LIVE_MAX_POS);
+  return { ...b, maxPos };
 }
 
 function pfGateClosed() {
@@ -1537,9 +1663,21 @@ async function flattenBelowMinPf(network, book, e) {
   return notes.length ? notes.join(" · ") : null;
 }
 
+function isTriggerLimited(s) {
+  return /100410|trigger frequency/i.test(String(s || ""));
+}
+
 function apiQuiet() {
   if (Date.now() >= apiQuietUntil) {
-    if (lastApiError && isRateLimited(lastApiError)) lastApiError = "";
+    if (lastApiError && isRateLimited(lastApiError) && !isTriggerLimited(lastApiError)) lastApiError = "";
+    return false;
+  }
+  return true;
+}
+
+function triggerQuiet() {
+  if (Date.now() >= triggerQuietUntil) {
+    if (lastApiError && isTriggerLimited(lastApiError)) lastApiError = "";
     return false;
   }
   return true;
@@ -1553,6 +1691,10 @@ function noteApiFail(err) {
   const s = String(err?.error || err?.message || err || "");
   if (isBenignApi(s)) return false;
   if (s) lastApiError = s.slice(0, 180);
+  if (isTriggerLimited(s)) {
+    triggerQuietUntil = Math.max(triggerQuietUntil, Date.now() + quietMs(s));
+    return true;
+  }
   if (isRateLimited(s)) {
     apiQuietUntil = Math.max(apiQuietUntil, Date.now() + quietMs(s));
     return true;
@@ -1605,7 +1747,8 @@ async function withLiveBusy(fn) {
 
 async function closeHit(network, hit) {
   if (!isOwnedLeg(hit.symbol, hit.side)) return { ok: false, error: "foreign" };
-  return withLiveBusy(() =>
+  const clientOrderId = makeClientOrderId(CONN, "C");
+  const r = await withLiveBusy(() =>
     placeSwapOrder({
       network,
       connId: CONN,
@@ -1619,9 +1762,36 @@ async function closeHit(network, hit) {
       confirmLive: true,
       closePosition: false,
       reduceOnly: false,
+      exactQty: true,
       attachProtect: false,
+      clientOrderId,
     }),
   );
+  if (!r?.ok) return r;
+  noteLiveOrder(r.orderId, {
+    clientOrderId: r.clientOrderId || clientOrderId,
+    symbol: hit.symbol,
+    side: hit.side,
+    type: "MARKET",
+    role: "close",
+    qty: hit.qty,
+    status: "filled",
+    closedAt: Date.now(),
+  });
+  for (const rec of controlsForLeg(hit.symbol, hit.side)) {
+    const c = await withLiveBusy(() =>
+      cancelSwapOrder({
+        network,
+        connId: CONN,
+        symbol: hit.symbol,
+        orderId: rec.id,
+      }),
+    );
+    if (c?.ok || /not exist|filled|nothing to cancel|no need/i.test(String(c?.error || ""))) {
+      markLiveOrder(rec.id, "cancelled", { replaces: r.orderId || "" });
+    }
+  }
+  return r;
 }
 
 function shortStopPrices(p, cfg, spec, e) {
@@ -1682,8 +1852,8 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const map = await fetchContractMap(network);
   const notes = [];
   const cancelOne = async (o, force = false) => {
-    const oid = String(o?.id || "");
-    if (!oid || cancelFailed.has(oid)) return { ok: false, id: oid };
+    const oid = exchangeOrderId(o?.id);
+    if (!oid || cancelFailed.has(oid)) return { ok: false, id: oid, error: oid ? "held" : "bad orderId" };
     const key = `${o?.symbol}:${o?.side}`;
     const controlOnOwned = Boolean(kindOf(o?.type)) && liveOwnedSet.has(key);
     if (!force && !mayCancelOrder(o) && !controlOnOwned) return { ok: false, id: oid, error: "foreign" };
@@ -1695,10 +1865,13 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
         orderId: oid,
       }),
     );
-    if (!r.ok) {
+    if (r.ok || /not exist|filled|nothing to cancel|no need/i.test(String(r.error || ""))) {
+      markLiveOrder(oid, r.ok ? "cancelled" : "closed");
+      cancelFailed.delete(oid);
+    } else if (!isRateLimited(r.error)) {
       cancelFailed.add(oid);
       noteApiFail(r);
-    }
+    } else noteApiFail(r);
     return { ...r, id: oid };
   };
 
@@ -1817,6 +1990,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   };
   const placeControl = async (p, qty, type, stopPrice, mark) => {
     const kind = type === "STOP_MARKET" ? "sl" : "tp";
+    if (triggerQuiet()) return { ok: false, error: "trigger quiet" };
     const spec = specFor(p);
     let stop = clampControl(p.side, kind, mark, stopPrice, spec);
     if (!(stop > 0)) return { ok: false, error: "control price" };
@@ -1838,6 +2012,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       reduceOnly: false,
       exactQty: true,
       closePosition,
+      clientOrderId: makeClientOrderId(CONN, kind === "sl" ? "S" : "T"),
     }));
     let r = q > 0 ? await send(stop, q, false) : await send(stop, 0, true);
     if (!r.ok && priceRetry(r.error)) {
@@ -1857,6 +2032,18 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (!r.ok) r = { ...r, error: `${first} | ${r.error || "err"}` };
     }
     if (!r.ok) r = { ...r, error: `${r.error || "err"} @${stop} q${q}` };
+    if (r.ok) {
+      noteLiveOrder(r.orderId, {
+        clientOrderId: r.clientOrderId,
+        symbol: p.symbol,
+        side: p.side,
+        type,
+        role: kind,
+        qty: q,
+        stopPrice: stop,
+        status: "open",
+      });
+    }
     return r;
   };
   let posts = 0;
@@ -1910,19 +2097,28 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const qty = protectQty();
       const qPlace = qty > 0 ? qty : snapQtyDown(p.qty, spec);
       const replaceKind = async (kind, type, list) => {
+        if (triggerQuiet()) {
+          local.push(`${kind} hold ${p.symbol}`);
+          return;
+        }
         const prev = Number(list?.[0]?.stopPrice || list?.[0]?.price || 0);
+        const replaced = [];
         if (list?.length) {
-          const ours = list.filter((o) => mayCancelOrder(o));
-          if (ours.length) await mapLimit(ours, 2, (o) => cancelOne(o, true));
+          const ours = list.filter((o) => mayCancelOrder(o) && exchangeOrderId(o.id));
+          if (ours.length) {
+            const cancelled = await mapLimit(ours, 2, (o) => cancelOne(o, true));
+            for (const c of cancelled) if (c?.ok && c.id) replaced.push(c.id);
+          }
           if (kind === "sl") hasSl.delete(key);
           else hasTp.delete(key);
         }
         const r = await placeProtect(type, qPlace);
         if (r.ok) {
+          if (replaced.length) noteLiveOrder(r.orderId, { replaces: replaced.join(",") });
           if (kind === "sl") hasSl.add(key);
           else hasTp.add(key);
           lastProtectQty.set(key, qPlace);
-          local.push(`${kind} ${p.symbol}`);
+          local.push(`${kind} ${p.symbol} ${exchangeOrderId(r.orderId) || ""}`.trim());
           return;
         }
         noteApiFail(r);
@@ -1972,8 +2168,8 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const shortLive = cfgUsesShortRange(cfg) || cfgUsesShortRange(currentPick?.cfg);
     const wantProt = (shortLive && shortStopPrices(p, { ...cell, ...(cfg || {}), ...(currentPick?.cfg || {}) }, spec, e)) || cellProt;
     const ownedLeg = isOwnedLeg(p.symbol, p.side);
-    const slLoose = ownedLeg && hasSl.has(key) && slIsLooser(p.side, curSl, wantProt.sl);
-    const tpLoose = ownedLeg && hasTp.has(key) && tpIsLooser(p.side, curTp, wantProt.tp);
+    const slLoose = false;
+    const tpLoose = false;
     const mark = Number(p.mark || p.entry || 0);
     const slWrong = ownedLeg && hasSl.has(key) && mark > 0 && (p.side === "short" ? !(curSl > mark) : !(curSl > 0 && curSl < mark));
     const tpWrong = ownedLeg && hasTp.has(key) && mark > 0 && (p.side === "short" ? !(curTp > 0 && curTp < mark) : !(curTp > mark));
@@ -1986,19 +2182,28 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       ownedLeg &&
       hasTp.has(key) &&
       (tpWrong || tpLoose || (!tpFull && tpQ > 0 && Math.abs(wantQ - tpQ) / Math.max(wantQ, tpQ) > 0.08));
-    if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) need.push({ p, slDrift, tpDrift, missing: !hasSl.has(key) || !hasTp.has(key) });
+    if (slDrift || tpDrift || !hasSl.has(key) || !hasTp.has(key)) {
+      need.push({
+        p,
+        slDrift,
+        tpDrift,
+        missing: !hasSl.has(key) || !hasTp.has(key),
+        slWrong,
+        tpWrong,
+      });
+    }
   }
-  need.sort((a, b) => Number(b.missing) - Number(a.missing) || Number(a.p.pnl || 0) - Number(b.p.pnl || 0));
-  const missingN = need.filter((row) => row.missing).length;
-  const postCap = missingN > 0 ? Math.min(12, Math.max(8, missingN * 2)) : 2;
-  const work = missingN > 0 ? need.filter((row) => row.missing) : need;
+  need.sort((a, b) => Number(b.missing) - Number(a.missing) || Number(b.slWrong || b.tpWrong) - Number(a.slWrong || a.tpWrong) || Number(a.p.pnl || 0) - Number(b.p.pnl || 0));
+  const missingN = need.filter((row) => row.missing || row.slWrong || row.tpWrong || row.slDrift || row.tpDrift).length;
+  const postCap = missingN > 0 ? Math.min(2, missingN * 2) : 0;
+  const work = need.filter((row) => row.missing || row.slWrong || row.tpWrong || row.slDrift || row.tpDrift);
   for (let i = 0; i < work.length && posts < postCap; i += 1) {
-    if (apiQuiet()) break;
+    if (apiQuiet() || triggerQuiet()) break;
     const row = work[i];
     const r = await protectOne(row.p, row.missing ? false : row.slDrift, row.missing ? false : row.tpDrift);
     posts += r.posts;
     notes.push(...r.notes);
-    await sleep(120);
+    await sleep(350);
   }
 
   const trailT0 = Date.now();
@@ -2009,7 +2214,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     if (hasSl.has(key) && hasTp.has(key)) covered += 1;
   }
   const protectGapNow = Math.max(0, legs.length - covered);
-  if (protectGapNow === 0 && !apiQuiet() && STRAT.trailing) {
+  if (protectGapNow === 0 && !apiQuiet() && !triggerQuiet() && STRAT.trailing) {
     const mode = network === "mainnet" ? "main" : "vst";
     const trailNeed = [];
     for (const p of posByVol) {
@@ -2061,7 +2266,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (p.side === "short" && !(next > mark)) continue;
       trailNeed.push({ p, key, spec, cell, mark, next, slOrd });
     }
-    const trailOut = await mapLimit(trailNeed.slice(0, 12), 3, async (row) => {
+    const trailOut = await mapLimit(trailNeed.slice(0, 1), 1, async (row) => {
       const { p, key, spec, mark, next, slOrd } = row;
       const slId = String(slOrd?.id || "");
       const prev = Number(slOrd?.stopPrice || lastPostedSl.get(key) || 0);
@@ -2073,6 +2278,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       }
       let r = await placeControl(p, qty, "STOP_MARKET", next, mark);
       if (r.ok) {
+        if (slId) noteLiveOrder(r.orderId, { replaces: slId });
         lastPostedSl.set(key, next);
         lastProtectQty.set(key, qty);
         hasSl.add(key);
@@ -2096,7 +2302,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       }
     }
   }
-  if (e && posts < 48 && !apiQuiet() && protectGapNow === 0) {
+  if (e && !apiQuiet() && !triggerQuiet() && protectGapNow === 0) {
     const axisNeed = [];
     for (const p of posByVol) {
       if (axisNeed.length >= 8) break;
@@ -2129,7 +2335,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       if (p.side === "short" && !(want < mark)) continue;
       axisNeed.push({ p, key, spec, mark, want, tpOrd });
     }
-    const axisOut = await mapLimit(axisNeed, 4, async (row) => {
+    const axisOut = await mapLimit(axisNeed.slice(0, 1), 1, async (row) => {
       const { p, key, spec, mark, want, tpOrd } = row;
       const tpId = String(tpOrd?.id || "");
       if (tpId) {
@@ -2141,6 +2347,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const qty = snapQtyDown(p.qty, spec);
       const r = await placeControl(p, qty, "TAKE_PROFIT_MARKET", want, mark);
       if (r.ok) {
+        if (exchangeOrderId(tpId)) noteLiveOrder(r.orderId, { replaces: tpId });
         lastPostedTp.set(key, want);
         hasTp.add(key);
         return `axis tp ${p.symbol}`;
@@ -2218,6 +2425,7 @@ async function mirrorToExchange(e, network, cfg) {
   }
   emptyHold = 0;
   refreshTaggedKeys(book.orders);
+  syncOrderLedger(book.orders);
   const livePosKeys = new Set((book.positions ?? []).map((p) => `${p.symbol}:${p.side}`));
   let n = 0;
   for (const k of taggedKeys) {
@@ -2228,14 +2436,17 @@ async function mirrorToExchange(e, network, cfg) {
       n += 1;
     }
   }
-  const deskPos = (book.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
+  const deskPos = collapsePositions((book.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side)));
   const deskOrd = (book.orders ?? []).filter((o) => isDeskOrder(o));
-  const foreignPosN = (book.positions ?? []).filter((p) => !isOwnedLeg(p.symbol, p.side)).length;
-  const foreignOrdN = (book.orders ?? []).filter((o) => !isDeskOrder(o)).length;
+  const posSlots = countPositionSlots(deskPos);
+  const ordCount = countWorkingOrders(deskOrd);
+  const foreignPosN = countPositionSlots((book.positions ?? []).filter((p) => !isOwnedLeg(p.symbol, p.side))).slots;
+  const foreignOrdN = countWorkingOrders((book.orders ?? []).filter((o) => !isDeskOrder(o))).n;
   const prot = countProtect(book.positions ?? [], book.orders ?? []);
   lastBook = {
-    pos: deskPos.length,
-    ord: deskOrd.length,
+    pos: posSlots.slots,
+    ord: ordCount.n,
+    partial: ordCount.partial,
     pnl: deskPos.reduce((s, p) => s + (p.pnl || 0), 0),
     ok: true,
     sl: prot.sl,
@@ -2276,7 +2487,7 @@ async function mirrorToExchange(e, network, cfg) {
         owned: true,
       };
     }),
-    orders: deskOrd.slice(0, 500).map((o) => ({
+    orders: deskOrd.map((o) => ({
       connId: CONN,
       id: String(o.id ?? ""),
       symbol: o.symbol,
@@ -2356,11 +2567,11 @@ async function mirrorToExchange(e, network, cfg) {
     restingBySym.set(o.symbol, (restingBySym.get(o.symbol) || 0) + 1);
   }
   const examOpen = e?.preEvalDone === false;
-  const ladderShort = IS_X01 && examOpen && restingLimits < X01_LADDER_TARGET;
+  const ladderShort = IS_X01 && examOpen;
   const paperOpen = new Set((e.positions || []).map((p) => `${p.symbol}:${p.side}`));
   for (const k of paperOpen) mirrored.delete(`seed:${k}`);
   const ours = deskPos;
-  const openN = ours.length;
+  const openN = posSlots.slots;
   const accountN = (book.positions ?? []).filter((p) => isUniverseSymbol(p.symbol)).length;
   const budget = liveBudgetNow();
   if (!budget.trade || budget.maxPos <= 0) {
@@ -2454,7 +2665,7 @@ async function mirrorToExchange(e, network, cfg) {
       _fromQueue: true,
     }));
   const entryIntents = IS_X01 ? diversifyLiveIntents(queueIntents) : queueIntents;
-  const entryCap = IS_X01 ? Math.min(36, Math.max(16, X01_LADDER_TARGET - restingLimits)) : 16;
+  const entryCap = IS_X01 ? 36 : 16;
   const occupiedSymbols = new Set([...exchangeOccupied].map((k) => String(k).split(":")[0]));
   const restingSymbols = new Set(
     (book.orders ?? [])
@@ -2478,10 +2689,9 @@ async function mirrorToExchange(e, network, cfg) {
           if (slim.length >= 400) break;
         }
         const ladder = [];
-        if (examOpen && IS_X01 && restingLimits < X01_LADDER_TARGET) {
+        if (examOpen && IS_X01) {
           const ids = universeSymbols(LIVE_SYMBOLS).map((s) => s.id);
           for (const id of ids) {
-            if (ladder.length >= X01_LADDER_TARGET - restingLimits) break;
             const have = restingBySym.get(id) || 0;
             if (have >= X01_LADDER_PER_SYM) continue;
             const q = e.quotes?.[id];
@@ -2504,7 +2714,6 @@ async function mirrorToExchange(e, network, cfg) {
                 indication: "break",
                 ladder: true,
               });
-              if (ladder.length >= X01_LADDER_TARGET - restingLimits) break;
             }
           }
         }
@@ -2850,10 +3059,14 @@ async function mirrorToExchange(e, network, cfg) {
       continue;
     }
     const ourOther = isOwnedLeg(f.symbol, otherSide) || fillJobs.some((x) => x.symbol === f.symbol && x.side === otherSide);
-    if (ourOther && (hedgeBlocked || IS_X01) && !isBlockAdd) continue;
+    if (ourOther && hedgeBlocked && !isBlockAdd) continue;
     if (isBlockAdd && fillJobs.some((x) => x.symbol === f.symbol && /Block/i.test(String(x.note || "")))) continue;
     if (isBlockAdd && fillJobs.filter((x) => /Block/i.test(String(x.note || x._rel?.note || ""))).length >= budget.maxNew) continue;
-    if (!isBlockAdd && openN + fillJobs.length >= budget.maxPos) break;
+    if (!isBlockAdd) {
+      const held = countPositionSlots([...ours, ...fillJobs]).slots;
+      const nextSlots = countPositionSlots([...ours, ...fillJobs, f]).slots;
+      if (nextSlots > held && nextSlots > budget.maxPos) continue;
+    }
     if (IS_X01 && !x01CanAfford(f.symbol, Number(book.equity) || Number(lastBook.equity) || 0) && !X01_GROWTH.has(f.symbol)) {
       markWhy(f, "afford");
       continue;
@@ -2870,6 +3083,7 @@ async function mirrorToExchange(e, network, cfg) {
       skipQuiet += 1;
       break;
     }
+    if (IS_X01 && !isBlockAdd && fillJobs.length >= 8) break;
     fillJobs.push(f);
     if (blockish) blockJobs += 1;
   }
@@ -2918,7 +3132,7 @@ async function mirrorToExchange(e, network, cfg) {
           tpRatio: cell.tpRatio,
           slPrice: prot?.sl,
           tpPrice: prot?.tp,
-          attachProtect: f.ladder ? false : !resting,
+          attachProtect: triggerQuiet() || f.ladder ? false : !resting,
           equity: Number(book.equity) || 0,
         }),
       );
@@ -2958,6 +3172,16 @@ async function mirrorToExchange(e, network, cfg) {
     mirrored.add(`live:${f.symbol}:${f.side}`);
     taggedKeys.add(`${f.symbol}:${f.side}`);
     exchangeOccupied.add(`${f.symbol}:${f.side}`);
+    noteLiveOrder(r.orderId, {
+      clientOrderId: r.clientOrderId,
+      symbol: f.symbol,
+      side: f.side,
+      type: f.ladder ? "LIMIT" : "MARKET",
+      role: "entry",
+      qty: Number(f.qty) || 0,
+      stopPrice: Number(f.px) || 0,
+      status: "open",
+    });
     if (f._rel && !/Block/i.test(String(f.note || ""))) {
       legCfg.set(`${f.symbol}:${f.side}`, {
         tactic: f._rel.tactic,
@@ -3195,7 +3419,7 @@ async function main() {
   let examLeft = examLeft0;
   writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
   const adjustments = [`seed ${pick.tactic}/${pick.range} · ${CONN} · ${LIVE_SYMBOLS} live / ${EVAL_SYMBOLS} eval · PF ${engine.minPf}/${engine.basePf}/${engine.axisPf}/${engine.blockPf} short ${engine.shortPf}/${engine.shortBasePf} · grid ${GRID.length} TP ${pick.cfg.tpAtr}/${pick.cfg.slOfTp} · block ${engine.blockCfg.sharedVolumeRatio}/${engine.blockCfg.volumeRatio}/${engine.blockCfg.overallVolumeRatio}`];
-  if (IS_X01) adjustments.push(`live now · multiple limits up to ${X01_LADDER_TARGET} · ${X01_LADDER_PER_SYM}/symbol`);
+  if (IS_X01) adjustments.push(`live now · positions max ${LIVE_MAX_POS} · orders unlimited · ${X01_LADDER_PER_SYM} rungs/symbol`);
   if (seededLosers) adjustments.push(`seed skip ${seededLosers} loser symbols`);
   if (seededOff) adjustments.push(`seed disable ${seededOff} relations`);
   if (lastExec.n) adjustments.push(`seed exec n=${lastExec.n} PF ${lastExec.pf.toFixed(2)}`);

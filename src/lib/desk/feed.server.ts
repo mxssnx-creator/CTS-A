@@ -8,9 +8,11 @@ import {
   MIN_SIZE_RATIO,
   buildControlParams,
   clientOrderKindOf,
+  exchangeOrderId,
   filterDeskRealized,
   isDeskClientOrderId,
   makeClientOrderId,
+  placedOrderId,
   type AccountPing,
   type FeedSnapshot,
   type LiveOrderResult,
@@ -1033,11 +1035,13 @@ export async function placeSwapOrder(input: {
         method: "POST",
         headers: { "X-BX-APIKEY": apiKey },
       });
-      const body = out.json as { code?: number; msg?: string; data?: { orderId?: string | number } };
+      const body = out.json as { code?: number; msg?: string; data?: unknown };
       if (body?.code !== 0) {
         return { ok: false, error: body?.msg || `BingX ${body?.code ?? out.status}` };
       }
-      return { ok: true, orderId: String(body.data?.orderId ?? "ok") };
+      const orderId = placedOrderId(body.data);
+      if (!orderId) return { ok: false, error: "missing orderId" };
+      return { ok: true, orderId, clientOrderId: tagged };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "order failed" };
     }
@@ -1077,13 +1081,13 @@ export async function cancelSwapOrder(input: {
 }): Promise<LiveOrderResult> {
   const { apiKey, secret } = resolveKeys(input.connId, input.apiKey, input.secret);
   if (!apiKey || !secret) return { ok: false, error: "API key and secret required" };
-  if (!input.orderId) return { ok: false, error: "orderId required" };
+  if (!input.orderId || !exchangeOrderId(input.orderId)) return { ok: false, error: "orderId required" };
   const venue = input.symbol.includes("-")
     ? input.symbol
     : BINGX_SYMBOL[input.symbol] ?? `${input.symbol.replace(/USDT$/i, "")}-USDT`;
   const params: Record<string, string | number> = {
     symbol: venue,
-    orderId: String(input.orderId),
+    orderId: exchangeOrderId(input.orderId),
     recvWindow: 5000,
     timestamp: Date.now(),
   };
@@ -1119,9 +1123,11 @@ export function parseOpenOrderRow(r: Record<string, unknown>, connId: string): E
   const rawStatus = String(r.status ?? "open");
   const status = filled > 1e-12 && remaining > 1e-12 ? "partial" : rawStatus;
   const clientOrderId = String(r.clientOrderID ?? r.clientOrderId ?? r.clientOid ?? "").trim();
+  const id = exchangeOrderId(r.orderId ?? r.orderID ?? r.id);
+  if (!id) return null;
   return {
     connId,
-    id: String(r.orderId ?? r.orderID ?? r.id ?? `${symbol}:${r.type}:${r.positionSide}:${r.stopPrice}`),
+    id,
     symbol,
     venueSymbol,
     side: asSide(String(r.positionSide ?? ""), String(r.side ?? "")),
@@ -1361,7 +1367,7 @@ export async function fetchLiveExecutions(input: {
           const venue = String(r.symbol ?? "");
           const ps = String(r.positionSide ?? r.side ?? "").toUpperCase();
           return {
-            id: String(r.orderId ?? ""),
+            id: exchangeOrderId(r.orderId ?? r.orderID),
             symbol: deskIdFromVenue(venue) ?? venue.replace("-", ""),
             side: (ps === "SHORT" ? "short" : "long") as Side,
             type: String(r.type ?? ""),

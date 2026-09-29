@@ -2,7 +2,10 @@ import { createContext, useContext, useLayoutEffect, useRef } from "react";
 import { useRouterState } from "@tanstack/react-router";
 import type { ExchangeBook } from "@/lib/desk/types";
 import { useDesk } from "@/lib/desk/store";
+import { countPositionSlots, countWorkingOrders, LIVE_MAX_POSITIONS } from "@/lib/desk/feed";
 import { bindDeskScroll, restoreDeskScroll, saveDeskScroll } from "./scroll-pane";
+
+export { LIVE_MAX_POSITIONS };
 
 export type LiveDeskPayload = {
   session: object | null;
@@ -46,6 +49,7 @@ export type LiveNumbers = {
   foreignOrd: number;
   liveOwned: number;
   controlGap: number;
+  livePartials: number;
   at: number;
   hasLive: boolean;
   conn: string;
@@ -150,13 +154,22 @@ export function liveNumbers(
   const bookOcc = new Set((exchange?.positions ?? []).map((p) => p.symbol).filter(Boolean)).size;
   const sessBook = Array.isArray(session?.bookPos) ? (session.bookPos as { symbol?: string; side?: string }[]) : [];
   const sessOcc = new Set(sessBook.map((p) => p.symbol).filter(Boolean)).size;
-  const livePos = Math.max(num(session?.livePos), exchange?.positions.length ?? 0, sessBook.length);
-  const liveOrd = Math.max(num(session?.liveOrd), exchange?.orders.length ?? 0);
+  const posRows = (exchange?.positions?.length ? exchange.positions : sessBook) as { symbol?: string; side?: string }[];
+  const slots = countPositionSlots(posRows);
+  const ordRows = (
+    exchange?.orders?.length
+      ? exchange.orders
+      : Array.isArray(session?.bookOrd)
+        ? (session.bookOrd as { status?: string }[])
+        : []
+  ) as { status?: string }[];
+  const ord = countWorkingOrders(ordRows);
+  const livePos = posRows.length ? slots.slots : num(session?.livePos);
+  const liveOrd = ordRows.length ? Math.max(ord.n, num(session?.liveOrd)) : num(session?.liveOrd);
   const pingOk = Boolean(session?.pingOk || exchange?.ok);
-  const occupied = num(session?.occupied) || bookOcc || sessOcc;
-  const posRows = (exchange?.positions?.length ? exchange.positions : sessBook) as { side?: string }[];
-  const liveLong = posRows.filter((p) => p.side === "long").length;
-  const liveShort = posRows.filter((p) => p.side === "short").length;
+  const occupied = num(session?.occupied) || slots.symbols || bookOcc || sessOcc;
+  const liveLong = posRows.length ? slots.long : num(session?.long);
+  const liveShort = posRows.length ? slots.short : num(session?.short);
   const network = str(session?.network, conn === "bingx-x01" ? "mainnet" : "testnet");
   const venueLabel = venueLabelFor(conn, network);
   return {
@@ -194,6 +207,7 @@ export function liveNumbers(
     foreignOrd: num(session?.foreignOrd),
     liveOwned: num(session?.liveOwned, livePos),
     controlGap: num(session?.controlGap),
+    livePartials: ordRows.length ? ord.partial : num(session?.partials),
     at: num(session?.at, payload?.at ?? 0),
     hasLive: Boolean(session || (exchange && exchange.ok)),
     conn,
@@ -207,11 +221,65 @@ export function useLiveSnapshot(): LiveNumbers {
   const session = useDesk((s) => s.liveSession);
   const overall = useDesk((s) => s.liveOverall);
   const exchange = useDesk((s) => s.exchange);
+  const activeConnId = useDesk((s) => s.activeConnId);
   useDesk((s) => s.liveMark);
-  const next = liveNumbers(ctx, { session, overall, exchange });
+  const raw = liveNumbers(ctx, { session, overall, exchange });
+  const host = String(session?.conn || raw.conn || "");
+  const viewingHost = !activeConnId || !host || host === activeConnId;
+  const next = viewingHost ? raw : viewOtherConn(raw, activeConnId, exchange);
   const hold = useRef(next);
   if (!sameSnap(hold.current, next)) hold.current = next;
   return hold.current;
+}
+
+function viewOtherConn(raw: LiveNumbers, activeConnId: string, exchange: ExchangeBook | null): LiveNumbers {
+  const book = exchange?.ok && exchange.connId === activeConnId ? exchange : null;
+  const slots = countPositionSlots(book?.positions ?? []);
+  const ord = countWorkingOrders(book?.orders ?? []);
+  const network = activeConnId === "bingx-x01" ? "mainnet" : "testnet";
+  return {
+    ...raw,
+    session: null,
+    overall: null,
+    exchange: book,
+    equity: book?.equity ?? 0,
+    pf: 0,
+    wr: 0,
+    net: 0,
+    trades: 0,
+    mdd: 0,
+    livePos: slots.slots,
+    liveOrd: ord.n,
+    liveSl: 0,
+    liveTp: 0,
+    pingOk: Boolean(book),
+    latencyMs: book?.latencyMs ?? 0,
+    elapsedMin: 0,
+    tactic: raw.tactic,
+    range: raw.range,
+    lastMsg: book ? `${activeConnId} book` : `Connecting ${activeConnId}`,
+    positive: false,
+    occupied: slots.slots,
+    slots: slots.slots,
+    liveLong: slots.long,
+    liveShort: slots.short,
+    liveLevMin: 0,
+    liveLevMax: 0,
+    liveLevAvg: 0,
+    closedNet: 0,
+    openNet: 0,
+    systemNet: 0,
+    foreignPos: 0,
+    foreignOrd: 0,
+    liveOwned: slots.slots,
+    controlGap: 0,
+    livePartials: ord.partial,
+    at: book?.at ?? 0,
+    hasLive: Boolean(book),
+    conn: activeConnId,
+    network,
+    venueLabel: venueLabelFor(activeConnId, network),
+  };
 }
 
 function sameSnap(a: LiveNumbers, b: LiveNumbers) {
@@ -241,6 +309,9 @@ function sameSnap(a: LiveNumbers, b: LiveNumbers) {
     a.foreignPos === b.foreignPos &&
     a.foreignOrd === b.foreignOrd &&
     a.controlGap === b.controlGap &&
+    a.livePartials === b.livePartials &&
+    a.liveLong === b.liveLong &&
+    a.liveShort === b.liveShort &&
     a.lastMsg === b.lastMsg &&
     a.at === b.at &&
     a.overall === b.overall &&

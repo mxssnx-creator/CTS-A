@@ -18,7 +18,7 @@ import {
   strategyMatchesKinds,
 } from "@/lib/desk/engine";
 import { useDesk } from "@/lib/desk/store";
-import { deskLivePf, useLiveSnapshot } from "@/lib/desk/live-ctx";
+import { deskLivePf, LIVE_MAX_POSITIONS, useLiveSnapshot } from "@/lib/desk/live-ctx";
 import {
   TICKS_PER_HOUR,
   VST_MAX_POSITIONS,
@@ -211,10 +211,10 @@ export function SessionProgress({
         <Meter
           label="Positions"
           value={liveSnap.hasLive ? liveSnap.livePos : tape.positions.slots}
-          max={tape.positions.maxSlots}
+          max={liveSnap.hasLive ? LIVE_MAX_POSITIONS : tape.positions.maxSlots}
           hint={
             liveSnap.hasLive
-              ? `${liveSnap.livePos} BingX · ${liveSnap.occupied} occupied`
+              ? `${liveSnap.livePos}/${LIVE_MAX_POSITIONS} · ${liveSnap.liveLong}L ${liveSnap.liveShort}S`
               : `${tape.positions.slots}/${tape.positions.maxSlots} · ${tape.positions.long}L ${tape.positions.short}S`
           }
         />
@@ -224,7 +224,7 @@ export function SessionProgress({
           max={Math.max(liveSnap.hasLive ? liveSnap.liveOrd : tape.orders.placed, tape.orders.live, 1)}
           hint={
             liveSnap.hasLive
-              ? `${liveSnap.liveOrd} open · SL ${liveSnap.liveSl} TP ${liveSnap.liveTp}`
+              ? `${liveSnap.liveOrd} · partials ${liveSnap.livePartials} · unlimited`
               : `${tape.orders.queued}q ${tape.orders.open}o ${tape.orders.partial}p · ${tape.orders.filled}f ${tape.orders.cancelled}x ${tape.orders.rejected}r`
           }
         />
@@ -253,7 +253,7 @@ export function SessionProgress({
                   label="Open orders"
                   value={liveSnap.liveOrd}
                   max={Math.max(liveSnap.liveOrd, 1)}
-                  hint={`${liveSnap.liveOrd} on BingX · SL ${liveSnap.liveSl} TP ${liveSnap.liveTp}`}
+                  hint={`${liveSnap.liveOrd} · partials ${liveSnap.livePartials} · unlimited`}
                 />
               );
             }
@@ -264,8 +264,8 @@ export function SessionProgress({
                   key={row.id}
                   label="Position legs"
                   value={n}
-                  max={VST_MAX_POSITIONS}
-                  hint={`${n}/${VST_MAX_POSITIONS} · ${liveSnap.liveLong}L ${liveSnap.liveShort}S`}
+                  max={LIVE_MAX_POSITIONS}
+                  hint={`${n}/${LIVE_MAX_POSITIONS} · ${liveSnap.liveLong}L ${liveSnap.liveShort}S`}
                 />
               );
             }
@@ -599,15 +599,15 @@ export function SessionProgress({
           <Pill>{connections.length} BingX sessions</Pill>
           <Pill>
             {liveSnap.hasLive
-              ? `${liveSnap.occupied}/${symbolCount} occupied · ${liveSnap.liveLong}L/${liveSnap.liveShort}S`
+              ? `Positions/Orders ${liveSnap.livePos}/${liveSnap.liveOrd}`
               : `${tape.positions.slots}/${tape.positions.maxSlots} pos slots · ${tape.positions.long}L/${tape.positions.short}S`}
           </Pill>
           <Pill>
-            {liveSnap.hasLive ? liveSnap.livePos : tape.positions.legs}/{VST_MAX_POSITIONS} legs
+            {liveSnap.hasLive ? `${liveSnap.livePos}/${LIVE_MAX_POSITIONS} · ${liveSnap.liveLong}L ${liveSnap.liveShort}S` : `${tape.positions.legs}/${VST_MAX_POSITIONS} legs`}
           </Pill>
           <Pill>
             {liveSnap.hasLive
-              ? `${liveSnap.liveOrd} orders · SL ${liveSnap.liveSl} TP ${liveSnap.liveTp}`
+              ? `partials ${liveSnap.livePartials} · orders unlimited`
               : `${tape.orders.placed} orders · ${tape.orders.live} live · ${tape.orders.filled} filled · ${tape.orders.cancelled} x · ${tape.orders.rejected} rej`}
           </Pill>
           <Pill>

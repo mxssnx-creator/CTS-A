@@ -1,13 +1,13 @@
 /**
- * Stable reference. Repair from git tag `stable` and preset `stable-12h-0928`.
- * The mark is the 2026-09-28 coordination cell: geometric short 0.48/0.75, five coords on.
- * The 2h check after the Block gate printed book PF 2.034, Block 5.153, Axis 5.129, Normal 1.664.
- * Trailing and DCA stay off on that preset. The DCA cases below only check the add mechanism when the toggle is on.
+ * Stable reference. Repair from git tags `stable` and `breakpoint-0929`.
+ * The tape cell is still preset `stable-12h-0928` (geometric short 0.48/0.75).
+ * The 2026-09-29 breakpoint locks the live book: 100 signals, unlimited orders.
  * Run: npm run test:stable
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { findPreset, STABLE_PRESET_ID } from "./presets.ts";
+import { LIVE_MAX_POSITIONS, countPositionSlots, countWorkingOrders } from "./feed.ts";
 import {
   initVstEngine,
   LIVE_RUN_CFG,
@@ -92,6 +92,25 @@ function seedLong(e: ReturnType<typeof engine>, drop: number, range: "atr" | "vo
 }
 
 describe("stable reference", () => {
+  it("keeps the 09-29 signal breakpoint", () => {
+    assert.equal(LIVE_MAX_POSITIONS, 100);
+    const slots = countPositionSlots([
+      { symbol: "BTCUSDT", side: "long" },
+      { symbol: "BTCUSDT", side: "long" },
+      { symbol: "BTCUSDT", side: "short" },
+    ]);
+    assert.equal(slots.slots, 2);
+    assert.equal(slots.long, 1);
+    assert.equal(slots.short, 1);
+    const orders = countWorkingOrders([
+      { status: "open" },
+      { status: "partial" },
+      { status: "filled" },
+    ]);
+    assert.equal(orders.n, 2);
+    assert.equal(orders.partial, 1);
+  });
+
   it("points the stable preset at the 12h geometric tape", () => {
     assert.equal(STABLE_PRESET_ID, "stable-12h-0928");
     const preset = findPreset(STABLE_PRESET_ID, []);

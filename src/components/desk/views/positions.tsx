@@ -10,7 +10,8 @@ import {
 import { liveDeskBook, positionsAsTrades } from "@/lib/desk/vst";
 import type { Position } from "@/lib/desk/types";
 import { useDesk } from "@/lib/desk/store";
-import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
+import { useLiveSnapshot, usePreserveScroll, LIVE_MAX_POSITIONS } from "@/lib/desk/live-ctx";
+import { countPositionSlots, countWorkingOrders } from "@/lib/desk/feed";
 import { clsPnl, fmtNum, fmtPct, fmtPx, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { fmtPf, fmtWr, Panel, Pill, Segmented, StatLine } from "../widgets";
@@ -62,7 +63,7 @@ export function PositionsView() {
   const liveOrders = vst.orders.filter(
     (o) => o.connId === activeConnId && (o.status === "open" || o.status === "partial" || o.status === "queued"),
   );
-  const slotKeys = new Set(livePos.map((p) => `${p.symbol}:${p.side}:${p.playbook || ""}`));
+  const slotKeys = new Set(livePos.map((p) => `${p.symbol}:${p.side}`));
   const exchRows = (exchange?.positions ?? []).filter((p) => {
     const cid = (p as { connId?: string }).connId;
     return !cid || cid === activeConnId;
@@ -71,9 +72,11 @@ export function PositionsView() {
     const cid = (o as { connId?: string }).connId;
     return !cid || cid === activeConnId;
   });
-  const x01 = activeConnId === "bingx-x01" || liveSnap.conn === "bingx-x01";
+  const x01 = activeConnId === "bingx-x01";
   const hostLive = liveSnap.hasLive && x01;
-  const openN = hostLive ? liveSnap.livePos : livePos.length;
+  const shownSlots = countPositionSlots(hostLive ? (exchRows.length ? exchRows : livePos) : livePos);
+  const shownOrd = hostLive ? liveSnap.liveOrd : countWorkingOrders(exchOrders.length ? exchOrders : liveOrders).n;
+  const openN = hostLive ? liveSnap.livePos : shownSlots.slots;
 
   const sendNext = () => {
     if (liveSnap.hasLive) {
@@ -104,8 +107,8 @@ export function PositionsView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Book</p>
         <h1 className="text-2xl font-semibold tracking-tight">Positions</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          {openN} open on {x01 ? "live mainnet x01" : activeConnId}. Last N{lastNs.last} closed, ongoing N{lastNs.ongoing}.
-          {hostLive ? ` Other ${liveSnap.foreignPos} · SL ${liveSnap.liveSl} · TP ${liveSnap.liveTp} · gap ${liveSnap.controlGap}.` : " Other connections stay on their own books."}
+          Positions/Orders {openN}/{shownOrd}. {hostLive ? liveSnap.liveLong : shownSlots.long}L {hostLive ? liveSnap.liveShort : shownSlots.short}S, each side its own slot. Max {LIVE_MAX_POSITIONS}. Orders unlimited.
+          {hostLive ? ` Other ${liveSnap.foreignPos} · partials ${liveSnap.livePartials} · gap ${liveSnap.controlGap}.` : " Other connections stay on their own books."}
         </p>
       </div>
 
@@ -114,9 +117,9 @@ export function PositionsView() {
       <Panel title={x01 ? "Live mainnet x01" : `BingX ${activeConnId}`}>
         <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
           <StatLine k="Equity" v={exchange?.equity ? fmtUsd(exchange.equity) : hostLive && liveSnap.equity ? fmtUsd(liveSnap.equity) : "—"} />
-          <StatLine k="Exchange pos" v={String(hostLive ? liveSnap.livePos + liveSnap.foreignPos : exchange?.connId === activeConnId ? exchRows.length : 0)} />
-          <StatLine k="Exchange orders" v={String(hostLive ? liveSnap.liveOrd : exchange?.connId === activeConnId ? exchOrders.length : 0)} />
-          <StatLine k="Desk open" v={String(openN)} />
+          <StatLine k="Positions/Orders" v={`${openN}/${shownOrd}`} />
+          <StatLine k="Long / Short" v={`${hostLive ? liveSnap.liveLong : shownSlots.long}L ${hostLive ? liveSnap.liveShort : shownSlots.short}S`} />
+          <StatLine k="Desk open" v={`${openN}/${LIVE_MAX_POSITIONS}`} />
         </div>
         {openN === 0 && exchRows.length === 0 ? (
           <p className="mt-3 text-sm text-muted">No open positions on {x01 ? "live mainnet x01" : activeConnId} yet.</p>
@@ -138,14 +141,6 @@ export function PositionsView() {
                 <span className="text-muted">{String(p.playbook || "").replace("bot:", "")}</span>
                 <span className="text-muted">{p.qty.toPrecision(3)}</span>
                 <span className={clsPnl(p.unrealized)}>{fmtUsd(p.unrealized)}</span>
-              </li>
-            ))}
-            {hostLive ? null : exchOrders.map((o, i) => (
-              <li key={`${o.id}:${o.type}:${i}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-muted">
-                <span className="font-mono text-xs">{o.symbol.replace("USDT", "")}</span>
-                <span>{o.type}</span>
-                <span className="capitalize">{o.side}</span>
-                <span>{o.status}</span>
               </li>
             ))}
           </ul>

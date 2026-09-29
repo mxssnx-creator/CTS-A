@@ -1,5 +1,5 @@
-import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
-import { clsPnl, fmtPx, fmtUsd } from "@/lib/utils";
+import { useLiveSnapshot, usePreserveScroll, LIVE_MAX_POSITIONS } from "@/lib/desk/live-ctx";
+import { fmtPx } from "@/lib/utils";
 import { Panel, Pill, StatLine } from "../widgets";
 import { LiveBookStrip } from "../live-book-strip";
 
@@ -10,27 +10,28 @@ export function OrdersView() {
     const rank = (t: string) => (t.includes("STOP") ? 0 : t.includes("TAKE_PROFIT") ? 1 : 2);
     return rank(a.type) - rank(b.type) || a.symbol.localeCompare(b.symbol);
   });
-  const pos = live.exchange?.positions ?? [];
-  const desk = Number((live.session?.livePos as number | undefined) ?? live.livePos);
-  const other = live.foreignPos;
+  const partials = orders.filter((o) => String(o.status || "").toLowerCase() === "partial").length;
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
       <div>
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Exchange</p>
         <h1 className="text-2xl font-semibold tracking-tight">Orders</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Full stop and target on every open leg for {live.venueLabel}. Desk {desk} · other {other} · SL {live.liveSl} · TP {live.liveTp} · gap {live.controlGap}.
+          Positions/Orders {live.livePos}/{live.liveOrd}. Every partial counts. Positions max {LIVE_MAX_POSITIONS}, orders unlimited.
+          {` ${live.liveLong}L ${live.liveShort}S · partials ${Math.max(partials, live.livePartials)} · SL ${live.liveSl} · TP ${live.liveTp} · gap ${live.controlGap}.`}
         </p>
       </div>
       <LiveBookStrip />
-      <Panel title={`Open orders · ${orders.length}`}>
+      <Panel title={`Orders · ${orders.length}`}>
         <div className="mb-3 grid grid-cols-2 gap-x-6 sm:grid-cols-4">
-          <StatLine k="Orders" v={String(live.liveOrd)} />
-          <StatLine k="SL" v={String(live.liveSl)} />
-          <StatLine k="TP" v={String(live.liveTp)} />
-          <StatLine k="Gap" v={String(live.controlGap)} />
-          <StatLine k="Desk" v={String(desk)} />
-          <StatLine k="Other" v={String(other)} />
+          <StatLine k="Positions/Orders" v={`${live.livePos}/${live.liveOrd}`} />
+          <StatLine k="Partials" v={String(Math.max(partials, live.livePartials))} />
+          <StatLine k="SL / TP" v={`${live.liveSl} / ${live.liveTp}`} />
+          <StatLine k="Max" v={`${LIVE_MAX_POSITIONS} / ∞`} />
+          <StatLine
+            k="By id"
+            v={`${Number((live.session as { orderTrack?: { tracked?: number; filled?: number; updated?: number } } | null)?.orderTrack?.tracked ?? 0)}`}
+          />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] text-left text-sm">
@@ -43,6 +44,7 @@ export function OrdersView() {
                 <th className="py-2 pr-3 font-medium">Left</th>
                 <th className="py-2 pr-3 font-medium">Stop</th>
                 <th className="py-2 pr-3 font-medium">Status</th>
+                <th className="py-2 pr-3 font-medium">Id</th>
               </tr>
             </thead>
             <tbody>
@@ -60,44 +62,17 @@ export function OrdersView() {
                     </td>
                     <td className="py-2 pr-3">{o.stopPrice ? fmtPx(o.stopPrice) : o.price ? fmtPx(o.price) : "—"}</td>
                     <td className="py-2 pr-3">{o.status || "NEW"}</td>
+                    <td className="py-2 pr-3 font-mono text-[10px]">{o.id}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td className="py-6 text-muted" colSpan={7}>
+                  <td className="py-6 text-muted" colSpan={8}>
                     No open orders on {live.venueLabel}.
                     {live.liveSl + live.liveTp > 0 ? ` Host still reports SL ${live.liveSl} · TP ${live.liveTp}.` : ""}
                   </td>
                 </tr>
               )}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
-      <Panel title={`Positions covering orders · ${pos.length}`}>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left text-sm">
-            <thead className="text-xs uppercase tracking-wide text-subtle">
-              <tr>
-                <th className="py-2 pr-3 font-medium">Symbol</th>
-                <th className="py-2 pr-3 font-medium">Side</th>
-                <th className="py-2 pr-3 font-medium">Qty</th>
-                <th className="py-2 pr-3 font-medium">Entry</th>
-                <th className="py-2 pr-3 font-medium">Mark</th>
-                <th className="py-2 pr-3 font-medium">PnL</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pos.map((p) => (
-                <tr key={`${p.symbol}-${p.side}`} className="border-t border-border">
-                  <td className="py-2 pr-3 font-medium">{p.symbol}</td>
-                  <td className="py-2 pr-3">{p.side}</td>
-                  <td className="py-2 pr-3">{p.qty}</td>
-                  <td className="py-2 pr-3">{fmtPx(p.entry)}</td>
-                  <td className="py-2 pr-3">{fmtPx(p.mark)}</td>
-                  <td className={clsPnl(p.pnl)}>{fmtUsd(p.pnl)}</td>
-                </tr>
-              ))}
             </tbody>
           </table>
         </div>

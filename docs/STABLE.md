@@ -1,4 +1,29 @@
+# Stable — live breakpoint, 2026-09-29
+
+This tree is the restore point. Git tags `stable` and `breakpoint-0929` point here. The tape cell underneath is still `stable-12h-0928` (geometric short 0.48/0.75). Repair the live book from this breakpoint, not from an older tag.
+
+Machine copy: [breakpoints/stable-0929.json](breakpoints/stable-0929.json).
+
+```bash
+npm run test:stable
+```
+
+## Live book
+
+| Rule | Value |
+|---|---|
+| Connection | BingX x01 mainnet, 50 symbols, limit |
+| Cost / min PF / max DDT | 18 USDT, 1.15, 14h |
+| Signal cap | 100, one per symbol+direction. Long and short both count. Duplicate rows of the same side stay one signal. |
+| Orders | Unlimited. Each partial counts. Internal position rows count as orders, not as extra signals. |
+| Controls | Trigger-rate limit pauses stops only. At most 2 protects per cycle. One trail, and only when the gap is 0. |
+| Entries | At most 8 new orders per cycle. |
+| Desk connection | The chosen session stays. The host poll does not put it back. |
+
+The 09-28 coordination note below is the cell this book still trades. Do not treat it as a newer breakpoint.
+
 # Stable — coordination mark, 2026-09-28
+
 
 This commit is the version later coordinations repair from. Preset id: `stable-12h-0928`. Git tag `stable` points here. Live x01 runs this cell. Do not turn DCA on, and do not leave this geometric short cell, unless a new tape beats it on equity and keeps Axis and Block above Normal.
 

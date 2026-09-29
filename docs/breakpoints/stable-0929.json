@@ -1,0 +1,38 @@
+{
+  "id": "stable-0929",
+  "marked": "2026-09-29",
+  "role": "Breakpoint. Repair the live x01 book from this tree. Tags: stable, breakpoint-0929.",
+  "parent": "stable-12h-0928",
+  "conn": "bingx-x01",
+  "network": "mainnet",
+  "symbols": 50,
+  "orderType": "limit",
+  "costStep": 18,
+  "minPf": 1.15,
+  "maxDdtHours": 14,
+  "shortCell": { "tpAtr": 0.48, "slOfTp": 0.75, "slAtr": 0.36, "trailingPct": 1.5, "shortRange": true },
+  "toggles": { "normal": true, "trailing": true, "axis": true, "block": false, "dca": false },
+  "signals": {
+    "cap": 100,
+    "key": "symbol+direction",
+    "longAndShort": "both count",
+    "sameSymbolAndDirection": 1,
+    "appliesTo": "new signals only"
+  },
+  "orders": {
+    "cap": null,
+    "partials": "each counts",
+    "internalPositions": "count as orders, not extra signals"
+  },
+  "controls": {
+    "triggerQuietSeparate": true,
+    "protectsPerCycle": 2,
+    "trailPerCycle": 1,
+    "trailOnlyWhenGapIsZero": true,
+    "entriesPerCycle": 8
+  },
+  "desk": {
+    "connectionSticks": true,
+    "hostDoesNotOverwriteSelection": true
+  }
+}

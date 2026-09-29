@@ -6140,7 +6140,7 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.ok(coord.validNs.length >= 1 && coord.validNs.length <= 3);
     assert.ok(coord.disableNs.includes(LIVE_DISABLE_N) || coord.disableNs.length >= 1);
     assert.ok(coord.activeInds.includes("trend"), `active inds ${coord.activeInds}`);
-    assert.equal(coord.activeInds.includes("move"), false);
+    assert.equal(coord.activeInds.includes("move"), true, "future keeps a red lane on the book");
     const trendKey = relComboKey({ indication: "trend", tactic: "trailing", rangeType: "atr", playbook: "short" });
     const midKey = relComboKey({ indication: "move", tactic: "trailing", rangeType: "atr", playbook: "short" });
     assert.equal(coord.combos[trendKey]?.ok, true);

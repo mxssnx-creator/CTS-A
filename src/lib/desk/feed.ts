@@ -36,20 +36,58 @@ export interface AccountPing {
 export interface LiveOrderResult {
   ok: boolean;
   orderId?: string;
+  clientOrderId?: string;
   error?: string;
 }
 
 export const MAX_LIVE_NOTIONAL = 150;
 /** Size at least this multiple of exchange min qty / min notional. */
 export const MIN_SIZE_RATIO = 1;
+/** Live book: one slot per symbol and side. 50 symbols × long and short. */
+export const LIVE_MAX_POSITIONS = 100;
 
-/** Live size / Block stack vs account equity. Low books still trade min lots + shared Block. */
+const TERMINAL_ORDER = new Set(["cancelled", "canceled", "filled", "rejected", "expired", "deactivated"]);
+
+/** Long and short on the same symbol are two positions. Duplicate rows of one side collapse. */
+export function countPositionSlots(rows: ReadonlyArray<{ symbol?: string; side?: string }> | null | undefined) {
+  const keys = new Set<string>();
+  const symbols = new Set<string>();
+  let long = 0;
+  let short = 0;
+  for (const p of rows ?? []) {
+    const symbol = String(p?.symbol || "");
+    const side = p?.side === "short" ? "short" : p?.side === "long" ? "long" : "";
+    if (!symbol || !side) continue;
+    symbols.add(symbol);
+    const key = `${symbol}:${side}`;
+    if (keys.has(key)) continue;
+    keys.add(key);
+    if (side === "long") long += 1;
+    else short += 1;
+  }
+  return { slots: keys.size, long, short, symbols: symbols.size };
+}
+
+/** Every working order counts, including each partial. Nothing is collapsed by symbol. */
+export function countWorkingOrders(rows: ReadonlyArray<{ status?: string }> | null | undefined) {
+  let n = 0;
+  let partial = 0;
+  for (const o of rows ?? []) {
+    const st = String(o?.status || "open").toLowerCase();
+    if (TERMINAL_ORDER.has(st)) continue;
+    n += 1;
+    if (st === "partial" || st === "partially_filled" || st === "partiallyfilled") partial += 1;
+  }
+  return { n, partial };
+}
+
+/** Live size / Block stack vs account equity. Positions cap at 100. Orders are not capped here. */
 export function liveEntryBudget(equity: number, minNotional = 2) {
   const eq = Math.max(0, Number(equity) || 0);
   void minNotional;
   if (!(eq > 0)) return { trade: false, block: false, maxNew: 0, maxPos: 0, reason: "empty" as const };
-  if (eq < 1) return { trade: true, block: true, maxNew: 16, maxPos: 200, reason: "micro" as const };
-  return { trade: true, block: true, maxNew: 64, maxPos: 2000, reason: "full" as const };
+  if (eq < 1) return { trade: true, block: true, maxNew: 16, maxPos: LIVE_MAX_POSITIONS, reason: "micro" as const };
+  return { trade: true, block: true, maxNew: 64, maxPos: LIVE_MAX_POSITIONS, reason: "full" as const };
 }
 
 /** Desk id → BingX swap contract. Omissions stay on the last quoted walk. */
@@ -164,6 +202,25 @@ export function clientOrderKindOf(type: string | undefined, closePosition?: bool
   return "E";
 }
 
+/** Exchange order ids only. Drops placeholders and synthetic symbol:type keys. */
+export function exchangeOrderId(id: unknown): string {
+  if (typeof id === "number") {
+    if (!Number.isSafeInteger(id) || id <= 0) return "";
+    return String(id);
+  }
+  const s = String(id ?? "").trim();
+  if (!/^[0-9]{1,32}$/.test(s) || s === "0") return "";
+  return s;
+}
+
+export function placedOrderId(data: unknown): string {
+  if (!data || typeof data !== "object") return "";
+  const d = data as Record<string, unknown>;
+  const order = d.order && typeof d.order === "object" ? (d.order as Record<string, unknown>) : null;
+  const first = Array.isArray(d.orders) && d.orders[0] && typeof d.orders[0] === "object" ? (d.orders[0] as Record<string, unknown>) : null;
+  return exchangeOrderId(d.orderId ?? d.orderID ?? order?.orderId ?? order?.orderID ?? first?.orderId ?? first?.orderID);
+}
+
 /** BingX requires quantity and stopPrice on a control, including when closePosition is set. closePosition must not also send reduceOnly. */
 export function buildControlParams(input: {
   type?: string;
@@ -250,7 +307,7 @@ export type DeskRealized = {
 
 const CLOSE_TYPE_RE = /STOP|TAKE_PROFIT|TRAILING|CLOSE|LIQUID/;
 const FILL_STATUS_RE = /FILLED|PARTIAL/;
-const MATCH_MS = 15 * 60_000;
+const MATCH_MS = 60_000;
 
 function ddtFromSigned(rows: { t: number; v: number }[]): number {
   const sorted = [...rows].sort((a, b) => a.t - b.t);
@@ -342,18 +399,25 @@ export function filterDeskRealized(
   const closes = tagged.filter((o) => isDeskCloseOrder(o, connId));
   const taggedSym = new Set(tagged.map((o) => o.symbol).filter(Boolean));
   const seen = new Set<string>();
+  const booked = new Set<string>();
   const pnl: DeskIncome[] = [];
   const push = (row: DeskIncome) => {
     if (since && Number(row.time) > 0 && Number(row.time) < since) return;
     if (!row.symbol || !Number.isFinite(Number(row.income))) return;
+    const oid = exchangeOrderId(row.info);
+    const cid = isDeskClientOrderId(row.info, connId) ? String(row.info) : "";
+    if (oid && booked.has(`id:${oid}`)) return;
+    if (cid && booked.has(`cid:${cid}`)) return;
     const key = `${row.symbol}:${Number(row.time) || 0}:${Number(row.income).toFixed(8)}`;
     if (seen.has(key)) return;
     seen.add(key);
+    if (oid) booked.add(`id:${oid}`);
+    if (cid) booked.add(`cid:${cid}`);
     pnl.push({
       symbol: row.symbol,
       type: "REALIZED_PNL",
       income: Number(row.income) || 0,
-      info: String(row.info || ""),
+      info: oid || cid || String(row.info || ""),
       time: Number(row.time) || 0,
     });
   };
@@ -367,19 +431,30 @@ export function filterDeskRealized(
       push(x);
       continue;
     }
+    if (info) continue;
     if (!taggedSym.has(x.symbol)) continue;
-    const nearby = closes.some((o) => o.symbol === x.symbol && Math.abs((Number(o.time) || 0) - (Number(x.time) || 0)) < MATCH_MS);
-    if (nearby) push(x);
+    const near = closes.filter((o) => o.symbol === x.symbol && Math.abs((Number(o.time) || 0) - (Number(x.time) || 0)) < MATCH_MS);
+    const foreignNear = all.some(
+      (o) =>
+        o.symbol === x.symbol &&
+        !isDeskClientOrderId(o.info, connId) &&
+        Math.abs((Number(o.time) || 0) - (Number(x.time) || 0)) < MATCH_MS,
+    );
+    if (near.length === 1 && !foreignNear) push({ ...x, info: near[0]?.id || "" });
   }
 
   for (const o of closes) {
     const v = Number(o.pnl) || 0;
     if (!v) continue;
+    const oid = exchangeOrderId(o.id);
+    if (oid && booked.has(`id:${oid}`)) continue;
+    if (o.info && booked.has(`cid:${o.info}`)) continue;
+    if (pnl.some((x) => x.symbol === o.symbol && Math.abs(x.income - v) < 1e-8 && Math.abs((Number(x.time) || 0) - (Number(o.time) || 0)) < MATCH_MS)) continue;
     push({
       symbol: o.symbol,
       type: "REALIZED_PNL",
       income: v,
-      info: o.info || o.id,
+      info: oid || o.info || o.id,
       time: o.time,
     });
   }

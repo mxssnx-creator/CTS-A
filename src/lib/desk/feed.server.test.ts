@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, buildControlParams, deskClientPrefix, filterDeskRealized, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, systemProcessedNet } from "./feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, buildControlParams, deskClientPrefix, filterDeskRealized, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, countPositionSlots, countWorkingOrders, LIVE_MAX_POSITIONS, systemProcessedNet, exchangeOrderId, placedOrderId } from "./feed.ts";
 import {
   buildCanonical,
   configureLiveExecution,
@@ -36,8 +36,29 @@ describe("live feed", () => {
     assert.equal(liveEntryBudget(0.0007).trade, true);
     assert.equal(liveEntryBudget(0).trade, false);
     assert.equal(liveEntryBudget(6).block, true);
-    assert.ok((liveEntryBudget(0.2).maxPos || 0) >= 8);
-    assert.equal(liveEntryBudget(60).block, true);
+    assert.equal(liveEntryBudget(0.2).maxPos, LIVE_MAX_POSITIONS);
+    assert.equal(liveEntryBudget(60).maxPos, LIVE_MAX_POSITIONS);
+    assert.equal(LIVE_MAX_POSITIONS, 100);
+    const slots = countPositionSlots([
+      { symbol: "BTCUSDT", side: "long" },
+      { symbol: "BTCUSDT", side: "long" },
+      { symbol: "BTCUSDT", side: "short" },
+      { symbol: "ETHUSDT", side: "short" },
+    ]);
+    assert.equal(slots.slots, 3);
+    assert.equal(slots.long, 1);
+    assert.equal(slots.short, 2);
+    assert.equal(slots.symbols, 2);
+    const orders = countWorkingOrders([
+      { status: "open" },
+      { status: "partial" },
+      { status: "PARTIALLY_FILLED" },
+      { status: "filled" },
+      { status: "cancelled" },
+      { status: "NEW" },
+    ]);
+    assert.equal(orders.n, 4);
+    assert.equal(orders.partial, 2);
   });
 
   it("lifts qty to exchange min × ratio", () => {
@@ -249,6 +270,22 @@ describe("live feed", () => {
     assert.equal(realized.n, 1);
     const mixed = systemProcessedNet(realized.net, -0.1);
     assert.ok(Math.abs(mixed.systemNet - 0.3) < 1e-9);
+    assert.equal(exchangeOrderId("2100774590279671861"), "2100774590279671861");
+    assert.equal(exchangeOrderId("ok"), "");
+    assert.equal(exchangeOrderId("ETHUSDT:STOP:LONG:1"), "");
+    assert.equal(placedOrderId({ order: { orderId: "42" } }), "42");
+    const shifted = filterDeskRealized(
+      [
+        { id: "99", symbol: "ETHUSDT", side: "long", type: "STOP_MARKET", status: "FILLED", pnl: 1.5, time: t + 800, info: ours },
+      ],
+      [
+        { symbol: "ETHUSDT", type: "REALIZED_PNL", income: 1.5, info: "99", time: t },
+        { symbol: "ETHUSDT", type: "REALIZED_PNL", income: 9, info: "", time: t + 10 * 60_000 },
+      ],
+      "bingx-vst-02",
+    );
+    assert.equal(shifted.realized.n, 1);
+    assert.ok(Math.abs(shifted.realized.net - 1.5) < 1e-9, `shifted ${shifted.realized.net}`);
   });
 
   it("untagged leftover on an owned-looking leg is not owned", () => {

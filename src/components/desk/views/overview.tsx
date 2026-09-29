@@ -347,7 +347,7 @@ export function OverviewView() {
           <Kpi label="Net" value={fmtUsd(overlayNet)} tone={overlayNet >= 0 ? "up" : "down"} />
           <Kpi label="DDT" value={fmtNum(overlayDdt, 0)} hint={`MDD ${fmtMdd(overlayMdd)}`} />
           <Kpi label="Volume |PnL|" value={fmtUsd(overlayVol)} hint="realized abs" />
-          <Kpi label="Book" value={`${liveSnap.livePos} pos`} hint={`${liveSnap.liveOrd} ord`} tone="accent" />
+          <Kpi label="Positions/Orders" value={`${liveSnap.livePos}/${liveSnap.liveOrd}`} hint={`${liveSnap.liveLong}L ${liveSnap.liveShort}S · partials ${liveSnap.livePartials}`} tone="accent" />
         </div>
       </Panel>
 
@@ -367,7 +367,7 @@ export function OverviewView() {
         <Kpi label="Net" value={fmtUsd(sessNet)} tone={sessNet >= 0 ? "up" : "down"} />
         <Kpi label="Closed PF" value={fmtPf(closedPf)} tone={closedPf >= th.minPf ? "up" : closedPf > 0 && closedPf < 1 ? "down" : "accent"} hint={`${closedN} closes`} />
         <Kpi label="Overlay PF" value={fmtPf(overlayPf)} tone={pfTone(overlayPf)} hint={`last ${overlayN} · n ${overlayBucket?.n ?? 0}`} />
-        <Kpi label="Open" value={String(liveSnap.livePos || openSlice.n)} tone="accent" hint={`${liveSnap.liveOrd} orders`} />
+        <Kpi label="Positions/Orders" value={`${liveSnap.livePos || openSlice.n}/${liveSnap.liveOrd}`} tone="accent" hint={`${liveSnap.liveLong}L ${liveSnap.liveShort}S · signals 100 · orders ∞`} />
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
         <Kpi
@@ -376,8 +376,8 @@ export function OverviewView() {
           hint={liveSnap.pingOk ? `${liveSnap.latencyMs || "ok"} · ${activeConnId}` : "connecting"}
           tone={liveSnap.pingOk ? "up" : "neutral"}
         />
-        <Kpi label="Exchange pos" value={String(liveSnap.livePos)} hint="At BingX" />
-        <Kpi label="Exchange orders" value={String(liveSnap.liveOrd)} />
+        <Kpi label="Positions/Orders" value={`${liveSnap.livePos}/${liveSnap.liveOrd}`} hint={`${liveSnap.liveLong}L ${liveSnap.liveShort}S · partials ${liveSnap.livePartials}`} />
+        <Kpi label="Long / Short" value={`${liveSnap.liveLong}/${liveSnap.liveShort}`} hint="independent slots" />
         <Kpi label="Session PF" value={Number.isFinite(livePf) ? livePf.toFixed(4) : "—"} hint={computeHint} tone={pfTone(livePf)} />
         <Kpi label="Tape PF" value={fmtPf(closedPf)} hint={`${closedN} closed`} tone={pfTone(closedPf)} />
       </div>
@@ -390,10 +390,10 @@ export function OverviewView() {
             <StatLine k="PF / WR" v={`${fmtPf(Number(session.pf))} · ${fmtWr(Number(session.wr))}`} />
             <StatLine k="System Net" v={fmtUsd(Number(session.systemNet ?? session.net))} tone={Number(session.systemNet ?? session.net) >= 0 ? "up" : "down"} />
             <StatLine k="Closed / open" v={`${fmtUsd(Number(session.closedNet ?? 0))} / ${fmtUsd(Number(session.openNet ?? session.livePnl ?? 0))}`} />
-            <StatLine k="Slots" v={`${session.slots ?? 0} · ${session.liveOrders ?? 0} orders`} />
+            <StatLine k="Positions/Orders" v={`${liveSnap.livePos}/${liveSnap.liveOrd}`} />
             <StatLine k="Ping" v={session.pingOk ? "ok" : "down"} tone={session.pingOk ? "up" : "down"} />
-            <StatLine k="Exchange book" v={`${session.liveOwned ?? session.livePos ?? "—"} own · ${session.liveOrd ?? "—"} ord`} />
-            <StatLine k="Foreign held" v={`${session.foreignPos ?? 0}p / ${session.foreignOrd ?? 0}o`} />
+            <StatLine k="Long / Short" v={`${liveSnap.liveLong}L ${liveSnap.liveShort}S`} />
+            <StatLine k="Partials" v={String(liveSnap.livePartials)} />
             <StatLine k="Positive" v={session.positive ? "yes" : "building"} />
             <StatLine k="Last" v={String(session.lastMsg ?? "—")} />
           </div>
