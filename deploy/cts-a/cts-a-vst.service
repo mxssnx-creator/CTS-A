@@ -28,7 +28,7 @@ Environment=CTS_A_DISABLED=/var/lib/cts-a/live-disabled.json
 Environment=CTS_A_PROTECT=/var/lib/cts-a/protect-grid.json
 Environment=CTS_A_CONN=bingx-x01
 Environment=CTS_A_NETWORK=mainnet
-Environment=CTS_A_LIVE_MIN_PF=1.35
+Environment=CTS_A_LIVE_MIN_PF=1.15
 Environment=CTS_A_LIVE_MAX_POS=100
 Environment=CTS_A_SYMBOLS=50
 Environment=CTS_A_EVAL_SYMBOLS=300

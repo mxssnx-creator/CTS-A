@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync, appendFileSync } from "node:fs";
 import { fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, fetchPrehistory, loadLeverageCaps, cachedMaxLeverage, MIN_LIVE_SL_PCT, exchangeMinNotional } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, seedPreAtr, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_MIN_PF, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, SYSTEM_MIN_SL_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts, seedIndicationHistory, shortControlPrices } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, SYSTEM_MIN_SL_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts, seedIndicationHistory, shortControlPrices } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -72,7 +72,7 @@ const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? 2000);
 const X01_LADDER_TARGET = 400;
 const X01_LADDER_PER_SYM = 8;
 const LIVE_MIN_PF = IS_X01
-  ? Math.max(DEFAULT_MIN_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_MIN_PF) || DEFAULT_MIN_PF)
+  ? 1.15
   : Math.max(DEFAULT_SHORT_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_SHORT_PF) || DEFAULT_SHORT_PF);
 const LIVE_SYMBOLS = clampLiveSymbolCap(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? 50 : VST_LIVE_SYMBOLS)));
 const EVAL_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_EVAL_SYMBOLS ?? VST_MAX_SYMBOLS));
@@ -3000,7 +3000,7 @@ function x02VolFromRemote(bc) {
 function applyPfGates(engine, remote) {
   const th = remote?.thresholds || {};
   const overall = IS_X01
-    ? Math.max(DEFAULT_MIN_PF, Number(th.minPf) || LIVE_MIN_PF)
+    ? 1.15
     : Math.max(DEFAULT_SHORT_PF, Number(th.shortPf) || LIVE_MIN_PF);
   const base = IS_X01 ? 1.1 : Math.max(1.1, Number(th.basePf) || DEFAULT_BASE_PF);
   const axis = Math.max(1, Number(th.axisPf) || DEFAULT_AXIS_PF);
