@@ -347,18 +347,18 @@ describe("VST engine", () => {
     const hold = trailStopFromPeak({ side: "long", entry: 100, peak: 101.6, tp: 104, sl: 98, trailPct: 1.5, shortRange: true });
     assert.equal(hold, 98);
     const cells = liveShortProtectCombos();
-    assert.ok(cells.every((c) => c.tpAtr >= 0.48 && c.slOfTp >= 0.75 && c.tpAtr <= 0.6));
-    assert.ok(cells.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
-    assert.ok(cells.some((c) => c.tpAtr === 0.52 && c.slOfTp === 0.75));
+    assert.ok(cells.every((c) => c.tpAtr >= 0.48 && c.slOfTp >= 1 && c.tpAtr <= 0.6));
+    assert.ok(!cells.some((c) => c.slOfTp === 0.75));
+    assert.ok(cells.some((c) => c.tpAtr === 0.48 && c.slOfTp === 1));
     assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, DEFAULT_SHORT_MIN_TP_ATR);
     assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, DEFAULT_SHORT_MIN_SL_OF_TP);
     const sp = sanitizeShortProgress({});
     assert.equal(sp.minTpAtr, 0.48);
-    assert.equal(sp.minSlOfTp, 0.75);
+    assert.equal(sp.minSlOfTp, 1);
     const liveCells = filterLiveShortCombos();
     assert.ok(liveCells.length >= 8, `live cells ${liveCells.length}`);
-    assert.ok(liveCells.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 0.75));
-    assert.ok(liveCells.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
+    assert.ok(liveCells.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 1));
+    assert.ok(!liveCells.some((c) => c.slOfTp === 0.75));
     assert.ok(liveCells.some((c) => c.tpAtr === 0.6));
     assert.ok(!liveCells.some((c) => c.tpAtr === 0.3 || c.tpAtr === 0.38));
   });
@@ -2604,8 +2604,8 @@ describe("VST engine", () => {
     assert.equal(DEFAULT_THRESHOLDS.basePf, 1);
     assert.equal(DEFAULT_THRESHOLDS.axisPf, 1.15);
     assert.equal(DEFAULT_THRESHOLDS.blockPf, 1.2);
-    assert.equal(DEFAULT_THRESHOLDS.shortPf, 0.95);
-    assert.equal(DEFAULT_THRESHOLDS.shortBasePf, 0.7);
+    assert.equal(DEFAULT_THRESHOLDS.shortPf, 1.05);
+    assert.equal(DEFAULT_THRESHOLDS.shortBasePf, 1.05);
     assert.equal(DEFAULT_BLOCK_CONFIG.liveDisableMinPf, 1.2);
     assert.equal(DEFAULT_BLOCK_CONFIG.liveLastN, 12);
     assert.equal(DEFAULT_BLOCK_CONFIG.validExecN, 15);
@@ -3036,10 +3036,10 @@ describe("VST engine", () => {
     assert.equal(internGrid.length, all.length);
     const liveGrid = shortProtectGridFor({ complete: false, minTpAtr: 0.38, minSlOfTp: 0.75, maxTpAtr: 0.6, positiveOnly: true });
     assert.ok(liveGrid.length >= 8, `live grid ${liveGrid.length}`);
-    assert.ok(liveGrid.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 0.75));
-    assert.ok(liveGrid.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
+    assert.ok(liveGrid.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 1));
+    assert.ok(!liveGrid.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
     assert.ok(!liveGrid.some((c) => c.tpAtr + 1e-9 < 0.48));
-    assert.ok(!liveGrid.some((c) => c.slOfTp + 1e-9 < 0.75));
+    assert.ok(!liveGrid.some((c) => c.slOfTp + 1e-9 < 1));
     const cfg = { ...CFG, shortRange: true as const, trailingPct: 1.5, maxHoldTicks: 24, slAtr: 0.36, tpRatio: 4 / 3, tpAtr: 0.48, slOfTp: 0.75 };
     const e = initVstEngine(cfg, { warmup: 0, symbolCount: 6, arm: true, complete: true });
     assert.equal(e.completeSim, true);
@@ -3520,10 +3520,10 @@ describe("VST engine", () => {
     assert.equal(liveShouldExecute(e, winRel), true);
   });
 
-  it("sanitize short-range defaults to live floors 0.38 / 0.75", () => {
+  it("sanitize short-range defaults to the live floor", () => {
     const snap = sanitizeDeskSettings({ tacticConfig: { shortRange: true } } as never);
     assert.equal(snap.tacticConfig.tpAtr, 0.48);
-    assert.equal(snap.tacticConfig.slOfTp, 0.75);
+    assert.equal(snap.tacticConfig.slOfTp, 1);
   });
 
   it("simulateHours honours comboOnly false on a short pair", () => {
@@ -3549,8 +3549,8 @@ describe("VST engine", () => {
     assert.ok(e.orders.length <= VST_MAX_WORKING_ORDERS);
     const liveGrid = shortProtectGrid(e, { ...CFG, shortRange: true });
     assert.ok(liveGrid.length >= 1);
-    assert.ok(liveGrid.every((c) => c.tpAtr >= 0.48 && c.slOfTp >= 0.75));
-    assert.ok(liveGrid.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
+    assert.ok(liveGrid.every((c) => c.tpAtr >= 0.48 && c.slOfTp >= 1));
+    assert.ok(!liveGrid.some((c) => c.slOfTp === 0.75));
   });
 
   it("liveTape intern-evals symbols beyond the 50 live cap", () => {
@@ -4963,7 +4963,7 @@ describe("full config coverage", () => {
     e.shortAxisPf = 0.9;
     e.shortBlockPf = 1.15;
     assert.equal(e.shortProgress?.minTpAtr, 0.48);
-    assert.equal(e.shortProgress?.minSlOfTp, 0.75);
+    assert.equal(e.shortProgress?.minSlOfTp, 1);
     const ids = new Set<string>();
     for (const s of Object.keys(e.quotes).slice(0, 8)) ids.add(classifyIndication(e, s));
     assert.ok(ids.size >= 1, `ids ${[...ids].join(",")}`);
@@ -4978,10 +4978,10 @@ describe("full config coverage", () => {
     assert.ok(r.blocks >= 0);
     assert.equal(DEFAULT_BLOCK_CONFIG.volumeMode, "parallel");
     assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, 0.48);
-    assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, 0.75);
+    assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, 1);
     assert.equal(sanitizeShortProgress({}).minTpAtr, 0.48);
     assert.equal(sanitizeShortProgress({ minTpAtr: 0.42, minSlOfTp: 1.7 }).minTpAtr, 0.48);
-    assert.equal(sanitizeShortProgress({ minTpAtr: 0.42, minSlOfTp: 1.7 }).minSlOfTp, 0.75);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.42, minSlOfTp: 1.7 }).minSlOfTp, 1.7);
     assert.equal(sanitizeShortProgress({ minTpAtr: 0.38, minSlOfTp: 2 }).minTpAtr, 0.48);
     assert.equal(sanitizeShortProgress({ minTpAtr: 0.5, minSlOfTp: 2 }).minTpAtr, 0.5);
     assert.equal(sanitizeShortProgress({ minTpAtr: 0.5, minSlOfTp: 2 }).minSlOfTp, 2);
@@ -4996,8 +4996,8 @@ describe("full config coverage", () => {
     assert.ok(wide.every((c) => c.tpAtr >= 0.42 && c.tpAtr <= 0.6 && c.slOfTp >= 1.75));
     const pos = filterLiveShortCombos(0.38, 0.75, 0.6, true);
     assert.ok(pos.length >= 8);
-    assert.ok(pos.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 0.75));
-    assert.ok(pos.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
+    assert.ok(pos.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 1));
+    assert.ok(!pos.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
     assert.equal(filterLiveShortCombos(0.42, 1.7, 0.6, false).length, 32);
     assert.equal(filterLiveShortCombos(0.4, 1.7, 0.6, false).length, 36);
     assert.ok(AUTO_EVAL_HOURS.includes(20) && SHORT_EVAL_HOURS === 20);
@@ -5013,7 +5013,7 @@ describe("full config coverage", () => {
     assert.equal(clampOverallVol(1.5), 1.5);
     assert.equal(clampOverallVol(3), 3);
     assert.equal(allShortTpSlCombos().length, SHORT_TP_ATR.length * SHORT_SL_OF_TP.length);
-    assert.equal(sanitizeShortProgress({ minTpAtr: 0.3, minSlOfTp: 0.5 }).minSlOfTp, 0.75);
+    assert.equal(sanitizeShortProgress({ minTpAtr: 0.3, minSlOfTp: 0.5 }).minSlOfTp, 1);
     assert.equal(sanitizeShortProgress({ minTpAtr: 0.3, minSlOfTp: 0.5 }).minTpAtr, 0.48);
     assert.equal(sanitizeShortProgress({ minSlOfTp: 2.5 }).minSlOfTp, 2.5);
     assert.ok(liveShortProtectCombos(0.45, 2).every((c) => c.tpAtr >= 0.45 && c.slOfTp >= 2));

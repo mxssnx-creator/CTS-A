@@ -16,28 +16,28 @@ export const SHORT_PROGRESS_INDICATIONS: IndicationId[] = [
 /** Core four always process, even when extra short-progress indications are enabled. */
 export const COMMON_INDICATIONS: IndicationId[] = ["trend", "break", "active", "direction"];
 
-export const DEFAULT_SHORT_AXIS_PF = 0.9;
+export const DEFAULT_SHORT_AXIS_PF = 1.05;
 export const DEFAULT_SHORT_BLOCK_PF = 1.15;
-/** Live floors: intern 0.30–0.60 / 0.50–2.50; live lock is the 6h PF≥1.15 subset. */
+/** Live floors. Exchange closes of 0.48/0.75 were PF 0.56, so SL/TP below 1 is not a live cell. */
 export const DEFAULT_SHORT_MIN_TP_ATR = 0.48;
-export const DEFAULT_SHORT_MIN_SL_OF_TP = 0.75;
+export const DEFAULT_SHORT_MIN_SL_OF_TP = 1;
 
-/** Old live floors 0.38–0.42 stopped out. Winner tape is 0.48/0.75. */
+/** Cells under the live SL floor lost on the exchange. Lift them to the new minimum. */
 function migrateShortMinTp(n: number): number {
   if (n + 1e-9 < 0.48) return DEFAULT_SHORT_MIN_TP_ATR;
   if (Math.abs(n - 0.42) < 1e-9 || Math.abs(n - 0.4) < 1e-9 || Math.abs(n - 0.38) < 1e-9) return DEFAULT_SHORT_MIN_TP_ATR;
   return n;
 }
 function migrateShortMinSl(n: number): number {
-  if (Math.abs(n - 1.7) < 1e-9 || Math.abs(n - 1.75) < 1e-9) return DEFAULT_SHORT_MIN_SL_OF_TP;
+  if (n + 1e-9 < DEFAULT_SHORT_MIN_SL_OF_TP) return DEFAULT_SHORT_MIN_SL_OF_TP;
   return n;
 }
 
 export const DEFAULT_SHORT_PROGRESS: ShortProgressConfig = {
   enabled: true,
   indications: [...SHORT_PROGRESS_INDICATIONS],
-  overallPf: 0.95,
-  basePf: 0.7,
+  overallPf: 1.05,
+  basePf: 1.05,
   axisPf: DEFAULT_SHORT_AXIS_PF,
   blockPf: DEFAULT_SHORT_BLOCK_PF,
   lastParts: [3, 6, 12],

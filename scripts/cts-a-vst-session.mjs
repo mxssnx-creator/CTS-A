@@ -358,16 +358,16 @@ function pinX01Strat() {
 }
 pinX01Strat();
 
-/** Stable short winner: 0.48/0.75, trail 1.5, hold 8. */
+/** Live short default: 0.48/1. 0.48/0.75 closed at PF 0.56 and is below the SL floor. */
 const X01_LIVE_CFG = {
   trailingPct: 1.5,
   dcaCount: 1,
   dcaDrawdown: 0.6,
   shortRange: true,
   tpAtr: 0.48,
-  slOfTp: 0.75,
-  slAtr: 0.36,
-  tpRatio: 1 / 0.75,
+  slOfTp: 1,
+  slAtr: 0.48,
+  tpRatio: 1,
   maxHoldTicks: 8,
   maxHoldBars: 3,
   axisLevels: 5,
@@ -377,7 +377,7 @@ const X01_LIVE_CFG = {
 
 const LIVE_CFG = IS_X01
   ? { ...X01_LIVE_CFG }
-  : { trailingPct: 1.5, tpRatio: 1 / 0.75, dcaCount: 1, slAtr: 0.36, tpAtr: 0.48, slOfTp: 0.75, shortRange: true, maxHoldTicks: 24, maxHoldBars: 3, axisLevels: 5, axisPartialRatio: AXIS_PARTIAL_RATIO };
+  : { trailingPct: 1.5, tpRatio: 1, dcaCount: 1, slAtr: 0.48, tpAtr: 0.48, slOfTp: 1, shortRange: true, maxHoldTicks: 24, maxHoldBars: 3, axisLevels: 5, axisPartialRatio: AXIS_PARTIAL_RATIO };
 const LIVE_SHORT_TACTICS = ["trailing", "hybrid"];
 const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   ["atr", "fibonacci"].map((range) => ({
@@ -502,7 +502,7 @@ let SHORT_GRID = SHORT_GRID_SEED;
 let GRID = buildLiveGrid();
 function preferWinner(list = GRID) {
   if (IS_X01) {
-    return list.find((g) => g.tactic === "hybrid" && g.range === "geometric" && Number(g.cfg.tpAtr) === 0.48 && Number(g.cfg.slOfTp) === 0.75) || list[0];
+    return list.find((g) => g.tactic === "hybrid" && g.range === "geometric" && Number(g.cfg.tpAtr) === SHORT_WINNER.tpAtr && Number(g.cfg.slOfTp) === SHORT_WINNER.slOfTp) || list[0];
   }
   return (
     list.find((g) => g.cfg.tpAtr === SHORT_WINNER.tpAtr && g.cfg.slOfTp === SHORT_WINNER.slOfTp && g.tactic === "trailing") ||
@@ -625,7 +625,7 @@ function gridLive(e) {
     if (g.tactic === "axis" && dis[`tac:axis`]) return false;
     if (g.tactic !== "trailing" && dis[`tac:${g.tactic}`]) return false;
     if (!g.cfg?.shortRange && dis[`rng:${g.range}`]) return false;
-    if (!IS_X01 && g.cfg?.shortRange && (Number(g.cfg.tpAtr) + 1e-9 < minTp || Number(g.cfg.tpAtr) - 1e-9 > shortMaxTp || Number(g.cfg.slOfTp) + 1e-9 < minSl)) return false;
+    if (g.cfg?.shortRange && (Number(g.cfg.tpAtr) + 1e-9 < minTp || Number(g.cfg.tpAtr) - 1e-9 > shortMaxTp || Number(g.cfg.slOfTp) + 1e-9 < minSl)) return false;
     if (IS_X01 && Number(g.cfg?.trailingPct) + 1e-9 < 1.5) return false;
     return true;
   });
@@ -3281,8 +3281,8 @@ function applyPfGates(engine, remote) {
   const base = IS_X01 ? 1.1 : Math.max(1.1, Number(th.basePf) || DEFAULT_BASE_PF);
   const axis = Math.max(1, Number(th.axisPf) || DEFAULT_AXIS_PF);
   const blockPf = Math.max(1, Number(th.blockPf) || DEFAULT_BLOCK_PF);
-  const shortPf = Math.max(0.8, Number(th.shortPf) || DEFAULT_SHORT_PF);
-  const shortBase = Math.max(0.5, Number(th.shortBasePf) || DEFAULT_SHORT_BASE_PF);
+  const shortPf = Math.max(DEFAULT_SHORT_PF, Number(th.shortPf) || DEFAULT_SHORT_PF);
+  const shortBase = Math.max(DEFAULT_SHORT_BASE_PF, Number(th.shortBasePf) || DEFAULT_SHORT_BASE_PF);
   const bc = remote?.blockConfig || {};
   engine.minPf = overall;
   engine.basePf = base;

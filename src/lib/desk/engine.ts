@@ -437,7 +437,7 @@ export function snapShortTpAtr(n: number): number {
   return best;
 }
 export function snapShortSlOfTp(n: number): ShortSlOfTp {
-  if (!Number.isFinite(n)) return 0.75;
+  if (!Number.isFinite(n)) return 1;
   let best: ShortSlOfTp = 1.75;
   let dist = Infinity;
   for (const r of SHORT_SL_OF_TP) {
@@ -485,8 +485,8 @@ export function shortComboKey(tpAtr: number, slOfTp: number): string {
   return `${snapShortTpAtr(Number(tpAtr)).toFixed(2)}:${snapShortSlOfTp(Number(slOfTp)).toFixed(2)}`;
 }
 
-/** Independent-tape winner (6h+4h pre ×12, hold 24): 0.48/0.75 PF 1.21 off / 1.29 Block shared. */
-export const SHORT_WINNER = { tpAtr: 0.48, slOfTp: 0.75 as const };
+/** Live default after 0.48/0.75 closed at PF 0.56. SL/TP 1 is the first cell above that loss. */
+export const SHORT_WINNER = { tpAtr: 0.48, slOfTp: 1 as const };
 
 /**
  * Busy-hour book (24h open tape, thousands of orders each hour).
@@ -545,7 +545,7 @@ export function snapShortTacticConfig<T extends {
  * live executes every independently Base-ok + last-N/PF-positive combo. Eval grid stays full.
  */
 export const SHORT_20H_POSITIVE: readonly { tpAtr: number; slOfTp: number }[] = [
-  { tpAtr: 0.48, slOfTp: 0.75 },
+  { tpAtr: 0.48, slOfTp: 1 },
 ];
 
 export function filterLiveShortCombos(
@@ -832,9 +832,9 @@ export const DEFAULT_MIN_PF = 1.35;
 export const DEFAULT_BASE_PF = 1.1;
 export const DEFAULT_AXIS_PF = 1.15;
 export const DEFAULT_BLOCK_PF = 1.2;
-export const DEFAULT_SHORT_PF = 0.95;
-export const DEFAULT_SHORT_BASE_PF = 0.7;
-export const DEFAULT_SHORT_AXIS_PF = 0.9;
+export const DEFAULT_SHORT_PF = 1.05;
+export const DEFAULT_SHORT_BASE_PF = 1.05;
+export const DEFAULT_SHORT_AXIS_PF = 1.05;
 export const DEFAULT_SHORT_BLOCK_PF = 1.15;
 export const DEFAULT_BLOCK_VOLUME_RATIO = 0.2;
 export const DEFAULT_OVERALL_BLOCK_VOLUME_RATIO = 1.5;
