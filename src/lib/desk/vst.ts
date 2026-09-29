@@ -1408,6 +1408,7 @@ function maxPositions(e: VstEngine) {
 }
 function maxQueue(e: VstEngine) {
   if (deskInteractive(e)) return 480;
+  if (e.activeConnId === "bingx-x01" && !paperMode(e)) return 400;
   return paperMode(e) ? PAPER_MAX_QUEUE : VST_MAX_QUEUE;
 }
 function maxWorking(e: VstEngine) {
@@ -3136,6 +3137,19 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     noteLoad(o.symbol);
     const t = String(o.tactic || "x");
     tacLoad.set(t, (tacLoad.get(t) || 0) + 1);
+  }
+  if (connId === "bingx-x01" && !paperMode(e) && qn > qMax) {
+    const next = [];
+    let kept = 0;
+    for (const o of e.queue) {
+      if (o.connId === connId && !isBotPlay(o.playbook)) {
+        if (kept >= qMax) continue;
+        kept += 1;
+      }
+      next.push(o);
+    }
+    e.queue = next;
+    qn = kept;
   }
   for (const o of e.orders) {
     if (o.connId !== connId || isBotPlay(o.playbook) || (o.status !== "open" && o.status !== "partial")) continue;
