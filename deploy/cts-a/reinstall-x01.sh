@@ -52,7 +52,8 @@ want = {
   "CTS_A_DISABLED": "/var/lib/cts-a/live-disabled.json",
   "CTS_A_PROTECT": "/var/lib/cts-a/protect-grid.json",
   "CTS_A_SYMBOLS": "50",
-  "CTS_A_EVAL_SYMBOLS": "300",
+  "CTS_A_EVAL_SYMBOLS": "50",
+  "NODE_OPTIONS": "--max-old-space-size=384",
   "CTS_A_LIVE_MAX_POS": "100",
   "CTS_A_TICK_MS": "1000",
 }

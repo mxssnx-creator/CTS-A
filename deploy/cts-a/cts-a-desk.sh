@@ -8,7 +8,8 @@ cd "$ROOT"
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-3202}"
 export PATH="${ROOT}/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=640 --expose-gc}"
+# Never inherit the 2GB heap from cts-a.env. Vite dev stays inside the unit cap.
+export NODE_OPTIONS="--max-old-space-size=640"
 
 mkdir -p "$LOG_DIR" /var/lib/cts-a
 

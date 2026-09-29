@@ -14,7 +14,6 @@ WorkingDirectory=/opt/cts-a
 ExecStart=/usr/bin/node --max-old-space-size=384 --experimental-strip-types /opt/cts-a/scripts/cts-a-vst-session.mjs
 Restart=always
 RestartSec=8
-RuntimeMaxSec=45000
 TimeoutStartSec=180
 TimeoutStopSec=30
 KillSignal=SIGTERM
@@ -31,14 +30,14 @@ Environment=CTS_A_NETWORK=mainnet
 Environment=CTS_A_LIVE_MIN_PF=1.15
 Environment=CTS_A_LIVE_MAX_POS=100
 Environment=CTS_A_SYMBOLS=50
-Environment=CTS_A_EVAL_SYMBOLS=300
+Environment=CTS_A_EVAL_SYMBOLS=50
 Environment=CTS_A_TICK_MS=1000
 Environment=CTS_A_CYCLE_MS=1000
 Environment=CTS_A_SHORT_CYCLE_MS=1000
-Environment=NODE_OPTIONS=--max-old-space-size=256
+Environment=NODE_OPTIONS=--max-old-space-size=384
 LimitNOFILE=4096
-MemoryHigh=320M
-MemoryMax=448M
+MemoryHigh=360M
+MemoryMax=512M
 TasksMax=64
 StandardOutput=append:/var/log/cts-a/vst-session.log
 StandardError=append:/var/log/cts-a/vst-session.err.log

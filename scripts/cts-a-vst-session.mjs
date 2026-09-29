@@ -76,10 +76,12 @@ const LIVE_MIN_PF = IS_X01
   : Math.max(DEFAULT_SHORT_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_SHORT_PF) || DEFAULT_SHORT_PF);
 const LIVE_MAX_DDT = IS_X01 ? 14 : 22;
 const LIVE_SYMBOLS = clampLiveSymbolCap(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? 50 : VST_LIVE_SYMBOLS)));
-const EVAL_SYMBOLS = clampSymbolCount(Number(process.env.CTS_A_EVAL_SYMBOLS ?? VST_MAX_SYMBOLS));
+const EVAL_SYMBOLS = IS_X01 ? LIVE_SYMBOLS : clampSymbolCount(Number(process.env.CTS_A_EVAL_SYMBOLS ?? VST_MAX_SYMBOLS));
 const UNI = new Set(universeSymbols(EVAL_SYMBOLS).map((s) => s.id));
 const PREFERRED_RANGES = new Set(["fibonacci", "geometric", "atr"]);
 const mirrored = new Set();
+let lastLiveLine = "";
+let lastLiveLineAt = 0;
 /** Legs tagged by this connection's clientOrderId. */
 const taggedKeys = new Set();
 function isUniverseSymbol(sym) {
@@ -2957,8 +2959,13 @@ async function mirrorToExchange(e, network, cfg) {
   }
   if (IS_X01) {
     const line = `q ${queueIntents.length} scan ${scanIntents.length} jobs ${fillJobs.length} ok ${placed} ${Object.entries(skipN).map(([k, v]) => `${k}${v}`).join(" ") || firstWhy || "sent"}`;
-    console.log(line);
-    try { appendFileSync("/var/log/cts-a/live-send.log", `${new Date().toISOString()} ${line}\n`); } catch { /* ignore */ }
+    const now = Date.now();
+    if (line !== lastLiveLine || now - lastLiveLineAt > 30_000) {
+      lastLiveLine = line;
+      lastLiveLineAt = now;
+      console.log(line);
+      try { appendFileSync("/var/log/cts-a/live-send.log", `${new Date(now).toISOString()} ${line}\n`); } catch { /* ignore */ }
+    }
     notes.push(line);
   }
   return notes.length ? notes.slice(-4).join(" · ") : null;
@@ -3307,6 +3314,7 @@ async function main() {
   let lastTickAt = Date.now();
   let tickBusy = false;
   let ioInFlight = false;
+  let levBusy = false;
   let ioStartedAt = 0;
   let mirrorJob = null;
 
@@ -3406,40 +3414,41 @@ async function main() {
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
       }
-      let wroteExchange = false;
-      if (!apiQuiet() && ping.pingOk && !mirrorJob) {
+      const levDue = lastLevBump === 0 || Date.now() - lastLevBump > 90_000;
+      if (!apiQuiet() && ping.pingOk && !mirrorJob && !levBusy && levDue && lastBook.pos > 0) {
+        levBusy = true;
+        lastLevBump = Date.now();
+        void withTimeout(raiseOwnedLeverage(ping.network, lastBook.positions), 20000, "lev-open")
+          .then((note) => {
+            if (note) {
+              adjustments.push(note);
+              noteOp(note);
+            }
+          })
+          .catch((err) => {
+            adjustments.push(`lev ${err instanceof Error ? err.message : "fail"}`);
+          })
+          .finally(() => {
+            levBusy = false;
+          });
+      } else if (!apiQuiet() && ping.pingOk && !mirrorJob && !levBusy) {
         const job = mirrorToExchange(engine, ping.network, pick.cfg);
         mirrorJob = job;
         job.finally(() => {
           if (mirrorJob === job) mirrorJob = null;
         });
-        try {
-          const liveNote = await withTimeout(job, 60000, "live");
+        void job.then((liveNote) => {
           if (liveNote) {
             adjustments.push(liveNote);
             noteOp(liveNote);
-            if (/flatten|live /i.test(liveNote)) wroteExchange = true;
           }
-        } catch (err) {
+        }).catch((err) => {
           liveBusy = 0;
           noteApiFail(err);
           adjustments.push(`live ${err instanceof Error ? err.message : "fail"}`);
-        }
+        });
       }
-      if (!wroteExchange && !apiQuiet() && ping.pingOk && (lastLevBump === 0 || Date.now() - lastLevBump > 90_000) && lastBook.pos > 0) {
-        lastLevBump = Date.now();
-        try {
-          const note = await withTimeout(raiseOwnedLeverage(ping.network, lastBook.positions), 20000, "lev-open");
-          if (note) {
-            adjustments.push(note);
-            noteOp(note);
-            wroteExchange = true;
-          }
-        } catch (err) {
-          adjustments.push(`lev ${err instanceof Error ? err.message : "fail"}`);
-        }
-      }
-      if (!wroteExchange && !apiQuiet() && ping.pingOk && levUniverse.length && Date.now() - lastLevWalk > 4000) {
+      if (!mirrorJob && !levBusy && !apiQuiet() && ping.pingOk && levUniverse.length && Date.now() - lastLevWalk > 8000) {
         lastLevWalk = Date.now();
         const id = levUniverse[levWalkI % levUniverse.length];
         levWalkI += 1;
@@ -3892,11 +3901,22 @@ main().catch((err) => {
   setTimeout(() => process.exit(1), 250);
 });
 
+let fatalN = 0;
+let fatalAt = 0;
+function noteFatal(kind, err) {
+  const now = Date.now();
+  if (now - fatalAt > 60_000) fatalN = 0;
+  fatalAt = now;
+  fatalN += 1;
+  console.error(kind, err instanceof Error ? err.stack || err.message : err);
+  if (fatalN >= 4) setTimeout(() => process.exit(1), 200);
+}
+
 process.on("uncaughtException", (err) => {
-  console.error("uncaught", err instanceof Error ? err.message : err);
+  noteFatal("uncaught", err);
 });
 process.on("unhandledRejection", (err) => {
-  console.error("unhandled", err instanceof Error ? err.message : String(err));
+  noteFatal("unhandled", err);
 });
 process.on("SIGTERM", () => {
   try {
