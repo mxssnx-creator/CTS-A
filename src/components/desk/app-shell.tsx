@@ -280,7 +280,7 @@ function DeskSidebar({ rail }: { rail?: boolean }) {
   const hasLive = Boolean(liveSession) || liveSnap.hasLive;
   const pingOk = Boolean((liveSession as { pingOk?: boolean } | null)?.pingOk) || liveSnap.pingOk;
   const livePos = Number((liveSession as { livePos?: number } | null)?.livePos ?? liveSnap.livePos ?? 0);
-  const owned = Number((liveSession as { liveOwned?: number } | null)?.liveOwned ?? liveSnap.liveOwned ?? livePos);
+  const owned = Number((liveSession as { livePos?: number } | null)?.livePos ?? livePos);
   const foreign = Number((liveSession as { foreignPos?: number } | null)?.foreignPos ?? liveSnap.foreignPos ?? 0);
   const gap = Number((liveSession as { controlGap?: number } | null)?.controlGap ?? liveSnap.controlGap ?? 0);
   const hostId = String((liveSession as { conn?: string } | null)?.conn || activeConnId);

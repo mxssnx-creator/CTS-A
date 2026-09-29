@@ -8,13 +8,15 @@ export function OrdersView() {
   const live = useLiveSnapshot();
   const orders = live.exchange?.orders ?? [];
   const pos = live.exchange?.positions ?? [];
+  const desk = Number((live.session?.livePos as number | undefined) ?? live.livePos);
+  const other = live.foreignPos;
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-4">
       <div>
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Exchange</p>
         <h1 className="text-2xl font-semibold tracking-tight">Orders</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Full stop and target on every open leg for {live.venueLabel}. Owned {live.liveOwned} · other {live.foreignPos} · SL {live.liveSl} · TP {live.liveTp} · gap {live.controlGap}.
+          Full stop and target on every open leg for {live.venueLabel}. Desk {desk} · other {other} · SL {live.liveSl} · TP {live.liveTp} · gap {live.controlGap}.
         </p>
       </div>
       <LiveBookStrip />
@@ -24,8 +26,8 @@ export function OrdersView() {
           <StatLine k="SL" v={String(live.liveSl)} />
           <StatLine k="TP" v={String(live.liveTp)} />
           <StatLine k="Gap" v={String(live.controlGap)} />
-          <StatLine k="Owned" v={String(live.liveOwned)} />
-          <StatLine k="Other" v={String(live.foreignPos)} />
+          <StatLine k="Desk" v={String(desk)} />
+          <StatLine k="Other" v={String(other)} />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] text-left text-sm">
