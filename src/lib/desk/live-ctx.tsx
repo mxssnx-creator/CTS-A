@@ -89,6 +89,37 @@ function str(v: unknown, d = "") {
   return typeof v === "string" && v ? v : d;
 }
 
+function bookWeight(book: ExchangeBook | null | undefined): number {
+  if (!book?.ok) return -1;
+  return book.positions.length * 100000 + book.orders.length;
+}
+
+function sessionBook(session: Record<string, unknown> | null, conn: string): ExchangeBook | null {
+  if (!session) return null;
+  const positions = Array.isArray(session.bookPos) ? (session.bookPos as ExchangeBook["positions"]) : [];
+  const orders = Array.isArray(session.bookOrd) ? (session.bookOrd as ExchangeBook["orders"]) : [];
+  if (!positions.length && !orders.length) return null;
+  return {
+    connId: str(session.conn, conn),
+    ok: true,
+    equity: num(session.equity),
+    positions,
+    orders,
+    at: num(session.at),
+    latencyMs: 0,
+  };
+}
+
+/** Realized PF once the host has closes; otherwise the pinned progression PF. */
+export function deskLivePf(live: { pf: number; trades: number; session: Record<string, unknown> | null }): number {
+  const prog = live.session?.progression;
+  const bag = prog && typeof prog === "object" ? (prog as { pf?: number; overall?: { pf?: number } }) : null;
+  const fromProg = num(bag?.overall?.pf ?? bag?.pf);
+  if (live.trades >= 4 && live.pf > 0) return live.pf;
+  if (fromProg > 0) return fromProg;
+  return live.pf;
+}
+
 export function liveNumbers(
   payload: LiveDeskPayload | null | undefined,
   store?: {
@@ -105,32 +136,27 @@ export function liveNumbers(
   const storeOv = store?.overall ?? null;
   const payOv = payload?.overall ?? null;
   const overall = (storeOv ?? payOv) as Record<string, unknown> | null;
-  const fetched =
-    store?.exchange?.ok && store.exchange.positions.length > 0
-      ? store.exchange
-      : payload?.exchange?.ok && payload.exchange.positions.length > 0
-        ? payload.exchange
-        : null;
-  const exchange = fetched ?? payload?.exchange ?? store?.exchange ?? null;
+  const conn = str(session?.conn, "bingx-vst-02");
+  const fromSess = sessionBook(session, conn);
+  const fromStore = store?.exchange?.ok ? store.exchange : null;
+  const fromPay = payload?.exchange?.ok ? payload.exchange : null;
+  const exchange =
+    [fromSess, fromStore, fromPay].sort((a, b) => bookWeight(b) - bookWeight(a))[0] ??
+    payload?.exchange ??
+    store?.exchange ??
+    null;
   const equity =
-    fetched && fetched.equity > 0 ? fetched.equity : num(session?.equity, exchange?.equity ?? 0);
+    exchange && exchange.equity > 0 ? exchange.equity : num(session?.equity, 0);
   const bookOcc = new Set((exchange?.positions ?? []).map((p) => p.symbol).filter(Boolean)).size;
-  const sessBook = Array.isArray(session?.bookPos) ? (session.bookPos as { symbol?: string }[]) : [];
+  const sessBook = Array.isArray(session?.bookPos) ? (session.bookPos as { symbol?: string; side?: string }[]) : [];
   const sessOcc = new Set(sessBook.map((p) => p.symbol).filter(Boolean)).size;
-  const livePos =
-    (fetched && fetched.positions.length > 0 ? fetched.positions.length : 0) ||
-    num(session?.livePos) ||
-    num(session?.legs) ||
-    (exchange?.positions?.length ?? 0) ||
-    sessBook.length;
-  const liveOrd =
-    fetched && fetched.orders.length > 0 ? fetched.orders.length : num(session?.liveOrd);
+  const livePos = Math.max(num(session?.livePos), exchange?.positions.length ?? 0, sessBook.length);
+  const liveOrd = Math.max(num(session?.liveOrd), exchange?.orders.length ?? 0);
   const pingOk = Boolean(session?.pingOk || exchange?.ok);
   const occupied = num(session?.occupied) || bookOcc || sessOcc;
   const posRows = (exchange?.positions?.length ? exchange.positions : sessBook) as { side?: string }[];
   const liveLong = posRows.filter((p) => p.side === "long").length;
   const liveShort = posRows.filter((p) => p.side === "short").length;
-  const conn = str(session?.conn, "bingx-vst-02");
   const network = str(session?.network, conn === "bingx-x01" ? "mainnet" : "testnet");
   const venueLabel = venueLabelFor(conn, network);
   return {

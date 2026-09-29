@@ -10,7 +10,7 @@ import {
   TACTIC_META,
 } from "@/lib/desk/engine";
 import { useDesk } from "@/lib/desk/store";
-import { useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
+import { deskLivePf, useLiveSnapshot, usePreserveScroll } from "@/lib/desk/live-ctx";
 import { bookCounts, overallLiveStats } from "@/lib/desk/vst";
 import { clsPnl, fmtNum, fmtUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -199,12 +199,17 @@ export function PerformanceView() {
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-        <Kpi label="Live PF" value={fmtPf(Number(overall.pf ?? liveSnap.pf))} tone={pfTone(Number(overall.pf ?? liveSnap.pf))} hint={`${overall.trades ?? liveSnap.trades} closes`} />
-        <Kpi label="Live WR" value={fmtWr(Number(overall.wr ?? liveSnap.wr))} />
-        <Kpi label="Live net" value={fmtUsd(Number(overall.net ?? liveSnap.net))} tone={Number(overall.net ?? liveSnap.net) >= 0 ? "up" : "down"} />
+        <Kpi
+          label="Live PF"
+          value={fmtPf(liveSnap.hasLive ? deskLivePf(liveSnap) : Number(overall.pf ?? liveSnap.pf))}
+          tone={pfTone(liveSnap.hasLive ? deskLivePf(liveSnap) : Number(overall.pf ?? liveSnap.pf))}
+          hint={liveSnap.hasLive && liveSnap.trades < 4 ? "progression · no scored closes yet" : `${overall.trades ?? liveSnap.trades} closes`}
+        />
+        <Kpi label="Live WR" value={fmtWr(Number(liveSnap.hasLive ? liveSnap.wr : overall.wr ?? liveSnap.wr))} />
+        <Kpi label="Live net" value={fmtUsd(Number(liveSnap.hasLive ? liveSnap.net : overall.net ?? liveSnap.net))} tone={Number(liveSnap.hasLive ? liveSnap.net : overall.net ?? liveSnap.net) >= 0 ? "up" : "down"} />
         <Kpi label="Symbols" value={String(overall.symbols ?? 50)} hint={`${overall.occupied ?? liveSnap.occupied} occupied`} />
-        <Kpi label="Open uPnL" value={fmtUsd(Number(overall.open?.net ?? 0))} />
-        <Kpi label="Active slots" value={String(overall.slots ?? liveSnap.livePos)} />
+        <Kpi label="Open uPnL" value={fmtUsd(liveSnap.hasLive ? liveSnap.openNet : Number(overall.open?.net ?? 0))} tone={(liveSnap.hasLive ? liveSnap.openNet : Number(overall.open?.net ?? 0)) >= 0 ? "up" : "down"} />
+        <Kpi label="Active slots" value={String(liveSnap.hasLive ? liveSnap.livePos : overall.slots ?? liveSnap.livePos)} />
       </div>
 
       <Panel title="Positions & orders">

@@ -151,7 +151,7 @@ export function SessionProgress({
       }
     >
       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-        <Button size="sm" className="h-11 sm:h-8" onClick={startEngine} aria-label={startLabel}>
+        <Button size="sm" className="h-11 sm:h-8" onClick={startEngine} disabled={hostLock} aria-label={startLabel}>
           <Play className="size-4" />
           {startLabel}
         </Button>
@@ -246,6 +246,17 @@ export function SessionProgress({
         {sys.loads
           .filter((row) => ["queue", "rate", "legs", "batch"].includes(row.id))
           .map((row) => {
+            if (liveSnap.hasLive && row.id === "queue") {
+              return (
+                <Meter
+                  key={row.id}
+                  label="Open orders"
+                  value={liveSnap.liveOrd}
+                  max={Math.max(liveSnap.liveOrd, 1)}
+                  hint={`${liveSnap.liveOrd} on BingX · SL ${liveSnap.liveSl} TP ${liveSnap.liveTp}`}
+                />
+              );
+            }
             if (liveSnap.hasLive && row.id === "legs") {
               const n = liveSnap.livePos;
               return (
@@ -273,7 +284,7 @@ export function SessionProgress({
         <StatLine k="Win rate" v={fmtWr(liveSnap.hasLive ? liveSnap.wr : st.wr)} />
         <StatLine k="Max DD" v={fmtMdd(liveSnap.hasLive ? liveSnap.mdd : st.mdd)} />
         <StatLine k="Vol factor" v={(liveSnap.hasLive ? Number((liveSnap.session as { evals?: { coordVf?: number } } | null)?.evals?.coordVf) || 1 : th.minVf).toFixed(2)} />
-        <StatLine k="Max DDT" v={`${th.maxDdt}`} />
+        <StatLine k="Max DDT" v={`${th.maxDdt}h`} />
         <StatLine k="SL / TP" v={`${liveSnap.hasLive ? liveSnap.liveSl : ledger.slExits} / ${liveSnap.hasLive ? liveSnap.liveTp : ledger.tpExits}`} />
         <StatLine k="Rate" v={`${Math.round((rateUsed / rateMax) * 100)}%`} />
         <StatLine k="Lanes" v={`${book.validated} val · ${book.candidates} cand`} />

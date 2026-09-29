@@ -6,7 +6,10 @@ import { LiveBookStrip } from "../live-book-strip";
 export function OrdersView() {
   usePreserveScroll();
   const live = useLiveSnapshot();
-  const orders = live.exchange?.orders ?? [];
+  const orders = [...(live.exchange?.orders ?? [])].sort((a, b) => {
+    const rank = (t: string) => (t.includes("STOP") ? 0 : t.includes("TAKE_PROFIT") ? 1 : 2);
+    return rank(a.type) - rank(b.type) || a.symbol.localeCompare(b.symbol);
+  });
   const pos = live.exchange?.positions ?? [];
   const desk = Number((live.session?.livePos as number | undefined) ?? live.livePos);
   const other = live.foreignPos;
@@ -63,6 +66,7 @@ export function OrdersView() {
                 <tr>
                   <td className="py-6 text-muted" colSpan={7}>
                     No open orders on {live.venueLabel}.
+                    {live.liveSl + live.liveTp > 0 ? ` Host still reports SL ${live.liveSl} · TP ${live.liveTp}.` : ""}
                   </td>
                 </tr>
               )}

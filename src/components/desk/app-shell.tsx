@@ -368,13 +368,22 @@ function DeskHeader({ onMenu }: { onMenu: () => void }) {
         <Activity className="size-3.5" />
         <span className="font-medium">
           {connLabel}
-          {armed ? " · armed" : hasLive ? " · live" : vstRunning ? " · running" : ""}
+          {String((liveSession as { conn?: string } | null)?.conn) === "bingx-x01"
+            ? " · live"
+            : armed
+              ? " · armed"
+              : hasLive
+                ? " · live"
+                : vstRunning
+                  ? " · running"
+                  : ""}
         </span>
       </div>
       <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-2">
         <select
           aria-label="Connection"
           className="h-8 max-w-[9.5rem] border-0 bg-primary-hover px-2 text-sm text-header-fg sm:max-w-none"
+          disabled={Boolean(liveSession && String((liveSession as { conn?: string }).conn) === "bingx-x01")}
           value={activeConnId}
           onChange={(e) => setActiveConn(e.target.value)}
         >
@@ -424,6 +433,8 @@ function DeskToolbar() {
   const costStep = useDesk((s) => s.costStep);
   const setCostStep = useDesk((s) => s.setCostStep);
   const hostLock = useDesk((s) => String(s.liveSession?.conn || "") === "bingx-x01");
+  const liveTactic = useDesk((s) => String(s.liveSession?.tactic || ""));
+  const liveRange = useDesk((s) => String(s.liveSession?.range || ""));
   const tactic = useDesk((s) => s.tactic);
   const rangeType = useDesk((s) => s.rangeType);
 
@@ -444,7 +455,7 @@ function DeskToolbar() {
         className="w-28 sm:w-40 disabled:opacity-40"
       />
       <span className="hidden sm:inline">
-        {TACTIC_META[tactic].label} · {RANGE_META[rangeType].label}
+        {hostLock && liveTactic ? `${liveTactic} · ${liveRange}` : `${TACTIC_META[tactic].label} · ${RANGE_META[rangeType].label}`}
       </span>
       <span className="ml-auto hidden font-medium text-fg md:inline">
         {lastNLinked ? `Last ${lastN} evals` : `Picks N${lastN}`}

@@ -71,7 +71,9 @@ export function PositionsView() {
     const cid = (o as { connId?: string }).connId;
     return !cid || cid === activeConnId;
   });
-  const x01 = activeConnId === "bingx-x01";
+  const x01 = activeConnId === "bingx-x01" || liveSnap.conn === "bingx-x01";
+  const hostLive = liveSnap.hasLive && x01;
+  const openN = hostLive ? liveSnap.livePos : livePos.length;
 
   const sendNext = () => {
     if (liveSnap.hasLive) {
@@ -102,7 +104,8 @@ export function PositionsView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Book</p>
         <h1 className="text-2xl font-semibold tracking-tight">Positions</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          {livePos.length} open on {x01 ? "live mainnet x01" : activeConnId}. Last N{lastNs.last} closed, ongoing N{lastNs.ongoing}. Other connections stay on their own books.
+          {openN} open on {x01 ? "live mainnet x01" : activeConnId}. Last N{lastNs.last} closed, ongoing N{lastNs.ongoing}.
+          {hostLive ? ` Other ${liveSnap.foreignPos} · SL ${liveSnap.liveSl} · TP ${liveSnap.liveTp} · gap ${liveSnap.controlGap}.` : " Other connections stay on their own books."}
         </p>
       </div>
 
@@ -110,12 +113,12 @@ export function PositionsView() {
 
       <Panel title={x01 ? "Live mainnet x01" : `BingX ${activeConnId}`}>
         <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
-          <StatLine k="Equity" v={exchange?.connId === activeConnId && exchange.equity ? fmtUsd(exchange.equity) : "—"} />
-          <StatLine k="Exchange pos" v={String(exchange?.connId === activeConnId ? exchRows.length : 0)} />
-          <StatLine k="Exchange orders" v={String(exchange?.connId === activeConnId ? exchOrders.length : 0)} />
-          <StatLine k="Desk open" v={String(livePos.length)} />
+          <StatLine k="Equity" v={exchange?.equity ? fmtUsd(exchange.equity) : hostLive && liveSnap.equity ? fmtUsd(liveSnap.equity) : "—"} />
+          <StatLine k="Exchange pos" v={String(hostLive ? liveSnap.livePos + liveSnap.foreignPos : exchange?.connId === activeConnId ? exchRows.length : 0)} />
+          <StatLine k="Exchange orders" v={String(hostLive ? liveSnap.liveOrd : exchange?.connId === activeConnId ? exchOrders.length : 0)} />
+          <StatLine k="Desk open" v={String(openN)} />
         </div>
-        {livePos.length === 0 && exchRows.length === 0 ? (
+        {openN === 0 && exchRows.length === 0 ? (
           <p className="mt-3 text-sm text-muted">No open positions on {x01 ? "live mainnet x01" : activeConnId} yet.</p>
         ) : (
           <ul className="mt-3 max-h-[32rem] divide-y divide-border overflow-auto text-sm">
@@ -123,12 +126,12 @@ export function PositionsView() {
               <li key={`ex-${p.symbol}-${p.side}`} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="font-mono text-xs">{p.symbol.replace("USDT", "")}</span>
                 <span className="capitalize">{p.side}</span>
-                <span className="text-muted">exchange</span>
+                <span className="text-muted">{hostLive ? (p.owned === false ? "other" : "desk") : "exchange"}</span>
                 <span className="text-muted">{p.qty}</span>
                 <span className={clsPnl(p.pnl)}>{fmtUsd(p.pnl)}</span>
               </li>
             ))}
-            {livePos.slice(0, 48).map((p) => (
+            {hostLive ? null : livePos.slice(0, 48).map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="font-mono text-xs">{p.symbol.replace("USDT", "")}</span>
                 <span className="capitalize">{p.side}</span>
@@ -137,7 +140,7 @@ export function PositionsView() {
                 <span className={clsPnl(p.unrealized)}>{fmtUsd(p.unrealized)}</span>
               </li>
             ))}
-            {exchOrders.map((o, i) => (
+            {hostLive ? null : exchOrders.map((o, i) => (
               <li key={`${o.id}:${o.type}:${i}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-muted">
                 <span className="font-mono text-xs">{o.symbol.replace("USDT", "")}</span>
                 <span>{o.type}</span>
@@ -153,6 +156,7 @@ export function PositionsView() {
         <p className="text-sm text-muted">{liveSnap.livePos} BingX positions · {liveSnap.liveOrd} orders on {liveSnap.venueLabel}.</p>
       ) : null}
 
+      {hostLive ? null : (
       <Panel title={`Session book · ${activeConnId}`}>
         <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
           <StatLine k="Slots" v={`${slotKeys.size}`} />
@@ -176,6 +180,7 @@ export function PositionsView() {
           </ul>
         )}
       </Panel>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Segmented
@@ -206,8 +211,8 @@ export function PositionsView() {
         <Panel
           title={`Next · N${lastNs.next}`}
           action={
-            <Button size="sm" onClick={sendNext} disabled={!venue}>
-              {next.length ? `Send next ${next.length}` : "Rearm next"}
+            <Button size="sm" onClick={sendNext} disabled={hostLive || !venue}>
+              {hostLive ? "Host owns the book" : next.length ? `Send next ${next.length}` : "Rearm next"}
             </Button>
           }
         >

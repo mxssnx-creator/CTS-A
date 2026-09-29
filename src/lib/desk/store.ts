@@ -489,6 +489,11 @@ function hostPinned(state: { liveSession: Record<string, unknown> | null }): boo
   return String(state.liveSession?.conn || "") === "bingx-x01";
 }
 
+function bookWeight(book: { ok?: boolean; positions?: unknown[]; orders?: unknown[] } | null | undefined): number {
+  if (!book?.ok) return -1;
+  return (book.positions?.length ?? 0) * 100000 + (book.orders?.length ?? 0);
+}
+
 function queuePersist(snap: DeskSettingsSnap) {
   writeLocalSettings(snap);
   if (typeof window === "undefined") return;
@@ -581,7 +586,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   intervalStrategy: sanitizeIntervalStrategy(DEFAULT_INTERVAL_STRATEGY),
   lastNProgress: sanitizeLastNProgress(DEFAULT_LAST_N_PROGRESS),
   bots: defaultBotsPersist(),
-  botByConn: Object.fromEntries(DESK_CONN_IDS.map((id) => [id, { ...freshConnBots(), running: id !== "bingx-vst-02", touched: true }])),
+  botByConn: Object.fromEntries(DESK_CONN_IDS.map((id) => [id, { ...freshConnBots(), running: id === "bingx-vst-01", touched: true }])),
   botsRunning: true,
   exchange: null,
   liveSession: null,
@@ -1035,6 +1040,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     });
   },
   tickEngine: () => {
+    if (hostPinned(get())) return;
     const sessions = get().botByConn;
     const runningIds = DESK_CONN_IDS.filter((id) => id !== "bingx-vst-02" && sessions[id]?.running);
     if (get().liveSession && !runningIds.length) return;
@@ -1118,6 +1124,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const nowLive = Date.now();
       for (const o of born) {
         if (liveBotSent.has(o.id)) continue;
+        if (o.connId === "bingx-x01" || hostPinned(get())) continue;
         const lane = o.bot ? `bot:${o.connId}` : `px:${o.connId}`;
         if (nowLive - (liveBotAt[lane] ?? 0) < 4000) continue;
         const conn = get().connections.find((c) => c.id === o.connId);
@@ -1239,6 +1246,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     else get().pauseEngine();
   },
   startEngine: () => {
+    if (hostPinned(get())) return;
     const anyBots = get().botsRunning || DESK_CONN_IDS.some((id) => get().botByConn[id]?.running);
     if (!get().liveSession && !anyBots) {
       set({
@@ -1898,22 +1906,29 @@ export const useDesk = create<DeskStore>((set, get) => ({
           connId,
         },
       });
+      const held = get().exchange;
+      const keepHeld = Boolean(book.ok && held?.ok && held.connId === connId && bookWeight(held) > bookWeight(book));
+      const nextBook = keepHeld && held
+        ? { ...held, equity: book.equity > 0 ? book.equity : held.equity, latencyMs: book.latencyMs || held.latencyMs }
+        : book;
+      const sessPos = Number(get().liveSession?.livePos ?? 0);
+      const sessOrd = Number(get().liveSession?.liveOrd ?? 0);
       set({
-        exchange: book,
+        exchange: nextBook,
         connections: get().connections.map((c) =>
           c.id === connId
             ? {
                 ...c,
-                status: book.ok ? "connected" : "error",
-                lastPingMs: book.latencyMs || c.lastPingMs,
-                equity: book.ok ? book.equity : c.equity,
-                positionCount: book.ok ? book.positions.length : c.positionCount,
-                openOrderCount: book.ok ? book.orders.length : c.openOrderCount,
+                status: nextBook.ok ? "connected" : "error",
+                lastPingMs: nextBook.latencyMs || c.lastPingMs,
+                equity: nextBook.ok && nextBook.equity > 0 ? nextBook.equity : c.equity,
+                positionCount: nextBook.ok ? Math.max(nextBook.positions.length, sessPos) : c.positionCount,
+                openOrderCount: nextBook.ok ? Math.max(nextBook.orders.length, sessOrd) : c.openOrderCount,
               }
             : c,
         ),
-        ticketMsg: book.ok
-          ? `BingX ${connId} · equity ${book.equity.toFixed(2)} · ${book.positions.length} pos · ${book.orders.length} orders · ${book.latencyMs} ms`
+        ticketMsg: nextBook.ok
+          ? `BingX ${connId} · equity ${(nextBook.equity || 0).toFixed(2)} · ${Math.max(nextBook.positions.length, sessPos)} pos · ${Math.max(nextBook.orders.length, sessOrd)} orders · ${nextBook.latencyMs} ms`
           : `BingX ${connId}: ${book.error ?? "book failed"}`,
       });
     } catch (err) {
@@ -1967,6 +1982,12 @@ export const useDesk = create<DeskStore>((set, get) => ({
         e.phase = ph === "paused" ? "paused" : ph === "stopped" ? "stopped" : "running";
         e.lastMsg = String(sess.lastMsg ?? e.lastMsg);
       }
+      if (String(sess.conn) === "bingx-x01") {
+        e.running = false;
+        e.botMode = false;
+        e.phase = "running";
+        e.lastMsg = String(sess.lastMsg ?? e.lastMsg);
+      }
     }
     const prevSess = get().liveSession;
     const sameShape =
@@ -1980,7 +2001,10 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const host = typeof sess.conn === "string" ? sess.conn : "";
       if (host && isDeskConn(host) && get().activeConnId !== host) set({ activeConnId: host });
       const heldEx = get().exchange;
-      if (book?.ok && heldEx?.ok && heldEx.positions.length === book.positions.length) {
+      const sessBook = Array.isArray(sess.bookPos) || Array.isArray(sess.bookOrd) ? book : null;
+      if (sessBook?.ok && bookWeight(sessBook) > bookWeight(heldEx)) {
+        set({ exchange: sessBook });
+      } else if (book?.ok && heldEx?.ok && heldEx.positions.length === book.positions.length && book.positions.length > 0) {
         for (let i = 0; i < heldEx.positions.length; i++) {
           const cur = heldEx.positions[i];
           const nxt = book.positions[i];
@@ -2016,7 +2040,9 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const incomingConn = String(book?.connId || (sess as { conn?: string } | null)?.conn || "");
     const incomingForActive = Boolean(book?.ok) && (!incomingConn || incomingConn === active);
     const heldForActive = Boolean(prevEx?.ok) && prevEx?.connId === active;
-    const nextBook = incomingForActive ? book : heldForActive || prevEx?.connId === active ? prevEx : null;
+    const incomingBook = incomingForActive ? book : null;
+    const heldBook = heldForActive || prevEx?.connId === active ? prevEx : null;
+    const nextBook = bookWeight(incomingBook) >= bookWeight(heldBook) ? incomingBook ?? heldBook : heldBook ?? incomingBook;
     const sameEx =
       prevEx &&
       nextBook &&
@@ -2070,9 +2096,11 @@ export const useDesk = create<DeskStore>((set, get) => ({
           ? `BingX ${liveId} · ${liveNet} · equity ${equity.toFixed(2)} · ${nextPos} pos · ${nextOrd} orders`
           : get().ticketMsg,
       vst:
-        e.phase === "running" && e.running
-          ? get().vst
-          : { ...e, phase: "running" as const, running: true },
+        String(sess?.conn) === "bingx-x01"
+          ? { ...e, phase: "running" as const, running: false, botMode: false }
+          : e.phase === "running" && e.running
+            ? get().vst
+            : { ...e, phase: "running" as const, running: true },
     });
   },
   pullLiveDesk: async () => {
