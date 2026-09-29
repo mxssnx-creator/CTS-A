@@ -18,7 +18,7 @@ import {
   strategyMatchesKinds,
 } from "@/lib/desk/engine";
 import { useDesk } from "@/lib/desk/store";
-import { useLiveSnapshot } from "@/lib/desk/live-ctx";
+import { deskLivePf, useLiveSnapshot } from "@/lib/desk/live-ctx";
 import {
   TICKS_PER_HOUR,
   VST_MAX_POSITIONS,
@@ -277,8 +277,8 @@ export function SessionProgress({
         <StatLine k="Equity" v={fmtEquity(liveSnap.hasLive ? liveSnap.equity : st.equity)} tone={(liveSnap.hasLive ? liveSnap.net : st.net) >= 0 ? "up" : "down"} />
         <StatLine
           k="Live PF"
-          v={fmtPf(liveSnap.hasLive ? (liveSnap.trades >= 4 ? liveSnap.pf : Number((liveSnap.session as { progression?: { pf?: number } } | null)?.progression?.pf) || liveSnap.pf) : st.pf)}
-          tone={pfTone(liveSnap.hasLive ? (liveSnap.trades >= 4 ? liveSnap.pf : Number((liveSnap.session as { progression?: { pf?: number } } | null)?.progression?.pf) || 0) : st.pf)}
+          v={fmtPf(liveSnap.hasLive ? deskLivePf(liveSnap) : st.pf)}
+          tone={pfTone(liveSnap.hasLive ? deskLivePf(liveSnap) : st.pf)}
         />
         <StatLine k="System Net" v={fmtUsd(liveSnap.hasLive ? liveSnap.systemNet : st.net)} tone={(liveSnap.hasLive ? liveSnap.systemNet : st.net) >= 0 ? "up" : "down"} />
         <StatLine k="Win rate" v={fmtWr(liveSnap.hasLive ? liveSnap.wr : st.wr)} />
