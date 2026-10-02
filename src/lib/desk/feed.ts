@@ -367,6 +367,24 @@ export function isDeskCloseOrder(o: DeskExecOrder, connId?: string | null): bool
 }
 
 /** Realized PnL that belongs to this desk connection — foreign and other CTS slots dropped. */
+/**
+ * Realized PnL of this connection's own filled closes (orders carrying its client-id prefix), for when the income
+ * history has no rows for them. Never another system's fills: on a shared account those made a desk's live PF gate
+ * read every bot's results (VST: 24 foreign closes at PF 0 held CTS-A closed with nothing of its own to improve).
+ */
+export function ownFilledPnl(orders: DeskExecOrder[] | null | undefined, connId: string, since = 0): DeskIncome[] {
+  return (orders ?? [])
+    .filter((o) => /FILLED|CLOSED/i.test(String(o.status ?? "")) && Number(o.pnl) && isDeskClientOrderId(o.info, connId))
+    .map((o) => ({
+      symbol: o.symbol,
+      type: "REALIZED_PNL",
+      income: Number(o.pnl) || 0,
+      info: String(o.info || ""),
+      time: Number(o.time) || 0,
+    }))
+    .filter((x) => !since || x.time >= since);
+}
+
 export function filterDeskRealized(
   orders: DeskExecOrder[] | null | undefined,
   income: DeskIncome[] | null | undefined,

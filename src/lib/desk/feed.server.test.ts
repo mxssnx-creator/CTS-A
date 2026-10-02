@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, buildControlParams, deskClientPrefix, filterDeskRealized, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, countPositionSlots, countWorkingOrders, LIVE_MAX_POSITIONS, systemProcessedNet, exchangeOrderId, placedOrderId } from "./feed.ts";
+import { applyLiveTape, BINGX_SYMBOL, LIVE_IDS, MAX_LIVE_NOTIONAL, MIN_SIZE_RATIO, buildControlParams, deskClientPrefix, filterDeskRealized, ownFilledPnl, isDeskClientOrderId, isOwnedExchangeOrder, makeClientOrderId, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, countPositionSlots, countWorkingOrders, LIVE_MAX_POSITIONS, systemProcessedNet, exchangeOrderId, placedOrderId } from "./feed.ts";
 import {
   buildCanonical,
   configureLiveExecution,
@@ -247,6 +247,27 @@ describe("live feed", () => {
     assert.equal(keys.has("ETHUSDT:long"), true);
     assert.equal(keys.has("BTCUSDT:short"), false);
     assert.equal(keys.size, 1);
+  });
+
+  it("ownFilledPnl counts only this connection's own filled closes, never other systems' fills", () => {
+    const t = Date.now();
+    const ours = makeClientOrderId("bingx-vst-02", "C");
+    const rows = ownFilledPnl(
+      [
+        { id: "1", symbol: "ETHUSDT", type: "MARKET", status: "FILLED", pnl: 0.3, time: t, info: ours },
+        { id: "2", symbol: "BTCUSDT", type: "MARKET", status: "FILLED", pnl: -4, time: t, info: "CTSV2T_CMURG60UMKTXG" },
+        { id: "3", symbol: "SOLUSDT", type: "MARKET", status: "FILLED", pnl: -2, time: t, info: "" },
+        { id: "4", symbol: "ADAUSDT", type: "MARKET", status: "FILLED", pnl: -1, time: t, info: makeClientOrderId("bingx-x01", "C") },
+        { id: "5", symbol: "XRPUSDT", type: "MARKET", status: "CANCELLED", pnl: 9, time: t, info: ours },
+        { id: "6", symbol: "DOTUSDT", type: "MARKET", status: "FILLED", pnl: 1, time: t - 10_000, info: ours },
+      ],
+      "bingx-vst-02",
+      t - 5_000,
+    );
+    assert.deepEqual(
+      rows.map((r) => [r.symbol, r.income]),
+      [["ETHUSDT", 0.3]],
+    );
   });
 
   it("filterDeskRealized keeps only this connection's processed PnL", () => {

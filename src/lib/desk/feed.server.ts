@@ -11,6 +11,7 @@ import {
   exchangeOrderId,
   filterDeskRealized,
   isDeskClientOrderId,
+  ownFilledPnl,
   makeClientOrderId,
   placedOrderId,
   type AccountPing,
@@ -1421,18 +1422,8 @@ export async function fetchLiveExecutions(input: {
     input.connId,
     since,
   );
-  const pnl = desk.pnl.length
-    ? desk.pnl
-    : orders
-        .filter((o) => /FILLED|CLOSED/i.test(o.status) && Number(o.pnl))
-        .map((o) => ({
-          symbol: o.symbol,
-          type: "REALIZED_PNL",
-          income: Number(o.pnl) || 0,
-          info: String(o.info || ""),
-          time: Number(o.time) || 0,
-        }))
-        .filter((x) => !since || x.time >= since);
+  // own closes only: the fallback (no income rows for them) never counts another system's fills
+  const pnl = desk.pnl.length ? desk.pnl : ownFilledPnl(orders, input.connId, since);
   const wins = pnl.filter((x) => x.income > 0);
   const profit = wins.reduce((s, x) => s + x.income, 0);
   const loss = Math.abs(pnl.filter((x) => x.income < 0).reduce((s, x) => s + x.income, 0));
