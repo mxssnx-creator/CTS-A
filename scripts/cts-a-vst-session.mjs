@@ -70,9 +70,15 @@ const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainne
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? LIVE_MAX_POSITIONS);
 /** Resting LIMIT rungs per symbol. No global order cap — every partial counts. */
 const X01_LADDER_PER_SYM = 8;
+// x01 (real money) is fixed at 1.15. On the demo account an explicit CTS_A_LIVE_MIN_PF is taken as given (0 = the
+// gate never closes): a session whose own recent record lost (e.g. before a stop) otherwise could not trade again to
+// improve it — the gate looks back three days. Unset or invalid: the default floor.
+const VST_MIN_PF_ENV = Number(process.env.CTS_A_LIVE_MIN_PF);
 const LIVE_MIN_PF = IS_X01
   ? 1.15
-  : Math.max(DEFAULT_SHORT_PF, Number(process.env.CTS_A_LIVE_MIN_PF ?? DEFAULT_SHORT_PF) || DEFAULT_SHORT_PF);
+  : process.env.CTS_A_LIVE_MIN_PF !== undefined && Number.isFinite(VST_MIN_PF_ENV) && VST_MIN_PF_ENV >= 0
+    ? VST_MIN_PF_ENV
+    : DEFAULT_SHORT_PF;
 const LIVE_MAX_DDT = IS_X01 ? 14 : 22;
 const LIVE_SYMBOLS = clampLiveSymbolCap(Number(process.env.CTS_A_SYMBOLS ?? (IS_X01 ? 50 : VST_LIVE_SYMBOLS)));
 const EVAL_SYMBOLS = IS_X01 ? LIVE_SYMBOLS : clampSymbolCount(Number(process.env.CTS_A_EVAL_SYMBOLS ?? VST_MAX_SYMBOLS));
