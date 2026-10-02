@@ -3929,10 +3929,14 @@ async function main() {
     }
   }, Math.max(800, TICK_MS));
 
+  // the exchange I/O cadence (book, orders, mirror): CTS_A_IO_MS, default 450 ms on x01 / 700 ms on the demo. One
+  // API key shared with other systems is rate limited per endpoint (100410 bans every system on the key), so a host
+  // running several systems slows it down.
+  const ioMs = Math.max(250, Number(process.env.CTS_A_IO_MS) || (IS_X01 ? 450 : 700));
   const ioTimer = setInterval(() => {
     if (hostPhase !== "running") return;
     void ioCycle();
-  }, IS_X01 ? 450 : 700);
+  }, ioMs);
   void ioCycle();
 
   let lastSettingsAt = Date.now();
