@@ -75,6 +75,11 @@ const MAX_GROSS_X = Math.max(0, Number(process.env.CTS_A_MAX_GROSS_X ?? (CONN ==
  *  8 s paid 0.1 % in fees, and x01 closed and reopened legs within 20–120 s. */
 const MIN_HOLD_MS = Math.max(0, Number(process.env.CTS_A_MIN_HOLD_MS ?? 120_000) || 0);
 const BANK_MIN_FRAC = 0.003;
+/** Own resting entry limits are cancelled after this long (placed, or first seen after a restart), so the gross cap
+ *  rotates: two minimum-size limits (BTC $25, ETH $54) sat 60 min at the cap and blocked every other entry. */
+const LIMIT_TTL_MS = Math.max(60_000, Number(process.env.CTS_A_LIMIT_TTL_MS ?? 600_000) || 600_000);
+/** One entry at most this share of the gross cap (a minimum size larger than that is skipped). */
+const MAX_CAP_SHARE = 0.25;
 /** Resting LIMIT rungs per symbol. No global order cap — every partial counts. */
 const X01_LADDER_PER_SYM = 8;
 // x01 (real money) is fixed at 1.15. On the demo account an explicit CTS_A_LIVE_MIN_PF is taken as given (0 = the
@@ -2421,6 +2426,37 @@ function comboMiss(e, rel) {
   return !(row.ok !== false && net > 0 && pf >= 1);
 }
 
+/** Own resting entry limits that are far from the market (≥ 0.22 %) or older than LIMIT_TTL_MS. */
+function staleOwnLimits(book, e, max = 8) {
+  const out = [];
+  const now = Date.now();
+  for (const o of book.orders ?? []) {
+    if (out.length >= max) break;
+    if (!isDeskOrder(o) || o.closePosition) continue;
+    if (String(o.type || "").toUpperCase() !== "LIMIT") continue;
+    const px = Number(e.quotes?.[o.symbol]?.px) || 0;
+    const op = Number(o.price) || 0;
+    const far = px > 0 && op > 0 && Math.abs(op - px) / px >= 0.0022;
+    const rec = orderLedger.get(exchangeOrderId(o.id));
+    const t0 = Number(rec?.openedAt) || 0;
+    const old = t0 > 0 && now - t0 > LIMIT_TTL_MS;
+    if (far || old) out.push(o);
+  }
+  return out;
+}
+/** Cancel own orders; a cancelled entry is marked so it never claims a leg (recentEntryKeys). */
+async function cancelOwnOrders(network, list) {
+  if (!list.length) return 0;
+  const done = await mapLimit(list, 2, async (o) => {
+    const r = await withLiveBusy(() =>
+      cancelSwapOrder({ network, connId: CONN, symbol: o.venueSymbol || o.symbol, orderId: String(o.id || "") }),
+    );
+    if (r?.ok) markLiveOrder(o.id, "cancelled");
+    return !!r?.ok;
+  });
+  return done.filter(Boolean).length;
+}
+
 async function mirrorToExchange(e, network, cfg) {
   if (apiQuiet()) return null;
   if (e?.preEvalDone === false) return null;
@@ -2624,7 +2660,9 @@ async function mirrorToExchange(e, network, cfg) {
       grossNow += Math.abs(Number(o.remaining ?? o.qty) * (Number(o.price) || Number(o.stopPrice) || 0));
     }
     if (!(grossCap > 0) || grossNow >= grossCap) {
-      notes.push(`gross cap ${grossNow.toFixed(0)}/${grossCap.toFixed(0)}`);
+      // the stale cleanup further down never runs on this path: without it the cap held its old limits for good
+      const n = await cancelOwnOrders(network, staleOwnLimits(book, e));
+      notes.push(`gross cap ${grossNow.toFixed(0)}/${grossCap.toFixed(0)}${n ? ` · ${n} stale cancelled` : ""}`);
       return notes.filter(Boolean).slice(0, 4).join(" · ");
     }
   }
@@ -2919,31 +2957,7 @@ async function mirrorToExchange(e, network, cfg) {
     const cap = liveNotionalCap(Number(book.equity) || Number(lastBook.equity) || 0);
     return minN > cap + 1e-6;
   };
-  if (IS_X01 && hourAllowsEntry()) {
-    const far = [];
-    for (const o of book.orders ?? []) {
-      if (far.length >= 8) break;
-      if (!isDeskOrder(o) || o.closePosition) continue;
-      if (String(o.type || "").toUpperCase() !== "LIMIT") continue;
-      const px = Number(e.quotes?.[o.symbol]?.px) || 0;
-      const op = Number(o.price) || 0;
-      if (!(px > 0) || !(op > 0)) continue;
-      if (Math.abs(op - px) / px < 0.0022) continue;
-      far.push(o);
-    }
-    if (far.length) {
-      await mapLimit(far, 2, (o) =>
-        withLiveBusy(() =>
-          cancelSwapOrder({
-            network,
-            connId: CONN,
-            symbol: o.venueSymbol || o.symbol,
-            orderId: String(o.id || ""),
-          }),
-        ),
-      );
-    }
-  }
+  if (IS_X01 && hourAllowsEntry()) await cancelOwnOrders(network, staleOwnLimits(book, e));
   const ordered = IS_X01
     ? [...scanIntents.filter((f) => f.near || f.ladder), ...scanIntents.filter((f) => !f.near && !f.ladder), ...e.fills]
     : ladderShort
@@ -3142,6 +3156,10 @@ async function mirrorToExchange(e, network, cfg) {
       const add = qty > 0 ? qty * (Number(f.px) || mark) : Math.max(entryNotional(e, book.equity, minN), minN);
       if (!(add > 0) || grossNow + add > grossCap) {
         markWhy(f, "gross");
+        continue;
+      }
+      if (add > grossCap * MAX_CAP_SHARE) {
+        markWhy(f, "size");
         continue;
       }
       grossNow += add;
