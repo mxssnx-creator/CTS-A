@@ -68,6 +68,13 @@ const CYCLE_MS = Number(process.env.CTS_A_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
 const SHORT_CYCLE_MS = Number(process.env.CTS_A_SHORT_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
 const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? LIVE_MAX_POSITIONS);
+/** Own gross cap, × equity: positions plus resting entry limits. The position count alone let 12 legs of $18–36
+ *  (exchange minimum sizes) reach 7× equity on x01 within five minutes (3 October). 0 = off (the demo default). */
+const MAX_GROSS_X = Math.max(0, Number(process.env.CTS_A_MAX_GROSS_X ?? (CONN === "bingx-x01" ? 2 : 0)) || 0);
+/** Voluntary closes (bank, scratch) wait this long and bank only above the round-trip cost: banking +0.07 % after
+ *  8 s paid 0.1 % in fees, and x01 closed and reopened legs within 20–120 s. */
+const MIN_HOLD_MS = Math.max(0, Number(process.env.CTS_A_MIN_HOLD_MS ?? 120_000) || 0);
+const BANK_MIN_FRAC = 0.003;
 /** Resting LIMIT rungs per symbol. No global order cap — every partial counts. */
 const X01_LADDER_PER_SYM = 8;
 // x01 (real money) is fixed at 1.15. On the demo account an explicit CTS_A_LIVE_MIN_PF is taken as given (0 = the
@@ -1611,7 +1618,7 @@ async function flattenBelowMinPf(network, book, e) {
       const notional = Math.abs(Number(p.qty) * (Number(p.mark) || Number(p.entry) || 0));
       const key = `${p.symbol}:${p.side}`;
       if (!openedAt.has(key)) openedAt.set(key, now);
-      return pnl >= Math.max(0.008, notional * 0.0007) && now - openedAt.get(key) > 8_000;
+      return pnl >= Math.max(0.008, notional * BANK_MIN_FRAC) && now - openedAt.get(key) > MIN_HOLD_MS;
     });
     for (const p of banked) {
       if (n >= 2 || apiQuiet()) break;
@@ -1639,7 +1646,7 @@ async function flattenBelowMinPf(network, book, e) {
       const adverse = pnl <= -Math.max(0.01, notional * 0.0012);
       const keeps = hourNet + pnl >= -band;
       const lock = hourNet > 0.004 && pnl < 0 && hourNet + pnl >= 0;
-      if (adverse && age > 15_000 && keeps && (pathRed || lock)) {
+      if (adverse && age > Math.max(15_000, MIN_HOLD_MS) && keeps && (pathRed || lock)) {
         const r = await closeHit(network, worst);
         if (r?.ok) {
           n += 1;
@@ -2607,6 +2614,20 @@ async function mirrorToExchange(e, network, cfg) {
     return notes.filter(Boolean).slice(0, 4).join(" · ");
   }
   if (openN >= budget.maxPos) return notes.length ? notes.join(" · ") : null;
+  const grossCap = MAX_GROSS_X * (Number(book.equity) || Number(lastBook.equity) || 0);
+  let grossNow = 0;
+  if (MAX_GROSS_X > 0) {
+    for (const p of deskPos) grossNow += Math.abs(Number(p.qty) * (Number(p.mark) || Number(p.entry) || 0));
+    for (const o of book.orders ?? []) {
+      if (!isDeskOrder(o) || o.closePosition || protectKind(o.type)) continue;
+      if (String(o.type || "").toUpperCase() !== "LIMIT") continue;
+      grossNow += Math.abs(Number(o.remaining ?? o.qty) * (Number(o.price) || Number(o.stopPrice) || 0));
+    }
+    if (!(grossCap > 0) || grossNow >= grossCap) {
+      notes.push(`gross cap ${grossNow.toFixed(0)}/${grossCap.toFixed(0)}`);
+      return notes.filter(Boolean).slice(0, 4).join(" · ");
+    }
+  }
   if (protectGap > 0) {
     notes.push(`protect gap ${protectGap}`);
     return notes.filter(Boolean).slice(0, 4).join(" · ");
@@ -3112,6 +3133,19 @@ async function mirrorToExchange(e, network, cfg) {
       break;
     }
     if (IS_X01 && !isBlockAdd && fillJobs.length >= 8) break;
+    if (MAX_GROSS_X > 0) {
+      // ladder and near intents carry no quantity: they are sized at placement, to at least the exchange minimum
+      const mark = Number(e.quotes?.[f.symbol]?.px) || Number(f.px) || 0;
+      const venue = BINGX_SYMBOL[f.symbol] ?? (f.symbol.includes("-") ? f.symbol : `${f.symbol.replace(/USDT$/i, "")}-USDT`);
+      const minN = mark > 0 ? exchangeMinNotional(contractMap?.get(venue), mark) : 0;
+      const qty = Math.abs(Number(f.qty) || 0);
+      const add = qty > 0 ? qty * (Number(f.px) || mark) : Math.max(entryNotional(e, book.equity, minN), minN);
+      if (!(add > 0) || grossNow + add > grossCap) {
+        markWhy(f, "gross");
+        continue;
+      }
+      grossNow += add;
+    }
     fillJobs.push(f);
     if (blockish) blockJobs += 1;
   }
