@@ -2451,7 +2451,9 @@ async function mirrorToExchange(e, network, cfg) {
   const ordCount = countWorkingOrders(deskOrd);
   const foreignPosN = countPositionSlots((book.positions ?? []).filter((p) => !isOwnedLeg(p.symbol, p.side))).slots;
   const foreignOrdN = countWorkingOrders((book.orders ?? []).filter((o) => !isDeskOrder(o))).n;
-  const prot = countProtect(book.positions ?? [], book.orders ?? []);
+  // own legs only: a foreign position (another system on the account) without a TP counted as a gap closed the
+  // gate below for good, so the session placed nothing and never repriced its own stale limits
+  const prot = countProtect((book.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side)), book.orders ?? []);
   lastBook = {
     pos: posSlots.slots,
     ord: ordCount.n,
