@@ -222,6 +222,20 @@ function ledgerSide(info, symbol) {
   }
   return undefined;
 }
+/** Keys of this session's own entry orders seen in the last `maxAgeMs` and not cancelled by it. A limit entry that
+ *  fills completely leaves no tagged order on its leg, so the tagged-key claim misses it; this claims it instead
+ *  (without it the leg read as foreign: no stop, no take-profit, on real money). */
+function recentEntryKeys(maxAgeMs = 10 * 60_000) {
+  const keys = new Set();
+  const now = Date.now();
+  for (const rec of orderLedger.values()) {
+    if (rec.role !== "entry" || rec.status === "cancelled") continue;
+    if (now - (Number(rec.updatedAt) || 0) > maxAgeMs) continue;
+    if (!isDeskClientOrderId(rec.clientOrderId, CONN)) continue;
+    if (rec.symbol && rec.side) keys.add(ownKey(rec.symbol, rec.side));
+  }
+  return keys;
+}
 function isOwnedLeg(symbol, side) {
   const k = ownKey(symbol, side);
   if (taggedKeys.has(k)) return true;
@@ -2440,7 +2454,7 @@ async function mirrorToExchange(e, network, cfg) {
   syncOrderLedger(book.orders);
   const livePosKeys = new Set((book.positions ?? []).map((p) => `${p.symbol}:${p.side}`));
   let n = 0;
-  for (const k of taggedKeys) {
+  for (const k of new Set([...taggedKeys, ...recentEntryKeys()])) {
     if (!livePosKeys.has(k)) continue;
     if (!mirrored.has(`own:${k}`)) {
       mirrored.add(`own:${k}`);
