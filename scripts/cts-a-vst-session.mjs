@@ -226,8 +226,8 @@ function isOwnedLeg(symbol, side) {
   const k = ownKey(symbol, side);
   if (taggedKeys.has(k)) return true;
   if (mirrored.has(`own:${k}`) || mirrored.has(`live:${k}`)) return true;
-  // Seed is only a restart claim until tagged tickets are on the book.
-  if (taggedKeys.size > 0) return false;
+  // A restart claim holds for its own leg until that leg is closed (forget() drops it). Tagged tickets on OTHER
+  // legs must not void it: they did, and every leg restored after a restart became "foreign" — no stop, no TP.
   return mirrored.has(`seed:${k}`);
 }
 function isDeskOrder(o) {
