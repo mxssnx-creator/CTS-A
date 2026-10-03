@@ -2367,16 +2367,19 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     for (const t of axisOut) if (t) notes.push(t);
   }
   lastTrail = { n: trailed, ms: Date.now() - trailT0, at: Date.now() };
+  // own legs only: protection is only ever placed with this session's orders, so a foreign leg always read as a
+  // gap and closed the entry gate for good
+  const ownLegs = legs.filter((p) => liveOwnedSet.has(`${p.symbol}:${p.side}`));
   let slN = 0;
   let tpN = 0;
-  for (const p of legs) {
+  for (const p of ownLegs) {
     const key = `${p.symbol}:${p.side}`;
     if (hasSl.has(key)) slN += 1;
     if (hasTp.has(key)) tpN += 1;
   }
   lastBook.sl = slN;
   lastBook.tp = tpN;
-  lastBook.unprotected = legs.filter((p) => {
+  lastBook.unprotected = ownLegs.filter((p) => {
     const key = `${p.symbol}:${p.side}`;
     return !hasSl.has(key) || !hasTp.has(key);
   }).length;
