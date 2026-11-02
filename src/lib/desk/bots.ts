@@ -5,11 +5,12 @@ import type {
   StrategyToggles,
   VstEngine,
 } from "./types.ts";
+import { DEFAULT_FEES, modeledCost, type FeeModel } from "./fees.ts";
 import {
   DEFAULT_LAST_N_PROGRESS,
   DEFAULT_STRATEGY_TOGGLES,
-  POSITION_RT_COST_PCT,
   closePnl,
+  positionRtCost,
   dynamicMinRateDist,
   profitFactor,
   sanitizeStrategyToggles,
@@ -744,14 +745,14 @@ function pessimisticExit(bar: Bar, side: 1 | -1, sl: number, tp: number, trail: 
   return null;
 }
 
-function trailLevel(side: 1 | -1, peak: number, dist: number, entry: number): number {
+function trailLevel(side: 1 | -1, peak: number, dist: number, entry: number, cost: number): number {
   const raw = side > 0 ? peak * (1 - dist) : peak * (1 + dist);
-  const floor = side > 0 ? entry * (1 + POSITION_RT_COST_PCT + 0.0004) : entry * (1 - POSITION_RT_COST_PCT - 0.0004);
+  const floor = side > 0 ? entry * (1 + cost + 0.0004) : entry * (1 - cost - 0.0004);
   return side > 0 ? Math.max(raw, floor) : Math.min(raw, floor);
 }
 
-function beLevel(side: 1 | -1, entry: number): number {
-  return side > 0 ? entry * (1 + POSITION_RT_COST_PCT + 0.0002) : entry * (1 - POSITION_RT_COST_PCT - 0.0002);
+function beLevel(side: 1 | -1, entry: number, cost: number): number {
+  return side > 0 ? entry * (1 + cost + 0.0002) : entry * (1 - cost - 0.0002);
 }
 
 function qtyFor(equity: number, px: number, vf: number, mul: number): number {
@@ -769,9 +770,10 @@ function emitFill(
   strategy: BotStrategyKey,
   live: boolean,
   qty = pos.qty,
+  fees: FeeModel = DEFAULT_FEES,
 ): BotFill {
-  const pnl = closePnl(pos.side, pos.entry, exit, qty, POSITION_RT_COST_PCT);
-  const cost = qty * ((pos.entry + exit) / 2) * POSITION_RT_COST_PCT;
+  const pnl = closePnl(pos.side, pos.entry, exit, qty, fees);
+  const cost = positionRtCost(pos.entry, exit, qty, fees);
   return {
     id,
     symbol: pos.symbol,
@@ -825,7 +827,7 @@ function emptyStats(): BotWindowStats {
 
 const reportCache = new Map<string, BotReport>();
 
-function cacheKey(cfg: BotConfig, hours: number, seed: number): string {
+function cacheKey(cfg: BotConfig, hours: number, seed: number, fees: FeeModel): string {
   return JSON.stringify({
     t: cfg.type,
     n: cfg.symbolCount,
@@ -837,14 +839,16 @@ function cacheKey(cfg: BotConfig, hours: number, seed: number): string {
     st: cfg.strategies,
     h: hours,
     seed,
+    fees,
   });
 }
 
-export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: number, seed = 20260922): BotReport {
+export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: number, seed = 20260922, fees: FeeModel = DEFAULT_FEES): BotReport {
   const t0 = Date.now();
   const cfg = sanitizeBotConfig(cfgIn, (cfgIn as BotConfig)?.type ?? "sandwich");
   const hours = snapTo(BOT_HOURS, Math.round(hoursIn ?? cfg.hours)) as BotHours;
-  const key = cacheKey(cfg, hours, seed);
+  const cost = modeledCost(fees);
+  const key = cacheKey(cfg, hours, seed, fees);
   const hit = reportCache.get(key);
   if (hit) return hit;
 
@@ -879,7 +883,6 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
   let vfRecalcs = 0;
   let fid = 0;
   const warmup = 8;
-  const laneNet = new Map<string, number>();
   const strategyBooks: Record<BotStrategyKey, BotFill[]> = {
     normal: [],
     trailing: [],
@@ -888,21 +891,10 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
     dca: [],
   };
 
-  const takeLane = (fill: BotFill, lanes: string[]): boolean => {
-    for (const k of lanes) {
-      if ((laneNet.get(k) ?? 0) + fill.pnl < -1e-12) return false;
-    }
-    for (const k of lanes) laneNet.set(k, (laneNet.get(k) ?? 0) + fill.pnl);
-    return true;
-  };
-
   const take = (fill: BotFill) => {
     if (!fill.live) return;
-    const lanes = [`h:${fill.hour}`, `s:${fill.strategy}:${fill.hour}`, `i:${BOT_IND[cfg.type]}:${fill.hour}`];
-    if (!takeLane(fill, lanes)) {
-      internFills.push({ ...fill, live: false, id: `ih${fill.id}` });
-      return;
-    }
+    // The close outcome is known only after entry. It cannot decide retroactively
+    // whether this simulated position belonged to the executed book.
     liveFills.push(fill);
     equity += fill.pnl;
     const rec = recalcVolumeFactor(cfg.volumeFactor, BOT_START_EQUITY, equity, lastRecalc);
@@ -916,10 +908,6 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
   const bookStrategy = (fill: BotFill) => {
     internFills.push({ ...fill, live: false, id: `is${fill.id}` });
     if (!toggles[fill.strategy]) return;
-    if (fill.pnl <= 0) return;
-    const key = `b:${fill.strategy}:${fill.hour}`;
-    if ((laneNet.get(key) ?? 0) + fill.pnl < -1e-12) return;
-    laneNet.set(key, (laneNet.get(key) ?? 0) + fill.pnl);
     strategyBooks[fill.strategy].push({ ...fill, live: true });
   };
 
@@ -942,13 +930,13 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
       const mfe = pos.side > 0 ? (pos.peak - pos.entry) / pos.entry : (pos.entry - pos.peak) / pos.entry;
       if (!pos.trailOn && mfe + 1e-12 >= pos.trailFrac) pos.trailOn = true;
       if (!pos.liveTrailOn && mfe + 1e-12 >= pos.liveTrailFrac) pos.liveTrailOn = true;
-      if (mfe >= POSITION_RT_COST_PCT + 0.0006) {
-        const be = beLevel(pos.side, pos.entry);
+      if (mfe >= cost + 0.0006) {
+        const be = beLevel(pos.side, pos.entry, cost);
         pos.liveSl = pos.side > 0 ? Math.max(pos.liveSl, be) : Math.min(pos.liveSl, be);
       }
       if (!pos.dcaOn && mfe + 1e-12 >= internTpPct * 0.35) pos.dcaOn = true;
-      const internTrail = pos.trailOn ? trailLevel(pos.side, pos.peak, pos.trailFrac, pos.entry) : null;
-      const liveTrail = pos.liveTrailOn ? trailLevel(pos.side, pos.peak, pos.liveTrailFrac, pos.entry) : null;
+      const internTrail = pos.trailOn ? trailLevel(pos.side, pos.peak, pos.trailFrac, pos.entry, cost) : null;
+      const liveTrail = pos.liveTrailOn ? trailLevel(pos.side, pos.peak, pos.liveTrailFrac, pos.entry, cost) : null;
       const slN = pessimisticExit(bar, pos.side, pos.sl, pos.tp, null);
       const slT = pessimisticExit(bar, pos.side, pos.sl, pos.tp, internTrail);
       const slLive = pessimisticExit(bar, pos.side, pos.liveSl, pos.liveTp, liveTrail);
@@ -967,8 +955,8 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
       open[id] = undefined;
       hourOrders[hourIndex] += 1;
       const beforeLive = liveFills.length;
-      const nFill = emitFill(`n${fid}`, pos, xN, i, "normal", false);
-      const tFill = emitFill(`t${fid}`, pos, xT, i, "trailing", false);
+      const nFill = emitFill(`n${fid}`, pos, xN, i, "normal", false, pos.qty, fees);
+      const tFill = emitFill(`t${fid}`, pos, xT, i, "trailing", false, pos.qty, fees);
 
       internFills.push({ ...nFill, live: false, id: `n${fid}` });
       internFills.push({ ...tFill, live: false, id: `t${fid}` });
@@ -976,13 +964,13 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
       bookStrategy({ ...tFill, id: `tt${fid}` });
 
       if (toggles.normal && primary === "normal") take({ ...nFill, live: true, id: `ln${fid}` });
-      if (toggles.trailing && primary === "trailing") take({ ...emitFill(`lt${fid}`, pos, liveExit, i, "trailing", true), live: true });
+      if (toggles.trailing && primary === "trailing") take({ ...emitFill(`lt${fid}`, pos, liveExit, i, "trailing", true, pos.qty, fees), live: true });
 
       if (pos.axis) {
-        const extra = emitFill(`a${fid}`, pos, liveExit, i, "axis", Boolean(toggles.axis), pos.qty * 2);
+        const extra = emitFill(`a${fid}`, pos, liveExit, i, "axis", Boolean(toggles.axis), pos.qty * 2, fees);
         internFills.push({ ...extra, live: false });
         bookStrategy(extra);
-        if (toggles.axis && pos.quality >= 1 && extra.pnl > 0) take({ ...extra, live: true, id: `la${fid}` });
+        if (toggles.axis && pos.quality >= 1) take({ ...extra, live: true, id: `la${fid}` });
       }
 
       const streak = winStreak[id] ?? 0;
@@ -990,10 +978,10 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
       const blockN = nLevel === 2 ? 0 : nLevel;
       if (blockN >= 1 && blockN <= 6) {
         const extraQ = pos.qty * 0.2 * (blockN === 1 ? 1 : blockN);
-        const bFill = emitFill(`b${fid}`, pos, liveExit, i, "block", false, extraQ);
+        const bFill = emitFill(`b${fid}`, pos, liveExit, i, "block", false, extraQ, fees);
         internFills.push({ ...bFill, live: false });
         bookStrategy(bFill);
-        if (toggles.block && streak >= 1 && blockN >= 1 && bFill.pnl > 0) take({ ...bFill, live: true, id: `lb${fid}` });
+        if (toggles.block && streak >= 1 && blockN >= 1) take({ ...bFill, live: true, id: `lb${fid}` });
       }
 
       if (pos.dcaOn) {
@@ -1001,10 +989,10 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
         const addPx = pos.side > 0 ? pos.entry * (1 - internSlPct * 0.25) : pos.entry * (1 + internSlPct * 0.25);
         const avg = (pos.entry * pos.qty + addPx * addQ) / (pos.qty + addQ);
         const dcaPos = { ...pos, entry: avg, qty: addQ };
-        const dFill = emitFill(`d${fid}`, dcaPos, liveExit, i, "dca", Boolean(toggles.dca), addQ);
+        const dFill = emitFill(`d${fid}`, dcaPos, liveExit, i, "dca", Boolean(toggles.dca), addQ, fees);
         internFills.push({ ...dFill, live: false });
         bookStrategy(dFill);
-        if (toggles.dca && dFill.pnl > 0) take({ ...dFill, live: true, id: `ld${fid}` });
+        if (toggles.dca) take({ ...dFill, live: true, id: `ld${fid}` });
       }
 
       const liveNet = liveFills.slice(beforeLive).reduce((s, f) => s + f.pnl, 0);
@@ -1248,11 +1236,11 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
   return report;
 }
 
-export function compareBots(hours: number = 12, seed = 20260922, symbolCount: BotSymbolCount = 10): Record<BotTypeId, BotReport> {
+export function compareBots(hours: number = 12, seed = 20260922, symbolCount: BotSymbolCount = 10, fees: FeeModel = DEFAULT_FEES): Record<BotTypeId, BotReport> {
   const out = {} as Record<BotTypeId, BotReport>;
   for (const t of BOT_TYPES) {
     const cfg = { ...defaultBotConfig(t), symbolCount, hours: snapTo(BOT_HOURS, hours) as BotHours };
-    out[t] = runBotBacktest(cfg, hours, seed);
+    out[t] = runBotBacktest(cfg, hours, seed, fees);
   }
   return out;
 }
@@ -1280,8 +1268,8 @@ export function scoreBotReport(r: BotReport): number {
   return pf * 14 + net * 2.2 + greenBonus + overallBonus + gated + depth - mddPen;
 }
 
-export function rankBotTypes(hours: number = 12, seed = 20260922, symbolCount: BotSymbolCount = 10): { type: BotTypeId; score: number; report: BotReport }[] {
-  const all = compareBots(hours, seed, symbolCount);
+export function rankBotTypes(hours: number = 12, seed = 20260922, symbolCount: BotSymbolCount = 10, fees: FeeModel = DEFAULT_FEES): { type: BotTypeId; score: number; report: BotReport }[] {
+  const all = compareBots(hours, seed, symbolCount, fees);
   return BOT_TYPES
     .map((t) => ({ type: t, score: scoreBotReport(all[t]), report: all[t] }))
     .sort((a, b) => b.score - a.score || b.report.liveStats.pf - a.report.liveStats.pf || b.report.liveStats.net - a.report.liveStats.net);
@@ -1302,13 +1290,14 @@ export function runParallelBots(
   hours: number = 12,
   seed = 20260922,
   configs?: Partial<Record<BotTypeId, Partial<BotConfig>>>,
+  fees: FeeModel = DEFAULT_FEES,
 ): Record<BotTypeId, BotReport> {
   const picked = sanitizeArmed(types);
   const out = {} as Record<BotTypeId, BotReport>;
   for (const t of picked) {
     const extra = configs?.[t];
     const cfg = sanitizeBotConfig({ ...defaultBotConfig(t), ...extra, type: t }, t);
-    out[t] = runBotBacktest(cfg, hours, seed);
+    out[t] = runBotBacktest(cfg, hours, seed, fees);
   }
   return out;
 }
@@ -1442,7 +1431,7 @@ export function stepDeskBots(
       p.tp = tp;
       p.tpDist = Math.abs(tp - p.avgEntry);
       if (mfe + 1e-12 >= trailFrac) {
-        const next = trailLevel(side, peak, trailFrac, p.avgEntry);
+        const next = trailLevel(side, peak, trailFrac, p.avgEntry, modeledCost(p.feeModel ?? e.feeModel ?? DEFAULT_FEES));
         p.sl = side > 0 ? Math.max(p.sl, next) : p.sl > 0 ? Math.min(p.sl, next) : next;
         p.slDist = Math.abs(p.sl - p.avgEntry);
       }

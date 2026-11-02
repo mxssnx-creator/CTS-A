@@ -1,3 +1,12 @@
+# Accounting correction, 2026-11-02
+
+The coordination check below is an archival simulation, not evidence of exchange fills or a reliable
+profit factor. Its Hour keep rule replaced some already realized losses with entry-price scratches;
+the recorded check reports 47,814 such scratches. A later accounting repair records the actual modeled
+exit and costs instead. The old PFs and green-hour claims cannot be compared to the corrected results
+without replaying the same input under the corrected accounting. The historical configuration and
+figures are retained below for provenance.
+
 # Stable — live breakpoint, 2026-09-29
 
 This tree is the restore point. Git tags `stable` and `breakpoint-0929` point here. The tape cell underneath is still `stable-12h-0928` (geometric short 0.48/0.75). Repair the live book from this breakpoint, not from an older tag.

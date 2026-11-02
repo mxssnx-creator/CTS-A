@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { DEFAULT_FEES, effectiveFees, sanitizeFees, type FeeModel } from "./fees.ts";
 import type {
   AutoValidateResult,
   BlockConfig,
@@ -42,6 +43,7 @@ import {
   DEFAULT_LAST_N_PROGRESS,
   DESK,
   LANE_EVAL_NS,
+  LANE_EVAL_NS_OPTIONS,
   LAST_N_OPTIONS,
   STAGE_HOURS,
   AUTO_EVAL_HOURS,
@@ -137,6 +139,7 @@ const vault: Record<string, { apiKey: string; secret: string }> = {};
 export type { TacticConfig, Thresholds };
 
 interface DeskStore {
+  feeModel: FeeModel;
   symbol: string;
   strategyId: string;
   lastN: (typeof LAST_N_OPTIONS)[number];
@@ -201,6 +204,7 @@ interface DeskStore {
   setOverlayLastN: (n: 12 | 40 | 120 | 650) => void;
   resetSettings: () => void;
   setCostStep: (n: number) => void;
+  setFeeModel: (p: Partial<FeeModel>) => void;
   setRangeType: (r: RangeType) => void;
   setTactic: (t: TacticKind) => void;
   setReplayIndex: (i: number) => void;
@@ -535,6 +539,7 @@ function trimConnSymbols(conns: Connection[], count: number): Connection[] {
 }
 
 export const useDesk = create<DeskStore>((set, get) => ({
+  feeModel: { ...DEFAULT_FEES },
   symbol: "BTCUSDT",
   strategyId: "normal",
   lastN: DEFAULT_LAST_N,
@@ -675,6 +680,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       evalLastNs: [...LANE_EVAL_NS],
       stageEval: null,
       costStep: 10,
+      feeModel: { ...DEFAULT_FEES },
       rangeType: "atr",
       tactic: "hybrid",
       strategyId: "normal",
@@ -702,11 +708,20 @@ export const useDesk = create<DeskStore>((set, get) => ({
       minSizeRatio: 1,
       activePresetId: "",
     });
+    const e = get().vst, book = get().exchange;
+    e.feeModel = effectiveFees(DEFAULT_FEES, book?.ok && book.connId === get().activeConnId ? book.feeRates : undefined);
     get().applyLiveConfig();
   },
   setCostStep: (costStep) => {
     if (hostPinned(get())) return;
     set({ costStep: Math.min(30, Math.max(3, costStep)) });
+    get().syncSettings();
+  },
+  setFeeModel: (patch) => {
+    const feeModel = sanitizeFees({ ...get().feeModel, ...patch });
+    const book = get().exchange, e = get().vst;
+    e.feeModel = effectiveFees(feeModel, book?.ok && book.connId === get().activeConnId ? book.feeRates : undefined);
+    set({ feeModel, vst: snapshotVst(e) });
     get().syncSettings();
   },
   setRangeType: (rangeType) => {
@@ -1398,6 +1413,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       rangeType: "all",
       onlyPositive: false,
       enabledKinds: get().enabledKinds,
+      feeModel: get().vst.feeModel,
       keepBest: true,
     });
     const best = pickBestCombo(rows);
@@ -1431,6 +1447,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
           }
         : get().tacticConfig;
       const { report } = simulateHours(hours, cfg, complete ? "trailing" : get().tactic, {
+        feeModel: get().vst.feeModel,
         symbolCount: complete ? Math.max(80, get().symbolCount) : get().symbolCount,
         orderType: get().orderType,
         rangeType: complete ? "atr" : get().rangeType,
@@ -1649,6 +1666,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
       lastN: get().lastNs.combos,
       th: get().thresholds,
       base: get().tacticConfig,
+      feeModel: get().vst.feeModel,
     });
     const applied = result.confirmOk;
     set({
@@ -1679,6 +1697,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
   },
   runStageEval: () => {
     try {
+    const activeEngine = get().vst;
     const bundle = evaluateStages({
       lastNs: get().evalLastNs,
       hours: get().evalHours,
@@ -1688,6 +1707,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
       rangeType: get().rangeType,
       enabledKinds: get().enabledKinds,
       block: get().blockConfig,
+      multiProgress: activeEngine.lastNCoord ? get().lastNProgress : undefined,
+      feeModel: activeEngine.feeModel,
     });
     let mirrored = false;
     const e = get().vst;
@@ -1725,7 +1746,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     get().syncSettings();
   },
   setEvalLastNs: (ns) => {
-    const next = LANE_EVAL_NS.filter((n) => ns.includes(n));
+    const next = LANE_EVAL_NS_OPTIONS.filter((n) => ns.includes(n));
     set({ evalLastNs: next.length ? [...next] : [...LANE_EVAL_NS] });
     get().syncSettings();
   },
@@ -1906,11 +1927,14 @@ export const useDesk = create<DeskStore>((set, get) => ({
           connId,
         },
       });
+      if (get().activeConnId !== connId) return;
       const held = get().exchange;
       const keepHeld = Boolean(book.ok && held?.ok && held.connId === connId && bookWeight(held) > bookWeight(book));
       const nextBook = keepHeld && held
-        ? { ...held, equity: book.equity > 0 ? book.equity : held.equity, latencyMs: book.latencyMs || held.latencyMs }
+        ? { ...held, equity: book.equity > 0 ? book.equity : held.equity, latencyMs: book.latencyMs || held.latencyMs,
+          feeRates: book.feeRates ?? held.feeRates }
         : book;
+      get().vst.feeModel = effectiveFees(get().feeModel, nextBook.ok ? nextBook.feeRates : undefined);
       const sessPos = Number(get().liveSession?.livePos ?? 0);
       const sessOrd = Number(get().liveSession?.liveOrd ?? 0);
       set({
@@ -2170,6 +2194,8 @@ export const useDesk = create<DeskStore>((set, get) => ({
       const e = get().vst;
       const activeConnId = connLocked && isDeskConn(get().activeConnId) ? get().activeConnId : snap.activeConnId;
       e.symbolCount = snap.symbolCount;
+      const feeBook = get().exchange;
+      e.feeModel = effectiveFees(snap.feeModel, feeBook?.ok && feeBook.connId === activeConnId ? feeBook.feeRates : undefined);
       e.orderType = snap.orderType;
       e.activeConnId = activeConnId;
       e.strategyToggles = snap.strategyToggles;
@@ -2195,6 +2221,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
         lastNs: snap.lastNs,
         lastNLinked: snap.lastNLinked,
         costStep: snap.costStep,
+        feeModel: snap.feeModel,
         rangeType: snap.rangeType,
         tactic: snap.tactic,
         thresholds: snap.thresholds,
@@ -2382,6 +2409,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const next = { ...(botByConn[id] ?? freshConnBots()), running: id === "bingx-vst-02" ? false : Boolean(botByConn[id]?.running) };
     const e = get().vst;
     e.activeConnId = id;
+    e.feeModel = effectiveFees(get().feeModel);
     e.lastMsg = `Current session ${id}`;
     set({
       activeConnId: id,

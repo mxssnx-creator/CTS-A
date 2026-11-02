@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { effectiveFees, modeledCost } from "@/lib/desk/fees";
 import { Link } from "@tanstack/react-router";
 import {
   BASE_EQUITY,
@@ -209,7 +210,7 @@ function RangeKnob({
 }
 
 const PF_COORD_SWITCHES = [
-  ["hourKeep", "Hour keep", "Scratch a close that would drop this hour under PF 1.08. New orders stay queued."],
+  ["hourKeep", "Hour keep", "Pause additional Block entries when their current hourly PF is below 1.08. Settled closes remain recorded."],
   ["bankWin", "Bank win", "Lock a green stop after the move clears cost and gives some back."],
   ["pairAdd", "Pair add", "Extra order when 2+ indications agree. Single lanes still arm."],
   ["laneCool", "Lane cool", "After 2 real losses, pause only that symbol × indication × tactic for the hour."],
@@ -265,6 +266,9 @@ export function SettingsView() {
   const rangeType = useDesk((s) => s.rangeType);
   const setRangeType = useDesk((s) => s.setRangeType);
   const setCostStep = useDesk((s) => s.setCostStep);
+  const feeModel = useDesk((s) => s.feeModel);
+  const activeFeeModel = useDesk((s) => s.vst.feeModel);
+  const setFeeModel = useDesk((s) => s.setFeeModel);
   const cost = useDesk((s) => s.costStep);
   const cfg = useDesk((s) => s.tacticConfig);
   const setCfg = useDesk((s) => s.setTacticConfig);
@@ -306,6 +310,7 @@ export function SettingsView() {
   const intervalStrategy = useDesk((s) => s.intervalStrategy);
   const setIntervalStrategy = useDesk((s) => s.setIntervalStrategy);
   const lastNProgress = useDesk((s) => s.lastNProgress);
+  const multiActive = useDesk((s) => Boolean(s.vst.lastNCoord));
   const setLastNProgress = useDesk((s) => s.setLastNProgress);
   const evalHours = useDesk((s) => s.evalHours);
   const evalLastNs = useDesk((s) => s.evalLastNs);
@@ -342,7 +347,7 @@ export function SettingsView() {
   const replayMax = Math.max(0, replayBarsFor(replayHours) - 1);
 
   const live = useMemo(() => {
-    const bt = getBacktest(strategyId, symbol);
+    const bt = getBacktest(strategyId, symbol, activeFeeModel);
     const picks = lastNEval(bt, lastNs.picks);
     const bookLive = liveDeskBook(useDesk.getState().vst, activeConnId, lastNs.last);
     const exPos = exchangeAsPositions(exchange);
@@ -355,8 +360,8 @@ export function SettingsView() {
     const last = posSliceStats(lastSlice);
     const ongoing = posSliceStats(ongoingSlice);
     const next = posSliceStats(nextSlice);
-    const lanes = buildLanes(lastNs.lanes, cfg, th, symbol, enabledKinds);
-    const book = bookStats(lastNs.lanes, cfg, th, symbol, enabledKinds);
+    const lanes = buildLanes(lastNs.lanes, cfg, th, symbol, enabledKinds, multiActive ? lastNProgress : undefined, activeFeeModel);
+    const book = bookStats(lastNs.lanes, cfg, th, symbol, enabledKinds, multiActive ? lastNProgress : undefined, activeFeeModel);
     const vol = volumeCoord(bookLive.last.length ? positionsAsTrades(bookLive.last) : bt.trades.slice(-lastNs.picks));
     return {
       picks,
@@ -373,7 +378,7 @@ export function SettingsView() {
       book,
       vol,
     };
-  }, [strategyId, symbol, lastNs, cfg, th, enabledKinds, activeConnId, exchange]);
+  }, [strategyId, symbol, lastNs, cfg, th, enabledKinds, activeConnId, exchange, multiActive, lastNProgress, activeFeeModel]);
 
   const stageLive: Record<LastNStage, { count: string; extra: string }> = {
     picks: { count: `${live.picks.trades} trades`, extra: `PF ${fmtPf(live.picks.pf)} · WR ${fmtWr(live.picks.wr)}` },
@@ -577,6 +582,30 @@ export function SettingsView() {
           <StatLine k="Combo filter" v={`${comboOnly ? "positive" : "all"} · ${comboTactic} · ${comboRange}`} />
           <StatLine k="Replay" v={`${replaySpeed}× · bar ${replayIndex}`} />
         </div>
+      </Panel>
+
+      <Panel title="Trading fees and slippage">
+        <p className="mb-3 text-sm text-muted">Account maker/taker rates are used when available. These fallback rates apply when they are not; slippage is a percentage of each leg's fee.</p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(["takerBps", "makerBps", "slippageFeePct"] as const).map((key) => (
+            <Field key={key} label={key === "takerBps" ? "Taker fallback (bps)" : key === "makerBps" ? "Maker fallback (bps)" : "Slippage (% of fee)"}>
+              <input className="w-full rounded border bg-transparent px-2 py-1" type="number" min={0}
+                max={key === "slippageFeePct" ? 200 : 100} step={key === "slippageFeePct" ? 1 : .1}
+                value={feeModel[key]} onChange={(e) => setFeeModel({ [key]: Number(e.target.value) })} />
+            </Field>
+          ))}
+          {(["entryLiquidity", "exitLiquidity"] as const).map((key) => (
+            <Field key={key} label={key === "entryLiquidity" ? "Modeled entry" : "Modeled exit"}>
+              <select className="w-full rounded border bg-transparent px-2 py-1" value={feeModel[key]}
+                onChange={(e) => setFeeModel({ [key]: e.target.value as "maker" | "taker" })}>
+                <option value="taker">Taker</option><option value="maker">Maker</option>
+              </select>
+            </Field>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted">{exchange?.ok && exchange.connId === activeConnId && exchange.feeRates ? "Account rates" : "Fallback rates"} · modeled cost {(
+          modeledCost(effectiveFees(feeModel, exchange?.ok && exchange.connId === activeConnId ? exchange.feeRates : undefined)) * 10_000
+        ).toFixed(2)} bps at unchanged price. Actual fills use their own recorded prices and fees.</p>
       </Panel>
 
       <div id="last-n" className="scroll-mt-24">
@@ -834,8 +863,8 @@ export function SettingsView() {
           {stageEval ? (
             <div className="mt-4 flex flex-wrap gap-2">
               {stageEval.stages.map((s) => (
-                <Pill key={s.id} tone={s.ok ? "up" : "down"}>
-                  {s.id} {s.hours}h · PF {s.pf.toFixed(2)}
+                <Pill key={`${s.id}-${s.hours}`} tone={s.ok ? "up" : "down"}>
+                  {s.id} {s.hours}h · {s.recorded === false ? "not recorded" : `PF ${s.pf.toFixed(2)}`}
                   {s.id === "end" ? ` · avg ${s.pfAvg?.toFixed(2) ?? "—"} · ${s.effective} eff` : ""}
                 </Pill>
               ))}

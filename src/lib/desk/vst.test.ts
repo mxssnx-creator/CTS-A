@@ -470,13 +470,13 @@ describe("VST engine", () => {
     assert.equal(ddtFail, false);
     assert.equal(UNIT_NOTIONAL, 12);
     assert.equal(POSITION_COST_PCT, 0.0012);
-    assert.equal(POSITION_RT_COST_PCT, 0.0012);
+    assert.equal(POSITION_RT_COST_PCT, 0.00176);
     const rt = positionRtCost(100, 100.42, 1);
-    assert.ok(Math.abs(rt - ((100 + 100.42) / 2) * 0.0012) < 1e-12, `rt ${rt}`);
+    assert.ok(Math.abs(rt - ((100 + 100.42) / 2) * 0.00176) < 1e-12, `rt ${rt}`);
     const win = closePnl(1, 100, 100.42, 1);
-    assert.ok(win < 0.42 - 0.11 && win > 0.42 - 0.13, `tp net ${win} must deduct ~0.12%`);
+    assert.ok(win < 0.42 - 0.17 && win > 0.42 - 0.18, `tp net ${win} must deduct ~0.176%`);
     const lose = closePnl(1, 100, 99.685, 1);
-    assert.ok(lose < -0.315 - 0.11, `sl net ${lose} must add ~0.12% cost`);
+    assert.ok(lose < -0.315 - 0.17, `sl net ${lose} must add ~0.176% cost`);
     const unit = unitClosePnl(1, 100, 100.42);
     assert.ok(unit < ((0.42 / 100) * 12) - 0.01, `unit ${unit} deducts RT from UNIT_NOTIONAL`);
     assert.equal(closePnl(1, 100, 100, 1), -positionRtCost(100, 100, 1));
@@ -536,7 +536,7 @@ describe("VST engine", () => {
     assert.ok(LAST_N_OPTIONS.includes(3));
     assert.ok(LAST_N_OPTIONS.includes(30));
     assert.equal(DEFAULT_LAST_N_CONFIG.picks, 15);
-    assert.equal(DEFAULT_LAST_N_CONFIG.last, 12);
+    assert.equal(DEFAULT_LAST_N_CONFIG.last, 10);
     assert.equal(DEFAULT_LAST_N_CONFIG.next, 15);
     assert.equal(DEFAULT_LAST_N_CONFIG.lanes, 30);
   });
@@ -1630,15 +1630,15 @@ describe("VST engine", () => {
     assert.equal(result.cfg.dcaCount, 1);
   });
 
-  it("stage-evals 4/8/16h with independent last-N 12/15/50 and end PF avg", async () => {
+  it("stage-evals 4/8/16h with independent last-N 10/15/50 and end PF avg", async () => {
     const { evaluateStages, liveLastNEvals, trackLaneEvals } = await import("./validate.ts");
     const { STAGE_HOURS, LANE_EVAL_NS, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_EXEC_POS_N, LIVE_DISABLE_N, LAST_N_PROGRESS_META } = await import("./engine.ts");
     assert.deepEqual([...STAGE_HOURS], [4, 8, 16]);
-    assert.deepEqual([...LANE_EVAL_NS], [12, 15, 50]);
+    assert.deepEqual([...LANE_EVAL_NS], [10, 15, 50]);
     assert.equal(EVAL_POS_N, 50);
     assert.equal(VALID_EXEC_POS_N, 15);
     assert.equal(LIVE_EXEC_POS_N, VALID_EXEC_POS_N);
-    assert.equal(LIVE_DISABLE_N, 12);
+    assert.equal(LIVE_DISABLE_N, 10);
     assert.equal(LAST_N_PROGRESS_META[0]!.id, "eval");
     assert.equal(LAST_N_PROGRESS_META[1]!.id, "valid");
     assert.equal(LAST_N_PROGRESS_META[1]!.label, "Valid execute");
@@ -5000,7 +5000,7 @@ describe("full config coverage", () => {
     assert.ok(!pos.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
     assert.equal(filterLiveShortCombos(0.42, 1.7, 0.6, false).length, 32);
     assert.equal(filterLiveShortCombos(0.4, 1.7, 0.6, false).length, 36);
-    assert.ok(AUTO_EVAL_HOURS.includes(20) && SHORT_EVAL_HOURS === 20);
+    assert.ok(AUTO_EVAL_HOURS.includes(48) && SHORT_EVAL_HOURS === 48);
     const eOv = initVstEngine(CFG, {
       warmup: 0,
       symbolCount: 2,
@@ -5918,12 +5918,12 @@ describe("calculations, relations, adjustments, stats", () => {
     assert.ok(indicationQuality("break", fired) >= INDICATION_QUALITY_FLOOR * 0.5);
   });
 
-  it("eval 50 / valid execute 15 / disable 12 are independent per lane with negative-average disable", () => {
+  it("eval 50 / valid execute 15 / disable 10 are independent per lane with negative-average disable", () => {
     assert.equal(EVAL_POS_N, 50);
     assert.equal(VALID_EXEC_POS_N, 15);
     assert.equal(LIVE_EXEC_POS_N, VALID_EXEC_POS_N);
-    assert.equal(LIVE_DISABLE_N, 12);
-    assert.deepEqual([...LANE_EVAL_NS], [12, 15, 50]);
+    assert.equal(LIVE_DISABLE_N, 10);
+    assert.deepEqual([...LANE_EVAL_NS], [10, 15, 50]);
     assert.deepEqual(
       LAST_N_PROGRESS_META.map((s) => s.id),
       ["eval", "valid", "disable"],

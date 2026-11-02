@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { DEFAULT_FEES, sanitizeFees, type FeeModel } from "./fees.ts";
 import {
   DEFAULT_BLOCK_CONFIG,
   DEFAULT_ENABLED_KINDS,
@@ -24,6 +25,7 @@ import {
   DEFAULT_PF_COORDS,
   sanitizePfCoords,
   LANE_EVAL_NS,
+  LANE_EVAL_NS_OPTIONS,
   MIN_VOLUME_FACTOR,
   sanitizeStrategyToggles,
   snapTpRatio,
@@ -94,6 +96,7 @@ const ORDER_TYPES: OrderTypeId[] = [
 ];
 
 export interface DeskSettingsSnap {
+  feeModel: FeeModel;
   v: number;
   at: number;
   rev: number;
@@ -169,6 +172,7 @@ export function defaultDeskSettings(): DeskSettingsSnap {
     lastNs: { ...DEFAULT_LAST_N_CONFIG },
     lastNLinked: false,
     costStep: 10,
+    feeModel: { ...DEFAULT_FEES },
     rangeType: "atr",
     tactic: "hybrid",
     thresholds: { ...DEFAULT_THRESHOLDS },
@@ -231,6 +235,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       : lastNs,
     lastNLinked: linked,
     costStep: Math.min(30, Math.max(3, Math.round(asNum(raw.costStep, d.costStep)))),
+    feeModel: sanitizeFees(raw.feeModel),
     rangeType: RANGES.includes(raw.rangeType as RangeType) ? (raw.rangeType as RangeType) : d.rangeType,
     tactic: raw.tactic === "dca" ? "hybrid" : TACTICS.includes(raw.tactic as TacticKind) ? (raw.tactic as TacticKind) : d.tactic,
     thresholds: {
@@ -359,7 +364,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         evalLastNs: Array.isArray(b.evalLastNs)
           ? [...new Set(b.evalLastNs.map((n) => Math.round(Number(n))).filter((n) => n >= 1 && n <= 6))].sort((a, c) => a - c)
           : [...(d.blockConfig.evalLastNs ?? [1, 2, 3, 4, 5, 6])],
-        liveLastN: Math.min(40, Math.max(4, Math.round(asNum(b.liveLastN, d.blockConfig.liveLastN ?? 12)))),
+        liveLastN: Math.min(40, Math.max(4, Math.round(asNum(b.liveLastN, d.blockConfig.liveLastN ?? 10)))),
         validExecN: Math.min(40, Math.max(8, Math.round(asNum(b.validExecN ?? b.liveExecN, d.blockConfig.validExecN ?? d.blockConfig.liveExecN ?? 15)))),
         liveExecN: Math.min(40, Math.max(8, Math.round(asNum(b.validExecN ?? b.liveExecN, d.blockConfig.validExecN ?? d.blockConfig.liveExecN ?? 15)))),
         liveDisable: asBool(b.liveDisable, d.blockConfig.liveDisable ?? true),
@@ -392,7 +397,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       ? AUTO_EVAL_HOURS.filter((h) => raw.evalHours!.includes(h))
       : [...AUTO_EVAL_HOURS],
     evalLastNs: Array.isArray(raw.evalLastNs)
-      ? LANE_EVAL_NS.filter((n) => raw.evalLastNs!.map((x) => (Number(x) === 30 ? 50 : Number(x))).includes(n))
+      ? LANE_EVAL_NS_OPTIONS.filter((n) => raw.evalLastNs!.map((x) => (Number(x) === 30 ? 50 : Number(x))).includes(n))
       : [...LANE_EVAL_NS],
     sessionPhase:
       raw.sessionPhase === "paused" || raw.sessionPhase === "stopped" || raw.sessionPhase === "idle" || raw.sessionPhase === "running"
@@ -420,6 +425,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
 }
 
 export function collectDeskSettings(s: {
+  feeModel?: FeeModel;
   lastN: number;
   lastNs: LastNConfig;
   lastNLinked: boolean;
@@ -465,6 +471,7 @@ export function collectDeskSettings(s: {
     lastNs: s.lastNs,
     lastNLinked: s.lastNLinked,
     costStep: s.costStep,
+    feeModel: sanitizeFees(s.feeModel),
     rangeType: s.rangeType,
     tactic: s.tactic,
     thresholds: s.thresholds,

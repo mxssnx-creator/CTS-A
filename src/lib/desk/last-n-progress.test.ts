@@ -51,6 +51,17 @@ function mixed(good: number, bad: number, gp = 1.4, gl = -0.9) {
 }
 
 describe("multi last-N prefix + modes", () => {
+  it("unknown return evidence cannot become a zero or a winning validation sample", () => {
+    const rows = [...wins(7), { pnl: null }] as unknown as { pnl: number }[];
+    const h = lastNHitFromPrefix(lastNPrefix(rows, 8), 8);
+    assert.equal(h.samples, 8); assert.equal(h.unknown, 1); assert.equal(h.ok, false);
+    assert.equal(pfFromPnls(rows), 0);
+    assert.ok(Number.isNaN(h.net)); assert.ok(Number.isNaN(positionAverageRatio(rows)));
+    const decision = decideLastN(rows, cfgI, 1.2, 1.1);
+    assert.equal(decision.pass, false);
+    const short = scoreLastNGroup([{ pnl: null }] as unknown as { pnl: number }[], cfgI, 1.2, 1.1);
+    assert.equal(short.ok, false);
+  });
   it("prefix hits match naive slices and stay O(windows) after one prefix", () => {
     const rows = mixed(30, 10, 1.1, -0.7);
     const pre = lastNPrefix(rows, 80);
@@ -184,7 +195,7 @@ describe("multi last-N prefix + modes", () => {
 
   it("majority 2+ needs two valid windows; a single lucky N does not confirm", () => {
     assert.equal(MAJORITY_MIN_POSITIVE, 2);
-    const oneWindow = [...wins(8, 1.2), ...Array.from({ length: 16 }, () => ({ pnl: -3 }))];
+    const oneWindow = [...wins(8, 1.2), ...Array.from({ length: 16 }, () => ({ pnl: -6 }))];
     const d = decideLastN(oneWindow, cfgP, 0, 0);
     assert.equal(d.independent, true);
     assert.equal(d.majority, false);
@@ -299,6 +310,13 @@ describe("multi last-N prefix + modes", () => {
 });
 
 describe("coordinateLastN picks working windows without shrinking settings", () => {
+  it("never injects the usual disable window into a custom active grid", () => {
+    const cfg = { ...cfgP, disableNs: [6, 14] };
+    const pick = coordinateLastN(wins(30), cfg, 1.2, 1.1);
+    assert.ok(pick.disableNs.length > 0);
+    assert.ok(pick.disableNs.every(n => cfg.disableNs.includes(n)));
+    assert.equal(pick.disableNs.includes(10), false);
+  });
   it("keeps the full settings grid untouched and returns a slim active set", () => {
     const settings = sanitizeLastNProgress(undefined);
     assert.equal(settings.evalNs.length, EVAL_POS_NS.length);
@@ -355,7 +373,7 @@ describe("coordinateLastN picks working windows without shrinking settings", () 
     assert.deepEqual(settings.disableNs, [...LIVE_DISABLE_NS]);
     assert.equal(EVAL_POS_NS[0], 15);
     assert.equal(EVAL_POS_NS[EVAL_POS_NS.length - 1], 80);
-    assert.deepEqual(VALID_EXEC_NS, [8, 12, 16, 20, 24]);
+    assert.deepEqual(VALID_EXEC_NS, [8, 10, 12, 16, 20, 24]);
     assert.equal(LIVE_DISABLE_NS[0], 6);
     assert.equal(LIVE_DISABLE_NS[LIVE_DISABLE_NS.length - 1], 20);
     const red = lastNWindows(Array.from({ length: 24 }, () => ({ pnl: -0.7 })), VALID_EXEC_NS);

@@ -57,6 +57,7 @@ export function PerformanceView() {
   const th = useDesk((s) => s.thresholds);
   const setTh = useDesk((s) => s.setThresholds);
   const enabledKinds = useDesk((s) => s.enabledKinds);
+  const feeModel = useDesk((s) => s.vst.feeModel);
   const tactic = useDesk((s) => s.tactic);
   const rangeType = useDesk((s) => s.rangeType);
   const symbolCount = useDesk((s) => s.symbolCount);
@@ -94,6 +95,7 @@ export function PerformanceView() {
         rangeType: "all",
         onlyPositive: false,
         enabledKinds,
+        feeModel,
         keepBest: true,
       });
         if (!dead) setRows(next);
@@ -105,13 +107,13 @@ export function PerformanceView() {
       dead = true;
       window.clearTimeout(t);
     };
-  }, [symbol, lastNs.combos, cfg, th, enabledKinds, scope]);
+  }, [symbol, lastNs.combos, cfg, th, enabledKinds, scope, feeModel]);
 
   const bd = useMemo(() => comboBreakdown(rows), [rows]);
   const top = useMemo(() => rows.filter((r) => r.positive && r.lastNPositive).slice(0, 16), [rows]);
   const board = useMemo(() => (top.length ? top : rows.slice(0, 16)), [top, rows]);
 
-  const btCurve = useMemo(() => withDrawdown(equitySeries(strategyId, symbol)), [strategyId, symbol]);
+  const btCurve = useMemo(() => withDrawdown(equitySeries(strategyId, symbol, feeModel)), [strategyId, symbol, feeModel]);
   const showSim = curveSrc === "sim" && sim && sim.curve.length > 1;
   const sessionClosed = closed.slice(0, 12);
 
@@ -417,13 +419,13 @@ export function PerformanceView() {
         <Panel title="Stage eval · pre / mid / end">
           <p className="mb-3 text-sm text-muted">
             Full historic compute at {stageEval.hours.join("/")}h. Progress last-N {stageEval.lastNs.join("/")} pos evals
-            run independently on every lane (Eval {LAST_N_PROGRESS_META[0]?.n ?? 50} · Valid execute {LAST_N_PROGRESS_META[1]?.n ?? 15} · Disable {LAST_N_PROGRESS_META[2]?.n ?? 12}). End-stage PF average is only effective (active + valid) processings.
+            use each lane’s active windows (Eval {LAST_N_PROGRESS_META[0]?.n ?? 50} · Valid execute {LAST_N_PROGRESS_META[1]?.n ?? 15} · Disable {LAST_N_PROGRESS_META[2]?.n ?? 10}). End-stage PF average is only effective (active + valid) processings.
             {stageEval.mirrored ? " Mirrored to Real counted and Live exchange from Valid." : " Live book held until end passes."}
           </p>
           <div className="flex flex-wrap gap-2">
             {stageEval.stages.map((s) => (
-              <Pill key={s.id} tone={s.ok ? "up" : "down"}>
-                {s.id} {s.hours}h · PF {s.pf.toFixed(2)}
+              <Pill key={`${s.id}-${s.hours}`} tone={s.ok ? "up" : "down"}>
+                {s.id} {s.hours}h · {s.recorded === false ? "not recorded" : `PF ${s.pf.toFixed(2)}`}
                 {s.id === "end" ? ` · avg ${s.pfAvg?.toFixed(2) ?? "—"} · ${s.effective} eff` : ""}
               </Pill>
             ))}
