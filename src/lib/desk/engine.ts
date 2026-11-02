@@ -1,3 +1,4 @@
+import { DEFAULT_FEES, modeledCost, modeledLegRates, type FeeModel } from "./fees.ts";
 import type {
   Backtest,
   BlockConfig,
@@ -14,6 +15,7 @@ import type {
   IndicationId,
   IndicatorPack,
   LastNConfig,
+  LastNProgressConfig,
   LastNStage,
   Lane,
   LastNEvalRow,
@@ -100,6 +102,8 @@ import {
   VALID_EXEC_POS_N,
   LIVE_DISABLE_N,
   DEFAULT_LAST_N_PROGRESS,
+  coordinateLastN,
+  decideLastN,
   edgePnl,
 } from "./last-n-progress.ts";
 export { EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N };
@@ -107,18 +111,15 @@ export { EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N };
 export const BARS = 240;
 export const WARMUP = 55;
 export const BASE_EQUITY = 10_000;
-/** Position size as a fraction of equity. Default 0.12% (was 0.15%). */
+/** Historical sizing fraction; fees are configured separately below. */
 export const POSITION_COST_PCT = 0.0012;
 /** 10_000 × 0.0012; literal so IEEE 0.0012 does not yield 11.999… */
 export const UNIT_NOTIONAL = 12;
 /**
- * Round-trip trading cost deducted from every position PnL / PF / last-N.
- * Live BingX VST is ~0.10% RT (taker 5 bps each side). Default 0.12% is conservative
- * so intern/eval cannot promote combos that lose once real fees hit.
- * Never use 5 bps (0.00025 * (entry+exit)) — that understated live cost and inflated PF.
+ * Fallback modeled cost from the two selected fees and fee-relative slippage.
  */
-export const POSITION_RT_COST_PCT = 0.0012;
-export const POSITION_RT_COST_ACTUAL = 0.001;
+export const POSITION_RT_COST_PCT = modeledCost(DEFAULT_FEES);
+export const POSITION_RT_COST_ACTUAL = DEFAULT_FEES.takerBps * 2 / 10_000;
 /** Gross-profit / gross-loss. No-loss winners cap here (PF is undefined otherwise). */
 export const PF_NO_LOSS = 4;
 export function profitFactor(profit: number, loss: number): number {
@@ -152,6 +153,7 @@ export function pfFromPnls(rows: { pnl?: number; ratio?: number }[] | undefined 
   let gl = 0;
   for (const r of rows) {
     const p = edgePnl(r);
+    if (!Number.isFinite(p)) return 0;
     if (p > 0) gp += p;
     else if (p < 0) gl -= p;
   }
@@ -159,44 +161,49 @@ export function pfFromPnls(rows: { pnl?: number; ratio?: number }[] | undefined 
 }
 
 /** RT cost on average notional: qty * (entry+exit)/2 * POSITION_RT_COST_PCT. */
-export function positionRtCost(entry: number, exit: number, qty: number, rtPct = POSITION_RT_COST_PCT): number {
+export function positionRtCost(entry: number, exit: number, qty: number, rtPct: number | FeeModel = DEFAULT_FEES): number {
+  // An explicit missing fee is unknown, not a zero-fee transaction (Number(null) is 0).
   const q = Number(qty);
   const a = Number(entry);
   const b = Number(exit);
-  const pct = Number(rtPct);
-  if (!(q > 0) || !(a > 0) || !(b > 0) || !(pct > 0) || !Number.isFinite(q + a + b + pct)) return 0;
-  return q * ((a + b) / 2) * pct;
+  if (!(q > 0) || !(a > 0) || !(b > 0) || !Number.isFinite(q + a + b)) return NaN;
+  if (typeof rtPct === "number") return Number.isFinite(rtPct) && rtPct >= 0 ? q * ((a + b) / 2) * rtPct : NaN;
+  try {
+    const rates = modeledLegRates(rtPct);
+    return q * (a * rates.entry + b * rates.exit);
+  } catch { return NaN; }
 }
 
 /**
  * Realized (or mark-to-market) PnL with position cost deducted.
  * side: +1 long / -1 short. All intern, live-sim, last-N and PF paths must use this.
  */
-export function closePnl(side: number, entry: number, exit: number, qty: number, rtPct = POSITION_RT_COST_PCT): number {
+export function closePnl(side: number, entry: number, exit: number, qty: number, rtPct: number | FeeModel = DEFAULT_FEES): number {
+  if (side !== 1 && side !== -1) return NaN;
   const signed = side < 0 ? -1 : 1;
   const e0 = Number(entry);
   const x = Number(exit);
   const q = Number(qty);
-  if (!(e0 > 0) || !(x > 0) || !(q > 0) || !Number.isFinite(e0 + x + q)) return 0;
+  if (!(e0 > 0) || !(x > 0) || !(q > 0) || !Number.isFinite(e0 + x + q)) return NaN;
   return (x - e0) * q * signed - positionRtCost(e0, x, q, rtPct);
 }
 
 /** Net return versus entry. 0 is the base ratio 1. Cost is the same round-trip deduction as closePnl, per unit of entry notional. Not a balance. */
-export function positionNetRatio(side: number, entry: number, exit: number, rtPct = POSITION_RT_COST_PCT): number {
+export function positionNetRatio(side: number, entry: number, exit: number, rtPct: number | FeeModel = DEFAULT_FEES): number {
+  if (side !== 1 && side !== -1) return NaN;
   const signed = side < 0 ? -1 : 1;
   const e0 = Number(entry);
   const x = Number(exit);
-  if (!(e0 > 0) || !(x > 0) || !Number.isFinite(e0 + x)) return 0;
+  if (!(e0 > 0) || !(x > 0) || !Number.isFinite(e0 + x)) return NaN;
   const gross = ((x - e0) / e0) * signed;
-  const pct = Number(rtPct);
-  const cost = pct > 0 && Number.isFinite(pct) ? ((e0 + x) / 2) / e0 * pct : 0;
+  const cost = positionRtCost(e0, x, 1, rtPct) / e0;
   const net = gross - cost;
-  return Number.isFinite(net) ? net : 0;
+  return Number.isFinite(net) ? net : NaN;
 }
 
 /** Replay helper: unit-notional close with RT cost deducted. */
-export function unitClosePnl(side: number, entry: number, exit: number, notional = UNIT_NOTIONAL, rtPct = POSITION_RT_COST_PCT): number {
-  if (!(entry > 0) || !(notional > 0)) return 0;
+export function unitClosePnl(side: number, entry: number, exit: number, notional = UNIT_NOTIONAL, rtPct: number | FeeModel = DEFAULT_FEES): number {
+  if (!(entry > 0) || !(notional > 0) || !Number.isFinite(entry + notional)) return NaN;
   return closePnl(side, entry, exit, notional / entry, rtPct);
 }
 
@@ -371,11 +378,12 @@ export function minimalComboKey(tpCost: number, slOfTp: number): string {
 export function minimalControlPrices(
   side: "long" | "short",
   entry: number,
-  tpCost = MINIMAL_WINNER.tpCost,
-  slOfTp = MINIMAL_WINNER.slOfTp,
+  tpCost: number = MINIMAL_WINNER.tpCost,
+  slOfTp: number = MINIMAL_WINNER.slOfTp,
+  costPct: number = POSITION_RT_COST_PCT,
 ): { sl: number; tp: number; slDist: number; tpDist: number } {
   const px = Math.max(entry, 1e-12);
-  const cost = px * POSITION_COST_PCT;
+  const cost = px * costPct;
   const tpDist = cost * snapMinimalTpCost(tpCost);
   const slDist = tpDist * snapMinimalSlOfTp(slOfTp);
   const sl = side === "long" ? px - slDist : px + slDist;
@@ -748,8 +756,8 @@ export type LastNChoice = (typeof LAST_N_OPTIONS)[number];
 /** Auto-eval historic stages (hours). */
 export const STAGE_HOURS = [4, 8, 16] as const;
 /** Auto-eval pre-historic lookback for Short Progress / live GRID lock. */
-export const AUTO_EVAL_HOURS = [4, 8, 16, 20] as const;
-export const SHORT_EVAL_HOURS = 20;
+export const AUTO_EVAL_HOURS = [4, 8, 16, 20, 24, 48] as const;
+export const SHORT_EVAL_HOURS = 48;
 export const SYMBOL_EVAL_HOURS = 100;
 export const SYMBOL_HOUR_WINDOWS = [4, 8, 16, 20, 24, 48, 100] as const;
 export type StageHour = (typeof STAGE_HOURS)[number];
@@ -759,9 +767,11 @@ export const STAGE_META: { id: StageId; hours: StageHour; label: string; blurb: 
   { id: "mid", hours: 8, label: "Mid", blurb: "8h mid-historic independent validate" },
   { id: "end", hours: 16, label: "End", blurb: "16h end-stage — PF avg of effective valids" },
 ];
-/** Progress last-N primaries: eval 50 · valid-execute 15 · disable 12. Multi-range grids live in last-n-progress. */
+/** Progress last-N primaries: eval 50 · valid-execute 15 · disable 10. Multi-range grids live in last-n-progress. */
 export const LIVE_EXEC_POS_N = VALID_EXEC_POS_N;
 export const LANE_EVAL_NS = [LIVE_DISABLE_N, VALID_EXEC_POS_N, EVAL_POS_N] as const;
+/** Last-12 remains a supported explicit choice for existing saved settings. */
+export const LANE_EVAL_NS_OPTIONS = [10, 12, 15, 50] as const;
 
 export const LAST_N_PROGRESS_META: { id: "eval" | "valid" | "disable"; n: number; label: string; blurb: string }[] = [
   { id: "eval", n: EVAL_POS_N, label: "Eval", blurb: "Base last-N 15–80 step 5 (primary 50): PF evals of every lane / config." },
@@ -769,9 +779,9 @@ export const LAST_N_PROGRESS_META: { id: "eval" | "valid" | "disable"; n: number
     id: "valid",
     n: VALID_EXEC_POS_N,
     label: "Valid execute",
-    blurb: "Valid last-N 8–24 step 4 (primary 15): lane is valid to execute. Real counted and Live run from this set.",
+    blurb: "Valid last-N 8, 10, 12, 16, 20 and 24 (primary 15): lane is valid to execute. Real counted and Live run from this set.",
   },
-  { id: "disable", n: LIVE_DISABLE_N, label: "Disable", blurb: "Disable last-N 6–20 step 2 (primary 12): disable the lane if average result is negative." },
+  { id: "disable", n: LIVE_DISABLE_N, label: "Disable", blurb: "Disable last-N 6–20 step 2 (primary 10): disable the lane if average result is negative." },
 ];
 
 export const LAST_N_STAGE_META: { id: LastNStage; label: string; blurb: string; usedFor: string }[] = [
@@ -817,7 +827,7 @@ export const DEFAULT_LAST_N: LastNChoice = 15;
 export const DEFAULT_LAST_N_CONFIG: LastNConfig = {
   picks: 15,
   lanes: 30,
-  last: 12,
+  last: 10,
   ongoing: 15,
   next: 15,
   combos: 30,
@@ -2112,6 +2122,7 @@ function runBacktest(
   symbol: string,
   candles: Candle[],
   ind: IndicatorPack,
+  feeModel: FeeModel = DEFAULT_FEES,
 ): Backtest {
   const signals = signalFor(strategyId, candles, ind);
   const trades: Trade[] = [];
@@ -2125,7 +2136,7 @@ function runBacktest(
 
   const closeNow = (i: number, px: number) => {
     if (side === 0) return;
-    const pnl = unitClosePnl(side, entry, px);
+    const pnl = unitClosePnl(side, entry, px, UNIT_NOTIONAL, feeModel);
     trades.push({
       id: `${strategyId}:${symbol}:${tradeN++}`,
       strategyId,
@@ -2162,7 +2173,7 @@ function runBacktest(
       entryVol = c.v;
     }
     let eq = cash;
-    if (side !== 0) eq += unitClosePnl(side, entry, c.c);
+    if (side !== 0) eq += unitClosePnl(side, entry, c.c, UNIT_NOTIONAL, feeModel);
     equity.push(eq);
   }
   if (side !== 0) closeNow(candles.length - 1, candles[candles.length - 1]!.c);
@@ -3792,9 +3803,31 @@ export function btKey(strategyId: string, symbol: string) {
   return `${strategyId}:${symbol}`;
 }
 
-export function getBacktest(strategyId: string, symbol: string): Backtest {
-  const hit = DESK.backtests[btKey(strategyId, symbol)];
-  if (hit) return hit;
+// Keep fee-specific tapes separate and bounded; sessions never share a mutable fee model.
+const FEE_TAPES = new Map<string, Map<string, Backtest>>();
+function feeKey(fee: FeeModel): string {
+  modeledLegRates(fee);
+  return JSON.stringify([fee.makerBps, fee.takerBps, fee.slippageFeePct, fee.entryLiquidity, fee.exitLiquidity]);
+}
+
+export function getBacktest(strategyId: string, symbol: string, feeModel: FeeModel = DEFAULT_FEES): Backtest {
+  const key = btKey(strategyId, symbol), base = DESK.backtests[key];
+  if (base && feeKey(feeModel) === feeKey(DEFAULT_FEES)) return base;
+  if (base) {
+    const fk = feeKey(feeModel);
+    let tapes = FEE_TAPES.get(fk);
+    if (!tapes) {
+      if (FEE_TAPES.size >= 2) FEE_TAPES.delete(FEE_TAPES.keys().next().value!);
+      tapes = new Map();
+      FEE_TAPES.set(fk, tapes);
+    }
+    let tape = tapes.get(key);
+    if (!tape) {
+      tape = runBacktest(strategyId, symbol, DESK.candles[symbol]!, DESK.indicators[symbol]!, feeModel);
+      tapes.set(key, tape);
+    }
+    return tape;
+  }
   return {
     strategyId,
     symbol,
@@ -4109,11 +4142,12 @@ export function heatmapForDesk(
   th: Thresholds,
   adj?: StrategyAdj,
   symbolCount = 8,
+  feeModel: FeeModel = DEFAULT_FEES,
 ): HeatCell[] {
   const ids = SYMBOLS.slice(0, Math.max(4, Math.min(12, symbolCount))).map((s) => s.id);
   const acc = new Map<string, HeatCell & { n: number }>();
   for (const id of ids) {
-    const bt = getBacktest(strategyId, id);
+    const bt = getBacktest(strategyId, id, feeModel);
     const name = STRATEGIES.find((s) => s.id === strategyId)?.name ?? strategyId;
     for (const range of RANGE_TYPES) {
       for (const cost of COST_STEPS) {
@@ -4201,15 +4235,24 @@ export function combosFiltered(opts: {
   trails?: readonly number[];
   tpRatios?: readonly number[];
   keepBest?: boolean;
+  /** Use each strategy/symbol source tape's coordinated windows when multi-window mode is active. */
+  multiProgress?: LastNProgressConfig;
+  feeModel?: FeeModel;
 }): ComboResult[] {
   const kinds = opts.enabledKinds ?? DEFAULT_ENABLED_KINDS;
   const allowed = new Set(strategiesForKinds(kinds).map((s) => s.id));
   const nameOf = Object.fromEntries(STRATEGIES.map((s) => [s.id, s.name]));
   const out: ComboResult[] = [];
-  for (const bt of Object.values(DESK.backtests)) {
-    if (opts.strategyId && bt.strategyId !== opts.strategyId) continue;
-    if (opts.symbol && bt.symbol !== opts.symbol) continue;
-    if (!allowed.has(bt.strategyId)) continue;
+  for (const base of Object.values(DESK.backtests)) {
+    if (opts.strategyId && base.strategyId !== opts.strategyId) continue;
+    if (opts.symbol && base.symbol !== opts.symbol) continue;
+    if (!allowed.has(base.strategyId)) continue;
+    const bt = getBacktest(base.strategyId, base.symbol, opts.feeModel);
+    const ownRows = opts.multiProgress ? [...bt.trades].reverse() : [];
+    const ownPick = opts.multiProgress ? coordinateLastN(ownRows, opts.multiProgress, opts.th.minPf, opts.th.minPf) : undefined;
+    const ownN = ownPick?.bestValid ?? opts.lastN;
+    const ownPass = !opts.multiProgress || (decideLastN(ownRows, opts.multiProgress, opts.th.minPf, opts.th.minPf).pass &&
+      ownPick!.validHits.some(h => h.samples >= h.n && h.pf >= opts.th.minPf && h.net > 0));
     const ranges = opts.rangeType && opts.rangeType !== "all" ? [opts.rangeType] : RANGE_TYPES;
     const tactics = opts.tactic && opts.tactic !== "all" ? [opts.tactic] : TACTICS;
     const costs = opts.costStep && opts.costStep !== "all" ? [opts.costStep] : COST_STEPS;
@@ -4227,13 +4270,14 @@ export function combosFiltered(opts: {
             cost,
             range,
             tactic,
-            opts.lastN,
+            ownN,
             opts.cfg,
             opts.th,
             undefined,
             trail,
             ratio,
           );
+          if (opts.multiProgress) { c.activeLastN = ownN; c.lastNPositive &&= ownPass; }
           if (opts.keepBest) {
             if (!best || (c.positive && !best.positive) || (c.positive === best.positive && c.pf > best.pf)) best = c;
             continue;
@@ -4354,8 +4398,10 @@ export function buildLanes(
   th: Thresholds,
   symbol?: string,
   enabledKinds: readonly StrategyKind[] = DEFAULT_ENABLED_KINDS,
+  multiProgress?: LastNProgressConfig,
+  feeModel: FeeModel = DEFAULT_FEES,
 ): Lane[] {
-  const memoKey = `${lastN}|${symbol ?? "*"}|${enabledKinds.join(",")}|${cfg.trailingPct}|${cfg.tpRatio}|${cfg.slAtr}|${cfg.dcaCount}|${th.minPf}|${th.minWr}|${th.minVf}|${th.maxMdd}|${th.maxDdt}`;
+  const memoKey = `${lastN}|${symbol ?? "*"}|${enabledKinds.join(",")}|${cfg.trailingPct}|${cfg.tpRatio}|${cfg.slAtr}|${cfg.dcaCount}|${th.minPf}|${th.minWr}|${th.minVf}|${th.maxMdd}|${th.maxDdt}|${JSON.stringify(multiProgress ?? null)}|${feeKey(feeModel)}`;
   const memoHit = LANE_MEMO.get(memoKey);
   if (memoHit) return memoHit;
   const lanes: Lane[] = [];
@@ -4365,27 +4411,35 @@ export function buildLanes(
       if (symbol && sym.id !== symbol) continue;
       for (const tactic of TACTICS) {
         let best: ComboResult | null = null;
-        const bt = getBacktest(st.id, sym.id);
+        const bt = getBacktest(st.id, sym.id, feeModel);
+        // The catalog is an estimate from each strategy/symbol source tape. It does not claim that
+        // these synthetic samples are independent executed tactic/config positions.
+        const ownRows = multiProgress ? [...bt.trades].reverse() : [];
+        const ownPick = multiProgress ? coordinateLastN(ownRows, multiProgress, th.minPf, th.minPf) : undefined;
+        const laneLastN = ownPick?.bestValid ?? lastN;
+        const multiPass = !multiProgress || (decideLastN(ownRows, multiProgress, th.minPf, th.minPf).pass &&
+          ownPick!.validHits.some(h => h.samples >= h.n && h.pf >= th.minPf && h.net > 0));
         for (const range of RANGE_TYPES) {
           for (const cost of COST_STEPS) {
             const adj = st.kind === "normal" ? { pf: 1, mdd: 1, wr: 1 } : undefined;
             for (const trail of TRAIL_PCTS) {
               for (const ratio of TP_SL_RATIOS) {
-              const c = deriveCombo(bt, st.name, cost, range, tactic, lastN, cfg, th, adj, trail, ratio);
+              const c = deriveCombo(bt, st.name, cost, range, tactic, laneLastN, cfg, th, adj, trail, ratio);
               if (!best || (c.positive && !best.positive) || (c.positive === best.positive && c.pf > best.pf)) best = c;
               }
             }
           }
         }
         if (!best) continue;
-        const lastOk = best.lastNPositive;
+        const lastOk = best.lastNPositive && multiPass;
         const allOk = best.positive;
         const status = allOk && lastOk ? "validated" : allOk || lastOk ? "candidate" : "rejected";
-        const bag = positionsFrom(st.id, sym.id, tactic, best.rangeType, best.costStep, "all");
+        const bag = positionsFrom(st.id, sym.id, tactic, best.rangeType, best.costStep, "all", feeModel);
         const blocks = buildBlocks(bag);
         const openN = bag.filter((p) => p.status === "open").length;
         const nextN = bag.filter((p) => p.status === "next").length;
-        const evals: LastNEvalRow[] = LANE_EVAL_NS.map((n) => {
+        const activeNs = ownPick ? [...new Set([...ownPick.evalNs, ...ownPick.validNs, ...ownPick.disableNs])].sort((a,b) => a-b) : LANE_EVAL_NS;
+        const evals: LastNEvalRow[] = activeNs.map((n) => {
           const s = lastNEval(bt, n);
           return {
             n,
@@ -4393,12 +4447,12 @@ export function buildLanes(
             wr: s.wr,
             net: s.net,
             trades: s.trades,
-            ok: isPositive(s, th) || s.pf >= th.minPf * 0.92,
+            ok: s.trades >= n && s.net > 0 && isPositive(s, th),
           };
         });
         const passing = evals.filter((r) => r.ok).length;
         const endOk = evals[evals.length - 1]?.ok ?? false;
-        const effective = status === "validated" && passing >= Math.max(2, LANE_EVAL_NS.length - 1) && endOk;
+        const effective = status === "validated" && passing >= Math.min(activeNs.length, Math.max(2, activeNs.length - 1)) && endOk;
         const ind = symbolIndications(sym.id);
         lanes.push({
           id: `${st.id}:${sym.id}:${tactic}`,
@@ -4411,6 +4465,7 @@ export function buildLanes(
           trailPct: best.trailPct,
           tpRatio: best.tpRatio,
           status,
+          activeLastN: laneLastN,
           pf: best.pf,
           lastNPf: best.lastNPf,
           mdd: best.mdd,
@@ -4458,14 +4513,20 @@ export function positionsFrom(
   range: RangeType,
   cost: number,
   which: "closed" | "open" | "next" | "all",
+  feeModel: FeeModel = DEFAULT_FEES,
 ): Position[] {
-  const bt = getBacktest(strategyId, symbol);
+  const bt = getBacktest(strategyId, symbol, feeModel);
   const candles = DESK.candles[symbol]!;
   const last = candles[candles.length - 1]!;
   const closed: Position[] = [];
   const trades = bt.trades;
+  // `cost` is a cost step; all position states must use the same actual unit notional as the backtest.
+  const notional = positionNotional(BASE_EQUITY, cost);
   const closedTrades = trades.slice(0, Math.max(0, trades.length - 3));
   for (const t of closedTrades) {
+    const signed = t.side === "long" ? 1 : -1;
+    const qty = notional / t.entry;
+    const pnl = closePnl(signed, t.entry, t.exit, qty, feeModel);
     closed.push({
       id: t.id,
       symbol,
@@ -4474,10 +4535,10 @@ export function positionsFrom(
       status: "closed",
       entry: t.entry,
       mark: t.exit,
-      qty: cost / t.entry,
+      qty,
       cost,
-      pnl: t.pnl * (cost / 10),
-      pnlPct: (t.exit - t.entry) / t.entry * (t.side === "long" ? 1 : -1),
+      pnl,
+      pnlPct: pnl / notional,
       openedBar: t.entryBar,
       closedBar: t.exitBar,
       tactic,
@@ -4491,9 +4552,9 @@ export function positionsFrom(
   const open: Position[] = openTrades.map((t, i) => {
     const mark = last.c * (1 + ((hashStr(t.id) % 9) - 4) * 0.001);
     const signed = t.side === "long" ? 1 : -1;
-    const qty = t.entry > 0 ? cost / t.entry : 0;
-    const pnl = closePnl(signed, t.entry, mark, qty);
-    const pnlPct = t.entry > 0 ? pnl / Math.max(Math.abs(cost), 1e-9) : 0;
+    const qty = t.entry > 0 ? notional / t.entry : 0;
+    const pnl = closePnl(signed, t.entry, mark, qty, feeModel);
+    const pnlPct = pnl / notional;
     return {
       id: `open:${t.id}`,
       symbol,
@@ -4502,7 +4563,7 @@ export function positionsFrom(
       status: "open" as const,
       entry: t.entry,
       mark,
-      qty: cost / t.entry,
+      qty,
       cost,
       pnl,
       pnlPct,
@@ -4541,7 +4602,7 @@ export function positionsFrom(
       status: "next",
       entry: px,
       mark: last.c,
-      qty: cost / px,
+      qty: notional / px,
       cost,
       pnl: 0,
       pnlPct: 0,
@@ -4758,8 +4819,10 @@ export function bookStats(
   th: Thresholds,
   symbol?: string,
   enabledKinds: readonly StrategyKind[] = DEFAULT_ENABLED_KINDS,
+  multiProgress?: LastNProgressConfig,
+  feeModel: FeeModel = DEFAULT_FEES,
 ) {
-  const lanes = buildLanes(lastN, cfg, th, symbol, enabledKinds);
+  const lanes = buildLanes(lastN, cfg, th, symbol, enabledKinds, multiProgress, feeModel);
   const validated = lanes.filter((l) => l.status === "validated");
   const candidates = lanes.filter((l) => l.status === "candidate");
   const rejected = lanes.filter((l) => l.status === "rejected");
@@ -4786,8 +4849,8 @@ export function bookStats(
   };
 }
 
-export function equitySeries(strategyId: string, symbol: string): { i: number; eq: number; t: number }[] {
-  const bt = getBacktest(strategyId, symbol);
+export function equitySeries(strategyId: string, symbol: string, feeModel: FeeModel = DEFAULT_FEES): { i: number; eq: number; t: number }[] {
+  const bt = getBacktest(strategyId, symbol, feeModel);
   const candles = DESK.candles[symbol]!;
   return bt.equity.map((eq, i) => ({
     i,

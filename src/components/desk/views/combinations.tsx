@@ -21,6 +21,7 @@ export function CombinationsView() {
   const comboRange = useDesk((s) => s.comboRange);
   const setComboRange = useDesk((s) => s.setComboRange);
   const enabledKinds = useDesk((s) => s.enabledKinds);
+  const feeModel = useDesk((s) => s.vst.feeModel);
   const applyBest = useDesk((s) => s.applyBestCombo);
   const liveSnap = useLiveSnapshot();
   const [busy, setBusy] = useState(false);
@@ -40,6 +41,7 @@ export function CombinationsView() {
         rangeType: comboRange,
         onlyPositive: only,
         enabledKinds,
+        feeModel,
         keepBest: true,
       });
         if (!dead) setRows(next);
@@ -51,7 +53,7 @@ export function CombinationsView() {
       dead = true;
       window.clearTimeout(t);
     };
-  }, [symbol, lastNs.combos, cfg, th, comboTactic, comboRange, only, stamp, enabledKinds]);
+  }, [symbol, lastNs.combos, cfg, th, comboTactic, comboRange, only, stamp, enabledKinds, feeModel]);
 
   const sweepCells = ((liveSnap.overall as { sweep?: { cells?: { tactic: string; range: string; pf: number; wr?: number; net?: number; trades?: number; ok?: boolean }[] } } | null)?.sweep?.cells ?? []);
   const shown = rows.length ? rows.slice(0, 80) : [];
@@ -66,7 +68,7 @@ export function CombinationsView() {
           <p className="mt-1 max-w-2xl text-sm text-muted">
             Independent tracks for every enabled type × cost 3–30 × range × tactic × {TRAIL_PCTS.length} trail
             ranges × {TP_SL_RATIOS.length} TP/SL ratios (0.60–3.00). Always computed in full; ranked by PF.
-            Position cost unit 0.12% of equity; 0.12% RT deducted on every close. Normal is the unadjusted general set.
+            Position size uses 0.12% of equity per unit; each close uses the active modeled entry and exit fees. Normal is the unadjusted general set.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

@@ -175,6 +175,7 @@ export function BotsView() {
   const bots = useDesk((s) => s.bots);
   const running = useDesk((s) => s.botsRunning);
   const activeConnId = useDesk((s) => s.activeConnId);
+  const feeModel = useDesk((s) => s.vst.feeModel);
   const botByConn = useDesk((s) => s.botByConn);
   const bookStamp = useDesk((s) => Math.floor((s.vst.tick || 0) / 8));
   const vst = useMemo(() => useDesk.getState().vst, [bookStamp, activeConnId]);
@@ -190,15 +191,15 @@ export function BotsView() {
   const hours = bots.hours;
   const armed = bots.armed.length ? bots.armed : (["pivot", "magnet", "clamp"] as BotTypeId[]);
 
-  const ranked = useMemo(() => rankBotTypes(12, 20260922, 10), []);
+  const ranked = useMemo(() => rankBotTypes(12, 20260922, 10, feeModel), [feeModel]);
   const best = useMemo(() => ranked.slice(0, BOT_PARALLEL_CAP).map((r) => r.type), [ranked]);
 
   const parallel = useMemo(() => {
     if (running) return {} as ReturnType<typeof runParallelBots>;
     const cfgs: Partial<Record<BotTypeId, Partial<BotConfig>>> = {};
     for (const t of armed) cfgs[t] = bots.configs[t] ?? defaultBotConfig(t);
-    return runParallelBots(armed, hours, 20260922, cfgs);
-  }, [running, armed, hours, bots.configs]);
+    return runParallelBots(armed, hours, 20260922, cfgs, feeModel);
+  }, [running, armed, hours, bots.configs, feeModel]);
 
   const cols = armed.length <= 1 ? "grid-cols-1" : armed.length === 2 ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1 lg:grid-cols-3";
   const floors = liveBotFloors(cfg);

@@ -17,9 +17,12 @@ export function LanesView() {
   usePreserveScroll();
   const symbol = useDesk((s) => s.symbol);
   const lastNs = useDesk((s) => s.lastNs);
+  const multiProgress = useDesk((s) => s.lastNProgress);
+  const multiActive = useDesk((s) => Boolean(s.vst.lastNCoord));
   const cfg = useDesk((s) => s.tacticConfig);
   const th = useDesk((s) => s.thresholds);
   const enabledKinds = useDesk((s) => s.enabledKinds);
+  const feeModel = useDesk((s) => s.vst.feeModel);
   const setStrategy = useDesk((s) => s.setStrategy);
   const setTactic = useDesk((s) => s.setTactic);
   const setCostStep = useDesk((s) => s.setCostStep);
@@ -27,8 +30,8 @@ export function LanesView() {
   const applyLive = useDesk((s) => s.applyLiveConfig);
 
   const lanes = useMemo(
-    () => buildLanes(lastNs.lanes, cfg, th, undefined, enabledKinds),
-    [lastNs.lanes, cfg, th, enabledKinds],
+    () => buildLanes(lastNs.lanes, cfg, th, undefined, enabledKinds, multiActive ? multiProgress : undefined, feeModel),
+    [lastNs.lanes, cfg, th, enabledKinds, multiActive, multiProgress, feeModel],
   );
 
   return (
@@ -37,7 +40,7 @@ export function LanesView() {
         <p className="text-xs font-medium uppercase tracking-widest text-subtle">Flow</p>
         <h1 className="text-2xl font-semibold tracking-tight">Validated lanes</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          A lane is strategy × symbol × tactic for every symbol. Trend, Break, Active and Direction run independently. Last {lastNs.lanes} plus the full book.
+          The catalog estimates each strategy, symbol and tactic from generated backtests. {multiActive ? "Each source tape selects its active configured windows." : `Last ${lastNs.lanes} plus the full book.`} Executed results are reported separately.
         </p>
       </div>
 
@@ -95,7 +98,7 @@ function LaneCard({ lane, onPick }: { lane: Lane; onPick: () => void }) {
           </Pill>
         </div>
         <div className="mt-2 grid grid-cols-4 gap-2 text-xs text-muted">
-          <span>N {fmtPf(lane.lastNPf)}</span>
+          <span>N{lane.activeLastN ?? ""} {fmtPf(lane.lastNPf)}</span>
           <span>WR {fmtWr(lane.wr)}</span>
           <span>DD {fmtMdd(lane.mdd)}</span>
           <span>VF {fmtNum(lane.volumeFactor, 2)}</span>

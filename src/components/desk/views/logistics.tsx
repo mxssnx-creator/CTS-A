@@ -12,7 +12,7 @@ const STACK = [
   { id: 0, name: "L0 Hardware", detail: "Host CPU/mem, BingX venue, TLS sockets. No mock book." },
   { id: 1, name: "L1 Kernel", detail: "tickVst, rate burst, queue caps, self-heal. Owns only CTSAv2_ orders." },
   { id: 2, name: "L2 Drivers", detail: "Quote pack, ATR, 1h vol rank, hedge both sides, max leverage." },
-  { id: 3, name: "L3 OS", detail: "armUniverse, last-N coord (eval 50 / valid 15 / disable 12), preEval 20h." },
+  { id: 3, name: "L3 OS", detail: "armUniverse, active multi-window coordination and 48h default pre-evaluation." },
   { id: 4, name: "L4 API", detail: "Protect SL/TP, trail from peak, partial fills, remaining qty." },
   { id: 5, name: "L5 Services", detail: "Indications, Block 1–6 shared 1.5 / additive 0.2, short lock 0.48/0.75." },
   { id: 6, name: "L6 UI", detail: "Desk pages, Statistics, Replay, Logistics campus, settings sync." },

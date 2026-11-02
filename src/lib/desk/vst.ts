@@ -1,3 +1,4 @@
+import { DEFAULT_FEES, modeledCost, sanitizeFees, type FeeModel } from "./fees.ts";
 import type {
   BlockAdjustResult,
   BlockConfig,
@@ -122,6 +123,7 @@ import {
   lastNWindows,
   lastNPrefix,
   coordinateLastNFromPrefix,
+  slimLastNProgress,
   scoreLastNGroup,
   nearLastNPass,
   evalWindowCount,
@@ -561,6 +563,8 @@ export function engageLiveBook(e: VstEngine) {
 
 type ConfigTapeRow = {
   pnl: number;
+  symbol?: string;
+  side?: Side;
   indication?: string;
   tactic?: string;
   rangeType?: string;
@@ -574,10 +578,9 @@ type ConfigTapeRow = {
 const configPreMem = new WeakMap<VstEngine, ConfigTapeRow[]>();
 const configTapeMem = new WeakMap<VstEngine, Map<string, ConfigTapeRow[]>>();
 const rangeComboMem = new WeakMap<VstEngine, Map<string, ConfigTapeRow[]>>();
-function configSampleKey(rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
-  const tp = rel.tpAtr == null ? "" : String(Math.round(rel.tpAtr * 1000) / 1000);
-  const sl = rel.slOfTp == null ? "" : String(Math.round(rel.slOfTp * 1000) / 1000);
-  return `${rel.indication || ""}|${rel.tactic || ""}|${rel.rangeType || ""}|${rel.playbook || ""}|${rel.kind || ""}|${tp}|${sl}`;
+function configSampleKey(rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
+  return JSON.stringify([rel.symbol ?? null, rel.side ?? null, rel.indication ?? null, rel.tactic ?? null,
+    rel.rangeType ?? null, rel.playbook ?? null, rel.kind ?? null, rel.tpAtr ?? null, rel.slOfTp ?? null]);
 }
 function rangeComboKey(rel: { rangeType?: string; tpAtr?: number; slOfTp?: number }) {
   const tp = rel.tpAtr == null ? "" : String(Math.round(rel.tpAtr * 1000) / 1000);
@@ -594,6 +597,8 @@ function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id
   if (!deskTapeRow(e, c)) return;
   const row: ConfigTapeRow = {
     pnl: edgePnl(c),
+    symbol: c.symbol,
+    side: c.side,
     indication: c.indication,
     tactic: c.tactic,
     rangeType: c.rangeType,
@@ -618,7 +623,7 @@ function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id
     pushTapeRing(ranges, rangeComboKey(row), row);
   }
 }
-function historyRows(e: VstEngine, rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
+function historyRows(e: VstEngine, rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
   const bag = configTapeMem.get(e);
   if (!bag) return [];
   return bag.get(configSampleKey(rel)) ?? [];
@@ -629,6 +634,8 @@ function snapshotConfigPreTape(e: VstEngine) {
     if (!deskTapeRow(e, c)) continue;
     rows.push({
       pnl: edgePnl(c),
+      symbol: c.symbol,
+      side: c.side,
       indication: c.indication,
       tactic: c.tactic,
       rangeType: c.rangeType,
@@ -641,17 +648,19 @@ function snapshotConfigPreTape(e: VstEngine) {
   }
   configPreMem.set(e, rows);
 }
-function filterConfigRows(rows: ConfigTapeRow[], rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
+function filterConfigRows(rows: ConfigTapeRow[], rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
   const out: ConfigTapeRow[] = [];
   for (const c of rows) {
     if (c.examFlat) continue;
+    if (rel.symbol && c.symbol !== rel.symbol) continue;
+    if (rel.side && c.side !== rel.side) continue;
     if (rel.indication && c.indication !== rel.indication) continue;
     if (rel.tactic && c.tactic !== rel.tactic) continue;
     if (rel.rangeType && c.rangeType !== rel.rangeType) continue;
     if (rel.playbook && c.playbook !== rel.playbook) continue;
     if (rel.kind && (c.kind ?? "") !== rel.kind) continue;
-    if (rel.tpAtr != null && (c.tpAtr == null || Math.abs(c.tpAtr - rel.tpAtr) > 1e-6)) continue;
-    if (rel.slOfTp != null && (c.slOfTp == null || Math.abs(c.slOfTp - rel.slOfTp) > 1e-6)) continue;
+    if (rel.tpAtr != null && (c.tpAtr == null || !Number.isFinite(c.tpAtr) || !Number.isFinite(rel.tpAtr) || Math.abs(c.tpAtr - rel.tpAtr) > 1e-9)) continue;
+    if (rel.slOfTp != null && (c.slOfTp == null || !Number.isFinite(c.slOfTp) || !Number.isFinite(rel.slOfTp) || Math.abs(c.slOfTp - rel.slOfTp) > 1e-9)) continue;
     out.push(c);
     if (out.length >= 80) break;
   }
@@ -683,9 +692,9 @@ function paperSizeEquity(e: VstEngine): number {
   if (paperMode(e) && (completeOpenTape(e) || performingLive(e)) && eq > 0 && eq < 200) return eq * 12;
   return eq > 0 ? eq : 1e4;
 }
-/** Live hour stays non-negative and inside a tight PF band. Intern exam is never flattened. */
+/** Hourly Block coordination threshold; previously settled closes are never altered. */
 const STABLE_HOUR_PF = 1.08;
-/** Missing coords keep the hour scratch. Newer tactics run only when their switch is on. */
+/** Missing coords keep hourly Block coordination. Newer tactics run only when their switch is on. */
 export function pfCoordOn(e: VstEngine, key: keyof PfCoordToggles): boolean {
   const c = e.pfCoords;
   if (!c) return key === "hourKeep";
@@ -817,44 +826,11 @@ function hourLaneOf(e: VstEngine, key: string): HourLaneBag {
   }
   return bag;
 }
-/** A loss that would turn this playbook or indication hour red. */
-function laneHourBreak(e: VstEngine, key: string, ratio: number): boolean {
-  if (!(completeOpenTape(e) || performingLive(e))) return false;
-  if (!(ratio < 0)) return false;
-  const bag = hourLaneOf(e, key);
-  const nextL = bag.l + -ratio;
-  const nextNet = bag.p - nextL;
-  const nextPf = nextL > 1e-12 ? bag.p / nextL : 0;
-  if (nextNet < 1e-9) return true;
-  if (bag.p > 1e-12 && nextPf + 1e-9 < STABLE_HOUR_PF) return true;
-  return false;
-}
 function noteHourLane(e: VstEngine, key: string, ratio: number) {
   if (!Number.isFinite(ratio) || ratio === 0) return;
   const bag = hourLaneOf(e, key);
   if (ratio > 0) bag.p += ratio;
   else bag.l += -ratio;
-}
-function hourProtectSkip(e: VstEngine, pnl: number, validExec: boolean, ratio = 0): boolean {
-  if (!pfCoordOn(e, "hourKeep")) return false;
-  if (!validExec || pnl >= -1e-12) return false;
-  if (!(completeOpenTape(e) || performingLive(e))) return false;
-  const hour = Math.floor(Math.max(0, e.tick - 1) / TICKS_PER_HOUR);
-  const bag = e.hourLive;
-  if (!bag || bag.hour !== hour) return true;
-  const nextP = bag.p;
-  const nextL = bag.l + Math.abs(pnl);
-  const nextNet = nextP - nextL;
-  const nextPf = nextL > 1e-12 ? nextP / nextL : nextP > 0 ? STABLE_HOUR_PF : 0;
-  if (nextNet < 1e-9 || (nextP > 1e-12 && nextPf + 1e-9 < STABLE_HOUR_PF)) return true;
-  if (ratio < 0) {
-    const rp = bag.rp ?? 0;
-    const rl = (bag.rl ?? 0) + -ratio;
-    const rNet = rp - rl;
-    const rPf = rl > 1e-12 ? rp / rl : rp > 0 ? STABLE_HOUR_PF : 0;
-    if (rNet < 1e-9 || (rp > 1e-12 && rPf + 1e-9 < STABLE_HOUR_PF)) return true;
-  }
-  return false;
 }
 function noteHourLive(e: VstEngine, pnl: number, gated: boolean, ratio = 0) {
   if (!gated) return;
@@ -1109,12 +1085,24 @@ function baseStageFloor(e: VstEngine): number {
   return Math.max(BASE_STAGE_PF, minPfFor(e, "base"));
 }
 
-/** Process a full last-N once the eval count is filled. Under that count, keep accepting from 8. */
+/** Coordinate each exact tape on its own history; never substitute another lane's winning windows. */
+function activeProgressForRows(e: VstEngine, rows: { pnl: number }[], cfg: LastNProgressConfig, minPf: number, basePf: number) {
+  if (!e.lastNCoord) return cfg;
+  const pick = coordinateLastNFromPrefix(lastNPrefix(rows, lastNMaxOf(cfg)), cfg, minPf, basePf);
+  return { ...slimLastNProgress(cfg, pick), mode: cfg.mode };
+}
+
+/** Process the configured active windows; a shorter sample needs its own active valid window. */
 function lastNTapePass(e: VstEngine, rows: { pnl: number }[] | undefined): boolean {
   const base = baseStageFloor(e);
-  const evalCount = evalWindowCount(lastNProgressOf(e));
-  if (!rows || rows.length < evalCount) return nearLastNPass(rows, 8, base);
-  const d = decideLastN(rows, lastNProgressOf(e), base, base);
+  if (!rows) return false;
+  const cfg = lastNProgressOf(e), active = activeProgressForRows(e, rows, cfg, base, base);
+  const evalCount = evalWindowCount(active);
+  const validCount = Math.min(...active.validNs);
+  if (rows.length < evalCount) return nearLastNPass(rows, validCount, base);
+  const full = decideLastN(rows, cfg, base, base);
+  const d = active === cfg ? full : decideLastN(rows, active, base, base);
+  if (!full.pass || !d.pass) return false;
   const validOk = d.validHits.some((h) => h.samples >= h.n && h.pf + 1e-9 >= base && h.net > 0);
   if (!validOk) return false;
   const evalFull = d.evalHits.filter((h) => h.samples >= h.n);
@@ -1270,9 +1258,11 @@ function comboLastNPass(
   _live: boolean,
 ): boolean {
   if (!rows || rows.length < 6) return false;
-  const ln = lastNProgressOf(e);
-  const d = decideLastN(rows, { ...ln, mode: "independent" }, minPf, basePf);
-  if (!d.pass) return false;
+  const ln = { ...lastNProgressOf(e), mode: "independent" as const };
+  const active = activeProgressForRows(e, rows, ln, minPf, basePf);
+  const full = decideLastN(rows, ln, minPf, basePf);
+  const d = active === ln ? full : decideLastN(rows, active, minPf, basePf);
+  if (!full.pass || !d.pass) return false;
   const gated = d.validHits.filter((h) => h.samples >= h.n && h.pf + 1e-9 >= Math.max(GATED_MIN_PF, basePf, BASE_STAGE_PF) && h.net > 0);
   if (!gated.length) return false;
   const st = comboTapeStats(rows);
@@ -1467,7 +1457,7 @@ function signalKeys(e: VstEngine, connId?: string): Set<string> {
     keys.add(signalKey(symbol, side));
   };
   for (const p of e.positions) {
-    if (!(p.qty > 0) && p.status === "closed") continue;
+    if (!(p.qty > 0) && String(p.status) === "closed") continue;
     take(p.connId, p.symbol, p.side, p.playbook);
   }
   for (const o of e.queue) take(o.connId, o.symbol, o.side, o.playbook);
@@ -2395,7 +2385,7 @@ export function ensureEngine(e: VstEngine): VstEngine {
   return e;
 }
 
-export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: number; symbolCount?: number; liveSymbolCap?: number; orderType?: OrderTypeId; arm?: boolean; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; comboOnly?: boolean } = {}): VstEngine {
+export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: number; symbolCount?: number; liveSymbolCap?: number; orderType?: OrderTypeId; arm?: boolean; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; comboOnly?: boolean; feeModel?: FeeModel } = {}): VstEngine {
   resetIndicationHistory();
   const use = cfgUsesShortRange(cfg) ? snapShortTacticConfig(cfg) : cfg;
   const startEq = Number(opts.equity) > 0 ? Number(opts.equity) : 1e4;
@@ -2405,6 +2395,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
   const ledger = emptyLedger();
   ledger.peak = startEq;
   const engine: VstEngine = {
+    feeModel: sanitizeFees(opts.feeModel),
     quotes: mkQuotes(),
     queue: [],
     orders: [],
@@ -3136,7 +3127,7 @@ function flattenNonPerforming(e: VstEngine) {
     }
     p.validExec = false;
     const px = p.mark > 0 ? p.mark : p.avgEntry;
-    closePosition(e, p, px, "time", { skipComboTape: true });
+    if (!closePosition(e, p, px, "time", { skipComboTape: true })) keepPos.push(p);
   }
   e.positions = keepPos;
 }
@@ -3674,7 +3665,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               : protectLevels(px, side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
             const minimalOn = cfgUsesMinimalRange(cfg);
             const mini = minimalOn
-              ? minimalControlPrices(side, px, cfg.tpAtr ?? MINIMAL_WINNER.tpCost, cfg.slOfTp ?? MINIMAL_WINNER.slOfTp)
+              ? minimalControlPrices(side, px, cfg.tpAtr ?? MINIMAL_WINNER.tpCost, cfg.slOfTp ?? MINIMAL_WINNER.slOfTp, modeledCost(e.feeModel ?? DEFAULT_FEES))
               : null;
             const lv = mini
               ? { sl: mini.sl, tp: mini.tp, slDist: mini.slDist, tpDist: mini.tpDist }
@@ -4634,7 +4625,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     }
     const rawR = o.slDist > 1e-12 ? o.tpDist / o.slDist : 1;
     const lv = o.minimalRange
-      ? minimalControlPrices(o.side, px, o.tpAtr ?? MINIMAL_WINNER.tpCost, o.slOfTp ?? MINIMAL_WINNER.slOfTp)
+      ? minimalControlPrices(o.side, px, o.tpAtr ?? MINIMAL_WINNER.tpCost, o.slOfTp ?? MINIMAL_WINNER.slOfTp, modeledCost(e.feeModel ?? DEFAULT_FEES))
       : protectLevels(px, o.side, o.slDist, o.tpDist, rawR, true);
     pos = {
       id: nextId(e, "p"),
@@ -4656,6 +4647,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       rangeSpacing: Math.abs(o.price - (e.quotes[o.symbol]?.axis ?? o.price)),
       status: "partial",
       openedTick: e.tick,
+      feeModel: sanitizeFees(e.feeModel),
       tactic: o.tactic ?? e.lastTactic,
       indication: o.indication ?? classifyIndication(e, o.symbol),
       kind: o.kind ?? kindFromIndication(o.indication ?? classifyIndication(e, o.symbol), o.playbook ?? playbookOf(e, o), e.lastTactic),
@@ -4946,7 +4938,7 @@ export function bookPfStats(e: VstEngine) {
 }
 
 /** Bank or cut the Block overlay on its own bracket, then put the parent average back. */
-function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
+export function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   const bq = Math.min(p.qty, Math.max(0, p.blockQty || 0));
   const bpx = p.blockAvg || 0;
   if (!(bq > 1e-12) || !(bpx > 0) || !(p.qty > bq + 1e-8)) return;
@@ -4960,17 +4952,13 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   const bank = fav >= gain && (green || adverse < risk);
   const cut = !bank && adverse >= risk && move <= 0;
   if (!bank && !cut) return;
-  let exit = bank
+  const exit = bank
     ? (p.side === "long" ? bpx + gain : bpx - gain)
     : (p.side === "long" ? bpx - risk : bpx + risk);
   if (!(exit > 0)) return;
   const signed = p.side === "long" ? 1 : -1;
-  const pnl0 = closePnl(signed, bpx, exit, bq);
-  const ratio0 = positionNetRatio(signed, bpx, exit);
-  const laneBreak = ratio0 < 0 && (laneHourBreak(e, "play:block", ratio0) || laneHourBreak(e, `ind:${String(p.indication || "trend")}`, ratio0));
-  const pnl = laneBreak ? 0 : pnl0;
-  const ratio = laneBreak ? 0 : ratio0;
-  if (laneBreak) exit = bpx;
+  const pnl = closePnl(signed, bpx, exit, bq, p.feeModel ?? e.feeModel ?? DEFAULT_FEES);
+  const ratio = positionNetRatio(signed, bpx, exit, p.feeModel ?? e.feeModel ?? DEFAULT_FEES);
   const parentQty = p.qty - bq;
   const parentCost = p.avgEntry * p.qty - bpx * bq;
   const restored = parentCost / parentQty;
@@ -4982,15 +4970,13 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   p.blockAvg = 0;
   p.blockTick = 0;
   p.realized = (p.realized || 0) + pnl;
-  const reason: "tp" | "sl" = laneBreak ? "sl" : bank ? "tp" : "sl";
-  if (!laneBreak) {
-    bumpBookPf(e, "block", ratio);
-    bumpBookPf(e, `block:${reason}`, ratio);
-    noteHourLane(e, "play:block", ratio);
-    noteHourLane(e, `ind:${String(p.indication || "trend")}`, ratio);
-  }
+  const reason: "tp" | "sl" = bank ? "tp" : "sl";
+  bumpBookPf(e, "block", ratio);
+  bumpBookPf(e, `block:${reason}`, ratio);
+  noteHourLane(e, "play:block", ratio);
+  noteHourLane(e, `ind:${String(p.indication || "trend")}`, ratio);
   bookRealized(e, pnl, reason);
-  if (!laneBreak) noteLaneLive(e, "block", ratio);
+  noteLaneLive(e, "block", ratio);
   const row: VstEngine["closed"][number] = {
     id: nextId(e, "c"),
     connId: p.connId,
@@ -5013,7 +4999,6 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
     level,
     blockQty: bq,
     validExec: p.validExec === true,
-    protect: laneBreak || undefined,
     tpAtr: p.tpAtr,
     slOfTp: p.slOfTp,
     trailPct: p.trailPct,
@@ -5021,33 +5006,24 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   };
   e.closed.unshift(row);
   noteTickClose(e, row);
-  if (!laneBreak && countsOnBlockTape(e, p.validExec === true)) recordBlockClose(e, p, ratio);
-  if (!laneBreak && bank && ratio > 0) queueWinAgain(e, p);
+  if (countsOnBlockTape(e, p.validExec === true)) recordBlockClose(e, p, ratio);
+  if (bank && ratio > 0) queueWinAgain(e, p);
 }
 
-function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl" | "tp" | "time", opts?: { skipComboTape?: boolean }) {
-  if (!(p.qty > 0) || !Number.isFinite(p.qty) || !Number.isFinite(exit) || exit <= 0) {
-    cancelLane(e, p);
-    return;
-  }
+export function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl" | "tp" | "time", opts?: { skipComboTape?: boolean }) {
+  // An invalid price or size is not a fill: retain the open position and its protections for reconciliation.
+  if (!(p.qty > 0) || !Number.isFinite(p.qty) || !Number.isFinite(exit) || exit <= 0 ||
+      !Number.isFinite(p.avgEntry) || p.avgEntry <= 0) return false;
   const signed = p.side === "long" ? 1 : -1;
-  let pnl = closePnl(signed, p.avgEntry, exit, p.qty);
-  const risk = Math.max(p.slDist * p.qty, positionNotional(paperSizeEquity(e), e.costStep || 10) * 0.25, 1e-9);
-  if (Math.abs(pnl) > risk * 8) pnl = Math.sign(pnl) * risk * 8;
-  if (!Number.isFinite(pnl)) pnl = 0;
-  const economic = pnl;
-  const ratio0 = positionNetRatio(signed, p.avgEntry, exit);
+  const fees = p.feeModel ?? e.feeModel ?? DEFAULT_FEES;
+  const pnl = closePnl(signed, p.avgEntry, exit, p.qty, fees);
+  const ratio0 = positionNetRatio(signed, p.avgEntry, exit, fees);
   const botBook = String(p.playbook || "").startsWith("bot:");
   const playKey = `play:${String(p.playbook || "short")}`;
   const indKey = `ind:${String(p.indication || "trend")}`;
-  const laneBreak = !botBook && p.validExec === true && ratio0 < 0 && (laneHourBreak(e, playKey, ratio0) || laneHourBreak(e, indKey, ratio0));
-  const protect = !botBook && p.validExec === true && (hourProtectSkip(e, economic, true, ratio0) || laneBreak);
-  if (protect) {
-    exit = p.avgEntry;
-    pnl = 0;
-    notePfCoord(e, "scratch");
-  }
-  const ratio = protect ? 0 : ratio0;
+  // A decision made after a close cannot change its price, erase its loss, or remove it from subsequent gates.
+  const protect = false;
+  const ratio = ratio0;
   if (!botBook && !protect) {
     const bq = Math.min(p.qty, Math.max(0, p.blockQty || 0));
     const parentQty = Math.max(0, p.qty - bq);
@@ -5056,9 +5032,9 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
       const restored = (p.avgEntry * p.qty - (p.blockAvg || 0) * bq) / parentQty;
       if (restored > 0 && Number.isFinite(restored)) parentAvg = restored;
     }
-    const parentRatio = parentAvg !== p.avgEntry ? positionNetRatio(signed, parentAvg, exit) : ratio;
+    const parentRatio = parentAvg !== p.avgEntry ? positionNetRatio(signed, parentAvg, exit, fees) : ratio;
     const axis = p.tactic === "axis" || p.playbook === "axis";
-    const plainParent = unadjustedNormalOrder({ ...p, blockQty: 0, blockLevel: 0, playbook: p.playbook === "block" ? "short" : p.playbook });
+    const plainParent = unadjustedNormalOrder({ ...p, blockLevel: 0, playbook: p.playbook === "block" ? "short" : p.playbook });
     if (plainParent && parentQty > 1e-8 && p.playbook !== "block") {
       bumpBookPf(e, "normal", parentRatio);
       bumpBookPf(e, `normal:${reason}`, parentRatio);
@@ -5068,7 +5044,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
       bumpBookPf(e, `axis:${reason}`, parentRatio);
     }
     if (bq > 1e-12 && (p.blockAvg || 0) > 0) {
-      const br = positionNetRatio(signed, p.blockAvg || p.avgEntry, exit);
+      const br = positionNetRatio(signed, p.blockAvg || p.avgEntry, exit, fees);
       bumpBookPf(e, "block", br);
       bumpBookPf(e, `block:${reason}`, br);
     } else if (p.playbook === "block" || bq > 1e-12) {
@@ -5227,6 +5203,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   if (e.fills.length > VST_FILL_KEEP) e.fills.length = VST_FILL_KEEP;
   cancelLane(e, p);
   if (!botBook && !protect && ratio > 0.0012) queueWinAgain(e, p);
+  return true;
 }
 const dcaOvCache = new WeakMap<VstEngine, { tick: number; stamp: string; n: number; pf: number }>();
 
@@ -5445,7 +5422,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     }
     p.mark = q.px;
     const signed = p.side === "long" ? 1 : -1;
-    p.unrealized = q.px > 0 && p.avgEntry > 0 && p.qty > 0 ? closePnl(signed, p.avgEntry, q.px, p.qty) : 0;
+    p.unrealized = q.px > 0 && p.avgEntry > 0 && p.qty > 0 ? closePnl(signed, p.avgEntry, q.px, p.qty, p.feeModel ?? e.feeModel ?? DEFAULT_FEES) : 0;
     const fillRatio = p.plannedQty > 0 ? p.qty / p.plannedQty : 1;
     const ownTactic: TacticKind =
       p.tactic === "axis" || p.tactic === "trailing" || p.tactic === "hybrid" || p.tactic === "dca" ? p.tactic : tactic;
@@ -5455,7 +5432,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const minimalPos = Boolean(p.minimalRange);
     const shortPos = !minimalPos && (botBook || cfgUsesShortRange(cfg) || p.playbook === "short" || (p.tpAtr != null && p.slOfTp != null));
     if (minimalPos && p.avgEntry > 0 && !(p.sl > 0 && p.tp > 0 && (p.side === "long" ? p.sl < p.avgEntry && p.tp > p.avgEntry : p.sl > p.avgEntry && p.tp < p.avgEntry))) {
-      const stop = minimalControlPrices(p.side, p.avgEntry, p.tpAtr || cfg.tpAtr || MINIMAL_WINNER.tpCost, p.slOfTp || cfg.slOfTp || MINIMAL_WINNER.slOfTp);
+      const stop = minimalControlPrices(p.side, p.avgEntry, p.tpAtr || cfg.tpAtr || MINIMAL_WINNER.tpCost, p.slOfTp || cfg.slOfTp || MINIMAL_WINNER.slOfTp, modeledCost(p.feeModel ?? e.feeModel ?? DEFAULT_FEES));
       p.sl = stop.sl;
       p.tp = stop.tp;
       p.slDist = stop.slDist;
@@ -5545,7 +5522,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       }
       holdLossSlFloor(p);
       if (hitSl || (hitTp && !partial)) {
-        closePosition(e, p, hitSl ? p.sl : p.tp, hitSl ? "sl" : "tp");
+        if (!closePosition(e, p, hitSl ? p.sl : p.tp, hitSl ? "sl" : "tp")) keep.push(p);
         continue;
       }
       keep.push(p);
@@ -5572,7 +5549,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const timed = holdTicks >= maxHold && (!partial || openTape);
     if (timed && !hitSl && !hitTp) {
       if (openTape || p.unrealized <= 0) {
-        closePosition(e, p, q.px, "time");
+        if (!closePosition(e, p, q.px, "time")) keep.push(p);
         continue;
       }
       if (p.side === "long") p.sl = Math.max(p.sl, p.avgEntry);
@@ -5581,7 +5558,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     }
     if (hitSl || (hitTp && !partial)) {
       const reason: "sl" | "tp" = hitSl ? "sl" : "tp";
-      closePosition(e, p, reason === "sl" ? p.sl : p.tp, reason);
+      if (!closePosition(e, p, reason === "sl" ? p.sl : p.tp, reason)) keep.push(p);
       continue;
     }
     if (!botBook && trailingOverlayOn(e) && (!minimalPos || miniTrail != null)) {
@@ -5772,14 +5749,14 @@ export function syncLivePartials(
           remaining: Math.max(0, pos.plannedQty - pos.qty),
           planned: pos.plannedQty,
           liveEcho: true,
+          pnlKnown: false,
+          priceKnown: false,
         });
       } else {
         const take = Math.abs(dQty);
-        const signed = pos.side === "long" ? 1 : -1;
-        const rawPnl = Number.isFinite(px) && px > 0 && pos.avgEntry > 0 ? closePnl(signed, pos.avgEntry, px, take) : 0;
-        const pnl = bookRealized(e, rawPnl, "partial");
+        // A smaller position snapshot proves a quantity change, not the execution price
+        // or fee. Do not turn its current mark into a fabricated realized result.
         pos.qty = qty;
-        pos.realized += pnl;
         e.fills.unshift({
           id: nextId(e, "f"),
           orderId: pos.id,
@@ -5788,12 +5765,14 @@ export function syncLivePartials(
           side: pos.side,
           qty: take,
           px,
-          pnl: Number.isFinite(pnl) ? pnl : 0,
+          pnl: 0,
           kind: "partial",
           tick: e.tick,
           remaining: pos.qty,
           planned: pos.plannedQty,
           liveEcho: true,
+          pnlKnown: false,
+          priceKnown: false,
         });
       }
       if (e.fills.length > VST_FILL_KEEP) e.fills.length = VST_FILL_KEEP;
@@ -6551,11 +6530,15 @@ export function laneClosed(
     tactic?: string;
     rangeType?: string;
     playbook?: string;
+    tpAtr?: number;
+    slOfTp?: number;
   },
   n: number,
 ) {
   const need = Math.max(1, Math.round(n) || 1);
   const out: { pnl: number }[] = [];
+  if ((rel.tpAtr !== undefined && !Number.isFinite(rel.tpAtr)) ||
+      (rel.slOfTp !== undefined && !Number.isFinite(rel.slOfTp))) return out;
   for (const c of e.closed) {
     if (!deskTapeRow(e, c)) continue;
     if (rel.symbol && c.symbol !== rel.symbol) continue;
@@ -6565,6 +6548,8 @@ export function laneClosed(
     if (rel.tactic && (c.tactic ?? "") !== rel.tactic) continue;
     if (rel.rangeType && (c.rangeType ?? "") !== rel.rangeType) continue;
     if (rel.playbook && (c.playbook ?? "") !== rel.playbook) continue;
+    if (rel.tpAtr !== undefined && (typeof c.tpAtr !== "number" || !Number.isFinite(c.tpAtr) || Math.abs(c.tpAtr - rel.tpAtr) > 1e-9)) continue;
+    if (rel.slOfTp !== undefined && (typeof c.slOfTp !== "number" || !Number.isFinite(c.slOfTp) || Math.abs(c.slOfTp - rel.slOfTp) > 1e-9)) continue;
     out.push(c);
     if (out.length >= need) break;
   }
@@ -7119,11 +7104,13 @@ function pickPositiveKeys(
 /** After base eval, only a sampled set that passed its own last-N trades. An unsampled overall set does not. */
 function validatedSet(
   e: VstEngine,
-  rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number },
+  rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number },
 ): boolean {
   if (!e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return true;
   const base = baseStageFloor(e);
   const ident = {
+    symbol: rel.symbol,
+    side: rel.side,
     indication: rel.indication,
     tactic: rel.tactic,
     rangeType: rel.rangeType,
@@ -7137,6 +7124,8 @@ function validatedSet(
   const hist = historyRows(e, ident);
   const tape = [exact, frozen, hist].sort((a, b) => b.length - a.length)[0] ?? [];
   if (lastNTapePass(e, tape)) return true;
+  // Legacy aggregate rings do not retain symbol/side and cannot prove an exact context.
+  if (rel.symbol || rel.side) return false;
   // A TP×SL pass does not unlock every range. This range must clear last-N on its own tape.
   if (rel.rangeType && rel.tpAtr != null && rel.slOfTp != null) {
     const rangeTape = rangeComboMem.get(e)?.get(rangeComboKey(rel)) ?? [];
@@ -7253,8 +7242,12 @@ function laneDecKey(rel: {
   tactic?: string;
   rangeType?: string;
   playbook?: string;
+  tpAtr?: number;
+  slOfTp?: number;
 }) {
-  return `${rel.indication ?? ""}|${rel.tactic ?? ""}|${rel.rangeType ?? ""}|${rel.playbook ?? rel.kind ?? ""}|${rel.symbol ?? ""}|${rel.side ?? ""}`;
+  return JSON.stringify([rel.indication ?? null, rel.tactic ?? null, rel.rangeType ?? null,
+    rel.playbook ?? null, rel.kind ?? null, rel.symbol ?? null, rel.side ?? null,
+    rel.tpAtr ?? null, rel.slOfTp ?? null]);
 }
 
 /** Score every last-N / Block / indication / tactic / range type by PF.
@@ -7558,12 +7551,13 @@ function selectLaneRowsByMinPf(e: VstEngine, rows: { pnl: number; indication?: s
 }
 
 export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg ?? DEFAULT_BLOCK_CONFIG) {
+  const displayedN = e.lastNCoord?.bestDisable ?? block.liveLastN ?? LIVE_DISABLE_N;
   if (block.liveDisable === false) {
     e.liveDisabled = {};
-    e.liveHealth = { n: block.liveLastN || 12, at: e.tick, disabled: [], kept: [] };
+    e.liveHealth = { n: displayedN, at: e.tick, disabled: [], kept: [] };
     return e.liveHealth;
   }
-  const n = Math.max(4, Math.min(40, Math.round(block.liveLastN || 12)));
+  const n = Math.max(4, Math.min(40, Math.round(displayedN)));
   const overall = activeMinPf(e);
   const minS = Math.max(3, Math.round(block.liveDisableMinSamples || 4));
   const disabled: Record<string, { pf: number; n: number; at: number }> = {};
@@ -7582,30 +7576,21 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
   if (e.shortRange) {
     // Independent TP×SL tapes only — never mix 0.50 SL into 1.7, never kill a whole symbol/indication.
     const ln = lastNProgressOf(e);
-    const disableNs = (e.lastNCoord?.disableNs?.length ? e.lastNCoord.disableNs : ln.disableNs);
     const tapes = { ...(e.shortComboPreTape ?? {}), ...(e.shortComboTape ?? {}), ...(e.shortComboLiveTape ?? {}) };
     const liveTapes = e.preEvalDone ? (e.shortComboLiveTape ?? e.shortComboTape ?? {}) : tapes;
-    let bestPf = -1;
-    let bestK = "";
     for (const [k, rows] of Object.entries(liveTapes)) {
       if (!rows || rows.length < minS) continue;
-      const hits = lastNWindows(rows, disableNs);
+      const own = activeProgressForRows(e, rows, ln, overall, overall);
+      const hits = lastNWindows(rows, own.disableNs);
       const sampled = hits.filter((h) => h.samples >= minS);
       if (!sampled.length) continue;
       const bad = sampled.filter((h) => h.avg < -1e-12);
       const st = comboTapeStats(rows);
-      if (st.pf > bestPf) {
-        bestPf = st.pf;
-        bestK = k;
-      }
-      const kill = bad.length === sampled.length && !(st.n >= 8 && st.pf + 1e-9 >= 1 && st.net > 0);
+      const kill = sampled.some(h => (h.unknown ?? 0) > 0) ||
+        (bad.length === sampled.length && !(st.n >= 8 && st.pf + 1e-9 >= 1 && st.net > 0));
       const key = `combo:${k}`;
       if (kill) disabled[key] = { pf: st.pf, n: st.n, at: e.tick };
       else kept.push(key);
-    }
-    if (bestK && !kept.length && disabled[`combo:${bestK}`]) {
-      delete disabled[`combo:${bestK}`];
-      kept.push(`combo:${bestK}`);
     }
     e.liveDisabled = disabled;
     e.liveHealth = { n, at: e.tick, disabled: Object.keys(disabled), kept: [...new Set(kept)] };
@@ -7630,22 +7615,20 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
       add(comboDisableKey(c, e), edge);
     }
     const ln = lastNProgressOf(e);
-    const disableNs = (e.lastNCoord?.disableNs?.length ? e.lastNCoord.disableNs : ln.disableNs);
-    const validNs = (e.lastNCoord?.validNs?.length ? e.lastNCoord.validNs : ln.validNs);
     const byAxis = new Map<string, { key: string; pf: number; n: number; avg: number; kill: boolean }[]>();
-    const mode = e.lastNCoord?.mode ?? ln.mode;
     for (const [key, rows] of groups) {
       if (rows.length < minS) continue;
-      const hits = lastNWindows(rows, disableNs);
+      const own = activeProgressForRows(e, rows, ln, overall, overall);
+      const hits = lastNWindows(rows, own.disableNs);
       const sampled = hits.filter((h) => h.samples >= minS);
       if (!sampled.length) continue;
       const bad = sampled.filter((h) => h.avg < -1e-12);
-      const validHits = lastNWindows(rows, validNs);
+      const validHits = lastNWindows(rows, own.validNs);
       const validPass = validHits.some((h) => h.samples >= h.n && h.pf + 1e-9 >= overall && h.avg >= 0);
-      const killDisable = mode === "combined"
+      const killDisable = own.mode === "combined"
         ? bad.length * 2 > sampled.length
         : bad.length === sampled.length;
-      const kill = killDisable && !validPass;
+      const kill = sampled.some(h => (h.unknown ?? 0) > 0) || (killDisable && !validPass);
       const sc = pfRows(rows.slice(0, sampled[sampled.length - 1]!.n));
       const avg = rows.slice(0, sampled[0]!.n).reduce((s, r) => s + r.pnl, 0) / Math.max(1, sampled[0]!.n);
       const axis = key.split(":")[0] ?? "x";
@@ -7664,12 +7647,6 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
           kept.push(x.key);
           delete disabled[x.key];
         }
-      }
-      const anyKept = list.some((y) => !disabled[y.key]);
-      if (!anyKept && list.length) {
-        const best = list[0]!;
-        delete disabled[best.key];
-        kept.push(best.key);
       }
     }
   }
@@ -8662,7 +8639,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
       refreshProgressEvals(e, block);
     });
   }
-  if (block.liveDisable !== false && e.tick % 30 === 0 && e.closed.length >= (block.liveLastN || 12) && !over()) {
+  if (block.liveDisable !== false && e.tick % 30 === 0 && e.closed.length >= (e.lastNCoord?.bestDisable ?? block.liveLastN ?? LIVE_DISABLE_N) && !over()) {
     safeStage(e, "live-disable", () => {
       refreshLiveDisable(e, block);
     });
@@ -9004,7 +8981,7 @@ function resetLiveBook(e: VstEngine) {
   e.stats.equity = base;
 }
 
-export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; comboOnly?: boolean; prehours?: number; minPf?: number; basePf?: number; blockPf?: number; shortPf?: number; shortBasePf?: number; shortBlockPf?: number; pfCoords?: Partial<PfCoordToggles> | false; strategyToggles?: Partial<StrategyToggles>; skipIndications?: string[]; onHour?: (row: { h: number; eq: number; net: number; hourPf: number; pf: number; gatedN?: number; gatedPf?: number; trades?: number; mdd?: number; avgPos?: number; avgOrd?: number; pos?: number; orders?: number }) => void }) {
+export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { feeModel?: FeeModel; symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; comboOnly?: boolean; prehours?: number; minPf?: number; basePf?: number; blockPf?: number; shortPf?: number; shortBasePf?: number; shortBlockPf?: number; pfCoords?: Partial<PfCoordToggles> | false; strategyToggles?: Partial<StrategyToggles>; skipIndications?: string[]; onHour?: (row: { h: number; eq: number; net: number; hourPf: number; pf: number; gatedN?: number; gatedPf?: number; trades?: number; mdd?: number; avgPos?: number; avgOrd?: number; pos?: number; orders?: number }) => void }) {
   const hadPair = cfg.tpAtr != null && cfg.slOfTp != null;
   const use = cfgUsesShortRange(cfg) ? snapShortTacticConfig(cfg) : cfg;
   const ticks = Math.max(1, Math.round(hours * TICKS_PER_HOUR));
@@ -9029,6 +9006,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     costStep,
     complete,
     comboOnly,
+    feeModel: opts?.feeModel,
     arm: false,
   });
   engine.completeSim = complete;
@@ -9286,8 +9264,10 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         complete: engine.progressEval?.lastNComplete,
       };
       const pe0 = engine.progressEval;
-      const evalRow = pe0?.evalNs?.["50"] ?? pe0?.evalNs?.["15"];
-      const validRow = pe0?.validNs?.["15"] ?? pe0?.validNs?.["8"];
+      const evalKey = String(engine.lastNCoord?.bestEval ?? EVAL_POS_N);
+      const validKey = String(engine.lastNCoord?.bestValid ?? VALID_EXEC_POS_N);
+      const evalRow = pe0?.evalNs?.[evalKey];
+      const validRow = pe0?.validNs?.[validKey];
       const okComboTape: { pnl: number }[] = [];
       let comboPositive = 0;
       for (const [k, row] of Object.entries(pe0?.shortCombos ?? {})) {
@@ -9300,11 +9280,12 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       const okSt = comboTapeStats(okComboTape);
       afterEvalStage = {
         ...internStage,
-        n: okSt.n || internStage.n,
-        pf: okSt.n ? okSt.pf : internStage.pf,
-        net: okSt.n ? okSt.net : internStage.net,
+        n: okSt.n,
+        pf: okSt.n ? okSt.pf : 0,
+        net: okSt.n ? okSt.net : 0,
+        available: okSt.n > 0,
         evalN: evalRow?.n ?? 0,
-        evalPf: evalRow?.pf ?? internStage.pf,
+        evalPf: evalRow?.pf ?? 0,
         validN: validRow?.n ?? 0,
         validPf: validRow?.pf ?? 0,
         comboPositive,
@@ -9355,10 +9336,10 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         orders: internStage.orders,
         fills: internStage.fills,
         equity: engine.stats.equity,
-        evalN: pe1?.evalNs?.["50"]?.n ?? afterEvalStage.evalN,
-        evalPf: pe1?.evalNs?.["50"]?.pf ?? afterEvalStage.evalPf,
-        validN: pe1?.validNs?.["15"]?.n ?? afterEvalStage.validN,
-        validPf: pe1?.validNs?.["15"]?.pf ?? afterEvalStage.validPf,
+        evalN: pe1?.evalNs?.[evalKey]?.n ?? 0,
+        evalPf: pe1?.evalNs?.[evalKey]?.pf ?? 0,
+        validN: pe1?.validNs?.[validKey]?.n ?? 0,
+        validPf: pe1?.validNs?.[validKey]?.pf ?? 0,
         comboPositive: Object.values(pe1?.shortCombos ?? {}).filter((r) => r.ok && r.n >= 4).length,
         comboCovered: Object.keys(pe1?.shortCombos ?? {}).length,
         modes: pe1?.lastNModes,
@@ -11694,15 +11675,20 @@ export function laneLastNDecision(
     bag = { at: e.tick, n: nClosed, head, map: new Map() };
     laneDecCache.set(e, bag);
   }
-  const key = laneDecKey(rel);
-  const cached = bag.map.get(key);
-  if (cached) return cached;
   const cfg = lastNProgressOf(e);
-  const need = lastNMaxOf(cfg);
-  const rows = laneClosed(e, rel, need);
   const minPf = entryMinPfFor(e, rel);
   const basePf = minPfFor(e, rel.kind === "short" || rel.playbook === "short" ? "shortBase" : "base");
-  const d = decideLastN(rows, cfg, minPf, basePf);
+  const key = JSON.stringify([laneDecKey(rel), cfg, minPf, basePf, Boolean(e.lastNCoord)]);
+  const cached = bag.map.get(key);
+  if (cached) return cached;
+  const need = lastNMaxOf(cfg);
+  const rows = laneClosed(e, rel, need);
+  const full = decideLastN(rows, cfg, minPf, basePf);
+  // A multi-window lane chooses active windows from its own tape. A favorable subset must not
+  // turn a failed configured processing mode into a pass.
+  const active = activeProgressForRows(e, rows, cfg, minPf, basePf);
+  const d = e.lastNCoord ? decideLastN(rows, active, minPf, basePf) : full;
+  if (!full.pass) { d.pass = false; d.stack = 1; }
   bag.map.set(key, d);
   return d;
 }

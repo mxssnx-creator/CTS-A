@@ -36,6 +36,7 @@ export function StrategiesView() {
   const setParam = useDesk((s) => s.setStrategyParam);
   const resetParams = useDesk((s) => s.resetStrategyParams);
   const enabledKinds = useDesk((s) => s.enabledKinds);
+  const feeModel = useDesk((s) => s.vst.feeModel);
   const toggleKind = useDesk((s) => s.toggleKind);
 
   const ranked = useMemo(() => {
@@ -45,7 +46,7 @@ export function StrategiesView() {
       const adj = strategyAdjMod(st, params);
       const last = ids.reduce(
         (acc, id) => {
-          const s = applyAdjToStats(lastNEval(getBacktest(st.id, id), lastNs.picks), adj);
+          const s = applyAdjToStats(lastNEval(getBacktest(st.id, id, feeModel), lastNs.picks), adj);
           acc.pf += s.pf;
           acc.wr += s.wr;
           acc.net += s.net;
@@ -56,7 +57,7 @@ export function StrategiesView() {
         { pf: 0, wr: 0, net: 0, trades: 0, n: 0 },
       );
       const n = Math.max(1, last.n);
-      const bt = getBacktest(st.id, symbol);
+      const bt = getBacktest(st.id, symbol, feeModel);
       return {
         st,
         bt,
@@ -64,12 +65,12 @@ export function StrategiesView() {
         adj,
       };
     }).sort((a, b) => (a.st.kind === "normal" ? -1 : b.st.kind === "normal" ? 1 : b.last.pf - a.last.pf));
-  }, [symbol, lastNs.picks, params, enabledKinds]);
+  }, [symbol, lastNs.picks, params, enabledKinds, feeModel]);
 
   const active = ranked.find((r) => r.st.id === strategyId) ?? ranked[0];
   const eq = useMemo(
-    () => (active ? equitySeries(active.st.id, symbol) : []),
-    [active?.st.id, symbol],
+    () => (active ? equitySeries(active.st.id, symbol, feeModel) : []),
+    [active?.st.id, symbol, feeModel],
   );
   const dirty = active ? Object.keys(params).some((k) => k.startsWith(active.st.id + ":")) : false;
 

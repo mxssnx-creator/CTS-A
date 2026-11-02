@@ -44,9 +44,12 @@ export function OverviewView() {
   const applyLive = useDesk((s) => s.applyLiveConfig);
   const params = useDesk((s) => s.strategyParams);
   const enabledKinds = useDesk((s) => s.enabledKinds);
+  const feeModel = useDesk((s) => s.vst.feeModel);
   const vstTrades = useDesk((s) => s.vst.closed.length);
   const engineStamp = useDesk((s) => Math.floor((s.vst.tick || 0) / 8));
   const vstCoord = useDesk((s) => s.vst.lastNCoord);
+  const multiProgress = useDesk((s) => s.lastNProgress);
+  const multiActive = Boolean(vstCoord);
   const progressEval = useDesk((s) => s.vst.progressEval);
   const engineSize = useDesk((s) => s.vst.engineSizeFactor ?? 1);
   const blockExtra = useDesk((s) => s.vst.relVolumeFactor ?? 0);
@@ -73,23 +76,23 @@ export function OverviewView() {
   }, [strategyId, params]);
 
   const book = useMemo(
-    () => bookStats(lastNs.lanes, cfg, th, undefined, enabledKinds),
-    [lastNs.lanes, cfg, th, enabledKinds],
+    () => bookStats(lastNs.lanes, cfg, th, undefined, enabledKinds, multiActive ? multiProgress : undefined, feeModel),
+    [lastNs.lanes, cfg, th, enabledKinds, multiActive, multiProgress, feeModel],
   );
   const [cells, setCells] = useState<ReturnType<typeof heatmapForDesk>>([]);
   useEffect(() => {
     const t = window.setTimeout(() => {
       try {
-        setCells(heatmapForDesk(strategyId, tactic, lastNs.combos, cfg, th, adj, 8));
+        setCells(heatmapForDesk(strategyId, tactic, lastNs.combos, cfg, th, adj, 8, feeModel));
       } catch {
         setCells([]);
       }
     }, 40);
     return () => window.clearTimeout(t);
-  }, [strategyId, tactic, lastNs.combos, cfg, th, adj]);
+  }, [strategyId, tactic, lastNs.combos, cfg, th, adj, feeModel]);
   const lanes = useMemo(
-    () => buildLanes(lastNs.lanes, cfg, th, undefined, enabledKinds).filter((l) => l.status !== "rejected").slice(0, 12),
-    [lastNs.lanes, cfg, th, enabledKinds],
+    () => buildLanes(lastNs.lanes, cfg, th, undefined, enabledKinds, multiActive ? multiProgress : undefined, feeModel).filter((l) => l.status !== "rejected").slice(0, 12),
+    [lastNs.lanes, cfg, th, enabledKinds, multiActive, multiProgress, feeModel],
   );
   const live = useMemo(
     () => liveDeskBook(useDesk.getState().vst, activeConnId, lastNs.last),

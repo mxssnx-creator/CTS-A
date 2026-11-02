@@ -1,3 +1,4 @@
+import type { FeeModel } from "./fees.ts";
 export type Venue = "bingx" | "bybit";
 export type IndCalcKind = "base" | "dd" | "px" | "rng" | "ax-prev" | "ax-last" | "ax-cont" | "ax-pause";
 
@@ -216,6 +217,7 @@ export interface ComboResult {
   net: number;
   trades: number;
   lastNPf: number;
+  activeLastN?: number;
   lastNWr: number;
   lastNNet: number;
   positive: boolean;
@@ -416,6 +418,8 @@ export interface Lane {
   status: LaneStatus;
   pf: number;
   lastNPf: number;
+  /** Window selected from this catalog lane's own available source tape. */
+  activeLastN?: number;
   mdd: number;
   wr: number;
   volumeFactor: number;
@@ -527,6 +531,7 @@ export interface ExchangeBook {
   orders: ExchangeOrder[];
   at: number;
   latencyMs: number;
+  feeRates?: { makerBps: number; takerBps: number; at: number };
   error?: string;
 }
 
@@ -808,6 +813,8 @@ export interface LivePosition {
   rangeSpacing: number;
   status: "open" | "partial";
   openedTick: number;
+  /** Modeled entry/exit assumptions captured when this position was opened. */
+  feeModel?: FeeModel;
   tactic?: TacticKind;
   kind?: StrategyKind;
   indication?: IndicationId;
@@ -843,6 +850,9 @@ export interface Fill {
   planned?: number;
   /** Bookkeeping from the exchange position. Never send this fill again. */
   liveEcho?: boolean;
+  /** Position snapshots do not establish the execution price or realized PnL. */
+  pnlKnown?: boolean;
+  priceKnown?: boolean;
 }
 
 export interface VstBatch {
@@ -858,6 +868,8 @@ export interface ClosedTrade {
   id: string;
   connId: string;
   symbol: string;
+  /** Present only when the originating strategy is proven by the close. */
+  strategyId?: string;
   side: Side;
   pnl: number;
   /** Net return vs entry after cost. 0 is breakeven (ratio base 1). */
@@ -881,6 +893,7 @@ export interface ClosedTrade {
   validExec?: boolean;
   /** Hour-protect scratch. Not a live loss and not an intern fill. */
   protect?: boolean;
+  examFlat?: boolean;
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
@@ -1119,6 +1132,8 @@ export interface SimReport {
 }
 
 export interface SimStageTape {
+  /** False when no selected sample exists; broad intern outcomes are not a substitute. */
+  available?: boolean;
   n: number;
   pf: number;
   net: number;
@@ -1200,6 +1215,7 @@ export interface LastNEvalRow {
   net: number;
   trades: number;
   ok: boolean;
+  unknown?: number;
 }
 
 export interface LaneEvalTrack {
@@ -1209,6 +1225,7 @@ export interface LaneEvalTrack {
   tactic: TacticKind;
   kind: StrategyKind;
   ns: LastNEvalRow[];
+  evidence?: "source-model" | "settled-identity";
   effective: boolean;
   lastAt: number;
 }
@@ -1221,6 +1238,7 @@ export interface CoordValidate {
   wr: number;
   lastN: number;
   recommend: string;
+  lanePassing?: number;
 }
 
 export interface StageEval {
@@ -1232,6 +1250,7 @@ export interface StageEval {
   mdd: number;
   trades: number;
   ok: boolean;
+  recorded?: boolean;
   effective: number;
   valid: number;
   pfAvg?: number;
@@ -1348,6 +1367,7 @@ export interface LosingHourState {
 }
 
 export interface VstEngine {
+  feeModel?: FeeModel;
   quotes: Record<string, VstQuote>;
   queue: LiveOrder[];
   orders: LiveOrder[];
@@ -1434,7 +1454,7 @@ export interface VstEngine {
   hourLive?: { hour: number; p: number; l: number; n: number; rp?: number; rl?: number };
   /** Lock arming to cfg.tpAtr×slOfTp so independent combo sims do not mix the GRID. */
   shortComboOnly?: boolean;
-  /** Pre-historic eval finished — valid-execute (last 15) and disable (last 12) gates apply. Real counted + Live run from valid. */
+  /** Pre-historic eval finished — configured valid-execute and active disable windows apply. */
   preEvalDone?: boolean;
   liveTape?: boolean;
   /** Live exchange book: keep limit orders resting instead of paper-filling them. */
@@ -1460,13 +1480,13 @@ export interface VstEngine {
   liveOpenN?: number;
   liveLegHint?: Record<string, { side?: Side; indication?: IndicationId; tactic?: TacticKind; playbook?: string; kind?: string; rangeType?: RangeType; tpAtr?: number; slOfTp?: number }>;
   /** Independent last-N PnL ring per short TP×SL (intern scoring). Never mixed with other combos. */
-  shortComboTape?: Record<string, { pnl: number }[]>;
+  shortComboTape?: Record<string, { pnl: number; ratio?: number }[]>;
   /** Snapshot of intern independent tapes at preEvalDone. Live start uses this, not post-pre intern. */
   shortComboPreTape?: Record<string, { pnl: number }[]>;
   /** Live validExec independent last-N per combo. Disable/continue uses this only. */
-  shortComboLiveTape?: Record<string, { pnl: number }[]>;
+  shortComboLiveTape?: Record<string, { pnl: number; ratio?: number }[]>;
   /** Intern last-N per indication:tactic:combo. Eval picks 1–10% valid from this. */
-  shortRelTape?: Record<string, { pnl: number }[]>;
+  shortRelTape?: Record<string, { pnl: number; ratio?: number }[]>;
   shortRelPreTape?: Record<string, { pnl: number }[]>;
   /** Frozen intern relations that passed post-eval (1–10% of intern n, much higher PF). */
   validRelKeys?: Record<string, number>;

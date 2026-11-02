@@ -642,6 +642,7 @@ export const placeBingxOrder = createServerFn({ method: "POST" })
       notional: number;
       confirmLive: boolean;
       connId?: string;
+      equity?: number;
       reduceOnly?: boolean;
       closePosition?: boolean;
       slAtr?: number;

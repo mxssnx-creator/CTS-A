@@ -1,0 +1,11 @@
+# Fee and progress integrity checkpoint — 2026-11-02
+
+The fallback model uses 8 bps taker and 5 bps maker per leg, with adverse slippage of 10% of each leg's fee. The modeled taker/taker allowance is 17.6 bps of unchanged notional; mixed maker/taker is 14.3 bps and maker/maker 11 bps. A leg's notional can change between entry and exit. Venue account rates, if available, override fallback rates; configured assumptions and the venue rate are estimates, not proof of an actual fill's fee or liquidity.
+
+The desk's synthetic strategy tapes, lane reports, position listings, simulations and stage evaluations use the active fee model. A held simulated position keeps its recorded assumptions. A position-quantity snapshot does not establish an execution price or realized P&L; snapshot echoes are marked with `priceKnown: false` and `pnlKnown: false` and do not book the current mark as realized P&L.
+
+A separate bot replay previously excluded losses after their outcomes were known. It now retains those closes. The synthetic 24-hour sandwich replay, seed 20260922 with 20 symbols, has 1,083 modeled closes, 47 losses, 10 red hours and PF 1.613871. This is a constructed-price simulation, not a venue fill or a future return forecast. Several older assertions requiring every hour to be green fail after correcting the accounting. The more extensive simulator stress previously measured PF 0.5091 over 31,963 modeled closes at the previous cost assumption; its profitability assertion remains unmet.
+
+Focused fee/progress tests: 55 passed on this checkpoint; the bot suite has 15 passes and 11 failures, mostly historical all-green or positive-PF expectations. The application development build passed. The repository typecheck reports 21 errors in existing test fixtures, with no new errors identified in the production files changed here. One minimum-hold test also fails identically at the original base commit.
+
+Unresolved: positive PF and full coverage for all strategies, stages and configurations are not established. Account commission lookup and actual fills were tested with mocks, not exchange credentials. The position-snapshot echo is not a fill reconciliation facility. Keep this branch in review until the failing tests and execution reconciliations are addressed.

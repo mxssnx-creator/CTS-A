@@ -462,7 +462,7 @@ export function ResultsView() {
       </div>
       {complete24?.hourly?.length ? (
         <Panel
-          title={`24h complete · $${complete24.startEquity ?? 10} · ${complete24.hours ?? 24}h × ${complete24.symbols ?? 30} + ${complete24.prehours ?? 20}h intern`}
+          title={`24h complete · $${complete24.startEquity ?? 10} · ${complete24.hours ?? 24}h × ${complete24.symbols ?? 30} + ${complete24.prehours ?? "unknown"}h intern`}
           action={
             <a className="text-xs text-primary underline-offset-2 hover:underline" href="/sim-24h-10usd.html" target="_blank" rel="noreferrer">
               Full HTML
@@ -571,7 +571,7 @@ export function ResultsView() {
         </Panel>
       ) : null}
       {!liveSnap.hasLive && completeHourly?.hourly?.length ? (
-        <Panel title={`Complete computing (sim) · ${completeHourly.hours ?? 12}h × ${completeHourly.symbols ?? 40} + ${completeHourly.prehours ?? 20}h pre`}>
+        <Panel title={`Complete computing (sim) · ${completeHourly.hours ?? 12}h × ${completeHourly.symbols ?? 40} + ${completeHourly.prehours ?? "unknown"}h pre`}>
           <p className="text-sm text-muted">
             Local hour-by-hour tape, not live exchange. PF {fmtPf(Number(completeHourly.pf ?? 0))} · paper {fmtPf(Number(completeHourly.paperPf ?? 0))} · n={completeHourly.trades ?? 0} ·
             green {completeHourly.greenHours ?? 0}/{completeHourly.hourly.length} · avg pos {fmtNum(completeHourly.avgPositions ?? 0, 1)} ·

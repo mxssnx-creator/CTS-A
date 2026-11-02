@@ -8,22 +8,21 @@ function seq(from: number, to: number, step: number): number[] {
 
 /** Base eval last-N: 15–80 step 5. */
 export const EVAL_POS_NS = seq(15, 80, 5);
-/** Valid execute last-N: 8–24 step 4. */
-export const VALID_EXEC_NS = seq(8, 24, 4);
+/** Valid execute last-N: 8, 10, 12, 16, 20 and 24. */
+export const VALID_EXEC_NS = [8, 10, 12, 16, 20, 24];
 /** Disable last-N: 6–20 step 2. */
 export const LIVE_DISABLE_NS = seq(6, 20, 2);
 
 export const EVAL_POS_N = 50;
 export const VALID_EXEC_POS_N = 15;
-export const LIVE_DISABLE_N = 12;
+export const LIVE_DISABLE_N = 10;
 
 /** PF scores the position return, not the dollar balance. `ratio` is net vs entry (0 = base 1). */
 export function edgePnl(row: { pnl?: number; ratio?: number } | null | undefined): number {
-  if (!row) return 0;
-  const ratio = Number(row.ratio);
-  if (Number.isFinite(ratio)) return ratio;
-  const pnl = Number(row.pnl);
-  return Number.isFinite(pnl) ? pnl : 0;
+  if (!row) return NaN;
+  // An explicitly unknown ratio cannot borrow a dollar result from a different or unproven basis.
+  if (row.ratio !== undefined) return typeof row.ratio === "number" && Number.isFinite(row.ratio) ? row.ratio : NaN;
+  return typeof row.pnl === "number" && Number.isFinite(row.pnl) ? row.pnl : NaN;
 }
 
 /** Average position multiple. 1 is flat after round-trip cost. Dollar qty and balance are ignored. */
@@ -33,14 +32,14 @@ export function positionAverageRatio(rows: { pnl?: number; ratio?: number }[] | 
   let n = 0;
   for (const row of rows) {
     const edge = edgePnl(row);
-    if (!Number.isFinite(edge)) continue;
+    if (!Number.isFinite(edge)) return NaN;
     sum += edge;
     n += 1;
   }
   return n ? 1 + sum / n : 1;
 }
 
-export type LastNWindowHit = { n: number; pf: number; avg: number; net: number; samples: number; ok: boolean };
+export type LastNWindowHit = { n: number; pf: number; avg: number; net: number; samples: number; ok: boolean; unknown?: number };
 
 export const DEFAULT_LAST_N_PROGRESS: LastNProgressConfig = {
   evalNs: [...EVAL_POS_NS],
@@ -107,20 +106,22 @@ export function lastNMaxOf(cfg: LastNProgressConfig): number {
 }
 
 /** Prefix sums over newest-first rows. O(min(len, maxN)) then O(1) per window. */
-export type LastNPrefix = { n: number; gp: number[]; gl: number[]; net: number[] };
+export type LastNPrefix = { n: number; gp: number[]; gl: number[]; net: number[]; unknown: number[] };
 
 export function lastNPrefix(rows: { pnl?: number; ratio?: number }[], maxN: number): LastNPrefix {
   const cap = Math.min(rows.length, Math.max(0, Math.round(maxN) || 0));
   const gp = new Array(cap + 1).fill(0);
   const gl = new Array(cap + 1).fill(0);
   const net = new Array(cap + 1).fill(0);
+  const unknown = new Array(cap + 1).fill(0);
   for (let i = 0; i < cap; i++) {
     const p = edgePnl(rows[i]);
+    unknown[i + 1] = unknown[i]! + (Number.isFinite(p) ? 0 : 1);
     gp[i + 1] = gp[i]! + (p > 0 ? p : 0);
     gl[i + 1] = gl[i]! + (p < 0 ? -p : 0);
-    net[i + 1] = net[i]! + p;
+    net[i + 1] = net[i]! + (Number.isFinite(p) ? p : 0);
   }
-  return { n: cap, gp, gl, net };
+  return { n: cap, gp, gl, net, unknown };
 }
 
 export function lastNHitFromPrefix(pre: LastNPrefix, n: number): LastNWindowHit {
@@ -129,16 +130,18 @@ export function lastNHitFromPrefix(pre: LastNPrefix, n: number): LastNWindowHit 
   const gp = pre.gp[k] ?? 0;
   const glv = pre.gl[k] ?? 0;
   const net = pre.net[k] ?? 0;
+  const unknown = pre.unknown[k] ?? 0;
   const pf = glv < 1e-12 ? (gp > 1e-12 ? 4 : 0) : gp / glv;
   const avg = k ? net / k : 0;
   const full = pre.n >= need;
   return {
     n: need,
-    pf: Number.isFinite(pf) ? pf : 0,
-    avg,
-    net,
+    pf: unknown ? 0 : Number.isFinite(pf) ? pf : 0,
+    avg: unknown ? NaN : avg,
+    net: unknown ? NaN : net,
     samples: k,
-    ok: full && pf + 1e-9 >= GATED_MIN_PF && avg >= 0,
+    ok: !unknown && full && pf + 1e-9 >= GATED_MIN_PF && avg >= 0,
+    ...(unknown ? { unknown } : {}),
   };
 }
 
@@ -248,13 +251,14 @@ export function decideLastNFromPrefix(
   const evalGood = (h: LastNWindowHit) => evalLastNGood(h, basePf);
   const validGood = (h: LastNWindowHit) => validLastNGood(h, minPf);
 
-  const indValid = lastNIndependentOk(validFull, validGood);
+  const incompleteUnknown = (pre.unknown[pre.n] ?? 0) > 0 && validFull.length === 0;
+  const indValid = !incompleteUnknown && lastNIndependentOk(validFull, validGood);
   const independent = indValid;
 
   const combEval = lastNCombinedOk(evalFull, evalGood);
   const combValid = lastNCombinedOk(validFull, validGood);
-  const combined = combEval && combValid;
-  const majority = lastNMajorityOk(validFull, validGood);
+  const combined = !incompleteUnknown && combEval && combValid;
+  const majority = !incompleteUnknown && lastNMajorityOk(validFull, validGood);
 
   let pass = combined;
   if (cfg.mode === "independent") pass = independent;
@@ -329,7 +333,8 @@ function pickActiveNs(
 function pickDisableNs(hits: LastNWindowHit[], primary: number, fallback: number[]): number[] {
   const full = hits.filter((h) => h.samples >= h.n);
   const pool = (full.length ? full : hits.filter((h) => h.samples > 0)).slice();
-  const allow = (n: number) => fallback.includes(n) || n === primary;
+  // A configured multi-window grid is authoritative. Never inject the usual primary into a custom grid.
+  const allow = (n: number) => fallback.includes(n);
   const out: number[] = [];
   if (allow(primary)) addUnique(out, primary);
   if (!pool.length) return out.length ? out.sort((a, b) => a - b) : [fallback[0] ?? primary];
@@ -339,7 +344,7 @@ function pickDisableNs(hits: LastNWindowHit[], primary: number, fallback: number
   const worst = [...pool].sort((a, b) => a.avg - b.avg || a.pf - b.pf)[0];
   if (worst && worst.avg < 0 && allow(worst.n)) addUnique(out, worst.n);
   const sorted = out.sort((a, b) => a - b);
-  return sorted.length ? sorted.slice(0, 3) : [primary];
+  return sorted.length ? sorted.slice(0, 3) : fallback.slice(0, 1);
 }
 
 function modeFromDecision(d: LastNDecision, fallback: LastNPassMode): LastNPassMode {
@@ -394,9 +399,9 @@ export function coordinateLastN(
 /** Settings grid stays full; live / type evals use this slim cfg. */
 export function slimLastNProgress(cfg: LastNProgressConfig, pick: LastNCoordPick): LastNProgressConfig {
   return {
-    evalNs: pick.evalNs.length ? pick.evalNs : [EVAL_POS_N],
-    validNs: pick.validNs.length ? pick.validNs : [VALID_EXEC_POS_N],
-    disableNs: pick.disableNs.length ? pick.disableNs : [LIVE_DISABLE_N],
+    evalNs: pick.evalNs.length ? pick.evalNs : [...cfg.evalNs],
+    validNs: pick.validNs.length ? pick.validNs : [...cfg.validNs],
+    disableNs: pick.disableNs.length ? pick.disableNs : [...cfg.disableNs],
     mode: pick.mode,
     parallelStack: cfg.parallelStack,
     parallelVolRatio: cfg.parallelVolRatio,
@@ -430,7 +435,11 @@ export function scoreLastNGroup(
   const evalCount = evalWindowCount(cfg);
   if (rows.length < evalCount && rows.length < 5) {
     let net = 0;
-    for (const r of rows) net += edgePnl(r);
+    for (const r of rows) {
+      const value = edgePnl(r);
+      if (!Number.isFinite(value)) return { n: rows.length, pf: 0, net: NaN, ok: false, stack: 1 };
+      net += value;
+    }
     return { n: rows.length, pf: 0, net, ok: true, stack: 1 };
   }
   if (rows.length < evalCount) {
@@ -478,6 +487,7 @@ function tapeFold(rows: { pnl?: number; ratio?: number }[]): { n: number; pf: nu
   let net = 0;
   for (const r of rows) {
     const p = edgePnl(r);
+    if (!Number.isFinite(p)) return { n: rows.length, pf: 0, net: NaN };
     net += p;
     if (p > 0) gp += p;
     else if (p < 0) gl += -p;

@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
@@ -705,7 +705,7 @@ function klineBar(row: unknown): { px: number; hi: number; lo: number } | null {
   return null;
 }
 
-/** Last 24 one-hour bars so the 20h lookback has room. ATR is that 20h mean true range, as a fraction of price. */
+/** One-hour bars for the configured prehistoric window. ATR is mean true range as a fraction of price. */
 export async function fetchPrehistory(network: "mainnet" | "testnet"): Promise<Map<string, { atrFrac: number; hourFrac: number; bars: { px: number; hi: number; lo: number }[] }>> {
   const hosts = HOSTS[network];
   const host = hosts[0]!;
@@ -718,8 +718,8 @@ export async function fetchPrehistory(network: "mainnet" | "testnet"): Promise<M
       if (!id) break;
       const vs = BINGX_SYMBOL[id] ?? (id.includes("-") ? id : `${id.replace(/USDT$/i, "")}-USDT`);
       for (const path of [
-        `${host}/openApi/swap/v3/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=24`,
-        `${host}/openApi/swap/v2/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=24`,
+        `${host}/openApi/swap/v3/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=${SHORT_EVAL_HOURS + 4}`,
+        `${host}/openApi/swap/v2/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=${SHORT_EVAL_HOURS + 4}`,
       ]) {
         try {
           const got = await getJson(path);
@@ -1151,8 +1151,9 @@ async function signedJson(
   connId: string,
   path: string,
   extra?: Record<string, string | number>,
+  credentials?: { apiKey: string; secret: string },
 ): Promise<{ ok: boolean; data?: unknown; ms: number; error?: string }> {
-  const { apiKey, secret } = resolveKeys(connId, undefined, undefined);
+  const { apiKey, secret } = resolveKeys(connId, credentials?.apiKey, credentials?.secret);
   if (!apiKey || !secret) return { ok: false, ms: 0, error: "API key and secret required" };
   let last = "request failed";
   let ms = 0;
@@ -1170,6 +1171,33 @@ async function signedJson(
     }
   }
   return { ok: false, ms, error: last };
+}
+
+export function parseAccountFees(data: unknown): { makerBps: number; takerBps: number } | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const x = data as Record<string, unknown>;
+  const row = x.commission && typeof x.commission === "object" && !Array.isArray(x.commission)
+    ? x.commission as Record<string, unknown> : x;
+  const rate = (v: unknown) => {
+    if ((typeof v !== "number" && typeof v !== "string") || (typeof v === "string" && !v.trim())) return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 && n <= .01 ? +(n * 10_000).toFixed(8) : null;
+  };
+  const makerBps = rate(row.makerCommissionRate), takerBps = rate(row.takerCommissionRate);
+  return makerBps === null || takerBps === null ? null : { makerBps, takerBps };
+}
+const accountFeeCache = new Map<string, { at: number; next: number; rates?: { makerBps: number; takerBps: number } }>();
+async function accountFees(network: "mainnet" | "testnet", connId: string, credentials: { apiKey: string; secret: string }) {
+  const key = `${network}:${connId}:${createHash("sha256").update(credentials.apiKey).update("\0").update(credentials.secret).digest("hex")}`;
+  const now = Date.now(), previous = accountFeeCache.get(key);
+  if (previous && now < previous.next) return previous.rates && now - previous.at <= 2 * 3_600_000
+    ? { ...previous.rates, at: previous.at } : undefined;
+  const result = await signedJson(network, connId, "/openApi/swap/v2/user/commissionRate", undefined, credentials);
+  const rates = result.ok ? parseAccountFees(result.data) : null;
+  const row = rates ? { at: now, next: now + 3_600_000, rates }
+    : { at: previous?.at ?? 0, next: now + 60_000, rates: previous?.rates };
+  accountFeeCache.set(key, row);
+  return row.rates && now - row.at <= 2 * 3_600_000 ? { ...row.rates, at: row.at } : undefined;
 }
 
 export async function querySymbolLeverage(
@@ -1220,10 +1248,11 @@ export async function fetchExchangeBook(input: {
   const { apiKey, secret } = resolveKeys(input.connId, input.apiKey, input.secret);
   if (!apiKey || !secret) return { ...empty, error: "API key and secret required" };
 
-  const [ping, posRes, ordFirst] = await Promise.all([
+  const [ping, posRes, ordFirst, feeRates] = await Promise.all([
     pingAccount({ apiKey, secret, network: input.network, connId: input.connId }),
     signedJson(input.network, input.connId, "/openApi/swap/v2/user/positions"),
     signedJson(input.network, input.connId, "/openApi/swap/v2/trade/openOrders"),
+    accountFees(input.network, input.connId, { apiKey, secret }),
   ]);
   let ordRes = ordFirst;
   if (!ordRes.ok) {
@@ -1284,6 +1313,7 @@ export async function fetchExchangeBook(input: {
     orders,
     at: Date.now(),
     latencyMs: ms,
+    feeRates,
     error: ordErr || (!ping.ok ? ping.error : undefined),
   };
 }
