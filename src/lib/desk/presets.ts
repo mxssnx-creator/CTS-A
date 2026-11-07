@@ -8,11 +8,12 @@ export interface SettingsPreset {
   blurb: string;
   builtin: boolean;
   patch: Partial<DeskSettingsSnap>;
-  /** Measured tape. Positions are unique symbol+side. Orders count each partial on its own. */
+  /** Historical tape; legacy preset figures require rerun after settlement repairs. */
   info?: PresetTapeInfo;
 }
 
 export interface PresetTapeInfo {
+  evidenceStatus?: "legacy-unverified";
   winHoursPct: number;
   pf: number;
   ddt: number;
@@ -593,6 +594,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       enabledKinds: [...DEFAULT_ENABLED_KINDS],
     },
     info: {
+      evidenceStatus: "legacy-unverified",
       winHoursPct: 1,
       pf: 1.179,
       ddt: 356,
@@ -659,6 +661,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       sessionPhase: "running",
     },
     info: {
+      evidenceStatus: "legacy-unverified",
       winHoursPct: 1,
       pf: 1.289,
       ddt: 84,
@@ -724,6 +727,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       sessionPhase: "running",
     },
     info: {
+      evidenceStatus: "legacy-unverified",
       winHoursPct: 1,
       pf: 1.241,
       ddt: 22,
@@ -796,6 +800,7 @@ export const BUILTIN_PRESETS: SettingsPreset[] = [
       comboOnlyPositive: true,
     },
     info: {
+      evidenceStatus: "legacy-unverified",
       winHoursPct: 1,
       pf: 2.034,
       ddt: 0,

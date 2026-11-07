@@ -1,4 +1,5 @@
 import type { LastNCompleteScore, LastNOverallScore, LastNPassMode, LastNProgressConfig } from "./types";
+import { profitFactor } from "./profit-factor.ts";
 
 function seq(from: number, to: number, step: number): number[] {
   const out: number[] = [];
@@ -24,6 +25,14 @@ export function edgePnl(row: { pnl?: number; ratio?: number } | null | undefined
   if (Number.isFinite(ratio)) return ratio;
   const pnl = Number(row.pnl);
   return Number.isFinite(pnl) ? pnl : 0;
+}
+
+/** A missing or corrupt return is not a zero-return observation. */
+export function measuredEdgePnl(row: { pnl?: number; ratio?: number } | null | undefined): number {
+  if (!row) return NaN;
+  if (row.ratio !== undefined && row.ratio !== null)
+    return Number.isFinite(row.ratio) ? row.ratio : NaN;
+  return Number.isFinite(row.pnl) ? row.pnl! : NaN;
 }
 
 /** Average position multiple. 1 is flat after round-trip cost. Dollar qty and balance are ignored. */
@@ -107,20 +116,23 @@ export function lastNMaxOf(cfg: LastNProgressConfig): number {
 }
 
 /** Prefix sums over newest-first rows. O(min(len, maxN)) then O(1) per window. */
-export type LastNPrefix = { n: number; gp: number[]; gl: number[]; net: number[] };
+export type LastNPrefix = { n: number; gp: number[]; gl: number[]; net: number[]; invalid?: number[] };
 
 export function lastNPrefix(rows: { pnl?: number; ratio?: number }[], maxN: number): LastNPrefix {
   const cap = Math.min(rows.length, Math.max(0, Math.round(maxN) || 0));
   const gp = new Array(cap + 1).fill(0);
   const gl = new Array(cap + 1).fill(0);
   const net = new Array(cap + 1).fill(0);
+  const invalid = new Array(cap + 1).fill(0);
   for (let i = 0; i < cap; i++) {
-    const p = edgePnl(rows[i]);
+    const measured = measuredEdgePnl(rows[i]);
+    const p = Number.isFinite(measured) ? measured : 0;
+    invalid[i + 1] = invalid[i]! + (Number.isFinite(measured) ? 0 : 1);
     gp[i + 1] = gp[i]! + (p > 0 ? p : 0);
     gl[i + 1] = gl[i]! + (p < 0 ? -p : 0);
     net[i + 1] = net[i]! + p;
   }
-  return { n: cap, gp, gl, net };
+  return { n: cap, gp, gl, net, invalid };
 }
 
 export function lastNHitFromPrefix(pre: LastNPrefix, n: number): LastNWindowHit {
@@ -129,7 +141,7 @@ export function lastNHitFromPrefix(pre: LastNPrefix, n: number): LastNWindowHit 
   const gp = pre.gp[k] ?? 0;
   const glv = pre.gl[k] ?? 0;
   const net = pre.net[k] ?? 0;
-  const pf = glv < 1e-12 ? (gp > 1e-12 ? 4 : 0) : gp / glv;
+  const pf = pre.invalid?.[k] ? 0 : profitFactor(gp, glv);
   const avg = k ? net / k : 0;
   const full = pre.n >= need;
   return {
@@ -142,7 +154,7 @@ export function lastNHitFromPrefix(pre: LastNPrefix, n: number): LastNWindowHit 
   };
 }
 
-export function lastNWindows(rows: { pnl: number }[], ns: readonly number[]): LastNWindowHit[] {
+export function lastNWindows(rows: { pnl?: number; ratio?: number }[], ns: readonly number[]): LastNWindowHit[] {
   if (!rows.length || !ns.length) return [];
   const maxN = Math.max(1, ...ns.map((n) => Math.round(n)));
   const pre = lastNPrefix(rows, maxN);
@@ -457,32 +469,18 @@ export function scoreLastNGroup(
   };
 }
 
-function agreeWindowPf(hits: LastNWindowHit[]): number {
-  if (!hits.length) return 0;
-  let best = 0;
-  const excess: number[] = [];
-  for (const h of hits) {
-    if (h.pf > best) best = h.pf;
-    excess.push(Math.max(0, h.pf - 1));
-  }
-  excess.sort((a, b) => b - a);
-  const second = excess[1] ?? 0;
-  const lift = Math.min(second, (excess[0] ?? 0) * 0.25, 0.35);
-  const pf = best + lift;
-  return pf > 4 ? 4 : pf;
-}
-
 function tapeFold(rows: { pnl?: number; ratio?: number }[]): { n: number; pf: number; net: number } {
   let gp = 0;
   let gl = 0;
   let net = 0;
   for (const r of rows) {
-    const p = edgePnl(r);
+    const p = measuredEdgePnl(r);
+    if (!Number.isFinite(p)) return { n: rows.length, pf: 0, net: 0 };
     net += p;
     if (p > 0) gp += p;
     else if (p < 0) gl += -p;
   }
-  const pf = gl < 1e-12 ? (gp > 1e-12 ? 4 : 0) : gp / gl;
+  const pf = profitFactor(gp, gl);
   return { n: rows.length, pf: Number.isFinite(pf) ? pf : 0, net };
 }
 
@@ -512,15 +510,14 @@ export function scoreLastNModeTape(
   const longest = [...validFull].sort((a, b) => b.n - a.n || b.pf - a.pf)[0];
   const evalOkHits = d.evalHits.filter((h) => h.samples >= h.n && evalLastNGood(h, basePf));
   const bestEval = [...evalOkHits].sort((a, b) => b.pf - a.pf || b.n - a.n)[0];
-  // Two or more positive base windows (eval 50 and 30): combined is the stronger window
-  // plus the next window's edge, capped at the no-loss PF. Never the diluted longer tape.
-  const agreeLift = mode === "combined" && d.pass && evalOkHits.length >= 2 ? agreeWindowPf(evalOkHits) : 0;
+  // Agreement determines admission, not a synthetic return bonus. Report the
+  // selected window's measured PF with its own sample count and net.
   const gated = mode === "combined"
     ? (d.pass && evalOkHits.length >= 2 ? bestEval : (d.pass ? longestOk : longest)) ?? longestOk ?? longest
     : mode === "majority"
       ? (validOk.length >= MAJORITY_MIN_POSITIVE ? longestOk : (best ?? longest)) ?? longest
       : (d.pass ? best : (best ?? longest)) ?? longestOk ?? longest;
-  const gatedPf = agreeLift > 0 ? agreeLift : (gated?.pf ?? 0);
+  const gatedPf = gated?.pf ?? 0;
   const gatedN = gated?.n ?? 0;
   const net = gated?.net ?? st.net;
   const floor = gatedFloorPf(minPf);
@@ -533,7 +530,7 @@ export function scoreLastNModeTape(
     !tinyNoLoss;
   return {
     pass: Boolean(d.pass && gatedOk && majorityOk),
-    pf: agreeLift > 0 ? agreeLift : (gated?.pf ?? st.pf),
+    pf: gated?.pf ?? st.pf,
     n: gated?.n ?? st.n,
     net,
     gatedPf,

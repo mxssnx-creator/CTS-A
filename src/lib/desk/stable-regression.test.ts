@@ -10,6 +10,7 @@ import { findPreset, STABLE_PRESET_ID } from "./presets.ts";
 import { LIVE_MAX_POSITIONS, countPositionSlots, countWorkingOrders } from "./feed.ts";
 import {
   initVstEngine,
+  refreshProgressEvals,
   LIVE_RUN_CFG,
   liveShouldExecute,
   rankIndications,
@@ -30,6 +31,8 @@ const PACK = {
   bollinger: 0,
   sar: 0,
   macd: 0,
+  hf: false, hits: 1, timing: 0,
+  relations: { pulse: 0, range: 0, vol: 0, dir: 0, volRange: 0, pulseDir: 0, rangeDir: 0, agree: 0, hf: false, timing: 0 },
   agree: true,
   activity: 0.2,
   lastPart: 0,
@@ -133,11 +136,13 @@ describe("stable reference", () => {
     assert.equal(preset!.patch.symbolCount, 50);
     assert.ok((preset!.info?.pf ?? 0) >= 2);
     assert.equal(preset!.info?.winHoursPct, 1);
+    assert.equal(preset!.info?.evidenceStatus, "legacy-unverified", "old hourly scratches invalidate a current performance claim");
   });
 
   it("arms the higher profit factor first after the base exam", () => {
     const e = engine();
     e.progressEval = {
+      ...refreshProgressEvals(e),
       indications: {
         trend: { n: 12, pf: 2.4, net: 1, ok: true },
         ema: { n: 12, pf: 1.05, net: 0.1, ok: true },
@@ -146,7 +151,7 @@ describe("stable reference", () => {
         trailing: { n: 12, pf: 2.2, net: 1, ok: true },
         axis: { n: 12, pf: 1.1, net: 0.1, ok: true },
       },
-    } as typeof e.progressEval;
+    };
     assert.equal(rankIndications(e, PACK, "ema")[0], "trend");
     assert.equal(rankTactics(e, "axis")[0], "trailing");
   });

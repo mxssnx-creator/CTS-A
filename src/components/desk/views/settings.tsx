@@ -512,6 +512,9 @@ export function SettingsView() {
                 return (
                   <div key={p.id} className="border border-border bg-bg px-3 py-2">
                     <p className="text-xs font-semibold">{p.label}</p>
+                    {info.evidenceStatus === "legacy-unverified" ? (
+                      <p className="mt-1 text-xs text-muted">Historical estimate needs revalidation. Its PF and winning-hour figures predate the settlement correction.</p>
+                    ) : null}
                     <p className="mt-1 text-[11px] leading-4 text-muted">
                       Positions are one per symbol and side. Orders count every partial on its own, not merged into the position.
                     </p>
