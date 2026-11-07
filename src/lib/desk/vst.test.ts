@@ -1,3 +1,4 @@
+import type { LivePosition } from "./types.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
@@ -4254,17 +4255,17 @@ describe("VST engine", () => {
     held.playbook = "axis";
     held.openedTick = 1;
     held.validExec = true;
-    trailOff.positions = [held as never];
+    trailOff.positions = [held];
     const q = trailOff.quotes.BTCUSDT;
     q.px = 1.18;
     q.hi = 1.2;
     q.lo = 1.1;
-    tickVst(trailOff, { ...CFG, trailingPct: 1.5, maxHoldTicks: 20000 }, "axis", { skipWalk: true, minHold: 1 });
+    tickVst(trailOff, { ...CFG, trailingPct: 1.5, maxHoldTicks: 20000 }, "axis", { skipWalk: true });
     const stopped = trailOff.positions.find((p) => p.symbol === "BTCUSDT" && p.side === "long");
     assert.ok(stopped, "axis position stays open");
     assert.equal(stopped!.sl, 0.9);
     trailOff.strategyToggles.trailing = true;
-    tickVst(trailOff, { ...CFG, trailingPct: 1.5, maxHoldTicks: 20000 }, "axis", { skipWalk: true, minHold: 1 });
+    tickVst(trailOff, { ...CFG, trailingPct: 1.5, maxHoldTicks: 20000 }, "axis", { skipWalk: true });
     const trailed = trailOff.positions.find((p) => p.symbol === "BTCUSDT" && p.side === "long");
     assert.ok(trailed && trailed.sl > 0.9, `axis trail ${trailed?.sl}`);
   });
@@ -6697,7 +6698,7 @@ function compactAndRequeue(e: ReturnType<typeof initVstEngine>) {
   assert.equal(c.orders.placed, accounted);
 }
 
-function stubPos(symbol: string, side: "long" | "short", connId = "bingx-vst-02") {
+function stubPos(symbol: string, side: "long" | "short", connId = "bingx-vst-02"): LivePosition {
   return {
     id: `${symbol}-${side}-${connId}`,
     connId,

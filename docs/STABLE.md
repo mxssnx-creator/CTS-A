@@ -1,3 +1,7 @@
+# Evidence correction — 2026-11-07
+
+The historical performance figures below predate the settlement correction in `execution-integrity-20261107.md`. Hour/lane protection could erase simulated losses, and combined-window PF included a synthetic bonus. Preserve these settings and old figures as history, but do not treat their PF or 100% winning-hour claim as revalidated performance. Builtin preset cards now identify that limitation. New settlements retain actual exit economics, costs and losses.
+
 # Stable — live breakpoint, 2026-09-29
 
 This tree is the restore point. Git tags `stable` and `breakpoint-0929` point here. The tape cell underneath is still `stable-12h-0928` (geometric short 0.48/0.75). Repair the live book from this breakpoint, not from an older tag.

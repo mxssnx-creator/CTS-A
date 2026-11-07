@@ -685,7 +685,7 @@ function paperSizeEquity(e: VstEngine): number {
 }
 /** Live hour stays non-negative and inside a tight PF band. Intern exam is never flattened. */
 const STABLE_HOUR_PF = 1.08;
-/** Missing coords keep the hour scratch. Newer tactics run only when their switch is on. */
+/** Missing coords retain future-entry hour controls. Settlement evidence is never scratched. */
 export function pfCoordOn(e: VstEngine, key: keyof PfCoordToggles): boolean {
   const c = e.pfCoords;
   if (!c) return key === "hourKeep";
@@ -817,44 +817,11 @@ function hourLaneOf(e: VstEngine, key: string): HourLaneBag {
   }
   return bag;
 }
-/** A loss that would turn this playbook or indication hour red. */
-function laneHourBreak(e: VstEngine, key: string, ratio: number): boolean {
-  if (!(completeOpenTape(e) || performingLive(e))) return false;
-  if (!(ratio < 0)) return false;
-  const bag = hourLaneOf(e, key);
-  const nextL = bag.l + -ratio;
-  const nextNet = bag.p - nextL;
-  const nextPf = nextL > 1e-12 ? bag.p / nextL : 0;
-  if (nextNet < 1e-9) return true;
-  if (bag.p > 1e-12 && nextPf + 1e-9 < STABLE_HOUR_PF) return true;
-  return false;
-}
 function noteHourLane(e: VstEngine, key: string, ratio: number) {
   if (!Number.isFinite(ratio) || ratio === 0) return;
   const bag = hourLaneOf(e, key);
   if (ratio > 0) bag.p += ratio;
   else bag.l += -ratio;
-}
-function hourProtectSkip(e: VstEngine, pnl: number, validExec: boolean, ratio = 0): boolean {
-  if (!pfCoordOn(e, "hourKeep")) return false;
-  if (!validExec || pnl >= -1e-12) return false;
-  if (!(completeOpenTape(e) || performingLive(e))) return false;
-  const hour = Math.floor(Math.max(0, e.tick - 1) / TICKS_PER_HOUR);
-  const bag = e.hourLive;
-  if (!bag || bag.hour !== hour) return true;
-  const nextP = bag.p;
-  const nextL = bag.l + Math.abs(pnl);
-  const nextNet = nextP - nextL;
-  const nextPf = nextL > 1e-12 ? nextP / nextL : nextP > 0 ? STABLE_HOUR_PF : 0;
-  if (nextNet < 1e-9 || (nextP > 1e-12 && nextPf + 1e-9 < STABLE_HOUR_PF)) return true;
-  if (ratio < 0) {
-    const rp = bag.rp ?? 0;
-    const rl = (bag.rl ?? 0) + -ratio;
-    const rNet = rp - rl;
-    const rPf = rl > 1e-12 ? rp / rl : rp > 0 ? STABLE_HOUR_PF : 0;
-    if (rNet < 1e-9 || (rp > 1e-12 && rPf + 1e-9 < STABLE_HOUR_PF)) return true;
-  }
-  return false;
 }
 function noteHourLive(e: VstEngine, pnl: number, gated: boolean, ratio = 0) {
   if (!gated) return;
@@ -1467,7 +1434,7 @@ function signalKeys(e: VstEngine, connId?: string): Set<string> {
     keys.add(signalKey(symbol, side));
   };
   for (const p of e.positions) {
-    if (!(p.qty > 0) && p.status === "closed") continue;
+    if (!(p.qty > 0)) continue;
     take(p.connId, p.symbol, p.side, p.playbook);
   }
   for (const o of e.queue) take(o.connId, o.symbol, o.side, o.playbook);
@@ -4960,17 +4927,13 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   const bank = fav >= gain && (green || adverse < risk);
   const cut = !bank && adverse >= risk && move <= 0;
   if (!bank && !cut) return;
-  let exit = bank
+  const exit = bank
     ? (p.side === "long" ? bpx + gain : bpx - gain)
     : (p.side === "long" ? bpx - risk : bpx + risk);
   if (!(exit > 0)) return;
   const signed = p.side === "long" ? 1 : -1;
-  const pnl0 = closePnl(signed, bpx, exit, bq);
-  const ratio0 = positionNetRatio(signed, bpx, exit);
-  const laneBreak = ratio0 < 0 && (laneHourBreak(e, "play:block", ratio0) || laneHourBreak(e, `ind:${String(p.indication || "trend")}`, ratio0));
-  const pnl = laneBreak ? 0 : pnl0;
-  const ratio = laneBreak ? 0 : ratio0;
-  if (laneBreak) exit = bpx;
+  const pnl = closePnl(signed, bpx, exit, bq);
+  const ratio = positionNetRatio(signed, bpx, exit);
   const parentQty = p.qty - bq;
   const parentCost = p.avgEntry * p.qty - bpx * bq;
   const restored = parentCost / parentQty;
@@ -4982,15 +4945,14 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   p.blockAvg = 0;
   p.blockTick = 0;
   p.realized = (p.realized || 0) + pnl;
-  const reason: "tp" | "sl" = laneBreak ? "sl" : bank ? "tp" : "sl";
-  if (!laneBreak) {
-    bumpBookPf(e, "block", ratio);
-    bumpBookPf(e, `block:${reason}`, ratio);
-    noteHourLane(e, "play:block", ratio);
-    noteHourLane(e, `ind:${String(p.indication || "trend")}`, ratio);
-  }
+  const reason: "tp" | "sl" = bank ? "tp" : "sl";
+  bumpBookPf(e, "block", ratio);
+  bumpBookPf(e, `block:${reason}`, ratio);
+  noteHourLane(e, "play:block", ratio);
+  noteHourLane(e, `ind:${String(p.indication || "trend")}`, ratio);
   bookRealized(e, pnl, reason);
-  if (!laneBreak) noteLaneLive(e, "block", ratio);
+  noteLaneLive(e, "block", ratio);
+  noteHourLive(e, pnl, p.validExec === true, ratio);
   const row: VstEngine["closed"][number] = {
     id: nextId(e, "c"),
     connId: p.connId,
@@ -5013,7 +4975,6 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
     level,
     blockQty: bq,
     validExec: p.validExec === true,
-    protect: laneBreak || undefined,
     tpAtr: p.tpAtr,
     slOfTp: p.slOfTp,
     trailPct: p.trailPct,
@@ -5021,8 +4982,8 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   };
   e.closed.unshift(row);
   noteTickClose(e, row);
-  if (!laneBreak && countsOnBlockTape(e, p.validExec === true)) recordBlockClose(e, p, ratio);
-  if (!laneBreak && bank && ratio > 0) queueWinAgain(e, p);
+  if (countsOnBlockTape(e, p.validExec === true)) recordBlockClose(e, p, ratio);
+  if (bank && ratio > 0) queueWinAgain(e, p);
 }
 
 function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl" | "tp" | "time", opts?: { skipComboTape?: boolean }) {
@@ -5031,24 +4992,14 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     return;
   }
   const signed = p.side === "long" ? 1 : -1;
-  let pnl = closePnl(signed, p.avgEntry, exit, p.qty);
-  const risk = Math.max(p.slDist * p.qty, positionNotional(paperSizeEquity(e), e.costStep || 10) * 0.25, 1e-9);
-  if (Math.abs(pnl) > risk * 8) pnl = Math.sign(pnl) * risk * 8;
-  if (!Number.isFinite(pnl)) pnl = 0;
-  const economic = pnl;
-  const ratio0 = positionNetRatio(signed, p.avgEntry, exit);
+  const pnl = closePnl(signed, p.avgEntry, exit, p.qty);
+  const ratio = positionNetRatio(signed, p.avgEntry, exit);
+  if (!Number.isFinite(pnl) || !Number.isFinite(ratio)) throw new RangeError("Invalid settlement economics");
   const botBook = String(p.playbook || "").startsWith("bot:");
   const playKey = `play:${String(p.playbook || "short")}`;
   const indKey = `ind:${String(p.indication || "trend")}`;
-  const laneBreak = !botBook && p.validExec === true && ratio0 < 0 && (laneHourBreak(e, playKey, ratio0) || laneHourBreak(e, indKey, ratio0));
-  const protect = !botBook && p.validExec === true && (hourProtectSkip(e, economic, true, ratio0) || laneBreak);
-  if (protect) {
-    exit = p.avgEntry;
-    pnl = 0;
-    notePfCoord(e, "scratch");
-  }
-  const ratio = protect ? 0 : ratio0;
-  if (!botBook && !protect) {
+  // Admission controls can affect future entries, never rewrite an owned close.
+  if (!botBook) {
     const bq = Math.min(p.qty, Math.max(0, p.blockQty || 0));
     const parentQty = Math.max(0, p.qty - bq);
     let parentAvg = p.avgEntry;
@@ -5058,7 +5009,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     }
     const parentRatio = parentAvg !== p.avgEntry ? positionNetRatio(signed, parentAvg, exit) : ratio;
     const axis = p.tactic === "axis" || p.playbook === "axis";
-    const plainParent = unadjustedNormalOrder({ ...p, blockQty: 0, blockLevel: 0, playbook: p.playbook === "block" ? "short" : p.playbook });
+    const plainParent = unadjustedNormalOrder({ ...p, blockLevel: 0, playbook: p.playbook === "block" ? "short" : p.playbook });
     if (plainParent && parentQty > 1e-8 && p.playbook !== "block") {
       bumpBookPf(e, "normal", parentRatio);
       bumpBookPf(e, `normal:${reason}`, parentRatio);
@@ -5076,11 +5027,11 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
       bumpBookPf(e, `block:${reason}`, ratio);
     }
   }
-  if (!botBook && !protect && ratio < 0) noteLaneLoss(e, p.symbol, p.indication, p.tactic, ratio);
+  if (!botBook && ratio < 0) noteLaneLoss(e, p.symbol, p.indication, p.tactic, ratio);
   if (!botBook) {
     if (p.validExec === true && p.indication) noteLiveInd(e, p.indication, ratio, p.tactic);
     noteHourFlow(e, p.indication, ratio);
-    if (!protect && p.validExec === true) {
+    if (p.validExec === true) {
       noteHourLane(e, playKey, ratio);
       noteHourLane(e, indKey, ratio);
     }
@@ -5105,9 +5056,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     e.ledger.tpExits += 1;
     e.cooldown[cooldownKey(p.connId, p.symbol)] = e.tick + (completeOpenTape(e) || performingLive(e) ? 1 : 8);
   }
-  if (!botBook && protect) {
-    // Flat scratch is not a win or a loss. Do not grow the loss streak.
-  } else if (!botBook && pnl > 0) {
+  if (!botBook && pnl > 0) {
     e.ledger.winStreak += 1;
     e.ledger.lossStreak = 0;
     if (e.ledger.winStreak > e.ledger.maxWinStreak) e.ledger.maxWinStreak = e.ledger.winStreak;
@@ -5138,7 +5087,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     else if (ratio < 0) tape.ratioLoss = (tape.ratioLoss ?? 0) + -ratio;
     if (reason === "sl") tape.sl += 1;
     else if (reason === "tp") tape.tp += 1;
-    noteHourLive(e, pnl, p.validExec === true && !protect, ratio);
+    noteHourLive(e, pnl, p.validExec === true, ratio);
   }
   const closedRow = {
     id: p.id,
@@ -5164,7 +5113,6 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     blockQty: p.blockQty,
     dcaQty: p.dcaQty,
     validExec: p.validExec === true,
-    protect: protect || undefined,
     examFlat: opts?.skipComboTape || undefined,
     tpAtr: p.tpAtr,
     slOfTp: p.slOfTp,
@@ -5174,7 +5122,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   };
   e.closed.unshift(closedRow);
   noteTickClose(e, closedRow);
-  const gatedClose = p.validExec === true && !protect;
+  const gatedClose = p.validExec === true;
   if (gatedClose && e.preEvalDone && !botBook) {
     noteLiveBooks(e, {
       tactic: p.tactic ?? e.lastTactic,
@@ -5203,7 +5151,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
       slOfTp: p.slOfTp,
     });
   }
-  if (!botBook && !protect && !opts?.skipComboTape) noteConfigSample(e, closedRow);
+  if (!botBook && !opts?.skipComboTape) noteConfigSample(e, closedRow);
   if (e.closed.length > (e.completeSim && paperMode(e) ? 2500 : 600)) {
     const cap = e.completeSim && paperMode(e) ? 2500 : 600;
     const keptBots = e.closed.filter((c) => isBotPlay(c.playbook));
@@ -5226,7 +5174,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   });
   if (e.fills.length > VST_FILL_KEEP) e.fills.length = VST_FILL_KEEP;
   cancelLane(e, p);
-  if (!botBook && !protect && ratio > 0.0012) queueWinAgain(e, p);
+  if (!botBook && ratio > 0.0012) queueWinAgain(e, p);
 }
 const dcaOvCache = new WeakMap<VstEngine, { tick: number; stamp: string; n: number; pf: number }>();
 

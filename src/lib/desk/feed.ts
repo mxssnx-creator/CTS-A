@@ -647,6 +647,7 @@ export const placeBingxOrder = createServerFn({ method: "POST" })
       slAtr?: number;
       tpRatio?: number;
       attachProtect?: boolean;
+      equity?: number;
       clientOrderId?: string;
     }) => {
       if (!d?.confirmLive) throw new Error("Live confirm required");

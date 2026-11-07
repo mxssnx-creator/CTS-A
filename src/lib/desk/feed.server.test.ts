@@ -242,7 +242,8 @@ describe("live feed", () => {
     assert.equal(isOwnedExchangeOrder(ours, "bingx-x01"), true);
     assert.equal(isOwnedExchangeOrder(foreign, "bingx-x01"), false);
     assert.equal(isOwnedExchangeOrder({ clientOrderId: "", owned: true }, "bingx-x01"), false);
-    assert.equal(isOwnedExchangeOrder({ clientOrderId: "trailing-bot", type: "TRAILING_TP_SL" }, "bingx-x01"), false);
+    const foreignTrailing = { clientOrderId: "trailing-bot", type: "TRAILING_TP_SL" };
+    assert.equal(isOwnedExchangeOrder(foreignTrailing, "bingx-x01"), false);
     const keys = ownKeysFromOrders([ours, foreign, otherConn].filter(Boolean), "bingx-x01");
     assert.equal(keys.has("ETHUSDT:long"), true);
     assert.equal(keys.has("BTCUSDT:short"), false);

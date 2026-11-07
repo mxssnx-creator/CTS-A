@@ -1,3 +1,5 @@
+import { profitFactor } from "./profit-factor.ts";
+export { profitFactor, PF_NO_LOSS } from "./profit-factor.ts";
 import type {
   Backtest,
   BlockConfig,
@@ -101,6 +103,7 @@ import {
   LIVE_DISABLE_N,
   DEFAULT_LAST_N_PROGRESS,
   edgePnl,
+  measuredEdgePnl,
 } from "./last-n-progress.ts";
 export { EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N };
 
@@ -120,14 +123,6 @@ export const UNIT_NOTIONAL = 12;
 export const POSITION_RT_COST_PCT = 0.0012;
 export const POSITION_RT_COST_ACTUAL = 0.001;
 /** Gross-profit / gross-loss. No-loss winners cap here (PF is undefined otherwise). */
-export const PF_NO_LOSS = 4;
-export function profitFactor(profit: number, loss: number): number {
-  const gp = Number.isFinite(profit) ? Math.max(0, profit) : 0;
-  const gl = Number.isFinite(loss) ? Math.max(0, loss) : 0;
-  if (gl < 1e-12) return gp > 1e-12 ? PF_NO_LOSS : 0;
-  const pf = gp / gl;
-  return Number.isFinite(pf) ? pf : 0;
-}
 
 /**
  * Position-ratio PF. 1 is flat after round-trip cost.
@@ -135,14 +130,11 @@ export function profitFactor(profit: number, loss: number): number {
  * net return measured in cost units, so a larger edge prints a larger PF.
  */
 export function ratioProfitFactor(profit: number, loss: number, wins = 0): number {
-  const gp = Number.isFinite(profit) ? Math.max(0, profit) : 0;
-  const gl = Number.isFinite(loss) ? Math.max(0, loss) : 0;
-  if (gl >= 1e-12) {
-    const pf = gp / gl;
-    return Number.isFinite(pf) ? pf : 0;
-  }
+  if (!Number.isFinite(profit) || !Number.isFinite(loss) || profit < 0 || loss < 0) return 0;
+  const gp = profit, gl = loss;
+  if (gl > 0) return profitFactor(gp, gl);
   const n = Math.max(0, Math.floor(Number(wins) || 0));
-  if (!(gp > 1e-12) || n < 1) return 0;
+  if (!(gp > 0) || n < 1) return 0;
   const pf = 1 + gp / (n * POSITION_RT_COST_PCT);
   return Number.isFinite(pf) ? pf : 0;
 }
@@ -151,7 +143,8 @@ export function pfFromPnls(rows: { pnl?: number; ratio?: number }[] | undefined 
   let gp = 0;
   let gl = 0;
   for (const r of rows) {
-    const p = edgePnl(r);
+    const p = measuredEdgePnl(r);
+    if (!Number.isFinite(p)) return 0;
     if (p > 0) gp += p;
     else if (p < 0) gl -= p;
   }
@@ -371,8 +364,8 @@ export function minimalComboKey(tpCost: number, slOfTp: number): string {
 export function minimalControlPrices(
   side: "long" | "short",
   entry: number,
-  tpCost = MINIMAL_WINNER.tpCost,
-  slOfTp = MINIMAL_WINNER.slOfTp,
+  tpCost: number = MINIMAL_WINNER.tpCost,
+  slOfTp: number = MINIMAL_WINNER.slOfTp,
 ): { sl: number; tp: number; slDist: number; tpDist: number } {
   const px = Math.max(entry, 1e-12);
   const cost = px * POSITION_COST_PCT;

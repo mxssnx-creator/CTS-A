@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { BlockPosWindow, LivePosition } from "./types.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, shortControlPrices } from "./engine.ts";
 import { adjustActiveBlocks, enabledLiveTactics, initVstEngine, LIVE_RUN_CFG, liveShouldExecute, rankIndications, simulateHours, tickVst, unadjustedNormalOrder, VST_DEFAULT_CONN } from "./vst.ts";
 
@@ -14,6 +15,10 @@ const CFG = {
   tpRatio: 1 / 1.7,
   maxHoldTicks: 24,
 };
+
+function blockWindow(n: number, closed: number, lastPf: number): BlockPosWindow {
+  return { n, closed, lastPf, ring: [], pauseLeft: 0, lastAvg: 0, lastNet: 0, windows: 0, lossWindows: 0, adjusted: 0, losers: [] };
+}
 
 function book(symbolCount = 4) {
   const e = initVstEngine(CFG, { warmup: 2, symbolCount, arm: false, equity: 10, costStep: 3 });
@@ -35,7 +40,7 @@ function seedLong(e: ReturnType<typeof book>, drop = 0.97) {
   q.lo = Math.min(q.lo, q.px * 0.998);
   q.hi = Math.max(q.hi, entry);
   q.vol = Math.max(q.vol, 0.02);
-  const pos = {
+  const pos: LivePosition = {
     id: "p-seed",
     connId: e.activeConnId || VST_DEFAULT_CONN,
     symbol,
@@ -254,8 +259,8 @@ describe("Block and DCA", () => {
     e.positions = [mk(ids[0]!, "long", 2, "ema"), mk(ids[1]!, "short", -0.2, "break")];
     e.blockWindowsBySymbol = {
       [ids[1]!]: {
-        1: { closed: 12, lastPf: 0.7, wins: 2, n: 1 },
-        3: { closed: 12, lastPf: 0.7, wins: 2, n: 3 },
+        1: blockWindow(1, 12, 0.7),
+        3: blockWindow(3, 12, 0.7),
       },
     };
     const block = {
@@ -299,13 +304,13 @@ describe("Block and DCA", () => {
     e.queue = [];
     e.orders = [];
     e.blockLanes = {};
-    e.blockWindows = { 1: { closed: 12, lastPf: 0.8, wins: 2, n: 1 } };
+    e.blockWindows = { 1: blockWindow(1, 12, 0.8) };
     adjustActiveBlocks(e, CFG, "trailing", block, "atr");
     const bookLevel = (note: string) => /^Overall Block (shared|additive) #/.test(note);
     const blocked = e.queue.filter((o) => /^Overall Block (shared|additive) #1 /.test(o.note));
     assert.equal(blocked.length, 0, "book Overall N=1 added under a losing closed PF");
     assert.ok(e.queue.some((o) => bookLevel(o.note) && /#3 /.test(o.note)), "later N still uses the higher open-book PF");
-    e.blockWindows = { 1: { closed: 12, lastPf: 1.4, wins: 9, n: 1 } };
+    e.blockWindows = { 1: blockWindow(1, 12, 1.4) };
     e.queue = [];
     e.orders = [];
     e.blockLanes = {};
@@ -346,6 +351,7 @@ describe("Block and DCA", () => {
         price: 1,
         remaining: 1,
         status: "queued",
+        level: 1, sl: 0.9, tp: 1.1, slDist: 0.1, tpDist: 0.1, batchId: "fixture",
         rangeType: "atr",
         playbook: "short",
         kind: "short",
@@ -365,6 +371,7 @@ describe("Block and DCA", () => {
         price: 1,
         remaining: 1,
         status: "queued",
+        level: 1, sl: 0.9, tp: 1.1, slDist: 0.1, tpDist: 0.1, batchId: "fixture",
         rangeType: "atr",
         playbook: "axis",
         kind: "mean",
@@ -409,6 +416,7 @@ describe("Block and DCA", () => {
         price: 1,
         remaining: 1,
         status: "queued",
+        level: 1, sl: 0.9, tp: 1.1, slDist: 0.1, tpDist: 0.1, batchId: "fixture",
         rangeType: "atr",
         playbook: "axis",
         tactic: "axis",
@@ -460,6 +468,7 @@ describe("Block and DCA", () => {
         price: 1,
         remaining: 1,
         status: "queued",
+        level: 1, sl: 0.9, tp: 1.1, slDist: 0.1, tpDist: 0.1, batchId: "fixture",
         rangeType: "atr",
         playbook: "axis",
         tactic: "axis",
@@ -479,7 +488,7 @@ describe("Block and DCA", () => {
         return "book";
       }),
     );
-    for (const scope of ["book", "symbol", "dir", "indication", "type", "indType"]) {
+    for (const scope of ["book", "symbol", "dir", "indication", "type", "indType"] as const) {
       assert.ok(scopes.has(scope), `missing ${scope}`);
     }
   });
@@ -605,6 +614,7 @@ describe("Block and DCA", () => {
       symbol: pos.symbol,
       side: "long" as const,
       pnl: -0.2,
+      entry: 1, exit: 0.6, reason: "sl" as const, r: -1,
       ratio: -0.4,
       qty: 2,
       blockQty: 1,
@@ -733,13 +743,13 @@ describe("Block and DCA", () => {
     };
     const { pos } = seedLong(e, 1.01);
     pos.unrealized = 1;
-    e.blockWindowsByType = { trailing: { 1: { closed: 12, lastPf: 0.7, wins: 2, n: 1, ring: [], pauseLeft: 0, lastAvg: 0, lastNet: 0, windows: 2, lossWindows: 1, adjusted: 0, losers: [] } } };
+    e.blockWindowsByType = { trailing: { 1: { closed: 12, lastPf: 0.7, n: 1, ring: [], pauseLeft: 0, lastAvg: 0, lastNet: 0, windows: 2, lossWindows: 1, adjusted: 0, losers: [] } } };
     adjustActiveBlocks(e, CFG, "trailing", e.blockCfg, "atr");
     assert.equal(e.queue.some((o) => /Overall Block type/.test(o.note || "")), false, "cold type still sized");
     e.queue = [];
     e.orders = [];
     e.blockLanes = {};
-    e.blockWindowsByType = { trailing: { 1: { closed: 12, lastPf: 1.45, wins: 9, n: 1, ring: [], pauseLeft: 0, lastAvg: 0, lastNet: 0, windows: 2, lossWindows: 0, adjusted: 0, losers: [] } } };
+    e.blockWindowsByType = { trailing: { 1: { closed: 12, lastPf: 1.45, n: 1, ring: [], pauseLeft: 0, lastAvg: 0, lastNet: 0, windows: 2, lossWindows: 0, adjusted: 0, losers: [] } } };
     const hot = adjustActiveBlocks(e, CFG, "trailing", e.blockCfg, "atr");
     assert.ok(hot.added > 0, "high type PF added nothing");
     assert.ok(e.queue.some((o) => /Overall Block type/.test(o.note || "")), "high type PF did not size Overall type");
@@ -796,6 +806,8 @@ describe("Block and DCA", () => {
       macd: 0.9,
       ema: 0.2,
       agree: true,
+      hf: false, hits: 1, timing: 0,
+      relations: { pulse: 0, range: 0, vol: 0, dir: 0, volRange: 0, pulseDir: 0, rangeDir: 0, agree: 0, hf: false, timing: 0 },
       activity: 0.4,
       lastPart: 0,
       drawdown: 0,
@@ -821,7 +833,7 @@ describe("Block and DCA", () => {
       indication: "break" as const,
       tactic: "axis" as const,
       playbook: "axis",
-      kind: "axis",
+      kind: "mean",
       rangeType: "volume" as const,
       tpAtr: 0.48,
       slOfTp: 0.75,
@@ -857,7 +869,7 @@ describe("Block and DCA", () => {
         tick: i + 1,
         r: 1,
         playbook: "axis",
-        kind: "axis",
+        kind: "mean",
         tactic: "axis",
         indication: "break",
         rangeType: "volume",
