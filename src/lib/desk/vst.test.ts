@@ -3745,7 +3745,7 @@ describe("VST engine", () => {
     finiteNum(ov.avgConfigPf, ov.runningSymbols, ov.configsLive);
   });
 
-  it("seeds hour and last-N PF from complete winner when the tape is empty", () => {
+  it("seeds an explicit research preview while empty execution windows remain empty", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4 });
     const winner = {
       tactic: "hybrid" as const,
@@ -3764,7 +3764,18 @@ describe("VST engine", () => {
       { ...winner, hours: 4, pf: 2.0, trades: 16 },
       { ...winner, hours: 24, pf: 2.1, trades: 40 },
     ];
-    const ov = overallLiveStats(e);
+    const actual = overallLiveStats(e);
+    assert.equal(actual.trades, 0);
+    assert.equal(actual.pf, 0);
+    assert.equal(actual.researchSeeded, false);
+    assert.ok(Object.values(actual.hours).every((row) => row.n === 0 && row.pf === 0));
+    assert.ok(Object.values(actual.lastN).every((row) => row.n === 0 && row.pf === 0));
+    const overlay = overlayExchangeBook(actual, { positions: [], orders: [] } as never, e);
+    assert.equal(overlay.trades, 0);
+    assert.equal(overlay.pf, 0);
+    assert.equal(overlay.avgConfigPf, 0);
+    const ov = overallLiveStats(e, { seed: true });
+    assert.equal(ov.researchSeeded, true);
     assert.ok(ov.hours["1"].pf >= 1.8);
     assert.ok(ov.hours["4"].pf >= 1.9);
     assert.ok(ov.hours["50"].pf >= 1);

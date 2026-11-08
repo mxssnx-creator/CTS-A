@@ -74,3 +74,8 @@ later model decisions, so its rerun has a different cohort. The corrected 8-symb
 Axis + Block result is 9 closes/PF 0.8133033, superseding the earlier 0.8099 figure
 above. No high-PF preset is supported by these results. This simulator still uses
 generated prices; no exchange parity or future return guarantee is implied.
+
+Empty execution statistics also no longer borrow a completed research winner by default.
+An explicit research preview can opt in and is marked `researchSeeded`; exchange-book
+overlays never seed an empty execution history. The regression verifies empty overall,
+hourly and Last-N counts/PF, plus the separately requested research preview.

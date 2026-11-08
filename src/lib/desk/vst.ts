@@ -10278,6 +10278,7 @@ function intervalBucket(e: VstEngine, minutes: number): OverallBucket {
 }
 
 type SeedableStats = {
+  researchSeeded?: boolean;
   hours?: Record<string, OverallBucket>;
   lastN?: Record<string, OverallBucket>;
   overall?: OverallBucket;
@@ -10293,6 +10294,7 @@ export function seedStatsFromComplete(stats: SeedableStats, e: VstEngine): Seeda
   const winner = (e as { completeWinner?: CompleteCell }).completeWinner;
   const cells = (e as { completeCells?: CompleteCell[] }).completeCells ?? [];
   if (!winner && !cells.length) return stats;
+  stats.researchSeeded = true;
   const byH = new Map<number, CompleteCell>();
   for (const c of cells) {
     const h = Number(c.hours);
@@ -10446,6 +10448,7 @@ export function overallLiveStats(e: VstEngine, opts?: { seed?: boolean }) {
       ? deskPos.filter((p) => (p.kind ?? "") !== "normal")
       : deskPos;
   const stats = {
+    researchSeeded: false,
     overall: ov,
     open,
     bySymbol,
@@ -10483,7 +10486,8 @@ export function overallLiveStats(e: VstEngine, opts?: { seed?: boolean }) {
     intervalVolScale: e.intervalVolScale ?? intervalVolumeScale(e),
     intervalPf: e.intervalPf ?? lastIntervalStats(e).pf,
   };
-  if (opts?.seed !== false) seedStatsFromComplete(stats, e);
+  // Empty execution windows remain empty. A research preview must opt in explicitly.
+  if (opts?.seed === true) seedStatsFromComplete(stats, e);
   return stats;
 }
 
@@ -10615,9 +10619,7 @@ export function overlayExchangeBook(
     (b) => b.n > 0 || (b.openN ?? 0) > 0,
   );
   stats.configsLive = liveBuckets.length;
-  const winner = (e as { completeWinner?: { pf: number } }).completeWinner;
-  if (winner && Number(winner.pf) > 0 && !(stats.trades > 0)) stats.avgConfigPf = Number(winner.pf);
-  else if (typeof stats.pf === "number" && stats.trades > 0) stats.avgConfigPf = stats.pf;
+  stats.avgConfigPf = typeof stats.pf === "number" && stats.trades > 0 ? stats.pf : 0;
   if (stats.hours) {
     for (const b of Object.values(stats.hours)) {
       if (!b) continue;
@@ -10633,7 +10635,6 @@ export function overlayExchangeBook(
       b.openN = pos.length;
     }
   }
-  seedStatsFromComplete(stats, e);
   return stats;
 }
 
