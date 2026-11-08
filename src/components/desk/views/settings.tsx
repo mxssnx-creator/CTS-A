@@ -55,6 +55,7 @@ import {
   DEFAULT_LAST_N_PROGRESS,
   shortSlAtrOf,
   shortTpRatioOf,
+  MICRO_TP_PCT,
   MINIMAL_TP_COST,
   MINIMAL_SL_OF_TP,
   MINIMAL_WINNER,
@@ -1101,6 +1102,9 @@ export function SettingsView() {
               </select>
               <span className="mt-1 block text-muted">Uses known price-percent targets and Minimal cost steps; stricter lane floors remain.</span>
             </label>
+            <RangeKnob label="Minimum SL above costs (%)" value={cfg.minSlDistancePct ?? 0.1} min={0.1} max={1} step={0.1}
+              format={(n) => `${n.toFixed(1)}%`} ariaLabel="Minimum initial stop distance above costs"
+              onChange={(n) => setCfg({ minSlDistancePct: n })} />
             <RangeKnob label="Step PF ratio" value={cfg.stepPf?.ratio ?? 0.2} min={0.1} max={1.5} step={0.05}
               format={(n) => n.toFixed(2)} ariaLabel="Step profit factor ratio"
               onChange={(n) => setCfg({ stepPf: { enabled: true, max: 2, ...cfg.stepPf, ratio: n } })} />
@@ -1224,7 +1228,7 @@ export function SettingsView() {
             configs before Axis / Block overlays (default 1.1). Axis PF (1.5) and Block PF (1.6) are
             independent and can sit below Overall. Raise Overall to lift the default book; Axis and
             Block keep their own floors. A lane is live-positive only if its PF, MDD, WR, volume
-            factor (≥ 1.05) and drawdown time all clear. Position unit is 0.12% of equity; every close deducts 0.12% RT.
+            factor (≥ 1.05) and drawdown time all clear. Position sizing uses its configured equity fraction. Modeled costs use maker/taker fees and fee-relative slippage; measured fills retain their actual fees.
           </p>
         </Panel>
       </div>
@@ -1242,7 +1246,7 @@ export function SettingsView() {
               onChange={(n) => {
                 const tpAtr = snapTpAtr(n);
                 const slOfTp = snapSlOfTp(cfg.slOfTp ?? 1);
-                setCfg({ tpAtr, slOfTp, slAtr: slAtrOf(tpAtr, slOfTp), tpRatio: tpRatioOf(slOfTp) });
+                setCfg({ microRange: false, minimalRange: false, shortRange: false, tpAtr, slOfTp, slAtr: slAtrOf(tpAtr, slOfTp), tpRatio: tpRatioOf(slOfTp) });
               }}
               onCommit={applyLive}
               ariaLabel="Take-profit ATR multiple"
@@ -1259,7 +1263,7 @@ export function SettingsView() {
                       aria-pressed={on}
                       onClick={() => {
                         const tpAtr = snapTpAtr(cfg.tpAtr ?? 1);
-                        setCfg({ slOfTp: r, tpAtr, slAtr: slAtrOf(tpAtr, r), tpRatio: tpRatioOf(r) });
+                        setCfg({ microRange: false, minimalRange: false, shortRange: false, slOfTp: r, tpAtr, slAtr: slAtrOf(tpAtr, r), tpRatio: tpRatioOf(r) });
                         applyLive();
                       }}
                       className={`${chip} min-w-11 ${on ? chipOn : chipOff}`}
@@ -1270,8 +1274,31 @@ export function SettingsView() {
                 })}
               </div>
               <span className="text-[11px] text-subtle">
-                SL {cfg.slAtr.toFixed(2)} ATR · R {cfg.tpRatio.toFixed(3)} · TP≥0.8 · SL≥1.0×TP · trail 1.4–1.5
+                Requested SL ratio {cfg.slOfTp?.toFixed(2)}× TP · initial stop raised when needed by the overall minimum
               </span>
+            </div>
+            <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
+              <span className="text-xs font-medium text-muted">Micro · 0.2–0.3% price targets</span>
+              <div className="flex flex-wrap gap-1">
+                {MICRO_TP_PCT.map((tpAtr) => <button key={tpAtr} type="button"
+                  aria-pressed={cfg.microRange === true && cfg.tpAtr === tpAtr}
+                  className={`${chip} ${cfg.microRange && cfg.tpAtr === tpAtr ? chipOn : chipOff}`}
+                  onClick={() => { const slOfTp = snapSlOfTp(cfg.slOfTp ?? .5);
+                    setCfg({ microRange: true, minimalRange: false, shortRange: false, tpAtr, slOfTp,
+                      slAtr: tpAtr * slOfTp, tpRatio: 1 / slOfTp, maxHoldTicks: 15 }); applyLive(); }}>
+                  {tpAtr.toFixed(1)}%
+                </button>)}
+                {SL_OF_TP.map((slOfTp) => <button key={slOfTp} type="button"
+                  aria-label={`Micro SL ratio ${slOfTp}`}
+                  aria-pressed={cfg.microRange === true && cfg.slOfTp === slOfTp}
+                  className={`${chip} ${cfg.microRange && cfg.slOfTp === slOfTp ? chipOn : chipOff}`}
+                  onClick={() => { const tpAtr = cfg.microRange ? cfg.tpAtr ?? .2 : .2;
+                    setCfg({ microRange: true, minimalRange: false, shortRange: false, tpAtr, slOfTp,
+                      slAtr: tpAtr * slOfTp, tpRatio: 1 / slOfTp, maxHoldTicks: 15 }); applyLive(); }}>
+                  {slOfTp.toFixed(2)}×
+                </button>)}
+              </div>
+              <p className="text-xs text-muted">Micro keeps its own target and position identity. Initial SL uses the overall cost-plus-distance minimum. Qualification uses completed history.</p>
             </div>
             <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
               <span className="text-xs font-medium text-muted">Short-range strategy (live TP {DEFAULT_SHORT_MIN_TP_ATR.toFixed(2)}–0.60 · SL ≥ {DEFAULT_SHORT_MIN_SL_OF_TP.toFixed(2)}×TP)</span>
@@ -1281,12 +1308,12 @@ export function SettingsView() {
                   aria-pressed={Boolean(cfg.shortRange)}
                   onClick={() => {
                     if (cfg.shortRange) {
-                      setCfg({ shortRange: false, minimalRange: false, tpAtr: 1, slOfTp: 1, slAtr: slAtrOf(1, 1), tpRatio: tpRatioOf(1) });
+                      setCfg({ shortRange: false, minimalRange: false, microRange: false, tpAtr: 1, slOfTp: 1, slAtr: slAtrOf(1, 1), tpRatio: tpRatioOf(1) });
                     } else {
                       const { tpAtr, slOfTp } = clampLiveShortProtect(cfg.tpAtr ?? SHORT_WINNER.tpAtr, cfg.slOfTp ?? SHORT_WINNER.slOfTp);
                       setCfg({
                         shortRange: true,
-                        minimalRange: false,
+                        minimalRange: false, microRange: false,
                         tpAtr,
                         slOfTp,
                         slAtr: shortSlAtrOf(tpAtr, slOfTp),
@@ -1312,7 +1339,7 @@ export function SettingsView() {
                         const slOfTp = Math.max(DEFAULT_SHORT_MIN_SL_OF_TP, snapShortSlOfTp(cfg.slOfTp ?? SHORT_WINNER.slOfTp));
                         setCfg({
                           shortRange: true,
-                          minimalRange: false,
+                          minimalRange: false, microRange: false,
                           tpAtr: t,
                           slOfTp,
                           slAtr: shortSlAtrOf(t, slOfTp),
@@ -1337,7 +1364,7 @@ export function SettingsView() {
                         const tpAtr = clampLiveShortProtect(cfg.shortRange && cfg.tpAtr ? cfg.tpAtr : SHORT_WINNER.tpAtr, r).tpAtr;
                         setCfg({
                           shortRange: true,
-                          minimalRange: false,
+                          minimalRange: false, microRange: false,
                           tpAtr,
                           slOfTp: r,
                           slAtr: shortSlAtrOf(tpAtr, r),
@@ -1353,23 +1380,23 @@ export function SettingsView() {
                 })}
               </div>
               <span className="text-[11px] text-subtle">
-                Live TP/SL chips start at {DEFAULT_SHORT_MIN_TP_ATR.toFixed(2)} / {DEFAULT_SHORT_MIN_SL_OF_TP.toFixed(2)} (0.30–0.45 and 0.50× failed). Intern still scores the full grid. overall PF {th.shortPf?.toFixed(2) ?? "0.95"} · base PF {th.shortBasePf?.toFixed(2) ?? "0.70"}
+                Live TP/SL chips start at {DEFAULT_SHORT_MIN_TP_ATR.toFixed(2)} / {DEFAULT_SHORT_MIN_SL_OF_TP.toFixed(2)} with the shared initial-stop floor. Each combination is scored independently. overall PF {th.shortPf?.toFixed(2) ?? "0.95"} · base PF {th.shortBasePf?.toFixed(2) ?? "0.70"}
               </span>
             </div>
             <div className="flex min-w-0 flex-col gap-1 sm:col-span-2">
-              <span className="text-xs font-medium text-muted">Minimal range (under short) · TP {MINIMAL_TP_COST[0]}–{MINIMAL_TP_COST[MINIMAL_TP_COST.length - 1]}× position cost · SL 1–3× TP</span>
+              <span className="text-xs font-medium text-muted">Minimal range (under short) · TP {MINIMAL_TP_COST[0]}–{MINIMAL_TP_COST[MINIMAL_TP_COST.length - 1]}× position cost · SL 0.25–2.5× TP</span>
               <div className="flex flex-wrap gap-1">
                 <button
                   type="button"
                   aria-pressed={Boolean(cfg.minimalRange)}
                   onClick={() => {
                     if (cfg.minimalRange) {
-                      setCfg({ minimalRange: false, shortRange: false, tpAtr: 1, slOfTp: 1, slAtr: slAtrOf(1, 1), tpRatio: tpRatioOf(1) });
+                      setCfg({ minimalRange: false, microRange: false, shortRange: false, tpAtr: 1, slOfTp: 1, slAtr: slAtrOf(1, 1), tpRatio: tpRatioOf(1) });
                     } else {
                       const tpAtr = MINIMAL_WINNER.tpCost;
                       const slOfTp = MINIMAL_WINNER.slOfTp;
                       setCfg({
-                        minimalRange: true,
+                        minimalRange: true, microRange: false,
                         shortRange: false,
                         tpAtr,
                         slOfTp,
@@ -1411,7 +1438,7 @@ export function SettingsView() {
                       onClick={() => {
                         const slOfTp = snapMinimalSlOfTp(cfg.slOfTp ?? MINIMAL_WINNER.slOfTp);
                         setCfg({
-                          minimalRange: true,
+                          minimalRange: true, microRange: false,
                           shortRange: false,
                           tpAtr: t,
                           slOfTp,
@@ -1437,7 +1464,7 @@ export function SettingsView() {
                       onClick={() => {
                         const tpAtr = snapMinimalTpCost(cfg.minimalRange && cfg.tpAtr ? cfg.tpAtr : MINIMAL_WINNER.tpCost);
                         setCfg({
-                          minimalRange: true,
+                          minimalRange: true, microRange: false,
                           shortRange: false,
                           tpAtr,
                           slOfTp: r,
@@ -1455,7 +1482,7 @@ export function SettingsView() {
                 })}
               </div>
               <span className="text-[11px] text-subtle">
-                Default {MINIMAL_WINNER.tpCost.toFixed(2)}× cost / SL {MINIMAL_WINNER.slOfTp.toFixed(2)}× · hold {MINIMAL_WINNER.maxHoldTicks} · trail 3.00×/1.75 and 3.00×/1.25. Axis + Block. Under the 0.5% floor.
+                Default {MINIMAL_WINNER.tpCost.toFixed(2)}× cost / SL {MINIMAL_WINNER.slOfTp.toFixed(2)}× · hold {MINIMAL_WINNER.maxHoldTicks} · trail 3.00×/1.75 and 3.00×/1.25. Axis + Block. Initial SL respects costs plus the shared net distance.
               </span>
             </div>
             <RangeKnob
@@ -1481,24 +1508,24 @@ export function SettingsView() {
               ariaLabel="Short-range base PF"
             />
             <RangeKnob
-              label="DCA"
-              value={1}
+              label="DCA total legs"
+              value={cfg.dcaCount}
               min={1}
-              max={1}
+              max={3}
               step={1}
-              format={() => "off"}
-              onChange={() => setCfg({ dcaCount: 1 })}
-              ariaLabel="DCA disabled"
+              format={(n) => n === 1 ? "no adds" : `${n - 1} adds`}
+              onChange={(n) => setCfg({ dcaCount: n })}
+              ariaLabel="DCA total legs"
             />
             <RangeKnob
-              label="DCA drawdown"
-              value={0}
-              min={0}
-              max={0}
-              step={1}
-              format={() => "off"}
-              onChange={() => undefined}
-              ariaLabel="DCA drawdown disabled"
+              label="DCA trigger coefficient"
+              value={cfg.dcaDrawdown}
+              min={0.3}
+              max={1.6}
+              step={0.1}
+              format={(n) => n.toFixed(1)}
+              onChange={(n) => setCfg({ dcaDrawdown: n })}
+              ariaLabel="DCA trigger coefficient"
             />
             <RangeKnob
               label="Axis levels"
@@ -1721,7 +1748,7 @@ export function SettingsView() {
           </div>
           <p className="mt-3 text-xs text-muted">
             Last parts {shortProgress.lastParts.join("/")} · activity {shortProgress.activityWindows.join("/")}h ·
-            TP {shortProgress.minTpAtr.toFixed(2)}–{(shortProgress.maxTpAtr ?? 0.6).toFixed(2)} / min SL {shortProgress.minSlOfTp.toFixed(2)} (live floor 0.48 / 0.75; intern still scores 0.30–0.60) ·
+            TP {shortProgress.minTpAtr.toFixed(2)}–{(shortProgress.maxTpAtr ?? 0.6).toFixed(2)} / min SL {shortProgress.minSlOfTp.toFixed(2)} (all supported cells are evaluated independently) ·
             auto-eval {shortProgress.evalHours ?? 20}h · {shortProgress.evalPositiveOnly !== false ? "positive PF only" : "allow PF under 1"} ·
             base under 1 is allowed for overlay; Block default {shortProgress.blockPf.toFixed(2)}.
           </p>

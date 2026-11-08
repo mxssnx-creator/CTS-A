@@ -15,27 +15,27 @@ import {
 } from "./engine.ts";
 
 describe("minimal range", () => {
-  it("covers position-cost TP 1–3 and SL 1–3 of TP at 0.25", () => {
+  it("covers position-cost TP 1–3 and SL 0.25–2.5 of TP at 0.25", () => {
     assert.equal(MINIMAL_TP_COST[0], 1);
     assert.equal(MINIMAL_TP_COST[MINIMAL_TP_COST.length - 1], 3);
     assert.equal(MINIMAL_TP_COST.length, 9);
-    assert.equal(MINIMAL_SL_OF_TP.length, 9);
-    assert.equal(allMinimalCombos().length, 81);
+    assert.equal(MINIMAL_SL_OF_TP.length, 10);
+    assert.equal(allMinimalCombos().length, 90);
     for (let i = 1; i < MINIMAL_TP_COST.length; i++) {
       assert.ok(Math.abs(MINIMAL_TP_COST[i]! - MINIMAL_TP_COST[i - 1]! - 0.25) < 1e-9);
     }
   });
 
-  it("prices from position cost and sits under the short floor at 1×", () => {
+  it("retains a 1× cost target while raising SL by the shared net distance", () => {
     const px = 100;
     const row = minimalControlPrices("long", px, 1, 1);
     const cost = px * POSITION_RT_COST_PCT;
     assert.ok(Math.abs(row.tpDist - cost) < 1e-9);
-    assert.ok(Math.abs(row.slDist - cost) < 1e-9);
+    assert.ok(Math.abs(row.slDist - cost - px * SYSTEM_MIN_SL_PCT / 100) < 1e-9);
     assert.ok(row.tp > px && row.sl < px);
     const short = shortControlPrices("long", px, px * 0.01, 0.3, 1);
     assert.ok(row.tpDist < short.tpDist);
-    assert.ok(row.slDist + 1e-12 < px * (SYSTEM_MIN_SL_PCT / 100));
+    assert.ok(row.slDist >= cost + px * (SYSTEM_MIN_SL_PCT / 100) - 1e-12);
   });
 
   it("keeps the SL/TP ratio on a wider cell", () => {

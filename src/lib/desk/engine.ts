@@ -1,3 +1,4 @@
+import { SL_TP_RATIOS, SL_TP_MIN, SL_TP_MAX, SL_TP_STEP, DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection } from "./protection-policy.ts";
 import { roundTripFeeRate } from "./fee-policy.ts";
 import { profitFactor } from "./profit-factor.ts";
 export { profitFactor, PF_NO_LOSS } from "./profit-factor.ts";
@@ -192,7 +193,8 @@ export function unitClosePnl(side: number, entry: number, exit: number, notional
 /** Hard floor — volume factor cannot be gated below this. */
 export const MIN_VOLUME_FACTOR = 1.05;
 /** Price-percent stop floor. Stops may not sit closer than this. ATR may widen only to 1.25×. */
-export const SYSTEM_MIN_SL_PCT = 0.5;
+/** @deprecated Use minimumStopDistance with the entry fee snapshot. */
+export const SYSTEM_MIN_SL_PCT = DEFAULT_MIN_SL_DISTANCE_PCT;
 
 /**
  * Price distance. `specifiedPct` is the minimum rate (percent of price).
@@ -302,28 +304,38 @@ export function shortControlPrices(
   atr: number,
   tpAtr = 0.48,
   slOfTp = 1,
+  rtCost = POSITION_RT_COST_PCT,
+  minSlDistancePct = DEFAULT_MIN_SL_DISTANCE_PCT,
 ): { sl: number; tp: number; slDist: number; tpDist: number } {
   const px = Math.max(entry, 1e-12);
-  const minSl = px * (SYSTEM_MIN_SL_PCT / 100);
-  const a = Math.max(atr, px * 0.004);
-  const slOf = Math.max(0.4, slOfTp);
-  let tpDist = Math.max(a * Math.max(0.2, tpAtr), px * 0.004);
-  let slDist = Math.max(tpDist * slOf, minSl);
-  if (slDist > tpDist * slOf + 1e-12) tpDist = slDist / slOf;
-  const sl = side === "long" ? px - slDist : px + slDist;
-  const tp = side === "long" ? px + tpDist : px - tpDist;
-  return { sl, tp, slDist, tpDist };
+  const tpDist = Math.max(Number(atr) || 0, px * 1e-9) * snapShortTpAtr(tpAtr);
+  return initialProtection(side, px, tpDist * snapShortSlOfTp(slOfTp), tpDist, rtCost, minSlDistancePct);
 }
 
-/** Minimal range sits under short. TP is 1–3× position cost, step 0.25. SL is 1–3× that TP, step 0.25. */
+/** Micro uses the CTS-G lowest absolute targets; costs affect SL and net PnL once. */
+export const MICRO_TP_PCT = [0.2, 0.3] as const;
+export function snapMicroTpPct(value: number): number {
+  return snapMinimalStep(value, MICRO_TP_PCT, MICRO_TP_PCT[0]);
+}
+export function microControlPrices(side: "long" | "short", entry: number, tpPct = .2, slOfTp = .5,
+  rtCost = POSITION_RT_COST_PCT, minSlDistancePct = DEFAULT_MIN_SL_DISTANCE_PCT) {
+  const tpDist = entry * snapMicroTpPct(tpPct) / 100;
+  return initialProtection(side, entry, tpDist * snapSlOfTp(slOfTp), tpDist, rtCost, minSlDistancePct);
+}
+export function allMicroCombos() {
+  return MICRO_TP_PCT.flatMap(tpAtr => SL_OF_TP.map(slOfTp => ({ microRange: true as const,
+    minimalRange: false, shortRange: false, tpAtr, slOfTp, slAtr: tpAtr * slOfTp, tpRatio: 1 / slOfTp })));
+}
+
+/** Minimal range sits under short. TP is 1–3× position cost, step 0.25. SL uses the shared 0.25–2.5× TP grid, step 0.25. */
 export const MINIMAL_TP_COST_MIN = 1;
 export const MINIMAL_TP_COST_MAX = 3;
 export const MINIMAL_TP_COST_STEP = 0.25;
 export const MINIMAL_TP_COST = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3] as const;
-export const MINIMAL_SL_OF_TP_MIN = 1;
-export const MINIMAL_SL_OF_TP_MAX = 3;
-export const MINIMAL_SL_OF_TP_STEP = 0.25;
-export const MINIMAL_SL_OF_TP = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3] as const;
+export const MINIMAL_SL_OF_TP_MIN = SL_TP_MIN;
+export const MINIMAL_SL_OF_TP_MAX = SL_TP_MAX;
+export const MINIMAL_SL_OF_TP_STEP = SL_TP_STEP;
+export const MINIMAL_SL_OF_TP = SL_TP_RATIOS;
 export type MinimalTpCost = (typeof MINIMAL_TP_COST)[number];
 export type MinimalSlOfTp = (typeof MINIMAL_SL_OF_TP)[number];
 /** 12h axis+block book. TP 3× position cost, SL 1.5× that TP, hold 36. Fixed target. Stayed net-positive at 16 and 20 symbols with the lowest drawdown of that pair. */
@@ -356,22 +368,20 @@ export function snapMinimalSlOfTp(n: number): MinimalSlOfTp {
 export function minimalComboKey(tpCost: number, slOfTp: number): string {
   return `${snapMinimalTpCost(tpCost).toFixed(2)}:${snapMinimalSlOfTp(slOfTp).toFixed(2)}`;
 }
-/** Price distances in position-cost units. No 0.5% short floor — that floor is the short range. */
+/** Requested TP in cost units, initial SL raised to modeled cost plus the shared net floor. */
 export function minimalControlPrices(
   side: "long" | "short",
   entry: number,
   tpCost: number = MINIMAL_WINNER.tpCost,
   slOfTp: number = MINIMAL_WINNER.slOfTp,
   rtCost: number = POSITION_RT_COST_PCT,
+  minSlDistancePct = DEFAULT_MIN_SL_DISTANCE_PCT,
 ): { sl: number; tp: number; slDist: number; tpDist: number } {
   const px = Math.max(entry, 1e-12);
   if (!Number.isFinite(rtCost) || rtCost < 0) throw new RangeError("Invalid modeled cost");
   const cost = px * rtCost;
   const tpDist = cost * snapMinimalTpCost(tpCost);
-  const slDist = tpDist * snapMinimalSlOfTp(slOfTp);
-  const sl = side === "long" ? px - slDist : px + slDist;
-  const tp = side === "long" ? px + tpDist : px - tpDist;
-  return { sl, tp, slDist, tpDist };
+  return initialProtection(side, px, tpDist * snapMinimalSlOfTp(slOfTp), tpDist, rtCost, minSlDistancePct);
 }
 export function allMinimalCombos(): { tpCost: MinimalTpCost; slOfTp: MinimalSlOfTp; tpAtr: number; slAtr: number; tpRatio: number; minimalRange: true }[] {
   const out: { tpCost: MinimalTpCost; slOfTp: MinimalSlOfTp; tpAtr: number; slAtr: number; tpRatio: number; minimalRange: true }[] = [];
@@ -451,7 +461,7 @@ export const TP_ATR_RATIOS = Array.from(
   (_, i) => Math.round((TP_ATR_MIN + i * TP_ATR_STEP) * 10) / 10,
 ) as readonly number[];
 /** SL as a multiple of TP. 0.5 / 0.75 too tight on live; 1.5 / 1.75 SL>TP. */
-export const SL_OF_TP = [1, 1.25] as const;
+export const SL_OF_TP = SL_TP_RATIOS;
 export type SlOfTp = (typeof SL_OF_TP)[number];
 
 export function snapTpAtr(n: number): number {
@@ -534,10 +544,10 @@ export function allTpSlCombos(): { tpAtr: number; slOfTp: number; slAtr: number;
 
 /** Short-range: TP 0.30–0.60, SL 0.5–2.5×TP step 0.25. Intern scores every combo independently. */
 export const SHORT_TP_ATR = [0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.45, 0.48, 0.5, 0.52, 0.55, 0.58, 0.6] as const;
-export const SHORT_SL_OF_TP_MIN = 0.5;
-export const SHORT_SL_OF_TP_MAX = 2.5;
-export const SHORT_SL_OF_TP_STEP = 0.25;
-export const SHORT_SL_OF_TP = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5] as const;
+export const SHORT_SL_OF_TP_MIN = SL_TP_MIN;
+export const SHORT_SL_OF_TP_MAX = SL_TP_MAX;
+export const SHORT_SL_OF_TP_STEP = SL_TP_STEP;
+export const SHORT_SL_OF_TP = SL_TP_RATIOS;
 export type ShortSlOfTp = (typeof SHORT_SL_OF_TP)[number];
 
 export function formatShortRatio(n: number): string {
@@ -708,8 +718,8 @@ export function shortProtectGridFor(opts?: {
   );
 }
 
-export function cfgUsesShortRange(cfg: { shortRange?: boolean; tpAtr?: number } | undefined | null): boolean {
-  if (!cfg) return false;
+export function cfgUsesShortRange(cfg: { shortRange?: boolean; minimalRange?: boolean; microRange?: boolean; tpAtr?: number } | undefined | null): boolean {
+  if (!cfg || cfg.microRange || cfg.minimalRange) return false;
   if (cfg.shortRange === true) return true;
   const tp = Number(cfg.tpAtr);
   return Number.isFinite(tp) && tp >= 0.28 && tp <= 0.65;
@@ -1048,6 +1058,7 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 };
 
 export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
+  minSlDistancePct: DEFAULT_MIN_SL_DISTANCE_PCT,
   trailingPct: 1.5,
   dcaCount: 1,
   dcaDrawdown: 0.8,

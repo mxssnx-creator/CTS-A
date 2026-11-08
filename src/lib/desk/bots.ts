@@ -1,3 +1,6 @@
+import { minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
+import { roundTripFeeRate, feePolicy, type FeePolicy } from "./fee-policy.ts";
+import { modeledPositionCost, queueOrder } from "./vst.ts";
 import type {
   IndicationId,
   LastNCompleteScore,
@@ -136,6 +139,8 @@ export const BOT_SELECT_META: Record<BotSelectMode, { label: string; blurb: stri
 };
 
 export interface BotConfig {
+  minSlDistancePct?: number;
+  fees?: Partial<FeePolicy>;
   type: BotTypeId;
   symbolCount: BotSymbolCount;
   selectMode: BotSelectMode;
@@ -310,6 +315,8 @@ export function sanitizeBotConfig(raw: Partial<BotConfig> | null | undefined, fa
   const count = snapTo(BOT_SYMBOL_COUNTS, Math.round(asNum(raw.symbolCount, dd.symbolCount))) as BotSymbolCount;
   return {
     type,
+    minSlDistancePct: normalizeMinSlDistancePct(raw.minSlDistancePct),
+    fees: feePolicy(raw.fees),
     symbolCount: BOT_SYMBOL_COUNTS.includes(count) ? count : dd.symbolCount,
     selectMode: BOT_SELECT_MODES.includes(raw.selectMode as BotSelectMode) ? (raw.selectMode as BotSelectMode) : dd.selectMode,
     minTp: snapTo(BOT_TP_STEPS, asNum(raw.minTp, dd.minTp)),
@@ -699,6 +706,7 @@ function signalOf(type: BotTypeId, path: Bar[], i: number, tpPct = 0.004): Signa
 }
 
 type OpenPos = {
+  modelRtCost?: number;
   side: 1 | -1;
   entry: number;
   qty: number;
@@ -744,14 +752,14 @@ function pessimisticExit(bar: Bar, side: 1 | -1, sl: number, tp: number, trail: 
   return null;
 }
 
-function trailLevel(side: 1 | -1, peak: number, dist: number, entry: number): number {
+function trailLevel(side: 1 | -1, peak: number, dist: number, entry: number, cost = POSITION_RT_COST_PCT): number {
   const raw = side > 0 ? peak * (1 - dist) : peak * (1 + dist);
-  const floor = side > 0 ? entry * (1 + POSITION_RT_COST_PCT + 0.0004) : entry * (1 - POSITION_RT_COST_PCT - 0.0004);
+  const floor = side > 0 ? entry * (1 + cost + 0.0004) : entry * (1 - cost - 0.0004);
   return side > 0 ? Math.max(raw, floor) : Math.min(raw, floor);
 }
 
-function beLevel(side: 1 | -1, entry: number): number {
-  return side > 0 ? entry * (1 + POSITION_RT_COST_PCT + 0.0002) : entry * (1 - POSITION_RT_COST_PCT - 0.0002);
+function beLevel(side: 1 | -1, entry: number, cost = POSITION_RT_COST_PCT): number {
+  return side > 0 ? entry * (1 + cost + 0.0002) : entry * (1 - cost - 0.0002);
 }
 
 function qtyFor(equity: number, px: number, vf: number, mul: number): number {
@@ -770,8 +778,8 @@ function emitFill(
   live: boolean,
   qty = pos.qty,
 ): BotFill {
-  const pnl = closePnl(pos.side, pos.entry, exit, qty, POSITION_RT_COST_PCT);
-  const cost = qty * ((pos.entry + exit) / 2) * POSITION_RT_COST_PCT;
+  const pnl = closePnl(pos.side, pos.entry, exit, qty, pos.modelRtCost ?? POSITION_RT_COST_PCT);
+  const cost = qty * ((pos.entry + exit) / 2) * (pos.modelRtCost ?? POSITION_RT_COST_PCT);
   return {
     id,
     symbol: pos.symbol,
@@ -827,6 +835,8 @@ const reportCache = new Map<string, BotReport>();
 
 function cacheKey(cfg: BotConfig, hours: number, seed: number): string {
   return JSON.stringify({
+    minSlDistancePct: cfg.minSlDistancePct,
+    fees: cfg.fees,
     t: cfg.type,
     n: cfg.symbolCount,
     s: cfg.selectMode,
@@ -942,13 +952,13 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
       const mfe = pos.side > 0 ? (pos.peak - pos.entry) / pos.entry : (pos.entry - pos.peak) / pos.entry;
       if (!pos.trailOn && mfe + 1e-12 >= pos.trailFrac) pos.trailOn = true;
       if (!pos.liveTrailOn && mfe + 1e-12 >= pos.liveTrailFrac) pos.liveTrailOn = true;
-      if (mfe >= POSITION_RT_COST_PCT + 0.0006) {
-        const be = beLevel(pos.side, pos.entry);
+      if (mfe >= (pos.modelRtCost ?? POSITION_RT_COST_PCT) + 0.0006) {
+        const be = beLevel(pos.side, pos.entry, pos.modelRtCost);
         pos.liveSl = pos.side > 0 ? Math.max(pos.liveSl, be) : Math.min(pos.liveSl, be);
       }
       if (!pos.dcaOn && mfe + 1e-12 >= internTpPct * 0.35) pos.dcaOn = true;
-      const internTrail = pos.trailOn ? trailLevel(pos.side, pos.peak, pos.trailFrac, pos.entry) : null;
-      const liveTrail = pos.liveTrailOn ? trailLevel(pos.side, pos.peak, pos.liveTrailFrac, pos.entry) : null;
+      const internTrail = pos.trailOn ? trailLevel(pos.side, pos.peak, pos.trailFrac, pos.entry, pos.modelRtCost) : null;
+      const liveTrail = pos.liveTrailOn ? trailLevel(pos.side, pos.peak, pos.liveTrailFrac, pos.entry, pos.modelRtCost) : null;
       const slN = pessimisticExit(bar, pos.side, pos.sl, pos.tp, null);
       const slT = pessimisticExit(bar, pos.side, pos.sl, pos.tp, internTrail);
       const slLive = pessimisticExit(bar, pos.side, pos.liveSl, pos.liveTp, liveTrail);
@@ -1057,9 +1067,9 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
       if (!(q > 0)) continue;
       const side = sig.side;
       const tpD = dynamicMinRateDist(px, Math.max(BOT_LIVE_MIN_TP, cfg.minTp), atr, 1.25);
-      const slD = dynamicMinRateDist(px, cfg.minSl, atr, 1.25);
+      const slD = Math.max(dynamicMinRateDist(px, cfg.minSl, atr, 1.25), minimumStopDistance(px, roundTripFeeRate(cfg.fees), cfg.minSlDistancePct));
       const liveTpD = dynamicMinRateDist(px, floors.tpAtr, atr, 1.25);
-      const liveSlD = dynamicMinRateDist(px, floors.slPct, atr, 1.25);
+      const liveSlD = Math.max(dynamicMinRateDist(px, floors.slPct, atr, 1.25), minimumStopDistance(px, roundTripFeeRate(cfg.fees), cfg.minSlDistancePct));
       const trailFrac = dynamicMinRateDist(px, cfg.minTrail, atr, 1.25) / px;
       const liveTrailFrac = dynamicMinRateDist(px, floors.trailPct, atr, 1.25) / px;
       const tp = side > 0 ? px + tpD : px - tpD;
@@ -1067,6 +1077,7 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
       const liveTp = side > 0 ? px + liveTpD : px - liveTpD;
       const liveSl = side > 0 ? px - liveSlD : px + liveSlD;
       open[id] = {
+        modelRtCost: roundTripFeeRate(cfg.fees),
         side,
         entry: px,
         qty: q,
@@ -1442,7 +1453,7 @@ export function stepDeskBots(
       p.tp = tp;
       p.tpDist = Math.abs(tp - p.avgEntry);
       if (mfe + 1e-12 >= trailFrac) {
-        const next = trailLevel(side, peak, trailFrac, p.avgEntry);
+        const next = trailLevel(side, peak, trailFrac, p.avgEntry, p.modelRtCost);
         p.sl = side > 0 ? Math.max(p.sl, next) : p.sl > 0 ? Math.min(p.sl, next) : next;
         p.slDist = Math.abs(p.sl - p.avgEntry);
       }
@@ -1474,10 +1485,10 @@ export function stepDeskBots(
       const atr = Number(q.atr) || 0;
       const notional = botLiveNotional(eq, cfg.volumeFactor);
       const qty = Math.max(notional / px, 1e-8);
-      const slDistPx = dynamicMinRateDist(px, floors.slPct, atr, 1.25);
+      const slDistPx = Math.max(dynamicMinRateDist(px, floors.slPct, atr, 1.25), minimumStopDistance(px, modeledPositionCost(e, id), e.minSlDistancePct));
       const tpDistPx = dynamicMinRateDist(px, Math.max(BOT_LIVE_MIN_TP, cfg.minTp), atr, 1.25);
       const side = sig.side > 0 ? "long" as const : "short" as const;
-      e.queue.push({
+      queueOrder(e, {
         id: `bot-${e.activeConnId}-${type}-${id}-${e.tick}`,
         connId: e.activeConnId,
         symbol: id,

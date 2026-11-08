@@ -195,12 +195,13 @@ describe("stable reference", () => {
 
   it("adds DCA inside the stop on ATR and linear, and never on volume", () => {
     const atr = engine();
-    seedLong(atr, 0.98, "atr");
+    seedLong(atr, 0.97, "atr");
     tickVst(atr, LIVE_RUN_CFG, "trailing", { skipWalk: true, rangeType: "atr" });
     assert.ok([...atr.queue, ...atr.orders].some((o) => /^DCA/.test(o.note)));
 
     const linear = engine();
-    seedLong(linear, 0.98, "linear");
+    // The original 6% stop is retained. Linear's 0.48 stop fraction triggers at 2.88%.
+    seedLong(linear, 0.97, "linear");
     tickVst(linear, LIVE_RUN_CFG, "trailing", { skipWalk: true, rangeType: "linear" });
     assert.ok([...linear.queue, ...linear.orders].some((o) => /^DCA/.test(o.note)));
 

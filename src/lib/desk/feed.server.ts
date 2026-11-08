@@ -1,4 +1,5 @@
-import { parseCommission } from "./fee-policy.ts";
+import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopFraction } from "./protection-policy.ts";
+import { roundTripFeeRate, parseCommission } from "./fee-policy.ts";
 import type { VstEngine } from "./types.ts";
 import { createHash, createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -125,11 +126,9 @@ export type ContractSpec = {
   maxLeverage?: number;
 };
 
-/** Exchange-safe minimum stop distance. VST demo may go to 0.2%. */
-export const MIN_LIVE_SL_PCT = 0.008;
-export const MIN_LIVE_SL_PCT_VST = 0.002;
-export const MAX_LIVE_SL_PCT = 0.025;
-export const MAX_LIVE_SL_PCT_VST = 0.02;
+/** Compatibility defaults. Entry callers pass their fee snapshot and configurable net floor. */
+export const MIN_LIVE_SL_PCT = minimumStopFraction(roundTripFeeRate());
+export const MIN_LIVE_SL_PCT_VST = MIN_LIVE_SL_PCT;
 
 let contractCache: { at: number; network: string; map: Map<string, ContractSpec> } | null = null;
 
@@ -540,43 +539,19 @@ export function liveProtectPrices(
   tpRatio = 2.6,
   spec?: ContractSpec | null,
   mode: "vst" | "main" = "vst",
+  cost = roundTripFeeRate(),
+  minSlDistancePct = DEFAULT_MIN_SL_DISTANCE_PCT,
 ): { sl: number; tp: number; slPct: number; tpPct: number } {
   const px = Math.max(entry, 1e-12);
   const tick = spec?.pxPrec != null ? Math.pow(10, -Math.max(0, spec.pxPrec)) : px * 1e-4;
-  const minSlPct = mode === "vst" ? MIN_LIVE_SL_PCT_VST : MIN_LIVE_SL_PCT;
-  const maxSlPct = mode === "vst" ? MAX_LIVE_SL_PCT_VST : MAX_LIVE_SL_PCT;
-  const slPct0 = Math.min(maxSlPct, Math.max(minSlPct, Math.max(0.2, slAtr) * 0.01));
-  const r = Math.min(3, Math.max(0.4, Number(tpRatio) || 1));
-  const minTpPct = mode === "vst" ? MIN_LIVE_SL_PCT_VST : 0.006;
-  let slPct = slPct0;
-  let tpPct = slPct * r;
-  if (tpPct < minTpPct) {
-    tpPct = minTpPct;
-    slPct = Math.max(slPct, r > 0 ? tpPct / r : slPct);
-  }
-  slPct = Math.min(maxSlPct, Math.max(minSlPct, slPct));
-  tpPct = Math.min(0.06, Math.max(minTpPct, tpPct));
-  const minSl = Math.max(px * slPct, tick * 3);
-  const minTp = Math.max(px * tpPct, tick * 4);
-  let slRaw = side === "long" ? px * (1 - slPct) : px * (1 + slPct);
-  let tpRaw = side === "long" ? px * (1 + tpPct) : px * (1 - tpPct);
-  if (side === "long") {
-    slRaw = Math.min(slRaw, px - minSl);
-    tpRaw = Math.max(tpRaw, px + minTp);
-  } else {
-    slRaw = Math.max(slRaw, px + minSl);
-    tpRaw = Math.min(tpRaw, px - minTp);
-  }
-  let sl = snapPx(slRaw, spec);
-  let tp = snapPx(tpRaw, spec);
-  if (side === "long") {
-    if (!(sl < px)) sl = snapPx(px - minSl, spec);
-    if (!(tp > px)) tp = snapPx(px + minTp, spec);
-  } else {
-    if (!(sl > px)) sl = snapPx(px + minSl, spec);
-    if (!(tp < px)) tp = snapPx(px - minTp, spec);
-  }
-  return { sl, tp, slPct, tpPct };
+  const requestedSl = px * Math.max(0, slAtr) / 100;
+  const requestedTp = requestedSl * Math.max(0.01, Number(tpRatio) || 1);
+  const lv = initialProtection(side, px, requestedSl, requestedTp, cost, minSlDistancePct, tick * 3 / px);
+  // Round SL away from entry, never inside the configured floor. TP keeps its requested distance to tick precision.
+  const sl = Number(((side === "long" ? Math.floor : Math.ceil)(lv.sl / tick + (side === "long" ? 1e-10 : -1e-10)) * tick).toPrecision(15));
+  const tp = snapPx(lv.tp, spec);
+  if (!(sl > 0 && tp > 0) || (side === "long" ? tp <= px : tp >= px)) throw new RangeError("Protection below venue precision");
+  return { sl, tp, slPct: Math.abs(sl - px) / px, tpPct: Math.abs(tp - px) / px };
 }
 
 export async function resolveLiveQty(

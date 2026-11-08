@@ -1,3 +1,4 @@
+import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
 import { DEFAULT_STEP_PF, stepPfFloor } from "./step-pf.ts";
 import { actualFillFee, feePolicy, resolveFeePolicy, roundTripFeeRate } from "./fee-policy.ts";
 import type {
@@ -56,7 +57,7 @@ import {
   BLOCK_POS_COUNTS,
   DEFAULT_MAX_HOLD_TICKS,
   MIN_QUOTE_VOL,
-  SYSTEM_MIN_SL_PCT,
+  POSITION_RT_COST_PCT,
   blockMaxAdditionalRatio,
   blockMinimumProfitFactor,
   blockStepQty,
@@ -75,6 +76,8 @@ import {
   PF_NO_LOSS,
   allTpSlCombos,
   allShortTpSlCombos,
+  allMicroCombos,
+  allMinimalCombos,
   shortProtectGridFor,
   DEFAULT_SHORT_MIN_TP_ATR,
   DEFAULT_SHORT_MIN_SL_OF_TP,
@@ -87,6 +90,9 @@ import {
   cfgUsesShortRange,
   cfgUsesMinimalRange,
   minimalControlPrices,
+  microControlPrices,
+  snapMicroTpPct,
+  snapSlOfTp,
   snapMinimalTpCost,
   snapMinimalSlOfTp,
   MINIMAL_WINNER,
@@ -771,13 +777,13 @@ function queueWinAgain(e: VstEngine, p: LivePosition) {
   if (e.queue.some((o) => o.symbol === p.symbol && o.side === p.side && o.indication === p.indication && o.note.includes("pf-again"))) return;
   bag.n[k] = (bag.n[k] ?? 0) + 1;
   const px = q.px;
-  const sl0 = Math.max(p.slDist, px * (SYSTEM_MIN_SL_PCT / 100));
-  const tp0 = Math.max(p.tpDist, sl0 * 0.9);
-  const lv = protectLevels(px, p.side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
+  const sl0 = p.slDist;
+  const tp0 = p.tpDist;
+  const lv = protectLevels(px, p.side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true, modeledPositionCost(e, p.symbol), e.minSlDistancePct);
   const unitQty = sizeUnit(e) / px;
   const baseLeg = p.legs[0]?.qty > 0 ? p.legs[0].qty : unitQty;
   const qty = Math.min(Math.max(baseLeg, 1e-8), (sizeUnit(e) * ENTRY_NOTIONAL_MUL) / px);
-  e.queue.push({
+  queueOrder(e, {
     id: nextId(e, "q"),
     connId: p.connId,
     symbol: p.symbol,
@@ -975,6 +981,9 @@ function dropLaneOrders(e: VstEngine, match: (o: LiveOrder) => boolean) {
 /** Overall and future: a full queue must not erase a catalog lane. Free a few extras from fat lanes. */
 function keepCatalogLanes(e: VstEngine, connId: string) {
   if (!(e.completeSim && paperMode(e))) return;
+  // Rebalancing is needed only when the queue is full. Cancelling an ordinary
+  // partial queue churned valid orders on every arm cycle despite free slots.
+  if (e.queue.filter(o => o.connId === connId && !isBotPlay(o.playbook)).length < maxQueue(e)) return;
   const count = new Map<string, number>();
   const bump = (ind?: string) => {
     if (!ind) return;
@@ -1981,9 +1990,7 @@ function rand(tick: number, salt: string): number {
 function slDist(atr: number, spacing: number, slAtr: number, raw = false, px = 0): number {
   const mul = raw ? Math.max(0.05, Number(slAtr) || 0.05) : snapSlAtr(slAtr);
   const want = Math.max(atr * mul, 1e-12);
-  if (!(px > 0)) return want;
-  const floor = px * (SYSTEM_MIN_SL_PCT / 100);
-  return Math.max(floor, want);
+  return want; // The initial-stop floor applies after the requested TP is derived.
 }
 function tpDistFromSl(sl: number, ratio = TP_SL_RATIO, raw = false): number {
   return sl * (raw ? Math.max(0.3, Number(ratio) || 1) : snapTpRatio(ratio));
@@ -1992,52 +1999,11 @@ function clampPx(n: number, floor: number): number {
   if (!Number.isFinite(n)) return floor;
   return Math.max(n, floor * .25);
 }
-function protectLevels(entry: number, side: Side, sl0: number, tp0: number, ratio = TP_SL_RATIO, raw = false) {
-  const r = raw ? Math.max(0.3, Number(ratio) || 1) : snapTpRatio(ratio);
-  const floor = Math.max(entry * 1e-6, 1e-12);
-  let sl = side === "long" ? entry - sl0 : entry + sl0;
-  let tp = side === "long" ? entry + tp0 : entry - tp0;
-  sl = clampPx(sl, floor);
-  tp = clampPx(tp, floor);
-  if (side === "long" && sl >= entry) sl = entry * .995;
-  if (side === "short" && sl <= entry) sl = entry * 1.005;
-  if (side === "long" && tp <= entry) tp = entry * 1.005;
-  if (side === "short" && tp >= entry) tp = entry * .995;
-  const slD = Math.abs(entry - sl);
-  if (r >= 1) {
-    const tpD = Math.abs(tp - entry);
-    if (slD > tpD / r + 1e-12) {
-      const cap = tpD / r;
-      sl = side === "long" ? entry - cap : entry + cap;
-    }
-  } else {
-    const want = slD * r;
-    tp = side === "long" ? entry + want : entry - want;
-    tp = clampPx(tp, floor);
-    if (side === "long" && tp <= entry) tp = entry + want;
-    if (side === "short" && tp >= entry) tp = entry - want;
-  }
-  const tpD = Math.abs(tp - entry);
-  const minD = entry * (SYSTEM_MIN_SL_PCT / 100);
-  let slOut = sl;
-  let slOutD = Math.abs(entry - slOut);
-  if (minD > 0 && slOutD + 1e-12 < minD) {
-    slOut = side === "long" ? entry - minD : entry + minD;
-    slOutD = minD;
-  }
-  let tpOut = tp;
-  let tpOutD = tpD;
-  if (slOutD > tpOutD / Math.max(r, 1e-9) + 1e-12) {
-    tpOutD = slOutD * Math.max(r, 0.3);
-    tpOut = side === "long" ? entry + tpOutD : entry - tpOutD;
-  }
-  return {
-    sl: slOut,
-    tp: tpOut,
-    slDist: slOutD,
-    tpDist: tpOutD
-  };
+function protectLevels(entry: number, side: Side, sl0: number, tp0: number, _ratio = TP_SL_RATIO, _raw = false,
+  cost = POSITION_RT_COST_PCT, minSlDistancePct = DEFAULT_MIN_SL_DISTANCE_PCT) {
+  return initialProtection(side, entry, sl0, tp0, cost, minSlDistancePct);
 }
+
 function axisLadders(q: VstQuote, cfg: TacticConfig): { rangeType: RangeType; spacing: number; levels: number[] }[] {
   const n = Math.max(2, cfg.axisLevels);
   const atr = Math.max(q.atr, q.px * 0.0025, 1e-9);
@@ -2396,6 +2362,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
   const ledger = emptyLedger();
   ledger.peak = startEq;
   const engine: VstEngine = {
+    minSlDistancePct: normalizeMinSlDistancePct(cfg.minSlDistancePct),
     fees: feePolicy(cfg.fees),
     stepPf: { ...DEFAULT_STEP_PF, ...cfg.stepPf },
     quotes: mkQuotes(),
@@ -2471,6 +2438,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
     shortPf: DEFAULT_THRESHOLDS.shortPf,
     shortBasePf: DEFAULT_THRESHOLDS.shortBasePf,
     shortRange: Boolean(use.shortRange),
+    microRange: Boolean(use.microRange),
     shortProgress: sanitizeShortProgress(undefined),
     intervalStrategy: sanitizeIntervalStrategy(undefined),
     lastNProgress: sanitizeLastNProgress(opts.block?.lastNProgress),
@@ -2511,8 +2479,8 @@ function occupiedSymbols(e: VstEngine, connId?: string): Set<string> {
   for (const o of e.queue) if (on(o.connId) && !isBotPlay(o.playbook)) s.add(o.symbol);
   return s;
 }
-function laneBusyKey(row: { symbol: string; side: string; indication?: string; tactic?: string; tpAtr?: number; slOfTp?: number; calc?: string; controllingRange?: string; rangeType?: string }): string {
-  const combo = row.tpAtr != null && row.slOfTp != null ? shortComboKey(row.tpAtr, row.slOfTp) : "x";
+function laneBusyKey(row: { symbol: string; side: string; indication?: string; tactic?: string; tpAtr?: number; slOfTp?: number; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; calc?: string; controllingRange?: string; rangeType?: string }): string {
+  const combo = row.tpAtr != null && row.slOfTp != null ? exactProtectionCombo(row) : "x";
   const range = row.controllingRange || row.rangeType || "";
   return `${row.symbol}:${row.side}:${row.indication || ""}:${row.tactic || ""}:${combo}:${row.calc || "base"}:${range}`;
 }
@@ -2595,7 +2563,7 @@ function markTerminal(e: VstEngine, o: LiveOrder, status: 'filled' | 'cancelled'
   if (status === "filled") o.remaining = 0;
   else o.remaining = Math.max(0, o.qty - o.filled);
   if (status !== "filled" && o.remaining > 1e-12 && o.filled > 1e-12) {
-    const pos = e.positions.find((p) => p.connId === o.connId && p.symbol === o.symbol && p.side === o.side && sameProtectLane(p, o, splitBookLanes(e)));
+    const pos = e.positions.find((p) => p.connId === o.connId && p.symbol === o.symbol && p.side === o.side && p.legs.some(l => l.orderId === o.id));
     if (pos && pos.legs.some((l) => l.orderId === o.id)) {
       pos.plannedQty = Math.max(pos.qty, (pos.plannedQty || 0) - o.remaining);
       const complete = splitBookLanes(e);
@@ -3077,6 +3045,22 @@ export function shortProtectGrid(e: VstEngine, cfg: TacticConfig) {
   return floors.filter(inRange);
 }
 
+/** Every enabled low-range cell gets its own geometry; an isolated study keeps its selected cell. */
+export function lowRangeProtectGrid(e: VstEngine, cfg: TacticConfig) {
+  if (cfg.microRange === true) {
+    const all = allMicroCombos();
+    return e.completeSim && !e.shortComboOnly ? all : all.filter(c =>
+      c.tpAtr === snapMicroTpPct(cfg.tpAtr ?? .2) && c.slOfTp === snapSlOfTp(cfg.slOfTp ?? .5));
+  }
+  if (cfgUsesMinimalRange(cfg)) {
+    const all = allMinimalCombos();
+    return e.completeSim && !e.shortComboOnly ? all : all.filter(c =>
+      c.tpAtr === snapMinimalTpCost(cfg.tpAtr ?? MINIMAL_WINNER.tpCost)
+      && c.slOfTp === snapMinimalSlOfTp(cfg.slOfTp ?? MINIMAL_WINNER.slOfTp));
+  }
+  return [];
+}
+
 /**
  * After pre: intern-all is scoring-only. Never promote intern (validExec=false / n<6) into live.
  * Keep only independently proven short combos as live-counted.
@@ -3476,18 +3460,19 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           : short
             ? shortProtectGrid(e, cfg)
             : [null];
-        const grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : [null];
+        const lowGrid = short ? [] : lowRangeProtectGrid(e, cfg);
+        const grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : lowGrid.length ? lowGrid : [null];
         const hourBusy = livePace && hourTapeBusy(e);
         const trailBase = snapTrailPct(cfg.trailingPct);
         for (const prot of grid) {
           if (fresh >= freshCap || qn >= qStop) break;
-          const comboKey = prot ? shortComboKey(prot.tpAtr, prot.slOfTp) : "";
-          const relOk = Boolean(prot && performingLive(e) && (internRelProven(e, { indication: ind, tactic: tac, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp }) || relExamPass(e, { indication: ind, tactic: tac, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp })));
-          const comboOk = !prot || internAll || internSlot || internKeep || shortComboProven(e, prot.tpAtr, prot.slOfTp) || relOk;
+          const comboKey = prot ? exactProtectionCombo({ ...prot, microRange: cfg.microRange, minimalRange: cfg.minimalRange, shortRange: short }) : "";
+          const relOk = Boolean(short && prot && performingLive(e) && (internRelProven(e, { indication: ind, tactic: tac, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp }) || relExamPass(e, { indication: ind, tactic: tac, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp })));
+          const comboOk = !short || !prot || internAll || internSlot || internKeep || shortComboProven(e, prot.tpAtr, prot.slOfTp) || relOk;
           const comboExec = internHere
             ? false
             : !gatedExec || liveShouldExecute(e, prot ? { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp } : execRel);
-          if (gatedExec && prot && !internHere && !(e.shortComboOnly && paperMode(e))) {
+          if (gatedExec && short && prot && !internHere && !(e.shortComboOnly && paperMode(e))) {
             if (!comboOk && !afterBase) continue;
             if (!comboExec && !internKeep && !(keepInd && !afterBase) && !afterBase) continue;
           }
@@ -3590,7 +3575,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             if (e.completeSim && paperMode(e)) legOk = true;
             else if (!legOk && !e.liveTape) continue;
           } else legOk = laneValid;
-          const legKey = `${s.id}:${side}:${ind}:${tac}:${comboKey || "x"}:${leg.kind}:${leg.range}`;
+          const legKey = laneBusyKey({ ...execRel, calc: leg.kind, rangeType: leg.range,
+            tpAtr: prot?.tpAtr, slOfTp: prot?.slOfTp, microRange: cfg.microRange,
+            minimalRange: cfg.minimalRange, shortRange: short });
           if (busyLegs.has(legKey)) continue;
           const hi0 = pickRange(q, cfg, leg.range);
           const scale = leg.spaceMul > 0 && leg.spaceMul !== 1 ? leg.spaceMul : 1;
@@ -3607,7 +3594,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             : side === "long"
               ? q.axis - (hi.levels[0] || hi.spacing)
               : q.axis + (hi.levels[0] || hi.spacing);
-          const axisLv = axisInd && !short ? axisProtect(pxHint > 0 ? pxHint : q.px, side, q, hi.spacing, cfg, hi.rangeType) : null;
+          const axisLv = axisInd && !short ? axisProtect(pxHint > 0 ? pxHint : q.px, side, q, hi.spacing, cfg, hi.rangeType, modeledPositionCost(e, s.id)) : null;
           const slAtrUse = prot?.slAtr ?? cfg.slAtr ?? SL_ATR_MULT;
           const tpRatioUse = short
             ? Math.max(0.3, prot?.tpRatio ?? cfg.tpRatio ?? TP_SL_RATIO)
@@ -3663,18 +3650,21 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             const baseQty = notional / px;
             const qty = axisInd ? baseQty * axisPartial : baseQty;
             const lv0 = !short && (axisInd || book === "dca")
-              ? axisProtect(px, side, q, hi.spacing, cfg, hi.rangeType)
-              : protectLevels(px, side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
+              ? axisProtect(px, side, q, hi.spacing, cfg, hi.rangeType, modeledPositionCost(e, s.id))
+              : protectLevels(px, side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true, modeledPositionCost(e, s.id), e.minSlDistancePct);
+            const microOn = cfg.microRange === true;
             const minimalOn = cfgUsesMinimalRange(cfg);
-            const mini = minimalOn
-              ? minimalControlPrices(side, px, cfg.tpAtr ?? MINIMAL_WINNER.tpCost, cfg.slOfTp ?? MINIMAL_WINNER.slOfTp, modeledPositionCost(e, s.id))
+            const mini = microOn
+              ? microControlPrices(side, px, prot?.tpAtr ?? cfg.tpAtr, prot?.slOfTp ?? cfg.slOfTp, modeledPositionCost(e, s.id), e.minSlDistancePct)
+              : minimalOn
+              ? minimalControlPrices(side, px, prot?.tpAtr ?? cfg.tpAtr ?? MINIMAL_WINNER.tpCost, prot?.slOfTp ?? cfg.slOfTp ?? MINIMAL_WINNER.slOfTp, modeledPositionCost(e, s.id), e.minSlDistancePct)
               : null;
             const lv = mini
               ? { sl: mini.sl, tp: mini.tp, slDist: mini.slDist, tpDist: mini.tpDist }
               : lv0;
-            const miniTp = minimalOn ? snapMinimalTpCost(cfg.tpAtr ?? MINIMAL_WINNER.tpCost) : prot?.tpAtr;
-            const miniSl = minimalOn ? snapMinimalSlOfTp(cfg.slOfTp ?? MINIMAL_WINNER.slOfTp) : prot?.slOfTp;
-            e.queue.push({
+            const miniTp = microOn ? snapMicroTpPct(prot?.tpAtr ?? cfg.tpAtr ?? .2) : minimalOn ? snapMinimalTpCost(prot?.tpAtr ?? cfg.tpAtr ?? MINIMAL_WINNER.tpCost) : prot?.tpAtr;
+            const miniSl = microOn ? snapSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? .5) : minimalOn ? snapMinimalSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? MINIMAL_WINNER.slOfTp) : prot?.slOfTp;
+            queueOrder(e, {
               id: nextId(e, "q"),
               connId,
               symbol: s.id,
@@ -3702,10 +3692,11 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               slOfTp: miniSl,
               trailPct,
               minimalRange: minimalOn || undefined,
+              microRange: microOn || undefined,
               calc: leg.kind,
             });
             if (e.completeSim && paperMode(e) && axisInd && short && e.strategyToggles?.block !== false) {
-              e.queue.push({
+              queueOrder(e, {
                 id: nextId(e, "q"),
                 connId,
                 symbol: s.id,
@@ -3733,6 +3724,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 slOfTp: miniSl,
                 trailPct,
                 minimalRange: minimalOn || undefined,
+                microRange: microOn || undefined,
                 calc: leg.kind,
               });
               qn += 1;
@@ -3792,7 +3784,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const px = row.px;
         if (!(px > 0)) continue;
         const qty = row.qty;
-        e.queue.push({
+        queueOrder(e, {
           id: nextId(e, "q"),
           connId,
           symbol: sym,
@@ -4410,27 +4402,37 @@ export function playbookOf(e: VstEngine, o: LiveOrder): string {
   if (e.lastTactic === "axis" || /^axis\b/i.test(o.note || "")) return "axis";
   return "normal";
 }
+type ProtectionGeometry = { protectionKey?: string; price?: number; avgEntry?: number; slDist?: number; tpDist?: number };
+
+function geometryKey(row: ProtectionGeometry): string {
+  if (row.protectionKey) return row.protectionKey;
+  const px = row.price ?? row.avgEntry;
+  return px && px > 0 && row.slDist != null && row.tpDist != null
+    ? JSON.stringify([Number((row.slDist / px).toPrecision(12)), Number((row.tpDist / px).toPrecision(12))]) : "legacy";
+}
+
 function sameProtectLane(
-  p: { indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string },
-  o: { indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; note?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string },
+  p: { modelRtCost?: number; minSlDistancePct?: number; indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry,
+  o: { modelRtCost?: number; minSlDistancePct?: number; indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; note?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry,
   complete: boolean,
 ) {
+  if (protectionPolicyKey(p) !== protectionPolicyKey(o)) return false;
   const botP = String(p.playbook || "");
   const botO = String(o.playbook || "");
   if (botP.startsWith("bot:") || botO.startsWith("bot:")) return botP !== "" && botP === botO;
-  if (complete && (p.indication || "") !== (o.indication || p.indication || "")) return false;
-  if (complete && (p.calc || "base") !== (o.calc || "base")) return false;
-  if (complete && laneTactic(p) && laneTactic(o) && laneTactic(p) !== laneTactic(o)) return false;
-  if (complete && laneRange(p) && laneRange(o) && laneRange(p) !== laneRange(o)) return false;
+  if ((p.indication || "") !== (o.indication || "")) return false;
+  if ((p.calc || "base") !== (o.calc || "base")) return false;
+  if (laneTactic(p) !== laneTactic(o)) return false;
+  if (laneRange(p) !== laneRange(o)) return false;
   const oBlock = o.playbook === "block" || /Block/i.test(o.note || "");
   const pBlock = p.playbook === "block";
   if (complete && pBlock !== oBlock && !/Block/i.test(o.note || "")) return false;
   if (p.tpAtr != null && p.slOfTp != null && o.tpAtr != null && o.slOfTp != null) {
-    return shortComboKey(p.tpAtr, p.slOfTp) === shortComboKey(o.tpAtr, o.slOfTp);
+    return exactProtectionCombo(p) === exactProtectionCombo(o);
   }
   if (oBlock && (o.tpAtr == null || o.slOfTp == null)) return true;
   if ((p.tpAtr != null) !== (o.tpAtr != null)) return false;
-  return true;
+  return geometryKey(p) === geometryKey(o);
 }
 
 function bookKey(conn: string, symbol: string, side: string) {
@@ -4445,12 +4447,12 @@ type BookBuckets = {
   released: WeakSet<LiveOrder>;
 };
 
-function protectIdentity(row: { playbook?: string; indication?: string; calc?: string; tpAtr?: number; slOfTp?: number; tactic?: string; controllingRange?: string; rangeType?: string }, complete: boolean): string {
+function protectIdentity(row: { modelRtCost?: number; minSlDistancePct?: number; playbook?: string; indication?: string; calc?: string; tpAtr?: number; slOfTp?: number; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry, complete: boolean): string {
   const bot = String(row.playbook || "");
-  if (bot.startsWith("bot:")) return `bot:${bot}`;
-  const head = complete ? `${row.indication || ""}|${row.calc || "base"}|${laneTactic(row)}|${laneRange(row)}|` : "";
-  if (row.tpAtr != null && row.slOfTp != null) return head + shortComboKey(row.tpAtr, row.slOfTp);
-  return head + "plain";
+  if (bot.startsWith("bot:")) return `bot:${bot}|${protectionPolicyKey(row)}`;
+  const head = protectionPolicyKey(row) + "|" + JSON.stringify([row.indication || "", row.calc || "base", laneTactic(row), laneRange(row)]) + "|";
+  if (row.tpAtr != null && row.slOfTp != null) return head + exactProtectionCombo(row);
+  return head + "plain:" + geometryKey(row);
 }
 
 function orderIsWild(o: { playbook?: string; note?: string; tpAtr?: number; slOfTp?: number }): boolean {
@@ -4583,26 +4585,31 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
   const done = o.remaining <= 1e-12;
   const complete = splitBookLanes(e);
   const laneKey = bookKey(o.connId, o.symbol, o.side);
-  let pos: LivePosition | undefined;
-  if (buckets) {
+  // A later fill belongs to the original order's position even when a legacy
+  // order omitted the metadata that was frozen when its first fill opened it.
+  // New orders still require the full indication/config/protection identity.
+  const lanePositions = buckets?.posList.get(laneKey) ?? e.positions;
+  let pos = lanePositions.find((p) => p.qty > 0 && p.connId === o.connId && p.symbol === o.symbol && p.side === o.side
+    && p.legs.some((leg) => leg.orderId === o.id));
+  if (!pos && buckets) {
     if (orderKeyExact(o, complete)) {
       const hit = buckets.pos.get(laneKey + "\0" + protectIdentity(o, complete));
       if (hit && sameProtectLane(hit, o, complete)) pos = hit;
       else if (hit) pos = firstLaneMatch(buckets, laneKey, o, complete);
     } else pos = firstLaneMatch(buckets, laneKey, o, complete);
-  } else {
+  } else if (!pos) {
     pos = e.positions.find(
       (p) => p.connId === o.connId && p.symbol === o.symbol && p.side === o.side && sameProtectLane(p, o, complete),
     );
   }
   if (!pos && /^DCA/i.test(o.note || "") && o.batchId) {
     const tag = o.batchId;
-    pos = e.positions.find((p) => tag.startsWith(`pos:${p.id}:`) && p.symbol === o.symbol && p.side === o.side);
+    pos = e.positions.find((p) => tag.startsWith(`pos:${p.id}:`) && p.connId === o.connId && p.symbol === o.symbol && p.side === o.side && p.qty > 0);
   }
   if (!pos && /Block/i.test(o.note || "")) {
     const parentId = String(o.batchId || "").split(":")[0];
     if (parentId) {
-      pos = e.positions.find((p) => p.id === parentId && p.symbol === o.symbol && p.side === o.side && p.qty > 0);
+      pos = e.positions.find((p) => p.id === parentId && p.connId === o.connId && p.symbol === o.symbol && p.side === o.side && p.qty > 0);
     }
     if (!pos) {
       o.filled -= take;
@@ -4626,12 +4633,16 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       return;
     }
     const rawR = o.slDist > 1e-12 ? o.tpDist / o.slDist : 1;
-    const lv = o.minimalRange
-      ? minimalControlPrices(o.side, px, o.tpAtr ?? MINIMAL_WINNER.tpCost, o.slOfTp ?? MINIMAL_WINNER.slOfTp, modeledPositionCost(e, o.symbol))
-      : protectLevels(px, o.side, o.slDist, o.tpDist, rawR, true);
+    const lv = o.microRange
+      ? microControlPrices(o.side, px, o.tpAtr, o.slOfTp, o.modelRtCost ?? modeledPositionCost(e, o.symbol), o.minSlDistancePct ?? e.minSlDistancePct)
+      : o.minimalRange
+      ? minimalControlPrices(o.side, px, o.tpAtr ?? MINIMAL_WINNER.tpCost, o.slOfTp ?? MINIMAL_WINNER.slOfTp, o.modelRtCost ?? modeledPositionCost(e, o.symbol), o.minSlDistancePct ?? e.minSlDistancePct)
+      : protectLevels(px, o.side, o.slDist, o.tpDist, rawR, true, o.modelRtCost ?? modeledPositionCost(e, o.symbol), o.minSlDistancePct ?? e.minSlDistancePct);
     pos = {
       id: nextId(e, "p"),
-      modelRtCost: modeledPositionCost(e, o.symbol),
+      protectionKey: geometryKey(o),
+      modelRtCost: o.modelRtCost ?? modeledPositionCost(e, o.symbol),
+      minSlDistancePct: o.minSlDistancePct ?? normalizeMinSlDistancePct(e.minSlDistancePct),
       connId: o.connId,
       symbol: o.symbol,
       side: o.side,
@@ -4661,6 +4672,8 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       slOfTp: o.slOfTp,
       trailPct: o.trailPct,
       minimalRange: o.minimalRange,
+      microRange: o.microRange,
+      shortRange: o.shortRange,
       calc: o.calc ?? "base",
     };
     e.positions.push(pos);
@@ -4716,13 +4729,10 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       pos.tpDist = Math.abs(pos.tp - entry);
       const slOf = Number(pos.slOfTp);
       if (slOf > 0 && pos.tpDist > 0 && pos.slDist > pos.tpDist * slOf + 1e-9) {
-        const floor = entry * (SYSTEM_MIN_SL_PCT / 100);
+        const floor = minimumStopDistance(entry, pos.modelRtCost ?? modeledPositionCost(e, pos.symbol), pos.minSlDistancePct);
         let next = pos.tpDist * slOf;
         if (floor > 0 && next < floor) {
           next = floor;
-          const tpNeed = next / slOf;
-          pos.tpDist = tpNeed;
-          pos.tp = pos.side === "long" ? entry + tpNeed : entry - tpNeed;
         }
         pos.slDist = next;
         pos.sl = pos.side === "long" ? entry - next : entry + next;
@@ -4731,7 +4741,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       // Overlay keeps the parent's bracket. The add is peeled on its own risk.
     } else {
       const entry = pos.avgEntry;
-      const floor = entry * (SYSTEM_MIN_SL_PCT / 100);
+      const floor = minimumStopDistance(entry, pos.modelRtCost ?? modeledPositionCost(e, pos.symbol), pos.minSlDistancePct);
       const dists = [Number(o.slDist), Number(pos.slDist)].filter((n) => n > 0);
       const slKeep = Math.max(dists.length ? Math.min(...dists) : 1e-12, floor, 1e-12);
       const tpKeep = Math.max(Number(o.tpDist) || Number(pos.tpDist) || 0, 1e-12);
@@ -4750,13 +4760,10 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       pos.tpDist = Math.abs(pos.tp - entry);
       const slOf = Number(pos.slOfTp);
       if (slOf > 0 && pos.tpDist > 0 && pos.slDist > pos.tpDist * slOf + 1e-9) {
-        const floor = entry * (SYSTEM_MIN_SL_PCT / 100);
+        const floor = minimumStopDistance(entry, pos.modelRtCost ?? modeledPositionCost(e, pos.symbol), pos.minSlDistancePct);
         let next = pos.tpDist * slOf;
         if (floor > 0 && next < floor) {
           next = floor;
-          const tpNeed = next / slOf;
-          pos.tpDist = tpNeed;
-          pos.tp = pos.side === "long" ? entry + tpNeed : entry - tpNeed;
         }
         pos.slDist = next;
         pos.sl = pos.side === "long" ? entry - next : entry + next;
@@ -4872,10 +4879,11 @@ function cancelLane(e: VstEngine, p: LivePosition) {
   for (const o of pool) {
     if (!mapped && (o.symbol !== p.symbol || o.side !== p.side || o.connId !== p.connId)) continue;
     if (!(o.status === "open" || o.status === "partial" || o.status === "queued")) continue;
-    if (!sameProtectLane(p, o, complete)) continue;
+    if (!p.legs.some(l => l.orderId === o.id) && !sameProtectLane(p, o, complete)) continue;
     markTerminal(e, o, "cancelled");
   }
-  cancelQueued(e, (o) => o.symbol === p.symbol && o.side === p.side && o.connId === p.connId && sameProtectLane(p, o, complete));
+  cancelQueued(e, (o) => o.symbol === p.symbol && o.side === p.side && o.connId === p.connId
+    && (p.legs.some(l => l.orderId === o.id) || sameProtectLane(p, o, complete)));
 }
 function bookRealized(e: VstEngine, pnl: number, reason: "sl" | "tp" | "time" | "partial") {
   const x = Number.isFinite(pnl) ? pnl : 0;
@@ -5035,6 +5043,9 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
     tpAtr: p.tpAtr,
     slOfTp: p.slOfTp,
     trailPct: p.trailPct,
+    minimalRange: p.minimalRange,
+    microRange: p.microRange,
+    shortRange: p.shortRange,
     calc: p.calc,
   };
   e.closed.unshift(row);
@@ -5139,6 +5150,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     slOfTp: p.slOfTp,
     trailPct: p.trailPct,
     minimalRange: p.minimalRange,
+    microRange: p.microRange,
+    shortRange: p.shortRange,
     calc: p.calc,
   };
   e.closed.unshift(closedRow);
@@ -5290,8 +5303,8 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   const shortLeg = p.tpAtr != null && p.slOfTp != null && p.slDist > 0 && p.tpDist > 0;
   const lv = shortLeg
     ? { sl: p.sl, tp: p.tp, slDist: Math.abs(p.sl - nextAvg), tpDist: Math.abs(p.tp - nextAvg) }
-    : axisProtect(nextAvg, p.side, q, p.rangeSpacing || q.atr, cfg, p.controllingRange);
-  e.queue.push({
+    : axisProtect(nextAvg, p.side, q, p.rangeSpacing || q.atr, {...cfg, minSlDistancePct: p.minSlDistancePct ?? e.minSlDistancePct}, p.controllingRange, p.modelRtCost ?? modeledPositionCost(e, p.symbol));
+  queueOrder(e, {
     id: nextId(e, "d"),
     connId: p.connId,
     symbol: p.symbol,
@@ -5323,7 +5336,7 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   countPlaced(e);
 }
 
-function axisProtect(entry: number, side: Side, q: VstQuote, spacing: number, _cfg: TacticConfig, range?: RangeType) {
+function axisProtect(entry: number, side: Side, q: VstQuote, spacing: number, cfg: TacticConfig, range?: RangeType, cost = POSITION_RT_COST_PCT) {
   const fib = range === "fibonacci";
   const step = fib
     ? Math.max(spacing * 0.55, q.atr * 0.55, entry * 0.0015)
@@ -5334,7 +5347,7 @@ function axisProtect(entry: number, side: Side, q: VstQuote, spacing: number, _c
   const minR = fib ? 1.35 : 1.45;
   const tp0 = Math.max(toAxis, sl0 * minR);
   const ratio = snapTpRatio(Math.min(2.2, Math.max(minR, tp0 / Math.max(sl0, 1e-12))));
-  return protectLevels(entry, side, sl0, Math.max(tp0, sl0 * ratio), ratio);
+  return protectLevels(entry, side, sl0, Math.max(tp0, sl0 * ratio), ratio, false, cost, cfg.minSlDistancePct);
 }
 
 function handleAxis(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
@@ -5420,32 +5433,27 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       p.tactic === "axis" || p.tactic === "trailing" || p.tactic === "hybrid" || p.tactic === "dca" ? p.tactic : tactic;
     const partial = ownTactic === "axis" ? false : p.status === "partial" || fillRatio < 0.55;
     const botBook = String(p.playbook || "").startsWith("bot:");
-    if (cfgUsesMinimalRange(cfg)) p.minimalRange = true;
-    const minimalPos = Boolean(p.minimalRange);
-    const shortPos = !minimalPos && (botBook || cfgUsesShortRange(cfg) || p.playbook === "short" || (p.tpAtr != null && p.slOfTp != null));
-    if (minimalPos && p.avgEntry > 0 && !(p.sl > 0 && p.tp > 0 && (p.side === "long" ? p.sl < p.avgEntry && p.tp > p.avgEntry : p.sl > p.avgEntry && p.tp < p.avgEntry))) {
-      const stop = minimalControlPrices(p.side, p.avgEntry, p.tpAtr || cfg.tpAtr || MINIMAL_WINNER.tpCost, p.slOfTp || cfg.slOfTp || MINIMAL_WINNER.slOfTp, p.modelRtCost ?? modeledPositionCost(e, p.symbol));
+    const minimalPos = Boolean(p.minimalRange || p.microRange);
+    const shortPos = !minimalPos && (botBook || p.shortRange === true || p.playbook === "short" || (p.shortRange === undefined && p.tpAtr != null && p.slOfTp != null));
+    if (minimalPos && p.avgEntry > 0 && !(p.sl > 0 && p.tp > 0)) {
+      const stop = (p.microRange ? microControlPrices : minimalControlPrices)(p.side, p.avgEntry, p.tpAtr || cfg.tpAtr || MINIMAL_WINNER.tpCost, p.slOfTp || cfg.slOfTp || MINIMAL_WINNER.slOfTp, p.modelRtCost ?? modeledPositionCost(e, p.symbol), p.minSlDistancePct);
       p.sl = stop.sl;
       p.tp = stop.tp;
       p.slDist = stop.slDist;
       p.tpDist = stop.tpDist;
-      p.tpAtr = snapMinimalTpCost(p.tpAtr || cfg.tpAtr || MINIMAL_WINNER.tpCost);
+      p.tpAtr = p.microRange ? snapMicroTpPct(p.tpAtr ?? .2) : snapMinimalTpCost(p.tpAtr || cfg.tpAtr || MINIMAL_WINNER.tpCost);
       p.slOfTp = snapMinimalSlOfTp(p.slOfTp || cfg.slOfTp || MINIMAL_WINNER.slOfTp);
     }
-    if (shortPos && p.avgEntry > 0 && q.atr > 0 && !(p.sl > 0 && p.tp > 0 && (p.side === "long" ? p.sl < p.avgEntry && p.tp > p.avgEntry : p.sl > p.avgEntry && p.tp < p.avgEntry))) {
-      const stop = shortControlPrices(p.side, p.avgEntry, q.atr, p.tpAtr || cfg.tpAtr || 0.48, p.slOfTp || cfg.slOfTp || 1);
+    if (shortPos && p.avgEntry > 0 && q.atr > 0 && !(p.sl > 0 && p.tp > 0)) {
+      const stop = shortControlPrices(p.side, p.avgEntry, q.atr, p.tpAtr || cfg.tpAtr || 0.48, p.slOfTp || cfg.slOfTp || 1, p.modelRtCost ?? modeledPositionCost(e, p.symbol), p.minSlDistancePct);
       p.sl = stop.sl;
       p.tp = stop.tp;
       p.slDist = stop.slDist;
       p.tpDist = stop.tpDist;
     }
-    holdLossSlFloor(p);
     if (!botBook && (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca === true && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
     if (!shortPos && !minimalPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
-    const holdR = shortPos && p.slOfTp != null && p.slOfTp > 0 ? Math.max(0.25, 1 / p.slOfTp) : e.tpRatio;
-    if (!botBook) clampRatio(p, holdR, shortPos);
     if (!botBook) peelBlockOverlay(e, p, q);
-    holdLossSlFloor(p);
     if (e.tick === p.openedTick || e.tick - p.openedTick < Math.max(1, opts?.minHold ?? 1)) {
       keep.push(p);
       continue;
@@ -5458,7 +5466,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       const peak = p.peakPx;
       const mfe = p.side === "long" ? (peak - p.avgEntry) / p.avgEntry : (p.avgEntry - peak) / p.avgEntry;
       const now = p.side === "long" ? (q.px - p.avgEntry) / p.avgEntry : (p.avgEntry - q.px) / p.avgEntry;
-      const cost = 0.0012;
+      const cost = p.modelRtCost ?? modeledPositionCost(e, p.symbol);
       if (mfe >= cost + 0.0025 && now >= cost + 0.0008 && now + 1e-9 < mfe * 0.62) {
         const lock = p.side === "long" ? p.avgEntry * (1 + cost + 0.00025) : p.avgEntry * (1 - cost - 0.00025);
         const before = p.sl;
@@ -5509,10 +5517,8 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
         if (p.side === "long" ? next > p.sl : next < p.sl) {
           p.sl = next;
           p.slDist = Math.abs(p.sl - p.avgEntry);
-          clampRatio(p, holdR, shortPos);
         }
       }
-      holdLossSlFloor(p);
       if (hitSl || (hitTp && !partial)) {
         closePosition(e, p, hitSl ? p.sl : p.tp, hitSl ? "sl" : "tp");
         continue;
@@ -5528,7 +5534,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
         ? Math.min(baseHold, 0.5)
         : baseHold;
     const slow =
-      p.minimalRange
+      (p.minimalRange || p.microRange)
         ? 1
         : p.playbook === "dca"
         ? 1
@@ -5571,10 +5577,8 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       if (p.side === "long" ? next > p.sl : next < p.sl) {
         p.sl = next;
         p.slDist = Math.abs(p.sl - p.avgEntry);
-        clampRatio(p, holdR, shortPos);
       }
     }
-    holdLossSlFloor(p);
     keep.push(p);
   }
   e.positions = keep;
@@ -5833,47 +5837,6 @@ function safeStage(e: VstEngine, name: string, fn: () => void) {
   }
 }
 
-function holdLossSlFloor(p: LivePosition) {
-  if (p.minimalRange) return;
-  const entry = p.avgEntry;
-  if (!(entry > 0) || !(p.sl > 0)) return;
-  const lossSide = p.side === "long" ? p.sl < entry : p.sl > entry;
-  if (!lossSide) return;
-  const floor = entry * (SYSTEM_MIN_SL_PCT / 100);
-  if (!(floor > 0) || Math.abs(p.sl - entry) + 1e-12 >= floor) return;
-  p.sl = p.side === "long" ? entry - floor : entry + floor;
-  p.slDist = floor;
-  const slOf = Number(p.slOfTp);
-  if (slOf > 0 && (p.tpDist || 0) + 1e-12 < floor / slOf) {
-    p.tpDist = floor / slOf;
-    p.tp = p.side === "long" ? entry + p.tpDist : entry - p.tpDist;
-  }
-}
-
-function clampRatio(p: LivePosition, ratio = TP_SL_RATIO, raw = false) {
-  if (p.minimalRange) return;
-  const r = raw ? Math.max(0.25, Number(ratio) || 1) : snapTpRatio(ratio);
-  const slD = Math.abs(p.sl - p.avgEntry);
-  const tpD = Math.abs(p.tp - p.avgEntry);
-  if (!(tpD > 0) || !Number.isFinite(slD) || !Number.isFinite(tpD)) return;
-  if (slD > tpD / r + 1e-9) {
-    const locked = p.side === "long" ? p.sl >= p.avgEntry : p.sl <= p.avgEntry;
-    if (locked) return;
-    const floor = p.avgEntry > 0 ? p.avgEntry * (SYSTEM_MIN_SL_PCT / 100) : 0;
-    let next = tpD / r;
-    if (floor > 0 && next < floor) {
-      next = floor;
-      const tpNeed = next * r;
-      if (tpNeed > tpD + 1e-12) {
-        p.tp = p.side === "long" ? p.avgEntry + tpNeed : p.avgEntry - tpNeed;
-        p.tpDist = tpNeed;
-      }
-    }
-    p.slDist = next;
-    p.tpDist = Math.abs(p.tp - p.avgEntry);
-    p.sl = p.side === "long" ? p.avgEntry - next : p.avgEntry + next;
-  }
-}
 
 export function sanitizeBook(e: VstEngine): number {
   let fixes = 0;
@@ -5944,7 +5907,6 @@ export function sanitizeBook(e: VstEngine): number {
     p.slDist = finiteOr(p.slDist, Math.abs(p.avgEntry - p.sl));
     p.tpDist = finiteOr(p.tpDist, Math.abs(p.tp - p.avgEntry));
     if (!Array.isArray(p.legs)) p.legs = [];
-    if (!String(p.playbook || "").startsWith("bot:")) clampRatio(p, e.tpRatio || TP_SL_RATIO, Boolean(e.shortRange));
     livePos.push(p);
   }
   if (livePos.length !== e.positions.length) fixes += 1;
@@ -6472,10 +6434,17 @@ export function selectMinPfCells(
   };
 }
 
-export type StepPfContext = { tpPct?: number; tpAtr?: number; rangeType?: string; symbol?: string };
+export type StepPfContext = { tpPct?: number; tpAtr?: number; rangeType?: string; symbol?: string;
+  microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; modelRtCost?: number;
+  tpDist?: number; price?: number; avgEntry?: number };
 export function configStepFloor(e: VstEngine, legacy: number, rel?: StepPfContext | null): number {
-  const pct = rel?.tpPct ?? (e.minimalRange && rel?.tpAtr != null
-    ? rel.tpAtr * modeledPositionCost(e, rel.symbol ?? "") * 100 : undefined);
+  const px = rel?.avgEntry ?? rel?.price;
+  const ownGeometry = px && px > 0 && rel?.tpDist != null ? 100 * rel.tpDist / px : undefined;
+  const hasOwnRange = rel && [rel.microRange, rel.minimalRange, rel.shortRange].some(x => x !== undefined);
+  const micro = hasOwnRange ? rel?.microRange : e.microRange;
+  const minimal = hasOwnRange ? rel?.minimalRange : e.minimalRange;
+  const pct = rel?.tpPct ?? ownGeometry ?? (micro && rel?.tpAtr != null ? rel.tpAtr : undefined) ?? (minimal && rel?.tpAtr != null
+    ? rel.tpAtr * (rel.modelRtCost ?? modeledPositionCost(e, rel.symbol ?? "")) * 100 : undefined);
   return stepPfFloor(legacy, pct, e.stepPf);
 }
 export function entryMinPfFor(e: VstEngine, rel?: Parameters<typeof pfLaneOf>[0] & StepPfContext): number {
@@ -8393,7 +8362,7 @@ export function adjustActiveBlocks(
         let px = p.side === "long" ? mark - pad : mark + pad;
         if (!(px > 0)) px = mark;
         if (!(px > 0)) return;
-        const lv = protectLevels(px, p.side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
+        const lv = protectLevels(px, p.side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true, modeledPositionCost(e, p.symbol), e.minSlDistancePct);
         for (const item of planned) {
           if (adds >= addCap) break;
           const qty = item.qty * scale;
@@ -8429,7 +8398,7 @@ export function adjustActiveBlocks(
                         : "ob"
               : "b",
           );
-          e.queue.push({
+          queueOrder(e, {
             id: oid,
             connId: conn,
             symbol: p.symbol,
@@ -8456,6 +8425,7 @@ export function adjustActiveBlocks(
             slOfTp: p.slOfTp,
             trailPct: p.trailPct,
             minimalRange: p.minimalRange,
+            microRange: p.microRange,
             calc: p.calc ?? "base",
             note: `${tag} ${item.mode} #${item.next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
           });
@@ -8532,6 +8502,7 @@ function capBookCheap(e: VstEngine) {
 
 export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { freezeIds?: Set<string>; skipWalk?: boolean; skipMatch?: boolean; bookOnly?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
   ensureEngine(e);
+  if (cfg.minSlDistancePct !== undefined) e.minSlDistancePct = normalizeMinSlDistancePct(cfg.minSlDistancePct);
   if (cfg.fees) e.fees = feePolicy(cfg.fees);
   if (cfg.stepPf) e.stepPf = { ...DEFAULT_STEP_PF, ...cfg.stepPf };
   capBookCheap(e);
@@ -8816,9 +8787,9 @@ export function enqueueManual(e: VstEngine, input: { connId: string; symbol: str
   const hi = highestRange(q, DEFAULT_CFG);
   const sl0 = slDist(q.atr, hi.spacing, DEFAULT_CFG.slAtr ?? SL_ATR_MULT, false, q.px);
   const tp0 = tpDistFromSl(sl0, e.tpRatio);
-  const lv = protectLevels(px, input.side, sl0, tp0, e.tpRatio);
+  const lv = protectLevels(px, input.side, sl0, tp0, e.tpRatio, false, modeledPositionCost(e, input.symbol), e.minSlDistancePct);
   const qty = input.cost / px;
-  e.queue.push({
+  queueOrder(e, {
     id: nextId(e, "m"),
     connId: input.connId,
     symbol: input.symbol,
@@ -9009,6 +8980,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   engine.preEvalDone = preTicks <= 0;
   engine.shortRange = Boolean(use.shortRange);
   engine.minimalRange = Boolean(use.minimalRange);
+  engine.microRange = Boolean(use.microRange);
   engine.shortComboOnly = Boolean(comboOnly);
   engine.lastTactic = tactic;
   engine.lastRange = rangeType;
@@ -9121,6 +9093,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const playIndAcc = accMap();
   const kindAcc = accMap();
   const rangeAcc = accMap();
+  const protectionRangeAcc = accMap();
   const scoredSymbols = new Map<string, { id: string; trades: number; wins: number; profit: number; loss: number; gp: number; gl: number; sl: number; tp: number }>();
   const hourIndAcc = accMap();
   const hourPlayAcc = accMap();
@@ -9166,7 +9139,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       row.profit += pnl;
     } else row.loss += Math.abs(pnl);
   };
-  const bumpClose = (t: { pnl?: number; ratio?: number; indication?: string; tactic?: string; playbook?: string; kind?: string; qty?: number; blockQty?: number; dcaQty?: number; rangeType?: string; controllingRange?: string }) => {
+  const bumpClose = (t: { microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; pnl?: number; ratio?: number; indication?: string; tactic?: string; playbook?: string; kind?: string; qty?: number; blockQty?: number; dcaQty?: number; rangeType?: string; controllingRange?: string }) => {
     const pnl = edgePnl(t);
     const ind = String(t.indication || "trend");
     bump(indAcc, ind, pnl);
@@ -9178,6 +9151,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     const rangeId = String(t.rangeType || t.controllingRange || "na");
     bump(hourRangeAcc, rangeId, pnl);
     bump(rangeAcc, rangeId, pnl);
+    bump(protectionRangeAcc, t.microRange ? "Micro" : t.minimalRange ? "Minimal" : t.shortRange || t.playbook === "short" ? "Short" : "Normal", pnl);
     const qty = Math.max(0, Number(t.qty) || 0);
     const bq = Math.min(qty, Math.max(0, Number(t.blockQty) || 0));
     const blockShare = qty > 1e-12 && bq > 1e-12 ? Math.min(1, bq / qty) : t.playbook === "block" ? 1 : 0;
@@ -9384,6 +9358,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       clearAcc(playIndAcc);
       clearAcc(kindAcc);
       clearAcc(rangeAcc);
+      clearAcc(protectionRangeAcc);
       seenClosed = engine.ledger.trades;
       prevSl = engine.ledger.slExits;
       prevTp = engine.ledger.tpExits;
@@ -9856,6 +9831,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     byPlayInd,
     byKind,
     byRange,
+    byProtectionRange: finish(protectionRangeAcc),
     ordersPlaced: Math.max(0, engine.ledger.ordersPlaced - (internStage.orders ?? 0)),
     ordersFilled: Math.max(0, engine.ledger.ordersFilled - (internStage.fills ?? 0)),
     hourly,
@@ -11795,7 +11771,7 @@ function paperCellOpen(
   if (validatedSet(e, rel)) return false;
   if (judgedMiss(e, rel)) return false;
   const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
-  if (t.normal !== true && !e.minimalRange) return false;
+  if (t.normal !== true && !e.minimalRange && !e.microRange) return false;
   const play = String(rel.playbook || "");
   const tac = String(rel.tactic || "");
   if (tac === "dca" || play === "dca") return t.dca === true;
@@ -11884,4 +11860,22 @@ export function liveShouldExecute(
   }
   if (rel.kind === "normal" || play === "normal") return t.normal || ready || paperOpen;
   return t.normal || ready || paperOpen;
+}
+
+export function queueOrder(e: VstEngine, o: LiveOrder): void {
+  o.protectionKey ??= geometryKey(o);
+  o.shortRange ??= e.shortRange === true;
+  o.microRange ??= e.microRange === true;
+  o.modelRtCost ??= modeledPositionCost(e, o.symbol);
+  o.minSlDistancePct ??= normalizeMinSlDistancePct(e.minSlDistancePct);
+  e.queue.push(o);
+}
+
+function protectionPolicyKey(row: { modelRtCost?: number; minSlDistancePct?: number }): string {
+  return `${row.modelRtCost ?? POSITION_RT_COST_PCT}:${normalizeMinSlDistancePct(row.minSlDistancePct)}`;
+}
+
+/** Identity does not snap Minimal cost multiples through the Short ATR grid. */
+export function exactProtectionCombo(row: { tpAtr?: number; slOfTp?: number; minimalRange?: boolean; microRange?: boolean; shortRange?: boolean }): string {
+  return JSON.stringify([row.microRange === true ? "micro" : row.minimalRange === true ? "minimal" : row.shortRange === true ? "short" : "normal", row.tpAtr, row.slOfTp]);
 }

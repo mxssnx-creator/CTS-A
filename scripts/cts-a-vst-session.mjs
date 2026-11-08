@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { minimumStopFraction, normalizeMinSlDistancePct } from "../src/lib/desk/protection-policy.ts";
+import { modeledPositionCost } from "../src/lib/desk/vst.ts";
+import { roundTripFeeRate } from "../src/lib/desk/fee-policy.ts";
 /**
  * CTS-A BingX VST-02 session: 50 symbols, max orders, best-first, 2h monitor.
  * Keys from env — never printed.
@@ -6,7 +9,7 @@
 import { writeFileSync, mkdirSync, readFileSync, renameSync, appendFileSync } from "node:fs";
 import { refreshEngineFees, fetchBingxTape, pingAccount, keysForConn, placeSwapOrder, fetchExchangeBook, liveProtectPrices, fetchContractMap, snapQty, snapQtyDown, liftQtyToMin, parseAvailableUsdt, fetchLiveExecutions, cancelSwapOrder, configureLiveExecution, ensureLiveAccountMode, armMaxLeverage, snapPx, fetchVol1h, fetchPrehistory, loadLeverageCaps, cachedMaxLeverage, MIN_LIVE_SL_PCT, exchangeMinNotional } from "../src/lib/desk/feed.server.ts";
 import { applyLiveTape, seedPreAtr, BINGX_SYMBOL, isDeskClientOrderId, isOwnedExchangeOrder, ownKeysFromOrders, pickWidestProtect, liveEntryBudget, filterDeskRealized, systemProcessedNet, registerVenueSymbol, deskIdFromVenue, venueSymbolOf, countPositionSlots, countWorkingOrders, LIVE_MAX_POSITIONS, exchangeOrderId, makeClientOrderId } from "../src/lib/desk/feed.ts";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, SYSTEM_MIN_SL_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts, seedIndicationHistory, shortControlPrices, minimalControlPrices, cfgUsesMinimalRange } from "../src/lib/desk/engine.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_BASE_PF, DEFAULT_AXIS_PF, DEFAULT_BLOCK_PF, DEFAULT_SHORT_PF, DEFAULT_SHORT_BASE_PF, DEFAULT_STRATEGY_TOGGLES, DEFAULT_ENABLED_KINDS, positionNotional, pickProtectCell, TP_SL_RATIOS, SL_ATR_RATIOS, TRAIL_PCTS, RANGE_TYPES, X01_DEFAULTS, LIVE_BLOCK_COUNTS, BLOCK_POS_COUNTS, LIVE_ENABLED_KINDS, liveTacticsOf, allProtectCells, allShortTpSlCombos, liveShortProtectCombos, filterLiveShortCombos, SHORT_20H_POSITIVE, SHORT_WINNER, shortComboKey, cfgUsesShortRange, slAtrOf, tpRatioOf, trailStopFromPeak, profitFactor, sanitizeShortProgress, DEFAULT_SHORT_PROGRESS, DEFAULT_SHORT_MIN_TP_ATR, DEFAULT_SHORT_MIN_SL_OF_TP, POSITION_COST_PCT, SYSTEM_MIN_SL_PCT, volumeCoord, clampBlockVol, clampSharedVol, clampOverallVol, AUTO_EVAL_HOURS, SHORT_EVAL_HOURS, DEFAULT_LAST_N_PROGRESS, sanitizeLastNProgress, EVAL_POS_N, VALID_EXEC_POS_N, LIVE_DISABLE_N, AXIS_PARTIAL_RATIO, sanitizeBlockCounts, seedIndicationHistory, shortControlPrices, minimalControlPrices, microControlPrices, cfgUsesMinimalRange } from "../src/lib/desk/engine.ts";
 import {
   auditEngine,
   healEngine,
@@ -1490,7 +1493,8 @@ function mergeLivePositions(e, book) {
     const cur = byKey.get(key);
     const slPx = exchangeStop(book, p.symbol, p.side, "sl");
     const tpPx = exchangeStop(book, p.symbol, p.side, "tp");
-    const floor = Math.max(entry * MIN_LIVE_SL_PCT, 1e-8);
+    const policy = capturedProtectionPolicy(e, p);
+    const floor = Math.max(entry * minimumStopFraction(policy.cost, policy.minSlDistancePct), 1e-8);
     if (cur) {
       cur.qty = p.qty;
       cur.plannedQty = Math.max(cur.plannedQty || 0, p.qty);
@@ -1587,11 +1591,18 @@ const openedAt = new Map();
 const blockLiveAdds = new Map();
 const MAX_HOLD_MS = Math.max(4, Number(LIVE_CFG.maxHoldTicks) || 24) * 60_000;
 
-function cellProtectOf(p, spec, network) {
+function capturedProtectionPolicy(e, p) {
+  const held = e?.positions?.find((x) => x.symbol === p?.symbol && x.side === p?.side);
+  return { cost: held?.modelRtCost ?? p?.modelRtCost ?? (e ? modeledPositionCost(e, p?.symbol ?? "") : roundTripFeeRate()),
+    minSlDistancePct: normalizeMinSlDistancePct(held?.minSlDistancePct ?? p?.minSlDistancePct ?? e?.minSlDistancePct ?? LIVE_CFG.minSlDistancePct) };
+}
+
+function cellProtectOf(p, spec, network, e) {
   const entry = Number(p.entry || p.mark || 0);
   const cell = protectFor(p.symbol);
   const mode = network === "mainnet" ? "main" : "vst";
-  return { cell, ...liveProtectPrices(entry, p.side, cell.slAtr, cell.tpRatio, spec, mode), entry };
+  const policy = capturedProtectionPolicy(e, p);
+  return { cell, ...liveProtectPrices(entry, p.side, cell.slAtr, cell.tpRatio, spec, mode, policy.cost, policy.minSlDistancePct), entry };
 }
 
 function slIsLooser(side, curSl, wantSl) {
@@ -1673,7 +1684,7 @@ async function flattenBelowMinPf(network, book, e) {
     if (!openedAt.has(key)) openedAt.set(key, now);
     const age = now - openedAt.get(key);
     const spec = map.get(p.venueSymbol) || map.get(BINGX_SYMBOL[p.symbol] || "") || null;
-    const prot = cellProtectOf(p, spec, network);
+    const prot = cellProtectOf(p, spec, network, e);
     if (!(prot.entry > 0)) continue;
     const mark = Number(p.mark || prot.entry);
     const slDist = Math.abs(prot.sl - prot.entry);
@@ -1844,12 +1855,16 @@ function shortStopPrices(p, cfg, spec, e) {
     return { sl: snapPx(enginePos.sl, spec), tp: snapPx(enginePos.tp, spec) };
   }
   const atr = Number(e?.quotes?.[p.symbol]?.atr) || px * 0.01;
-  const tpAtr = Number(enginePos?.tpAtr) || Number(cfg?.tpAtr) || 0.48;
+  const tpAtr = Number(enginePos?.tpAtr) || Number(cfg?.tpAtr) || DEFAULT_SHORT_MIN_TP_ATR;
   const slOfTp = Number(enginePos?.slOfTp) || Number(cfg?.slOfTp) || 1;
-  const minimal = Boolean(enginePos?.minimalRange) || cfgUsesMinimalRange(cfg);
-  const raw = minimal
-    ? minimalControlPrices(side, px, tpAtr, slOfTp)
-    : shortControlPrices(side, px, atr, tpAtr, slOfTp);
+  const minimal = enginePos ? enginePos.minimalRange === true : cfgUsesMinimalRange(cfg);
+  const policy = capturedProtectionPolicy(e, p);
+  const micro = enginePos ? enginePos.microRange === true : cfg?.microRange === true;
+  const raw = micro
+    ? microControlPrices(side, px, tpAtr, slOfTp, policy.cost, policy.minSlDistancePct)
+    : minimal
+    ? minimalControlPrices(side, px, tpAtr, slOfTp, policy.cost, policy.minSlDistancePct)
+    : shortControlPrices(side, px, atr, tpAtr, slOfTp, policy.cost, policy.minSlDistancePct);
   const sl = snapPx(raw.sl, spec);
   const tp = snapPx(raw.tp, spec);
   if (onSide(sl, tp)) return { sl, tp };
@@ -1996,12 +2011,13 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
   const priceRetry = (err) => /stopPrice|trigger|price|must be|greater|lower|above|below|control price/i.test(String(err || ""));
   const specFor = (p) => map.get(p?.venueSymbol) || map.get(BINGX_SYMBOL[p?.symbol] || "") || null;
   const minimalLive = cfgUsesMinimalRange(cfg) || cfgUsesMinimalRange(currentPick?.cfg);
-  const clampControl = (side, kind, mark, want, spec) => {
+  const clampControl = (side, kind, mark, want, spec, p) => {
     const px = Number(mark);
     if (!(px > 0)) return 0;
     const tick = spec?.pxPrec != null ? Math.pow(10, -Math.max(0, spec.pxPrec)) : Math.max(px * 1e-6, 1e-8);
     const gap = minimalLive ? Math.max(tick * 2, px * 0.00005) : Math.max(px * 0.0015, tick * 5);
-    const floor = minimalLive ? 0 : px * (SYSTEM_MIN_SL_PCT / 100);
+    const policy = capturedProtectionPolicy(e, p);
+    const floor = px * minimumStopFraction(policy.cost, policy.minSlDistancePct);
     let stop = Number(want);
     if (!(stop > 0)) {
       stop = kind === "sl"
@@ -2031,7 +2047,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const kind = type === "STOP_MARKET" ? "sl" : "tp";
     if (triggerQuiet()) return { ok: false, error: "trigger quiet" };
     const spec = specFor(p);
-    let stop = clampControl(p.side, kind, mark, stopPrice, spec);
+    let stop = clampControl(p.side, kind, mark, stopPrice, spec, p);
     if (!(stop > 0)) return { ok: false, error: "control price" };
     const q = qty > 0 ? snapQtyDown(qty, spec) : snapQtyDown(p.qty, spec);
     const px = mark > 0 ? mark : p.mark || p.entry || stop;
@@ -2093,7 +2109,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const cell = protectFor(p.symbol);
     const slAtr = cell.slAtr;
     const tpRatio = cell.tpRatio;
-    const cellProt = liveProtectPrices(px, p.side, slAtr, tpRatio, spec, network === "mainnet" ? "main" : "vst");
+    const cellProt = liveProtectPrices(px, p.side, slAtr, tpRatio, spec, network === "mainnet" ? "main" : "vst", capturedProtectionPolicy(e, p).cost, capturedProtectionPolicy(e, p).minSlDistancePct);
     const shortLive = cfgUsesShortRange(cfg) || cfgUsesShortRange(currentPick?.cfg) || cfgUsesMinimalRange(cfg) || cfgUsesMinimalRange(currentPick?.cfg);
     const atrProt = shortLive ? shortStopPrices(p, { ...cell, ...(cfg || {}), ...(currentPick?.cfg || {}) }, spec, e) : null;
     const prot = atrProt || cellProt;
@@ -2199,7 +2215,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const curTp = Number(g?.tp?.[0]?.stopPrice || lastPostedTp.get(key) || 0);
     const cell = protectFor(p.symbol);
     const spec = specFor(p);
-    const cellProt = liveProtectPrices(entry || p.mark, p.side, cell.slAtr, cell.tpRatio, spec, network === "mainnet" ? "main" : "vst");
+    const cellProt = liveProtectPrices(entry || p.mark, p.side, cell.slAtr, cell.tpRatio, spec, network === "mainnet" ? "main" : "vst", capturedProtectionPolicy(e, p).cost, capturedProtectionPolicy(e, p).minSlDistancePct);
     const shortLive = cfgUsesShortRange(cfg) || cfgUsesShortRange(currentPick?.cfg) || cfgUsesMinimalRange(cfg) || cfgUsesMinimalRange(currentPick?.cfg);
     const wantProt = (shortLive && shortStopPrices(p, { ...cell, ...(cfg || {}), ...(currentPick?.cfg || {}) }, spec, e)) || cellProt;
     const ownedLeg = isOwnedLeg(p.symbol, p.side);
@@ -2268,7 +2284,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const shortProt = shortLive
         ? shortStopPrices({ ...p, mark: entry, entry }, { ...cell, ...(cfg || {}), ...(currentPick?.cfg || {}) }, spec, e)
         : null;
-      const atEntry = shortProt || liveProtectPrices(entry, p.side, cell.slAtr, cell.tpRatio, spec, mode);
+      const atEntry = shortProt || liveProtectPrices(entry, p.side, cell.slAtr, cell.tpRatio, spec, mode, capturedProtectionPolicy(e, p).cost, capturedProtectionPolicy(e, p).minSlDistancePct);
       const peak = p.side === "long"
         ? Math.max(mark, Number(lastPeakPx.get(key) || mark))
         : Math.min(mark, Number(lastPeakPx.get(key) || mark));
@@ -3385,8 +3401,8 @@ function applyPfGates(engine, remote) {
     engine.shortBasePf = sp.basePf;
     engine.shortAxisPf = sp.axisPf;
     engine.shortBlockPf = sp.blockPf;
-    shortMinTp = Math.max(SHORT_WINNER.tpAtr, sp.minTpAtr);
-    shortMinSl = Math.max(SHORT_WINNER.slOfTp, sp.minSlOfTp);
+    shortMinTp = sp.minTpAtr;
+    shortMinSl = sp.minSlOfTp;
     shortMaxTp = sp.maxTpAtr ?? 0.6;
     shortEvalPositive = sp.evalPositiveOnly !== false;
     rebuildShortGrid();
