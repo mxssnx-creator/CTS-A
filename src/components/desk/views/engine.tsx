@@ -333,6 +333,14 @@ export function EngineView() {
                   })}
                 </tbody>
               </table>
+              {sim.byProtectionRange?.length ? (
+                <div className="mt-3 grid grid-cols-2 gap-x-4 sm:grid-cols-4" aria-label="Settled results by protection range">
+                  {sim.byProtectionRange.map((range) => (
+                    <StatLine key={range.id} k={range.id}
+                      v={`PF ${fmtPf(range.pf)} · closes ${range.n}`} tone={pfTone(range.pf)} />
+                  ))}
+                </div>
+              ) : null}
               {sim.byIndication?.length ? (
                 <div className="mt-3 grid grid-cols-2 gap-x-4 sm:grid-cols-5">
                   {sim.byIndication.slice(0, 10).map((ind) => (

@@ -542,6 +542,8 @@ export interface FeedStatus {
 }
 
 export interface TacticConfig {
+  /** Net initial stop distance in price percent, added to modeled round-trip costs. */
+  minSlDistancePct?: number;
   stepPf?: import("./step-pf.ts").StepPfRules;
   fees?: Partial<FeePolicy>;
   trailingPct: number;
@@ -558,6 +560,8 @@ export interface TacticConfig {
   shortRange?: boolean;
   /** Under short. tpAtr is position-cost steps (1–3), slOfTp is SL/TP (1–3). */
   minimalRange?: boolean;
+  /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
+  microRange?: boolean;
   maxHoldBars?: number;
   maxHoldTicks?: number;
 }
@@ -761,6 +765,10 @@ export interface VstQuote {
 }
 
 export interface LiveOrder {
+  shortRange?: boolean;
+  modelRtCost?: number;
+  protectionKey?: string;
+  minSlDistancePct?: number;
   id: string;
   connId: string;
   symbol: string;
@@ -788,12 +796,18 @@ export interface LiveOrder {
   slOfTp?: number;
   trailPct?: number;
   minimalRange?: boolean;
+  /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
+  microRange?: boolean;
   calc?: IndCalcKind;
 }
 
 export interface LivePosition {
+  shortRange?: boolean;
+  /** Frozen initial-stop policy; trailing may tighten without this floor. */
+  minSlDistancePct?: number;
   /** Frozen modeled cost; fee updates never rewrite held-position evidence. */
   modelRtCost?: number;
+  protectionKey?: string;
   id: string;
   connId: string;
   symbol: string;
@@ -830,6 +844,8 @@ export interface LivePosition {
   slOfTp?: number;
   trailPct?: number;
   minimalRange?: boolean;
+  /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
+  microRange?: boolean;
   calc?: IndCalcKind;
 }
 
@@ -860,6 +876,7 @@ export interface VstBatch {
 }
 
 export interface ClosedTrade {
+  shortRange?: boolean;
   id: string;
   connId: string;
   symbol: string;
@@ -890,6 +907,8 @@ export interface ClosedTrade {
   slOfTp?: number;
   trailPct?: number;
   minimalRange?: boolean;
+  /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
+  microRange?: boolean;
   calc?: IndCalcKind;
 }
 
@@ -1109,6 +1128,7 @@ export interface SimReport {
   greenHours?: number;
   prehours?: number;
   byIndication?: { id: string; n: number; pf: number; wr?: number; net?: number }[];
+  byProtectionRange?: { id: string; n: number; pf: number; wr?: number; net?: number }[];
   byPlaybook?: { id: string; n: number; pf: number; wr?: number; net?: number }[];
   byTactic?: { id: string; n: number; pf: number; wr?: number; net?: number }[];
   floors?: { overall: number; base: number; short: number; block: number; axis: number };
@@ -1359,6 +1379,8 @@ export interface LosingHourState {
 }
 
 export interface VstEngine {
+  /** Net initial stop distance in price percent, added to modeled round-trip costs. */
+  minSlDistancePct?: number;
   stepPf?: import("./step-pf.ts").StepPfRules;
   fees?: Partial<FeePolicy>;
   feeSnapshots?: Record<string, FeeSnapshot>;
@@ -1465,6 +1487,8 @@ export interface VstEngine {
   botHistTick?: number;
   shortRange?: boolean;
   minimalRange?: boolean;
+  /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
+  microRange?: boolean;
   strategyToggles?: StrategyToggles;
   /** PF coordinations. Missing = hour-keep only (older books). */
   pfCoords?: PfCoordToggles;

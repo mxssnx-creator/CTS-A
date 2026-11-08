@@ -18,20 +18,9 @@ export const COMMON_INDICATIONS: IndicationId[] = ["trend", "break", "active", "
 
 export const DEFAULT_SHORT_AXIS_PF = 1.05;
 export const DEFAULT_SHORT_BLOCK_PF = 1.15;
-/** Live floors. Exchange closes of 0.48/0.75 were PF 0.56, so SL/TP below 1 is not a live cell. */
-export const DEFAULT_SHORT_MIN_TP_ATR = 0.48;
-export const DEFAULT_SHORT_MIN_SL_OF_TP = 1;
-
-/** Cells under the live SL floor lost on the exchange. Lift them to the new minimum. */
-function migrateShortMinTp(n: number): number {
-  if (n + 1e-9 < 0.48) return DEFAULT_SHORT_MIN_TP_ATR;
-  if (Math.abs(n - 0.42) < 1e-9 || Math.abs(n - 0.4) < 1e-9 || Math.abs(n - 0.38) < 1e-9) return DEFAULT_SHORT_MIN_TP_ATR;
-  return n;
-}
-function migrateShortMinSl(n: number): number {
-  if (n + 1e-9 < DEFAULT_SHORT_MIN_SL_OF_TP) return DEFAULT_SHORT_MIN_SL_OF_TP;
-  return n;
-}
+/** Lowest supported requested grid cells; the shared initial-stop floor applies afterward. */
+export const DEFAULT_SHORT_MIN_TP_ATR = 0.3;
+export const DEFAULT_SHORT_MIN_SL_OF_TP = 0.25;
 
 export const DEFAULT_SHORT_PROGRESS: ShortProgressConfig = {
   enabled: true,
@@ -76,8 +65,8 @@ export function sanitizeShortProgress(raw: Partial<ShortProgressConfig> | null |
     drawdownLookback: Math.min(40, Math.max(4, Math.round(Number(raw.drawdownLookback) || d.drawdownLookback))),
     prevRelN: Math.min(24, Math.max(3, Math.round(Number(raw.prevRelN) || d.prevRelN))),
     bestOnly: raw.bestOnly !== false,
-    minTpAtr: migrateShortMinTp(Math.min(0.6, Math.max(DEFAULT_SHORT_MIN_TP_ATR, Number(raw.minTpAtr) || d.minTpAtr))),
-    minSlOfTp: migrateShortMinSl(Math.min(2.5, Math.max(DEFAULT_SHORT_MIN_SL_OF_TP, Number(raw.minSlOfTp) || d.minSlOfTp))),
+    minTpAtr: Math.min(0.6, Math.max(DEFAULT_SHORT_MIN_TP_ATR, Number(raw.minTpAtr) || d.minTpAtr)),
+    minSlOfTp: Math.min(2.5, Math.max(DEFAULT_SHORT_MIN_SL_OF_TP, Number(raw.minSlOfTp) || d.minSlOfTp)),
     maxTpAtr: Math.min(0.6, Math.max(DEFAULT_SHORT_MIN_TP_ATR, Number(raw.maxTpAtr) || d.maxTpAtr || 0.6)),
     evalHours: Math.min(48, Math.max(4, Math.round(Number(raw.evalHours) || d.evalHours || 20))),
     evalPositiveOnly: raw.evalPositiveOnly !== false,

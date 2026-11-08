@@ -348,20 +348,20 @@ describe("VST engine", () => {
     const hold = trailStopFromPeak({ side: "long", entry: 100, peak: 101.6, tp: 104, sl: 98, trailPct: 1.5, shortRange: true });
     assert.equal(hold, 98);
     const cells = liveShortProtectCombos();
-    assert.ok(cells.every((c) => c.tpAtr >= 0.48 && c.slOfTp >= 1 && c.tpAtr <= 0.6));
-    assert.ok(!cells.some((c) => c.slOfTp === 0.75));
+    assert.ok(cells.every((c) => c.tpAtr >= 0.3 && c.slOfTp >= 0.25 && c.tpAtr <= 0.6));
+    assert.ok(cells.some((c) => c.slOfTp === 0.25));
     assert.ok(cells.some((c) => c.tpAtr === 0.48 && c.slOfTp === 1));
     assert.equal(DEFAULT_SHORT_PROGRESS.minTpAtr, DEFAULT_SHORT_MIN_TP_ATR);
     assert.equal(DEFAULT_SHORT_PROGRESS.minSlOfTp, DEFAULT_SHORT_MIN_SL_OF_TP);
     const sp = sanitizeShortProgress({});
-    assert.equal(sp.minTpAtr, 0.48);
-    assert.equal(sp.minSlOfTp, 1);
+    assert.equal(sp.minTpAtr, 0.3);
+    assert.equal(sp.minSlOfTp, 0.25);
     const liveCells = filterLiveShortCombos();
     assert.ok(liveCells.length >= 8, `live cells ${liveCells.length}`);
-    assert.ok(liveCells.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 1));
-    assert.ok(!liveCells.some((c) => c.slOfTp === 0.75));
+    assert.ok(liveCells.every((c) => c.tpAtr + 1e-9 >= 0.3 && c.slOfTp + 1e-9 >= 0.25));
+    assert.ok(liveCells.some((c) => c.slOfTp === 0.25));
     assert.ok(liveCells.some((c) => c.tpAtr === 0.6));
-    assert.ok(!liveCells.some((c) => c.tpAtr === 0.3 || c.tpAtr === 0.38));
+    assert.ok(liveCells.some((c) => c.tpAtr === 0.3));
   });
 
   it("default live floors print positive PF on 8h trailing", () => {
@@ -375,20 +375,25 @@ describe("VST engine", () => {
     assert.ok(DEFAULT_TACTIC_CONFIG.slAtr >= 0.8);
   });
 
-  it("live floor sl/tp distances match config R and ATR multiple", () => {
-    const cfg = { ...CFG, slAtr: 1, tpRatio: 1, trailingPct: 1.4, dcaCount: 1, maxHoldTicks: 20000 };
-    const e = initVstEngine(cfg, { warmup: 0, symbolCount: 8, arm: true });
-    const sample = [...e.queue, ...e.orders].filter((o) => o.sl > 0 && o.tp > 0 && o.price > 0 && o.indication !== "break" && o.tactic !== "axis" && o.indication !== "direction").slice(0, 24);
-    assert.ok(sample.length >= 4, `ladders ${sample.length}`);
-    for (const o of sample) {
-      const q = e.quotes[o.symbol];
-      assert.ok(q && q.atr > 0);
-      const slD = Math.abs(o.price - o.sl);
-      const tpD = Math.abs(o.tp - o.price);
-      const atrMul = slD / q.atr;
-      const r = tpD / slD;
-      assert.ok(atrMul >= 0.8 && atrMul <= 1.55, `${o.symbol} sl/atr ${atrMul}`);
-      assert.ok(r >= 0.8 && r <= 1.45, `${o.symbol} tp/sl ${r}`);
+  it("modeled fills retain requested targets while applying the shared initial-stop floor", () => {
+    const cfg = { ...CFG, minSlDistancePct: 0.4, maxHoldTicks: 20000 };
+    const e = initVstEngine(cfg, { warmup: 0, symbolCount: 8, arm: false });
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true };
+    e.queue = []; e.orders = []; e.positions = [];
+    const symbols = Object.keys(e.quotes).slice(0, 4);
+    for (const [i, symbol] of symbols.entries()) {
+      const px = e.quotes[symbol].px;
+      e.orders.push({ id: `floor-${i}`, connId: e.activeConnId, symbol, side: "long", type: "market",
+        qty: .001, filled: 0, remaining: .001, price: px, status: "open", rangeType: "atr", level: 1,
+        sl: px * .9995, tp: px * 1.002, slDist: px * .0005, tpDist: px * .002,
+        batchId: `floor-${i}`, note: "explicit admitted geometry fixture", validExec: true });
+    }
+    tickVst(e, cfg, "hybrid", { bookOnly: true, skipWalk: true });
+    assert.equal(e.positions.length, 4);
+    for (const p of e.positions) {
+      assert.ok(Math.abs(p.slDist / p.avgEntry - (POSITION_RT_COST_PCT + .004)) < 1e-10);
+      assert.ok(Math.abs(p.tpDist / p.avgEntry - .002) < 1e-10);
+      assert.equal(p.minSlDistancePct, .4);
     }
   });
 
@@ -800,8 +805,15 @@ describe("VST engine", () => {
   });
 
   it("tracks partial fills, remaining, planned qty, and does not wipe SL on fill", () => {
-    const e = initVstEngine(CFG, { warmup: 2, symbolCount: 12, orderType: "limit" });
-    for (let i = 0; i < 36; i++) tickVst(e, CFG, "hybrid", { rangeType: "atr" });
+    const e = initVstEngine(CFG, { warmup: 0, symbolCount: 12, arm: false, orderType: "limit" });
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true };
+    e.queue = []; e.orders = []; e.positions = [];
+    const quote = e.quotes.BTCUSDT; quote.vol = .004; quote.lo = quote.px * .999; quote.hi = quote.px * 1.001;
+    e.orders.push({ id: "partial-accounting", connId: e.activeConnId, symbol: "BTCUSDT", side: "long", type: "limit",
+      qty: 1, filled: 0, remaining: 1, price: quote.px, status: "open", rangeType: "atr", level: 1,
+      sl: quote.px * .99, tp: quote.px * 1.03, slDist: quote.px * .01, tpDist: quote.px * .03,
+      batchId: "partial-accounting", note: "explicit admitted accounting fixture", tactic: "trailing", validExec: true });
+    tickVst(e, CFG, "hybrid", { bookOnly: true, skipWalk: true });
     let sawPartial = false;
     for (const o of e.orders) {
       finiteNum(o.qty, o.filled, o.remaining);
@@ -817,7 +829,8 @@ describe("VST engine", () => {
       const slD = Math.abs(p.sl - p.avgEntry);
       const tpD = Math.abs(p.tp - p.avgEntry);
       assert.ok(slD > 0 && tpD > 0);
-      assert.ok(slD <= tpD / TP_SL_RATIO + 1e-6);
+      assert.ok(Math.abs(slD / p.avgEntry - .01) < 1e-10);
+      assert.ok(Math.abs(tpD / p.avgEntry - .03) < 1e-10);
       finiteNum(p.unrealized, p.mark, p.avgEntry, p.qty);
     }
     assert.ok(e.fills.length >= 1);
@@ -892,6 +905,7 @@ describe("VST engine", () => {
 
   it("cancels independent IOC remainder after a partial fill", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 8, arm: false, orderType: "limit" });
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, ...e.strategyToggles, normal: true };
     e.queue = [];
     e.orders = [];
     e.positions = [];
@@ -920,7 +934,7 @@ describe("VST engine", () => {
       batchId: "b",
       note: "ioc",
     });
-    tickVst(e, CFG, "axis", { skipWalk: true, freezeIds: new Set(["BTCUSDT"]) });
+    tickVst(e, CFG, "axis", { bookOnly: true, skipWalk: true, freezeIds: new Set(["BTCUSDT"]) });
     const working = e.orders.find((o) => o.id === "ioc1");
     assert.ok(!working || working.status === "cancelled" || working.status === "filled");
     const fill = e.fills.find((f) => f.orderId === "ioc1");
@@ -931,8 +945,9 @@ describe("VST engine", () => {
     if (fill) assert.ok(Math.abs((fill.qty ?? 0) + (fill.remaining ?? 0) - (fill.planned ?? fill.qty)) < 1e-6 || fill.planned == null);
   });
 
-  it("merged partials keep the widest SL and TP, not the tightest", () => {
+  it("different initial protection configurations keep independent positions and partial fills", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, ...e.strategyToggles, normal: true };
     e.queue = [];
     e.orders = [];
     e.positions = [];
@@ -963,13 +978,17 @@ describe("VST engine", () => {
       note: "wide",
     });
     e.orders.push(mk("tight", 0.004, 0.006), mk("wide", 0.016, 0.02));
-    tickVst(e, CFG, "trailing", { skipWalk: true, freezeIds: new Set(["BTCUSDT"]) });
-    const pos = e.positions.find((p) => p.symbol === "BTCUSDT" && p.side === "long");
-    assert.ok(pos, "position opened");
-    assert.ok(pos!.slDist + 1e-9 >= px * 0.016 * 0.98, `slDist ${pos!.slDist} want >= ${px * 0.016}`);
-    assert.ok(pos!.tpDist + 1e-9 >= px * 0.02 * 0.98, `tpDist ${pos!.tpDist} want >= ${px * 0.02}`);
-    assert.ok(pos!.sl <= px * (1 - 0.015), `sl ${pos!.sl} should be the wide stop`);
-    assert.ok(pos!.tp >= px * (1 + 0.018), `tp ${pos!.tp} should be the wide target`);
+    tickVst(e, CFG, "trailing", { bookOnly: true, skipWalk: true, freezeIds: new Set(["BTCUSDT"]) });
+    const positions = e.positions.filter((p) => p.symbol === "BTCUSDT" && p.side === "long");
+    assert.equal(positions.length, 2, "different requested protection must not merge into the first position");
+    const stops = positions.map((p) => p.slDist / px).sort((a,b) => a-b);
+    assert.ok(Math.abs(stops[0] - .004) < 1e-9);
+    assert.ok(Math.abs(stops[1] - .016) < 1e-9);
+    const keys = positions.map((p) => p.protectionKey);
+    assert.equal(new Set(keys).size, 2);
+    tickVst(e, CFG, "trailing", { bookOnly: true, skipWalk: true, freezeIds: new Set(["BTCUSDT"]) });
+    assert.equal(e.positions.filter((p) => p.symbol === "BTCUSDT").length, 2, "later partial fills stay in their own positions");
+    for (const o of e.orders) assert.ok(Math.abs(o.filled + o.remaining - o.qty) < 1e-9);
   });
 
   it("scales live fills with quote volume", () => {
@@ -1624,7 +1643,7 @@ describe("VST engine", () => {
     assert.equal(result.confirmReport!.ratioViolations, 0);
     assert.ok(result.confirmReport!.trades >= 2, `3d trades ${result.confirmReport!.trades}`);
     assert.ok(Number.isFinite(result.cfg.trailingPct));
-    assert.ok(result.cfg.tpRatio >= 0.6 && result.cfg.tpRatio <= 3);
+    assert.ok(result.cfg.tpRatio >= 1 / 2.5 && result.cfg.tpRatio <= 1 / 0.25, "TP/SL is the reciprocal of the configured SL/TP grid");
     assert.ok(result.cfg.slAtr >= 0.4 && result.cfg.slAtr <= 2);
     assert.ok(result.picks.slAtr);
     assert.notEqual(result.picks.tactic.value, "dca");
@@ -3028,8 +3047,8 @@ describe("VST engine", () => {
       assert.ok(Math.abs(c.slAtr - shortSlAtrOf(c.tpAtr, c.slOfTp)) < 1e-9);
       assert.ok(Math.abs(c.tpRatio - shortTpRatioOf(c.slOfTp)) < 1e-9);
     }
-    assert.ok(SHORT_SL_OF_TP[0] === 0.5 && SHORT_SL_OF_TP[SHORT_SL_OF_TP.length - 1] === 2.5);
-    assert.equal(SHORT_SL_OF_TP.length, 9);
+    assert.ok(SHORT_SL_OF_TP[0] === 0.25 && SHORT_SL_OF_TP[SHORT_SL_OF_TP.length - 1] === 2.5);
+    assert.equal(SHORT_SL_OF_TP.length, 10);
     for (let i = 1; i < SHORT_SL_OF_TP.length; i += 1) {
       assert.ok(Math.abs(SHORT_SL_OF_TP[i]! - SHORT_SL_OF_TP[i - 1]! - 0.25) < 1e-9);
     }
@@ -3037,10 +3056,10 @@ describe("VST engine", () => {
     assert.equal(internGrid.length, all.length);
     const liveGrid = shortProtectGridFor({ complete: false, minTpAtr: 0.38, minSlOfTp: 0.75, maxTpAtr: 0.6, positiveOnly: true });
     assert.ok(liveGrid.length >= 8, `live grid ${liveGrid.length}`);
-    assert.ok(liveGrid.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 1));
-    assert.ok(!liveGrid.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
-    assert.ok(!liveGrid.some((c) => c.tpAtr + 1e-9 < 0.48));
-    assert.ok(!liveGrid.some((c) => c.slOfTp + 1e-9 < 1));
+    assert.ok(liveGrid.every((c) => c.tpAtr + 1e-9 >= 0.38 && c.slOfTp + 1e-9 >= 0.75));
+    assert.ok(liveGrid.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
+    assert.ok(liveGrid.some((c) => c.tpAtr + 1e-9 < 0.48));
+    assert.ok(!liveGrid.some((c) => c.slOfTp + 1e-9 < 0.75), "the configured minimum is authoritative");
     const cfg = { ...CFG, shortRange: true as const, trailingPct: 1.5, maxHoldTicks: 24, slAtr: 0.36, tpRatio: 4 / 3, tpAtr: 0.48, slOfTp: 0.75 };
     const e = initVstEngine(cfg, { warmup: 0, symbolCount: 6, arm: true, complete: true });
     assert.equal(e.completeSim, true);
@@ -3256,9 +3275,9 @@ describe("VST engine", () => {
     }
   });
 
-  it("short SL 0.5–2.5 step 0.25 combos sim independently with prehours and stay Base-gated", () => {
+  it("short SL 0.25–2.5 step 0.25 combos sim independently with prehours and stay Base-gated", () => {
     const all = allShortTpSlCombos();
-    assert.equal(all.length, 14 * 9);
+    assert.equal(all.length, 14 * 10);
     assert.equal(new Set(all.map((c) => shortComboKey(c.tpAtr, c.slOfTp))).size, all.length);
     const tight = all.find((c) => c.tpAtr === 0.4 && c.slOfTp === 0.5);
     const wide = all.find((c) => c.tpAtr === 0.4 && c.slOfTp === 2.5);
@@ -3354,7 +3373,7 @@ describe("VST engine", () => {
 
   it("short SL labels and combo keys snap 0.25 steps — toFixed(1) would mislabel 0.75 as 0.8", () => {
     assert.equal(SHORT_SL_OF_TP_STEP, 0.25);
-    assert.equal(SHORT_SL_OF_TP.length, 9);
+    assert.equal(SHORT_SL_OF_TP.length, 10);
     assert.equal(formatShortRatio(0.75), "0.75");
     assert.equal(formatShortRatio(1.25), "1.25");
     assert.equal(formatShortRatio(1.75), "1.75");
@@ -3375,10 +3394,10 @@ describe("VST engine", () => {
     assert.equal(snapped.slAtr, shortSlAtrOf(0.42, 1.75));
     assert.equal(snapped.tpRatio, shortTpRatioOf(1.75));
     const keys = new Set(allShortTpSlCombos().map((c) => shortComboKey(c.tpAtr, c.slOfTp)));
-    assert.equal(keys.size, 14 * 9);
+    assert.equal(keys.size, 14 * 10);
   });
 
-  it("complete independent trade sim covers every SL 0.5–2.5 with prehours, many symbols, and no leaks", () => {
+  it("complete independent trade sim covers every SL 0.25–2.5 with prehours, many symbols, and no leaks", () => {
     const covering = SHORT_SL_OF_TP.map((slOfTp) => {
       const tpAtr = slOfTp === 0.5 ? 0.3 : slOfTp === 2.5 ? 0.6 : 0.45;
       return {
@@ -3397,11 +3416,11 @@ describe("VST engine", () => {
       block: false,
       combos: covering,
     });
-    assert.equal(run.short.cells.length, 9);
+    assert.equal(run.short.cells.length, 10);
     assert.equal(run.leaked, 0);
     assert.ok(run.orders > 0, `orders ${run.orders}`);
     assert.ok(run.short.cells.every((c) => Number.isFinite(c.pf) && Number.isFinite(c.net) && Number.isFinite(c.trades)));
-    assert.equal(new Set(run.short.cells.map((c) => c.slOfTp)).size, 9);
+    assert.equal(new Set(run.short.cells.map((c) => c.slOfTp)).size, 10);
     const tactics = completeComputations(CFG, { symbolCount: 4, hours: [1], prehours: 0 });
     assert.equal(tactics.cells.length, LIVE_TACTICS.length * RANGE_TYPES.length);
     const a = covering.find((c) => c.slOfTp === 0.5)!;
@@ -3416,7 +3435,7 @@ describe("VST engine", () => {
     assert.ok(ra > rb + 0.4, `R 0.5 ${ra} vs 2.5 ${rb}`);
   });
 
-  it("intern scores all 126 short combos and mixed last-N does not skip Base-ok TP 0.4", () => {
+  it("intern scores all 140 short combos and mixed last-N does not skip Base-ok TP 0.4", () => {
     const e = initVstEngine({ ...CFG, shortRange: true, tpAtr: 0.4, slOfTp: 1.75 }, { warmup: 0, symbolCount: 4, arm: false });
     e.preEvalDone = true;
     e.shortRange = true;
@@ -3550,7 +3569,7 @@ describe("VST engine", () => {
     assert.ok(e.orders.length <= VST_MAX_WORKING_ORDERS);
     const liveGrid = shortProtectGrid(e, { ...CFG, shortRange: true });
     assert.ok(liveGrid.length >= 1);
-    assert.ok(liveGrid.every((c) => c.tpAtr >= 0.48 && c.slOfTp >= 1));
+    assert.ok(liveGrid.every((c) => c.tpAtr >= 0.3 && c.slOfTp >= 0.25));
     assert.ok(!liveGrid.some((c) => c.slOfTp === 0.75));
   });
 
@@ -5008,7 +5027,7 @@ describe("full config coverage", () => {
     assert.ok(wide.every((c) => c.tpAtr >= 0.42 && c.tpAtr <= 0.6 && c.slOfTp >= 1.75));
     const pos = filterLiveShortCombos(0.38, 0.75, 0.6, true);
     assert.ok(pos.length >= 8);
-    assert.ok(pos.every((c) => c.tpAtr + 1e-9 >= 0.48 && c.slOfTp + 1e-9 >= 1));
+    assert.ok(pos.every((c) => c.tpAtr + 1e-9 >= 0.3 && c.slOfTp + 1e-9 >= 0.25));
     assert.ok(!pos.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
     assert.equal(filterLiveShortCombos(0.42, 1.7, 0.6, false).length, 32);
     assert.equal(filterLiveShortCombos(0.4, 1.7, 0.6, false).length, 36);

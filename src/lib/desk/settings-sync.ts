@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { normalizeMinSlDistancePct } from "./protection-policy.ts";
 import {
   DEFAULT_BLOCK_CONFIG,
   DEFAULT_ENABLED_KINDS,
@@ -41,6 +42,7 @@ import {
   snapMinimalTpCost,
   snapMinimalSlOfTp,
   MINIMAL_WINNER,
+  snapMicroTpPct,
   SHORT_WINNER,
   clampLiveShortProtect,
   clampBlockVol,
@@ -248,13 +250,16 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       maxDdt: Math.min(36, Math.max(8, asNum(th.maxDdt, d.thresholds.maxDdt))),
     },
     tacticConfig: (() => {
+      const minSlDistancePct = normalizeMinSlDistancePct(cfg.minSlDistancePct);
       const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;
-      if (asBool(cfg.minimalRange, false) || cfgUsesMinimalRange(cfg)) {
-        const tpAtr = snapMinimalTpCost(asNum(cfg.tpAtr, MINIMAL_WINNER.tpCost));
+      if (cfg.microRange === true || asBool(cfg.minimalRange, false) || cfgUsesMinimalRange(cfg)) {
+        const micro = cfg.microRange === true;
+        const tpAtr = micro ? snapMicroTpPct(asNum(cfg.tpAtr, .2)) : snapMinimalTpCost(asNum(cfg.tpAtr, MINIMAL_WINNER.tpCost));
         const slOfTp = snapMinimalSlOfTp(asNum(cfg.slOfTp, MINIMAL_WINNER.slOfTp));
         return {
+          minSlDistancePct,
           trailingPct: snapTrailPct(asNum(cfg.trailingPct, MINIMAL_WINNER.trailPct)),
-          dcaCount: 1,
+          dcaCount: Math.min(3, Math.max(1, Math.round(asNum(cfg.dcaCount, d.tacticConfig.dcaCount)))),
           dcaDrawdown: Math.max(0.3, asNum(cfg.dcaDrawdown, d.tacticConfig.dcaDrawdown)),
           axisSpacing: Math.max(0.2, asNum(cfg.axisSpacing, d.tacticConfig.axisSpacing)),
           axisLevels: Math.max(2, Math.round(asNum(cfg.axisLevels, d.tacticConfig.axisLevels))),
@@ -264,7 +269,8 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
           tpAtr,
           slOfTp,
           shortRange: false,
-          minimalRange: true,
+          minimalRange: !micro,
+          microRange: micro,
           maxHoldBars: Math.min(8, Math.max(1, Math.round(asNum(cfg.maxHoldBars, 2)))),
           maxHoldTicks: Math.min(48, Math.max(4, Math.round(asNum(cfg.maxHoldTicks, MINIMAL_WINNER.maxHoldTicks)))),
         };
@@ -275,8 +281,9 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         const slOfTp = clamped.slOfTp;
         const tpAtr = clamped.tpAtr;
         return {
+          minSlDistancePct,
           trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.5)),
-          dcaCount: 1,
+          dcaCount: Math.min(3, Math.max(1, Math.round(asNum(cfg.dcaCount, d.tacticConfig.dcaCount)))),
           dcaDrawdown: Math.max(0.3, asNum(cfg.dcaDrawdown, d.tacticConfig.dcaDrawdown)),
           axisSpacing: Math.max(0.2, asNum(cfg.axisSpacing, d.tacticConfig.axisSpacing)),
           axisLevels: Math.max(2, Math.round(asNum(cfg.axisLevels, d.tacticConfig.axisLevels))),
@@ -295,8 +302,9 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         asNum(cfg.tpAtr, hasPair ? 1 : asNum(cfg.slAtr, d.tacticConfig.slAtr) / Math.max(0.5, slOfTp)),
       );
       return {
+      minSlDistancePct,
       trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.5)),
-      dcaCount: 1,
+      dcaCount: Math.min(3, Math.max(1, Math.round(asNum(cfg.dcaCount, d.tacticConfig.dcaCount)))),
       dcaDrawdown: Math.max(0.3, asNum(cfg.dcaDrawdown, d.tacticConfig.dcaDrawdown)),
       axisSpacing: Math.max(0.2, asNum(cfg.axisSpacing, d.tacticConfig.axisSpacing)),
       axisLevels: Math.max(2, Math.round(asNum(cfg.axisLevels, d.tacticConfig.axisLevels))),
