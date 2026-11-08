@@ -985,6 +985,12 @@ export interface SimReport {
   wins: number;
   wr: number;
   pf: number;
+  /** The headline PF uses net unit returns; sized cash PF is a separate diagnostic. */
+  cashPf?: number;
+  returnProfit?: number;
+  returnLoss?: number;
+  settledSlices?: number;
+  statisticsScope?: string;
   net: number;
   mdd: number;
   equity: number;
@@ -1010,7 +1016,7 @@ export interface SimReport {
   loss: number;
   maxWinStreak: number;
   maxLossStreak: number;
-  bySymbol: { id: string; trades: number; net: number; wr: number; pf: number; sl: number; tp: number }[];
+  bySymbol: { id: string; trades: number; net: number; wr: number; pf: number; sl: number; tp: number; returnProfit?: number; returnLoss?: number }[];
   hourly: {
     h: number;
     net: number;

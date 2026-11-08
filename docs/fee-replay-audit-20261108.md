@@ -45,3 +45,37 @@ Synthetic 8-symbol, 12h-prehistory + 12h-run experiments: Minimal 1 close/PF 0; 
 New `tacticConfig.stepPf` settings expose enabled/ratio/max (true/0.2/2 for new engines). Uses the CTS-G manual percent rule when a price-percent target is explicit, or Minimal's actual fee-relative target is known; ATR multipliers are not silently treated as price percentages. Stricter lane floors remain.
 Last-N history/cache identity now includes symbol, side, indication, tactic, type, range, playbook, TP and SL. Cache identity also includes the current windows and PF settings. Empty completed-stage windows cannot pass or manufacture a parallel stack. Base qualification respects the selected multi-window mode, prefers current own closes over frozen older wins, and cannot borrow a broader range for an exact symbol/side context. Relation volume retains candidates until matching the entry, includes exact config/protection keys and applies the eight-relation bound after matching.
 Validation: 39 focused fee/step/lane/window tests and 52 stable tests passed. The deterministic synthetic Minimal/Axis/Axis+Block results remain 1/6/9 closes with PF 0/0.8453/0.8099. This is not a timestamped exchange replay, full stage architecture, or proof of Micro profitability.
+
+## Executed statistics follow-up
+
+The 12-symbol, 24h-prehistory + 24h synthetic expansion exposed a reporting defect.
+Before this correction, Axis displayed PF 1.4517005 while its own nine scored closes
+had PF 0.5903720. Axis + Block displayed PF 2.1204807 while its own eleven scored
+closes had PF 0.4941101. The report substituted a selected winning subset for executed
+PF, retained prehistory in symbol totals, and sometimes substituted selected net for
+marked equity change. These are reporting errors, not evidence of profitable execution.
+
+Headlines now use every owned settled slice in the scored interval. Unit-return PF,
+size-weighted cash PF, settled cash and marked equity change are separate values.
+Symbols, indications, types, hours, horizon marks, order counts, drawdown and streaks
+use that interval. Selected, gated and prehistory cohorts remain explicit diagnostics.
+Block partial settlements now update the same ratio, symbol, exit and streak ledgers
+as parent settlements. The parent retains its independent remaining quantity.
+
+The eight new/reinforced tests reconcile actual close rows against headline PF,
+hourly and symbol cash, all execution group counts, horizon marks and recovered
+maximum drawdown, including a losing Block partial. All eight passed, as did 52
+stable regressions, TypeScript and the production build. Targeted lint has no errors
+and retains 27 pre-existing unused-symbol warnings.
+
+Corrected 12-symbol/24h synthetic results: Minimal 1 close/PF 0; Axis 9 closes/PF
+0.5903720; Axis + Block 13 closes/PF 0.5458914. The corrected Block ledger affects
+later model decisions, so its rerun has a different cohort. The corrected 8-symbol/12h
+Axis + Block result is 9 closes/PF 0.8133033, superseding the earlier 0.8099 figure
+above. No high-PF preset is supported by these results. This simulator still uses
+generated prices; no exchange parity or future return guarantee is implied.
+
+Empty execution statistics also no longer borrow a completed research winner by default.
+An explicit research preview can opt in and is marked `researchSeeded`; exchange-book
+overlays never seed an empty execution history. The regression verifies empty overall,
+hourly and Last-N counts/PF, plus the separately requested research preview.

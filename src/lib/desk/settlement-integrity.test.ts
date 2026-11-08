@@ -65,6 +65,13 @@ test("losing Block partial retains its fill economics and the parent stays indep
   assert.equal(c.ratio, positionNetRatio(1, c.entry, c.exit));
   assert.equal(e.hourLive?.n, 1);
   assert.equal(e.hourLive?.l, -c.pnl);
+  assert.equal(e.ledger.trades, 1);
+  assert.equal(e.ledger.slExits, 1);
+  assert.equal(e.ledger.ratioLoss, -c.ratio!);
+  assert.equal(e.symbolStats[c.symbol].trades, 1);
+  assert.equal(e.symbolStats[c.symbol].loss, -c.pnl);
+  assert.equal(e.symbolStats[c.symbol].ratioLoss, -c.ratio!);
+  assert.equal(e.ledger.maxLossStreak, 1);
   assert.equal(e.positions.length, 1);
   assert.equal(e.positions[0].qty, 2);
   assert.equal(e.positions[0].avgEntry, 100);
