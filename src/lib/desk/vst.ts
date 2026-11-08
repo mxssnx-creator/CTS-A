@@ -1,3 +1,5 @@
+import { DEFAULT_STEP_PF, stepPfFloor } from "./step-pf.ts";
+import { actualFillFee, feePolicy, resolveFeePolicy, roundTripFeeRate } from "./fee-policy.ts";
 import type {
   BlockAdjustResult,
   BlockConfig,
@@ -561,6 +563,8 @@ export function engageLiveBook(e: VstEngine) {
 
 type ConfigTapeRow = {
   pnl: number;
+  symbol?: string;
+  side?: Side;
   indication?: string;
   tactic?: string;
   rangeType?: string;
@@ -574,10 +578,10 @@ type ConfigTapeRow = {
 const configPreMem = new WeakMap<VstEngine, ConfigTapeRow[]>();
 const configTapeMem = new WeakMap<VstEngine, Map<string, ConfigTapeRow[]>>();
 const rangeComboMem = new WeakMap<VstEngine, Map<string, ConfigTapeRow[]>>();
-function configSampleKey(rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
+function configSampleKey(rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
   const tp = rel.tpAtr == null ? "" : String(Math.round(rel.tpAtr * 1000) / 1000);
   const sl = rel.slOfTp == null ? "" : String(Math.round(rel.slOfTp * 1000) / 1000);
-  return `${rel.indication || ""}|${rel.tactic || ""}|${rel.rangeType || ""}|${rel.playbook || ""}|${rel.kind || ""}|${tp}|${sl}`;
+  return JSON.stringify([rel.symbol, rel.side, rel.indication, rel.tactic, rel.rangeType, rel.playbook, rel.kind, tp, sl]);
 }
 function rangeComboKey(rel: { rangeType?: string; tpAtr?: number; slOfTp?: number }) {
   const tp = rel.tpAtr == null ? "" : String(Math.round(rel.tpAtr * 1000) / 1000);
@@ -594,6 +598,7 @@ function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id
   if (!deskTapeRow(e, c)) return;
   const row: ConfigTapeRow = {
     pnl: edgePnl(c),
+    symbol: c.symbol, side: c.side,
     indication: c.indication,
     tactic: c.tactic,
     rangeType: c.rangeType,
@@ -618,7 +623,7 @@ function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id
     pushTapeRing(ranges, rangeComboKey(row), row);
   }
 }
-function historyRows(e: VstEngine, rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
+function historyRows(e: VstEngine, rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
   const bag = configTapeMem.get(e);
   if (!bag) return [];
   return bag.get(configSampleKey(rel)) ?? [];
@@ -629,6 +634,7 @@ function snapshotConfigPreTape(e: VstEngine) {
     if (!deskTapeRow(e, c)) continue;
     rows.push({
       pnl: edgePnl(c),
+      symbol: c.symbol, side: c.side,
       indication: c.indication,
       tactic: c.tactic,
       rangeType: c.rangeType,
@@ -641,10 +647,12 @@ function snapshotConfigPreTape(e: VstEngine) {
   }
   configPreMem.set(e, rows);
 }
-function filterConfigRows(rows: ConfigTapeRow[], rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
+function filterConfigRows(rows: ConfigTapeRow[], rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
   const out: ConfigTapeRow[] = [];
   for (const c of rows) {
     if (c.examFlat) continue;
+    if (rel.symbol && c.symbol !== rel.symbol) continue;
+    if (rel.side && c.side !== rel.side) continue;
     if (rel.indication && c.indication !== rel.indication) continue;
     if (rel.tactic && c.tactic !== rel.tactic) continue;
     if (rel.rangeType && c.rangeType !== rel.rangeType) continue;
@@ -1077,13 +1085,13 @@ function baseStageFloor(e: VstEngine): number {
 }
 
 /** Process a full last-N once the eval count is filled. Under that count, keep accepting from 8. */
-function lastNTapePass(e: VstEngine, rows: { pnl: number }[] | undefined): boolean {
-  const base = baseStageFloor(e);
+function lastNTapePass(e: VstEngine, rows: { pnl: number }[] | undefined, floor = baseStageFloor(e)): boolean {
+  const base = floor;
   const evalCount = evalWindowCount(lastNProgressOf(e));
   if (!rows || rows.length < evalCount) return nearLastNPass(rows, 8, base);
   const d = decideLastN(rows, lastNProgressOf(e), base, base);
   const validOk = d.validHits.some((h) => h.samples >= h.n && h.pf + 1e-9 >= base && h.net > 0);
-  if (!validOk) return false;
+  if (!validOk || !d.pass) return false;
   const evalFull = d.evalHits.filter((h) => h.samples >= h.n);
   if (!evalFull.length) return true;
   return evalFull.some((h) => h.pf + 1e-9 >= base && h.avg >= 0);
@@ -2362,6 +2370,22 @@ export function ensureEngine(e: VstEngine): VstEngine {
   return e;
 }
 
+/** Unknown venue commissions are estimates, with no second slippage charge. */
+export function actualPositionFeeEstimate(e: VstEngine, symbol: string, entry: number, exit: number, qty: number): number {
+  const rates = resolveFeePolicy(e.fees ?? {}, e.feeSnapshots?.[symbol], {
+    exchange: "bingx", account: e.activeConnId, symbol, now: e.feeAsOfMs ?? Date.now(),
+  });
+  return actualFillFee(qty, entry, rates).fee + actualFillFee(qty, exit, rates).fee;
+}
+
+/** Snapshot a symbol's account rate at modeled admission. Unmeasured rates stay estimates. */
+export function modeledPositionCost(e: VstEngine, symbol: string): number {
+  const rates = resolveFeePolicy(e.fees ?? {}, e.feeSnapshots?.[symbol], {
+    exchange: "bingx", account: e.activeConnId, symbol, now: e.feeAsOfMs ?? Date.now(),
+  });
+  return roundTripFeeRate(rates);
+}
+
 export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: number; symbolCount?: number; liveSymbolCap?: number; orderType?: OrderTypeId; arm?: boolean; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; comboOnly?: boolean } = {}): VstEngine {
   resetIndicationHistory();
   const use = cfgUsesShortRange(cfg) ? snapShortTacticConfig(cfg) : cfg;
@@ -2372,6 +2396,8 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
   const ledger = emptyLedger();
   ledger.peak = startEq;
   const engine: VstEngine = {
+    fees: feePolicy(cfg.fees),
+    stepPf: { ...DEFAULT_STEP_PF, ...cfg.stepPf },
     quotes: mkQuotes(),
     queue: [],
     orders: [],
@@ -3641,7 +3667,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               : protectLevels(px, side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true);
             const minimalOn = cfgUsesMinimalRange(cfg);
             const mini = minimalOn
-              ? minimalControlPrices(side, px, cfg.tpAtr ?? MINIMAL_WINNER.tpCost, cfg.slOfTp ?? MINIMAL_WINNER.slOfTp)
+              ? minimalControlPrices(side, px, cfg.tpAtr ?? MINIMAL_WINNER.tpCost, cfg.slOfTp ?? MINIMAL_WINNER.slOfTp, modeledPositionCost(e, s.id))
               : null;
             const lv = mini
               ? { sl: mini.sl, tp: mini.tp, slDist: mini.slDist, tpDist: mini.tpDist }
@@ -4601,10 +4627,11 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     }
     const rawR = o.slDist > 1e-12 ? o.tpDist / o.slDist : 1;
     const lv = o.minimalRange
-      ? minimalControlPrices(o.side, px, o.tpAtr ?? MINIMAL_WINNER.tpCost, o.slOfTp ?? MINIMAL_WINNER.slOfTp)
+      ? minimalControlPrices(o.side, px, o.tpAtr ?? MINIMAL_WINNER.tpCost, o.slOfTp ?? MINIMAL_WINNER.slOfTp, modeledPositionCost(e, o.symbol))
       : protectLevels(px, o.side, o.slDist, o.tpDist, rawR, true);
     pos = {
       id: nextId(e, "p"),
+      modelRtCost: modeledPositionCost(e, o.symbol),
       connId: o.connId,
       symbol: o.symbol,
       side: o.side,
@@ -4932,8 +4959,8 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
     : (p.side === "long" ? bpx - risk : bpx + risk);
   if (!(exit > 0)) return;
   const signed = p.side === "long" ? 1 : -1;
-  const pnl = closePnl(signed, bpx, exit, bq);
-  const ratio = positionNetRatio(signed, bpx, exit);
+  const pnl = closePnl(signed, bpx, exit, bq, p.modelRtCost ?? modeledPositionCost(e, p.symbol));
+  const ratio = positionNetRatio(signed, bpx, exit, p.modelRtCost ?? modeledPositionCost(e, p.symbol));
   const parentQty = p.qty - bq;
   const parentCost = p.avgEntry * p.qty - bpx * bq;
   const restored = parentCost / parentQty;
@@ -4992,8 +5019,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     return;
   }
   const signed = p.side === "long" ? 1 : -1;
-  const pnl = closePnl(signed, p.avgEntry, exit, p.qty);
-  const ratio = positionNetRatio(signed, p.avgEntry, exit);
+  const pnl = closePnl(signed, p.avgEntry, exit, p.qty, p.modelRtCost ?? modeledPositionCost(e, p.symbol));
+  const ratio = positionNetRatio(signed, p.avgEntry, exit, p.modelRtCost ?? modeledPositionCost(e, p.symbol));
   if (!Number.isFinite(pnl) || !Number.isFinite(ratio)) throw new RangeError("Invalid settlement economics");
   const botBook = String(p.playbook || "").startsWith("bot:");
   const playKey = `play:${String(p.playbook || "short")}`;
@@ -5007,7 +5034,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
       const restored = (p.avgEntry * p.qty - (p.blockAvg || 0) * bq) / parentQty;
       if (restored > 0 && Number.isFinite(restored)) parentAvg = restored;
     }
-    const parentRatio = parentAvg !== p.avgEntry ? positionNetRatio(signed, parentAvg, exit) : ratio;
+    const parentRatio = parentAvg !== p.avgEntry ? positionNetRatio(signed, parentAvg, exit, p.modelRtCost ?? modeledPositionCost(e, p.symbol)) : ratio;
     const axis = p.tactic === "axis" || p.playbook === "axis";
     const plainParent = unadjustedNormalOrder({ ...p, blockLevel: 0, playbook: p.playbook === "block" ? "short" : p.playbook });
     if (plainParent && parentQty > 1e-8 && p.playbook !== "block") {
@@ -5019,7 +5046,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
       bumpBookPf(e, `axis:${reason}`, parentRatio);
     }
     if (bq > 1e-12 && (p.blockAvg || 0) > 0) {
-      const br = positionNetRatio(signed, p.blockAvg || p.avgEntry, exit);
+      const br = positionNetRatio(signed, p.blockAvg || p.avgEntry, exit, p.modelRtCost ?? modeledPositionCost(e, p.symbol));
       bumpBookPf(e, "block", br);
       bumpBookPf(e, `block:${reason}`, br);
     } else if (p.playbook === "block" || bq > 1e-12) {
@@ -5393,7 +5420,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     }
     p.mark = q.px;
     const signed = p.side === "long" ? 1 : -1;
-    p.unrealized = q.px > 0 && p.avgEntry > 0 && p.qty > 0 ? closePnl(signed, p.avgEntry, q.px, p.qty) : 0;
+    p.unrealized = q.px > 0 && p.avgEntry > 0 && p.qty > 0 ? closePnl(signed, p.avgEntry, q.px, p.qty, p.modelRtCost ?? modeledPositionCost(e, p.symbol)) : 0;
     const fillRatio = p.plannedQty > 0 ? p.qty / p.plannedQty : 1;
     const ownTactic: TacticKind =
       p.tactic === "axis" || p.tactic === "trailing" || p.tactic === "hybrid" || p.tactic === "dca" ? p.tactic : tactic;
@@ -5403,7 +5430,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const minimalPos = Boolean(p.minimalRange);
     const shortPos = !minimalPos && (botBook || cfgUsesShortRange(cfg) || p.playbook === "short" || (p.tpAtr != null && p.slOfTp != null));
     if (minimalPos && p.avgEntry > 0 && !(p.sl > 0 && p.tp > 0 && (p.side === "long" ? p.sl < p.avgEntry && p.tp > p.avgEntry : p.sl > p.avgEntry && p.tp < p.avgEntry))) {
-      const stop = minimalControlPrices(p.side, p.avgEntry, p.tpAtr || cfg.tpAtr || MINIMAL_WINNER.tpCost, p.slOfTp || cfg.slOfTp || MINIMAL_WINNER.slOfTp);
+      const stop = minimalControlPrices(p.side, p.avgEntry, p.tpAtr || cfg.tpAtr || MINIMAL_WINNER.tpCost, p.slOfTp || cfg.slOfTp || MINIMAL_WINNER.slOfTp, p.modelRtCost ?? modeledPositionCost(e, p.symbol));
       p.sl = stop.sl;
       p.tp = stop.tp;
       p.slDist = stop.slDist;
@@ -5724,7 +5751,7 @@ export function syncLivePartials(
       } else {
         const take = Math.abs(dQty);
         const signed = pos.side === "long" ? 1 : -1;
-        const rawPnl = Number.isFinite(px) && px > 0 && pos.avgEntry > 0 ? closePnl(signed, pos.avgEntry, px, take) : 0;
+        const rawPnl = Number.isFinite(px) && px > 0 && pos.avgEntry > 0 ? (px - pos.avgEntry) * signed * take - actualPositionFeeEstimate(e, pos.symbol, pos.avgEntry, px, take) : 0;
         const pnl = bookRealized(e, rawPnl, "partial");
         pos.qty = qty;
         pos.realized += pnl;
@@ -6129,6 +6156,8 @@ export function blockRelationKeys(rel: {
   const keys = [`sym:${rel.symbol}`, `side:${rel.side}`, `leg:${rel.symbol}:${rel.side}`];
   if (rel.indication) keys.push(`ind:${rel.indication}`);
   if (rel.indicationCfg) keys.push(`cfg:${rel.indicationCfg}`);
+  else if (rel.indication && rel.tactic && rel.rangeType && rel.tpAtr != null && rel.slOfTp != null)
+    keys.push(`cfg:${JSON.stringify([rel.indication, rel.kind, rel.tactic, rel.rangeType, rel.playbook, rel.tpAtr, rel.slOfTp])}`);
   if (rel.kind) keys.push(`kind:${rel.kind}`);
   if (rel.playbook) keys.push(`book:${rel.playbook}`);
   if (rel.tactic) keys.push(`tac:${rel.tactic}`);
@@ -6449,8 +6478,14 @@ export function selectMinPfCells(
   };
 }
 
-export function entryMinPfFor(e: VstEngine, rel?: Parameters<typeof pfLaneOf>[0]): number {
-  return minPfFor(e, pfLaneOf(rel));
+export type StepPfContext = { tpPct?: number; tpAtr?: number; rangeType?: string; symbol?: string };
+export function configStepFloor(e: VstEngine, legacy: number, rel?: StepPfContext | null): number {
+  const pct = rel?.tpPct ?? (e.minimalRange && rel?.tpAtr != null
+    ? rel.tpAtr * modeledPositionCost(e, rel.symbol ?? "") * 100 : undefined);
+  return stepPfFloor(legacy, pct, e.stepPf);
+}
+export function entryMinPfFor(e: VstEngine, rel?: Parameters<typeof pfLaneOf>[0] & StepPfContext): number {
+  return configStepFloor(e, minPfFor(e, pfLaneOf(rel)), rel);
 }
 
 /** Lowest floor among enabled strategies — Short 1.2 can arm when Overall is 1.8. */
@@ -6499,6 +6534,8 @@ export function laneClosed(
     tactic?: string;
     rangeType?: string;
     playbook?: string;
+    tpAtr?: number;
+    slOfTp?: number;
   },
   n: number,
 ) {
@@ -6513,6 +6550,8 @@ export function laneClosed(
     if (rel.tactic && (c.tactic ?? "") !== rel.tactic) continue;
     if (rel.rangeType && (c.rangeType ?? "") !== rel.rangeType) continue;
     if (rel.playbook && (c.playbook ?? "") !== rel.playbook) continue;
+    if (rel.tpAtr != null && c.tpAtr !== rel.tpAtr) continue;
+    if (rel.slOfTp != null && c.slOfTp !== rel.slOfTp) continue;
     out.push(c);
     if (out.length >= need) break;
   }
@@ -6859,7 +6898,7 @@ export function blockWindowSnapshot(e: VstEngine, n = 6) {
   return { n, overall, symbols };
 }
 
-const MAJOR_REL = new Set(["ind", "kind", "tac", "rng", "side", "book"]);
+const MAJOR_REL = new Set(["sym", "leg", "ind", "kind", "tac", "rng", "side", "book"]);
 const MINOR_REL = new Set(["cfg", "sub", "combo"]);
 
 function closedMatchesRelKey(
@@ -6961,15 +7000,8 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
     const rows = ivClosed.filter((c) => closedMatchesRelKey(c, key));
     return laneLastNStats(rows);
   };
-  const byPrefix = new Map<string, (typeof candidates)[number]>();
-  for (const c of candidates) {
-    const p = c.key.split(":")[0] ?? "";
-    if (!MAJOR_REL.has(p)) continue;
-    const prev = byPrefix.get(p);
-    if (!prev || c.pf > prev.pf) byPrefix.set(p, c);
-  }
   const picks: { key: string; n: number; pf: number; net: number; vol: number; major: boolean }[] = [];
-  for (const c of byPrefix.values()) picks.push({ ...c, vol: vr, major: true });
+  for (const c of candidates) if (MAJOR_REL.has(c.key.split(":")[0])) picks.push({ ...c, vol: vr, major: true });
   for (const c of candidates) {
     const p = c.key.split(":")[0] ?? "";
     if (MINOR_REL.has(p)) picks.push({ ...c, vol: vr, major: false });
@@ -6990,7 +7022,7 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
   });
   const kept = scored.filter((p, i) => i === 0 || p.ivN < 3 || p.ivPf >= iv.relationKeepPf);
   const used = kept.slice(0, 8).map(({ ivN: _n, ivPf: _p, ...row }) => row);
-  e.blockRelBest = Object.fromEntries(used.map((p) => [p.key, p]));
+  e.blockRelBest = Object.fromEntries(kept.map(({ ivN: _n, ivPf: _p, ...p }) => [p.key, p]));
   e.relVolumeFactor = block.relAdditive === false ? 0 : used.reduce((s, p) => s + Math.max(0, p.vol), 0);
   e.lastRelEvalTick = e.tick;
   pruneBlockRelWindows(e);
@@ -7067,11 +7099,12 @@ function pickPositiveKeys(
 /** After base eval, only a sampled set that passed its own last-N trades. An unsampled overall set does not. */
 function validatedSet(
   e: VstEngine,
-  rel: { indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number },
+  rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number },
 ): boolean {
   if (!e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return true;
-  const base = baseStageFloor(e);
+  const base = configStepFloor(e, baseStageFloor(e), rel);
   const ident = {
+    symbol: rel.symbol, side: rel.side,
     indication: rel.indication,
     tactic: rel.tactic,
     rangeType: rel.rangeType,
@@ -7083,12 +7116,14 @@ function validatedSet(
   const exact = filterConfigRows(laneClosed(e, ident, 80) as ConfigTapeRow[], ident);
   const frozen = filterConfigRows(configPreMem.get(e) ?? [], ident);
   const hist = historyRows(e, ident);
-  const tape = [exact, frozen, hist].sort((a, b) => b.length - a.length)[0] ?? [];
-  if (lastNTapePass(e, tape)) return true;
+  const tape = exact.length ? exact : hist.length ? hist : frozen;
+  if (lastNTapePass(e, tape, base)) return true;
+  // An exact execution context cannot borrow a broader range or sibling configuration's wins.
+  if (rel.symbol || rel.side) return false;
   // A TP×SL pass does not unlock every range. This range must clear last-N on its own tape.
   if (rel.rangeType && rel.tpAtr != null && rel.slOfTp != null) {
     const rangeTape = rangeComboMem.get(e)?.get(rangeComboKey(rel)) ?? [];
-    if (!lastNTapePass(e, rangeTape)) return false;
+    if (!lastNTapePass(e, rangeTape, base)) return false;
     const rangeSt = comboTapeStats(rangeTape);
     if (!(rangeSt.n >= 8 && rangeSt.net > 0 && rangeSt.pf + 1e-9 >= base)) return false;
     const pre = (e.shortComboPreTape ?? e.shortComboTape)?.[shortComboKey(rel.tpAtr, rel.slOfTp)];
@@ -7099,10 +7134,10 @@ function validatedSet(
   if (rel.indication && rel.tactic && rel.tpAtr != null && rel.slOfTp != null) {
     const key = internRelKey(rel.indication, rel.tactic, rel.tpAtr, rel.slOfTp);
     const relRows = (e.shortRelPreTape && Object.keys(e.shortRelPreTape).length ? e.shortRelPreTape : e.shortRelTape)?.[key];
-    return lastNTapePass(e, relRows);
+    return lastNTapePass(e, relRows, base);
   }
   if (rel.tpAtr != null && rel.slOfTp != null) {
-    if (lastNTapePass(e, internStartRows(e, shortComboKey(rel.tpAtr, rel.slOfTp)))) return true;
+    if (lastNTapePass(e, internStartRows(e, shortComboKey(rel.tpAtr, rel.slOfTp)), base)) return true;
     const row = e.progressEval?.shortCombos?.[shortComboKey(rel.tpAtr, rel.slOfTp)];
     return Boolean(row && row.n >= 8 && row.net > 0 && row.pf + 1e-9 >= base && row.ok !== false);
   }
@@ -7190,19 +7225,12 @@ function bustLaneDecCache(e: VstEngine) {
 
 function laneDecTapeSig(e: VstEngine) {
   const head = e.closed[0];
-  return head ? `${head.id}:${head.pnl}:${head.tick}` : "";
+  return head ? `${head.id}:${head.pnl}:${head.ratio}:${head.tick}` : "";
 }
 
-function laneDecKey(rel: {
-  symbol?: string;
-  side?: string;
-  indication?: string;
-  kind?: string;
-  tactic?: string;
-  rangeType?: string;
-  playbook?: string;
-}) {
-  return `${rel.indication ?? ""}|${rel.tactic ?? ""}|${rel.rangeType ?? ""}|${rel.playbook ?? rel.kind ?? ""}|${rel.symbol ?? ""}|${rel.side ?? ""}`;
+function laneDecKey(rel: Parameters<typeof lanePassExec>[1]) {
+  return JSON.stringify([rel.indication, rel.tactic, rel.rangeType, rel.playbook, rel.kind,
+    rel.symbol, rel.side, rel.tpAtr, rel.slOfTp, rel.tpPct]);
 }
 
 /** Score every last-N / Block / indication / tactic / range type by PF.
@@ -8276,6 +8304,7 @@ export function adjustActiveBlocks(
                 tactic: p.tactic ?? tactic,
                 rangeType: p.controllingRange ?? rangeType,
                 playbook: p.playbook,
+                tpAtr: p.tpAtr, slOfTp: p.slOfTp,
               });
         const extraOnce = Math.max(0, relVol) * lane.baseQty;
         const relPlannedAt = () => plannedRel.length;
@@ -8509,6 +8538,8 @@ function capBookCheap(e: VstEngine) {
 
 export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { freezeIds?: Set<string>; skipWalk?: boolean; skipMatch?: boolean; bookOnly?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
   ensureEngine(e);
+  if (cfg.fees) e.fees = feePolicy(cfg.fees);
+  if (cfg.stepPf) e.stepPf = { ...DEFAULT_STEP_PF, ...cfg.stepPf };
   capBookCheap(e);
   dropUnadjustedNormal(e);
   if (opts?.bookOnly) {
@@ -11571,19 +11602,16 @@ export function matchingWinningRels(
     tactic?: TacticKind;
     rangeType?: RangeType;
     playbook?: string;
+    indicationCfg?: string;
+    tpAtr?: number;
+    slOfTp?: number;
+    slAtr?: number;
+    tpRatio?: number;
   },
 ) {
   const best = e.blockRelBest ?? {};
   if (!Object.keys(best).length) return [];
-  const keys = blockRelationKeys({
-    symbol: rel.symbol,
-    side: rel.side,
-    indication: rel.indication,
-    kind: rel.kind as StrategyKind | undefined,
-    tactic: rel.tactic,
-    rangeType: rel.rangeType,
-    playbook: rel.playbook,
-  });
+  const keys = blockRelationKeys(rel);
   const out: { key: string; n: number; pf: number; net: number; vol: number; major: boolean }[] = [];
   const seen = new Set<string>();
   for (const k of keys) {
@@ -11592,7 +11620,7 @@ export function matchingWinningRels(
     seen.add(p.key);
     out.push(p);
   }
-  return out;
+  return out.sort((a, b) => b.pf - a.pf || b.net - a.net).slice(0, 8);
 }
 
 /** Additive extra from each matching winning relation (independent). */
@@ -11642,14 +11670,14 @@ export function laneLastNDecision(
     bag = { at: e.tick, n: nClosed, head, map: new Map() };
     laneDecCache.set(e, bag);
   }
-  const key = laneDecKey(rel);
+  const cfg = lastNProgressOf(e);
+  const minPf = entryMinPfFor(e, rel);
+  const basePf = configStepFloor(e, minPfFor(e, rel.kind === "short" || rel.playbook === "short" ? "shortBase" : "base"), rel);
+  const key = JSON.stringify([laneDecKey(rel), cfg, minPf, basePf, e.activeConnId, e.liveTape, e.preEvalDone]);
   const cached = bag.map.get(key);
   if (cached) return cached;
-  const cfg = lastNProgressOf(e);
   const need = lastNMaxOf(cfg);
   const rows = laneClosed(e, rel, need);
-  const minPf = entryMinPfFor(e, rel);
-  const basePf = minPfFor(e, rel.kind === "short" || rel.playbook === "short" ? "shortBase" : "base");
   const d = decideLastN(rows, cfg, minPf, basePf);
   bag.map.set(key, d);
   return d;
@@ -11665,6 +11693,7 @@ export function lanePassExec(
     tactic?: TacticKind;
     rangeType?: RangeType;
     playbook?: string;
+    tpPct?: number;
     tpAtr?: number;
     slOfTp?: number;
   },

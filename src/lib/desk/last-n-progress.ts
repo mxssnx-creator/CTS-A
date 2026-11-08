@@ -260,13 +260,13 @@ export function decideLastNFromPrefix(
   const evalGood = (h: LastNWindowHit) => evalLastNGood(h, basePf);
   const validGood = (h: LastNWindowHit) => validLastNGood(h, minPf);
 
-  const indValid = lastNIndependentOk(validFull, validGood);
+  const indValid = validFull.length > 0 && lastNIndependentOk(validFull, validGood);
   const independent = indValid;
 
-  const combEval = lastNCombinedOk(evalFull, evalGood);
-  const combValid = lastNCombinedOk(validFull, validGood);
+  const combEval = evalFull.length > 0 && lastNCombinedOk(evalFull, evalGood);
+  const combValid = validFull.length > 0 && lastNCombinedOk(validFull, validGood);
   const combined = combEval && combValid;
-  const majority = lastNMajorityOk(validFull, validGood);
+  const majority = validFull.length > 0 && lastNMajorityOk(validFull, validGood);
 
   let pass = combined;
   if (cfg.mode === "independent") pass = independent;

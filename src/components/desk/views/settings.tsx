@@ -1093,6 +1093,20 @@ export function SettingsView() {
           }
         >
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <label className="text-xs font-medium">PF per target step
+              <select className="mt-2 h-9 w-full border border-border bg-surface px-2"
+                value={cfg.stepPf?.enabled === false ? "off" : "on"}
+                onChange={(e) => setCfg({ stepPf: { ratio: 0.2, max: 2, ...cfg.stepPf, enabled: e.target.value === "on" } })}>
+                <option value="on">Enabled</option><option value="off">Lane floors only</option>
+              </select>
+              <span className="mt-1 block text-muted">Uses known price-percent targets and Minimal cost steps; stricter lane floors remain.</span>
+            </label>
+            <RangeKnob label="Step PF ratio" value={cfg.stepPf?.ratio ?? 0.2} min={0.1} max={1.5} step={0.05}
+              format={(n) => n.toFixed(2)} ariaLabel="Step profit factor ratio"
+              onChange={(n) => setCfg({ stepPf: { enabled: true, max: 2, ...cfg.stepPf, ratio: n } })} />
+            <RangeKnob label="Step PF maximum" value={cfg.stepPf?.max ?? 2} min={1} max={2} step={0.05}
+              format={(n) => n.toFixed(2)} ariaLabel="Step profit factor maximum"
+              onChange={(n) => setCfg({ stepPf: { enabled: true, ratio: 0.2, ...cfg.stepPf, max: n } })} />
             <RangeKnob
               label="Overall PF"
               value={th.minPf}

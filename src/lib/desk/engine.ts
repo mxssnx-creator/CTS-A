@@ -1,3 +1,4 @@
+import { roundTripFeeRate } from "./fee-policy.ts";
 import { profitFactor } from "./profit-factor.ts";
 export { profitFactor, PF_NO_LOSS } from "./profit-factor.ts";
 import type {
@@ -114,14 +115,9 @@ export const BASE_EQUITY = 10_000;
 export const POSITION_COST_PCT = 0.0012;
 /** 10_000 × 0.0012; literal so IEEE 0.0012 does not yield 11.999… */
 export const UNIT_NOTIONAL = 12;
-/**
- * Round-trip trading cost deducted from every position PnL / PF / last-N.
- * Live BingX VST is ~0.10% RT (taker 5 bps each side). Default 0.12% is conservative
- * so intern/eval cannot promote combos that lose once real fees hit.
- * Never use 5 bps (0.00025 * (entry+exit)) — that understated live cost and inflated PF.
- */
-export const POSITION_RT_COST_PCT = 0.0012;
-export const POSITION_RT_COST_ACTUAL = 0.001;
+/** Default modeled cost: 0.08% taker per side plus 10% of fees for slippage.
+ * Position sizing above is independent. Exchange snapshots override this estimate. */
+export const POSITION_RT_COST_PCT = roundTripFeeRate();
 /** Gross-profit / gross-loss. No-loss winners cap here (PF is undefined otherwise). */
 
 /**
@@ -366,9 +362,11 @@ export function minimalControlPrices(
   entry: number,
   tpCost: number = MINIMAL_WINNER.tpCost,
   slOfTp: number = MINIMAL_WINNER.slOfTp,
+  rtCost: number = POSITION_RT_COST_PCT,
 ): { sl: number; tp: number; slDist: number; tpDist: number } {
   const px = Math.max(entry, 1e-12);
-  const cost = px * POSITION_COST_PCT;
+  if (!Number.isFinite(rtCost) || rtCost < 0) throw new RangeError("Invalid modeled cost");
+  const cost = px * rtCost;
   const tpDist = cost * snapMinimalTpCost(tpCost);
   const slDist = tpDist * snapMinimalSlOfTp(slOfTp);
   const sl = side === "long" ? px - slDist : px + slDist;

@@ -1,4 +1,6 @@
-import { createHmac } from "node:crypto";
+import { parseCommission } from "./fee-policy.ts";
+import type { VstEngine } from "./types.ts";
+import { createHash, createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
@@ -1482,4 +1484,31 @@ export async function fetchLiveExecutions(input: {
     bySymbol,
     at: Date.now(),
   };
+}
+
+// Background, read-only schedule refresh. Never blocks protection or order reconciliation.
+const feeRefresh = new WeakMap<VstEngine, { key: string; next: number; busy: boolean }>();
+export async function refreshEngineFees(e: VstEngine, network: "mainnet" | "testnet") {
+  const conn = e.activeConnId;
+  const key = `${network}|${conn}|${createHash("sha256").update(keysForConn(conn).apiKey).digest("hex")}`;
+  let state = feeRefresh.get(e);
+  if (!state || state.key !== key) {
+    state = { key, next: 0, busy: false }; feeRefresh.set(e, state); e.feeSnapshots = {};
+  }
+  const now = Date.now();
+  if (state.busy || now < state.next) return;
+  const symbol = Object.keys(e.quotes).find(s => now - (e.feeSnapshots?.[s]?.at ?? 0) >= 3_600_000);
+  if (!symbol) return;
+  state.busy = true; state.next = now + 1000;
+  try {
+    const res = await signedJson(network, conn, "/openApi/swap/v2/user/commissionRate", { symbol: BINGX_SYMBOL[symbol] ?? symbol });
+    const rates = parseCommission("bingx", { code: res.ok ? 0 : 1, data: res.data });
+    if (!rates) throw new Error("Commission unavailable");
+    if (feeRefresh.get(e) !== state || e.activeConnId !== conn) return;
+    const currentKey = `${network}|${conn}|${createHash("sha256").update(keysForConn(conn).apiKey).digest("hex")}`;
+    if (currentKey !== key) return;
+    e.feeSnapshots ??= {};
+    e.feeSnapshots[symbol] = { exchange: "bingx", account: conn, symbol, at: now, ...rates };
+  } catch { state.next = Date.now() + 60_000; }
+  finally { state.busy = false; }
 }

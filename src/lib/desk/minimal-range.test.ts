@@ -7,7 +7,7 @@ import {
   MINIMAL_SL_OF_TP,
   MINIMAL_TP_COST,
   MINIMAL_WINNER,
-  POSITION_COST_PCT,
+  POSITION_RT_COST_PCT,
   resolveRangeTouch,
   shortControlPrices,
   SYSTEM_MIN_SL_PCT,
@@ -29,7 +29,7 @@ describe("minimal range", () => {
   it("prices from position cost and sits under the short floor at 1×", () => {
     const px = 100;
     const row = minimalControlPrices("long", px, 1, 1);
-    const cost = px * POSITION_COST_PCT;
+    const cost = px * POSITION_RT_COST_PCT;
     assert.ok(Math.abs(row.tpDist - cost) < 1e-9);
     assert.ok(Math.abs(row.slDist - cost) < 1e-9);
     assert.ok(row.tp > px && row.sl < px);
