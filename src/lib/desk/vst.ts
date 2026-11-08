@@ -567,8 +567,8 @@ export function engageLiveBook(e: VstEngine) {
 }
 
 
-type ConfigTapeRow = {
-  pnl: number;
+type ConfigIdentity = {
+  connId?: string;
   symbol?: string;
   side?: Side;
   indication?: string;
@@ -578,16 +578,44 @@ type ConfigTapeRow = {
   kind?: string;
   tpAtr?: number;
   slOfTp?: number;
+  trailPct?: number;
+  calc?: string;
+  microRange?: boolean;
+  minimalRange?: boolean;
+  shortRange?: boolean;
+  modelRtCost?: number;
+  minSlDistancePct?: number;
+};
+type ConfigTapeRow = ConfigIdentity & {
+  pnl: number;
   /** Flattened at the Base boundary. Not a strategy outcome. */
   examFlat?: boolean;
 };
 const configPreMem = new WeakMap<VstEngine, ConfigTapeRow[]>();
 const configTapeMem = new WeakMap<VstEngine, Map<string, ConfigTapeRow[]>>();
 const rangeComboMem = new WeakMap<VstEngine, Map<string, ConfigTapeRow[]>>();
-function configSampleKey(rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
-  const tp = rel.tpAtr == null ? "" : String(Math.round(rel.tpAtr * 1000) / 1000);
-  const sl = rel.slOfTp == null ? "" : String(Math.round(rel.slOfTp * 1000) / 1000);
-  return JSON.stringify([rel.symbol, rel.side, rel.indication, rel.tactic, rel.rangeType, rel.playbook, rel.kind, tp, sl]);
+function configSampleKey(rel: ConfigIdentity) {
+  return JSON.stringify([rel.connId, rel.symbol, rel.side, rel.indication, rel.tactic, rel.rangeType, rel.playbook, rel.kind,
+    rel.tpAtr, rel.slOfTp, rel.trailPct, rel.calc, !!rel.microRange, !!rel.minimalRange, !!rel.shortRange,
+    rel.modelRtCost, rel.minSlDistancePct]);
+}
+function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
+  if (rel.connId != null && row.connId !== rel.connId) return false;
+  if (rel.calc != null && row.calc !== rel.calc) return false;
+  for (const key of ["trailPct", "modelRtCost", "minSlDistancePct"] as const) {
+    if (rel[key] != null && (!Number.isFinite(rel[key]) || row[key] !== rel[key])) return false;
+  }
+  for (const key of ["microRange", "minimalRange", "shortRange"] as const) {
+    if (rel[key] != null && (row[key] === true) !== (rel[key] === true)) return false;
+  }
+  return true;
+}
+function configTapeRow(c: ConfigTapeRow): ConfigTapeRow {
+  return { pnl: edgePnl(c), connId: c.connId, symbol: c.symbol, side: c.side,
+    indication: c.indication, tactic: c.tactic, rangeType: c.rangeType, playbook: c.playbook, kind: c.kind,
+    tpAtr: c.tpAtr, slOfTp: c.slOfTp, trailPct: c.trailPct, calc: c.calc,
+    microRange: c.microRange, minimalRange: c.minimalRange, shortRange: c.shortRange,
+    modelRtCost: c.modelRtCost, minSlDistancePct: c.minSlDistancePct, examFlat: c.examFlat };
 }
 function rangeComboKey(rel: { rangeType?: string; tpAtr?: number; slOfTp?: number }) {
   const tp = rel.tpAtr == null ? "" : String(Math.round(rel.tpAtr * 1000) / 1000);
@@ -602,17 +630,7 @@ function pushTapeRing(map: Map<string, ConfigTapeRow[]>, key: string, row: Confi
 }
 function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id?: string }) {
   if (!deskTapeRow(e, c)) return;
-  const row: ConfigTapeRow = {
-    pnl: edgePnl(c),
-    symbol: c.symbol, side: c.side,
-    indication: c.indication,
-    tactic: c.tactic,
-    rangeType: c.rangeType,
-    playbook: c.playbook,
-    kind: c.kind,
-    tpAtr: c.tpAtr,
-    slOfTp: c.slOfTp,
-  };
+  const row = configTapeRow(c);
   const key = configSampleKey(row);
   let bag = configTapeMem.get(e);
   if (!bag) {
@@ -629,7 +647,7 @@ function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id
     pushTapeRing(ranges, rangeComboKey(row), row);
   }
 }
-function historyRows(e: VstEngine, rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
+function historyRows(e: VstEngine, rel: ConfigIdentity) {
   const bag = configTapeMem.get(e);
   if (!bag) return [];
   return bag.get(configSampleKey(rel)) ?? [];
@@ -638,25 +656,16 @@ function snapshotConfigPreTape(e: VstEngine) {
   const rows: ConfigTapeRow[] = [];
   for (const c of e.closed) {
     if (!deskTapeRow(e, c)) continue;
-    rows.push({
-      pnl: edgePnl(c),
-      symbol: c.symbol, side: c.side,
-      indication: c.indication,
-      tactic: c.tactic,
-      rangeType: c.rangeType,
-      playbook: c.playbook,
-      kind: c.kind,
-      tpAtr: c.tpAtr,
-      slOfTp: c.slOfTp,
-    });
+    rows.push(configTapeRow(c));
     if (rows.length >= 2400) break;
   }
   configPreMem.set(e, rows);
 }
-function filterConfigRows(rows: ConfigTapeRow[], rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number }) {
+function filterConfigRows(rows: ConfigTapeRow[], rel: ConfigIdentity) {
   const out: ConfigTapeRow[] = [];
   for (const c of rows) {
     if (c.examFlat) continue;
+    if (!configDetailsMatch(c, rel)) continue;
     if (rel.symbol && c.symbol !== rel.symbol) continue;
     if (rel.side && c.side !== rel.side) continue;
     if (rel.indication && c.indication !== rel.indication) continue;
@@ -760,13 +769,8 @@ function queueWinAgain(e: VstEngine, p: LivePosition) {
         p.tpAtr == null ||
         p.slOfTp == null ||
         !validatedSet(e, {
-          indication: p.indication,
-          tactic: p.tactic,
-          playbook: p.playbook,
-          kind: p.kind,
+          ...p,
           rangeType: p.controllingRange,
-          tpAtr: p.tpAtr,
-          slOfTp: p.slOfTp,
         })
       )
         return;
@@ -3664,6 +3668,16 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               : lv0;
             const miniTp = microOn ? snapMicroTpPct(prot?.tpAtr ?? cfg.tpAtr ?? .2) : minimalOn ? snapMinimalTpCost(prot?.tpAtr ?? cfg.tpAtr ?? MINIMAL_WINNER.tpCost) : prot?.tpAtr;
             const miniSl = microOn ? snapSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? .5) : minimalOn ? snapMinimalSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? MINIMAL_WINNER.slOfTp) : prot?.slOfTp;
+            let entryValid = legOk;
+            // The coarse selection above does not yet know the final calc/trail
+            // or snapped distance. Admission must use the actual order identity.
+            if (afterBase && !internHere && !(e.completeSim && paperMode(e))) {
+              entryValid = liveShouldExecute(e, { ...execRel, rangeType: hi.rangeType,
+                tpAtr: miniTp, slOfTp: miniSl, trailPct, calc: leg.kind,
+                microRange: microOn, minimalRange: minimalOn, shortRange: short,
+                modelRtCost: modeledPositionCost(e, s.id), minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct) });
+              if (!entryValid && !e.liveTape) return;
+            }
             queueOrder(e, {
               id: nextId(e, "q"),
               connId,
@@ -3687,12 +3701,13 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               kind,
               playbook: book,
               tactic: tac,
-              validExec: legOk,
+              validExec: entryValid,
               tpAtr: miniTp,
               slOfTp: miniSl,
               trailPct,
               minimalRange: minimalOn || undefined,
               microRange: microOn || undefined,
+              shortRange: short,
               calc: leg.kind,
             });
             if (e.completeSim && paperMode(e) && axisInd && short && e.strategyToggles?.block !== false) {
@@ -4591,6 +4606,16 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
   const lanePositions = buckets?.posList.get(laneKey) ?? e.positions;
   let pos = lanePositions.find((p) => p.qty > 0 && p.connId === o.connId && p.symbol === o.symbol && p.side === o.side
     && p.legs.some((leg) => leg.orderId === o.id));
+  if (!pos && isBlockOrder(o)) {
+    pos = blockParent(e, o);
+    if (!pos) {
+      o.filled -= take;
+      o.remaining = Math.max(0, o.qty - o.filled);
+      markTerminal(e, o, "cancelled");
+      releaseWorking(buckets, o, complete);
+      return;
+    }
+  }
   if (!pos && buckets) {
     if (orderKeyExact(o, complete)) {
       const hit = buckets.pos.get(laneKey + "\0" + protectIdentity(o, complete));
@@ -4605,19 +4630,6 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
   if (!pos && /^DCA/i.test(o.note || "") && o.batchId) {
     const tag = o.batchId;
     pos = e.positions.find((p) => tag.startsWith(`pos:${p.id}:`) && p.connId === o.connId && p.symbol === o.symbol && p.side === o.side && p.qty > 0);
-  }
-  if (!pos && /Block/i.test(o.note || "")) {
-    const parentId = String(o.batchId || "").split(":")[0];
-    if (parentId) {
-      pos = e.positions.find((p) => p.id === parentId && p.connId === o.connId && p.symbol === o.symbol && p.side === o.side && p.qty > 0);
-    }
-    if (!pos) {
-      o.filled -= take;
-      o.remaining = Math.max(0, o.qty - o.filled);
-      markTerminal(e, o, "cancelled");
-      releaseWorking(buckets, o, complete);
-      return;
-    }
   }
   const created = !pos;
   if (!pos) {
@@ -4696,9 +4708,9 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     qty: take,
     px
   });
-  recordBlockFill(e, o, take);
+  recordBlockFill(e, o, take, pos);
   // validExec is sticky at open. Intern never promotes into live; intern never demotes live.
-  if (/Block/i.test(o.note || "")) {
+  if (isBlockOrder(o)) {
     const prevBq = Math.max(0, pos.blockQty || 0);
     const prevPx = prevBq > 0 && (pos.blockAvg || 0) > 0 ? pos.blockAvg! : px;
     pos.blockLevel = Math.max(pos.blockLevel || 1, o.level || 1);
@@ -4737,7 +4749,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
         pos.slDist = next;
         pos.sl = pos.side === "long" ? entry - next : entry + next;
       }
-    } else if (/Block/i.test(o.note || "")) {
+    } else if (isBlockOrder(o)) {
       // Overlay keeps the parent's bracket. The add is peeled on its own risk.
     } else {
       const entry = pos.avgEntry;
@@ -4879,11 +4891,11 @@ function cancelLane(e: VstEngine, p: LivePosition) {
   for (const o of pool) {
     if (!mapped && (o.symbol !== p.symbol || o.side !== p.side || o.connId !== p.connId)) continue;
     if (!(o.status === "open" || o.status === "partial" || o.status === "queued")) continue;
-    if (!p.legs.some(l => l.orderId === o.id) && !sameProtectLane(p, o, complete)) continue;
+    if (!p.legs.some(l => l.orderId === o.id) && !(isBlockOrder(o) ? blockTargets(o, p) : sameProtectLane(p, o, complete))) continue;
     markTerminal(e, o, "cancelled");
   }
   cancelQueued(e, (o) => o.symbol === p.symbol && o.side === p.side && o.connId === p.connId
-    && (p.legs.some(l => l.orderId === o.id) || sameProtectLane(p, o, complete)));
+    && (p.legs.some(l => l.orderId === o.id) || (isBlockOrder(o) ? blockTargets(o, p) : sameProtectLane(p, o, complete))));
 }
 function bookRealized(e: VstEngine, pnl: number, reason: "sl" | "tp" | "time" | "partial") {
   const x = Number.isFinite(pnl) ? pnl : 0;
@@ -5047,6 +5059,8 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
     microRange: p.microRange,
     shortRange: p.shortRange,
     calc: p.calc,
+    modelRtCost: p.modelRtCost ?? modeledPositionCost(e, p.symbol),
+    minSlDistancePct: p.minSlDistancePct,
   };
   e.closed.unshift(row);
   noteTickClose(e, row);
@@ -5153,6 +5167,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     microRange: p.microRange,
     shortRange: p.shortRange,
     calc: p.calc,
+    modelRtCost: p.modelRtCost ?? modeledPositionCost(e, p.symbol),
+    minSlDistancePct: p.minSlDistancePct,
   };
   e.closed.unshift(closedRow);
   noteTickClose(e, closedRow);
@@ -6004,8 +6020,8 @@ export function healEngine(
   return { healed: Boolean(reason), reason, fixes };
 }
 
-function blockLaneKey(symbol: string, side: Side, mode: "shared" | "additive" = "shared") {
-  return `${symbol}:${side}:${mode}`;
+function blockLaneKey(p: LivePosition, mode: "shared" | "additive" = "shared") {
+  return JSON.stringify([p.connId, p.symbol, p.side, protectIdentity(p, true), p.kind ?? "", p.playbook ?? ""]) + `:${mode}`;
 }
 
 function blockVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
@@ -6016,7 +6032,7 @@ function blockVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
 }
 
 function liveVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
-  return blockVolumeModes(block);
+  return [...new Set([...blockVolumeModes(block), ...(block?.overall !== false ? overallVolumeModes(block) : [])])];
 }
 
 function overallVolumeModes(block?: BlockConfig): ("shared" | "additive")[] {
@@ -6489,23 +6505,14 @@ export function symbolLastNPf(e: VstEngine, symbol: string, n = 6): number | nul
 /** Closed tape for an independent config/lane (indication × tactic × range × playbook × side). */
 export function laneClosed(
   e: VstEngine,
-  rel: {
-    symbol?: string;
-    side?: Side;
-    indication?: string;
-    kind?: string;
-    tactic?: string;
-    rangeType?: string;
-    playbook?: string;
-    tpAtr?: number;
-    slOfTp?: number;
-  },
+  rel: ConfigIdentity,
   n: number,
 ) {
   const need = Math.max(1, Math.round(n) || 1);
   const out: { pnl: number }[] = [];
   for (const c of e.closed) {
     if (!deskTapeRow(e, c)) continue;
+    if (c.connId !== e.activeConnId || !configDetailsMatch(c, rel)) continue;
     if (rel.symbol && c.symbol !== rel.symbol) continue;
     if (rel.side && c.side !== rel.side) continue;
     if (rel.indication && (c.indication ?? "trend") !== rel.indication) continue;
@@ -7062,20 +7069,11 @@ function pickPositiveKeys(
 /** After base eval, only a sampled set that passed its own last-N trades. An unsampled overall set does not. */
 function validatedSet(
   e: VstEngine,
-  rel: { symbol?: string; side?: Side; indication?: string; tactic?: string; rangeType?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number },
+  rel: ConfigIdentity,
 ): boolean {
   if (!e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return true;
   const base = configStepFloor(e, baseStageFloor(e), rel);
-  const ident = {
-    symbol: rel.symbol, side: rel.side,
-    indication: rel.indication,
-    tactic: rel.tactic,
-    rangeType: rel.rangeType,
-    playbook: rel.playbook,
-    kind: rel.kind,
-    tpAtr: rel.tpAtr,
-    slOfTp: rel.slOfTp,
-  };
+  const ident = { ...rel, connId: e.activeConnId };
   const exact = filterConfigRows(laneClosed(e, ident, 80) as ConfigTapeRow[], ident);
   const frozen = filterConfigRows(configPreMem.get(e) ?? [], ident);
   const hist = historyRows(e, ident);
@@ -7192,8 +7190,7 @@ function laneDecTapeSig(e: VstEngine) {
 }
 
 function laneDecKey(rel: Parameters<typeof lanePassExec>[1]) {
-  return JSON.stringify([rel.indication, rel.tactic, rel.rangeType, rel.playbook, rel.kind,
-    rel.symbol, rel.side, rel.tpAtr, rel.slOfTp, rel.tpPct]);
+  return JSON.stringify([configSampleKey(rel), rel.tpPct]);
 }
 
 /** Score every last-N / Block / indication / tactic / range type by PF.
@@ -7706,7 +7703,26 @@ function emptyBlockLane(symbol: string, side: Side, baseQty: number, baseEntry: 
 }
 
 function isBlockOrder(o: LiveOrder) {
-  return /Block/i.test(o.note || "");
+  return o.parentPositionId !== undefined || /Block/i.test(o.note || "");
+}
+function blockParent(e: VstEngine, o: LiveOrder): LivePosition | undefined {
+  const matches = e.positions.filter((p) => p.qty > 0 && blockTargets(o, p));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+function blockTargets(o: LiveOrder, p: LivePosition): boolean {
+  return p.connId === o.connId && p.symbol === o.symbol && p.side === o.side &&
+    blockParentId(o) === p.id;
+}
+function blockParentId(o: LiveOrder): string | undefined {
+  if (o.parentPositionId !== undefined) return o.parentPositionId || undefined;
+  const legacy = /^(.*):(book|symbol|dir|indication|type|indType):(\d+)$/.exec(o.batchId || "");
+  return legacy && Number(legacy[3]) === o.level ? legacy[1] : undefined;
+}
+function originalParentQty(p: LivePosition): number {
+  const first = p.legs[0];
+  // A parent entry can have several partial fills. All slices of that original order are its base.
+  return first ? p.legs.reduce((n, leg) => n + (leg.orderId === first.orderId ? Math.max(0, leg.qty) : 0), 0)
+    : Math.max(0, p.qty - (p.blockQty ?? 0) - (p.dcaQty ?? 0));
 }
 function isOverallBlockOrder(o: LiveOrder) {
   return /Overall Block/i.test(o.note || "") || /^ob/i.test(o.id || "");
@@ -7832,17 +7848,22 @@ function syncBlockParents(e: VstEngine, conn: string, block?: BlockConfig) {
   const modes = liveVolumeModes(block ?? e.blockCfg);
   for (const p of e.positions) {
     if (p.connId !== conn || p.qty <= 0) continue;
-    const first = p.legs[0]?.qty || p.qty;
+    p.protectionKey ??= geometryKey(p);
+    const first = originalParentQty(p);
     for (const mode of modes) {
-      const k = blockLaneKey(p.symbol, p.side, mode);
+      const k = blockLaneKey(p, mode);
       live.add(k);
       let lane = e.blockLanes[k];
       if (!lane) {
         lane = emptyBlockLane(p.symbol, p.side, first, p.avgEntry);
+        lane.parentPositionId = p.id;
         e.blockLanes[k] = lane;
       }
-      if (!lane.active || lane.baseQty <= 0) {
+      // Ambiguous duplicate episodes may not share live pending/satisfied state.
+      if (lane.parentPositionId !== p.id && lane.active && e.positions.some((x) => x.id === lane.parentPositionId && x.connId === conn && x.qty > 0)) continue;
+      if (!lane.active || lane.baseQty <= 0 || lane.parentPositionId !== p.id) {
         lane.active = true;
+        lane.parentPositionId = p.id;
         lane.baseQty = first;
         lane.baseEntry = p.avgEntry;
         lane.confirmedAdd = 0;
@@ -7851,16 +7872,8 @@ function syncBlockParents(e: VstEngine, conn: string, block?: BlockConfig) {
         // Keep pauseRemaining + pfRing — they are the live Block gate across parents.
         continue;
       }
-      if (e.blockCfg?.overall === false) {
-        const grown = p.qty - (lane.baseQty + lane.confirmedAdd);
-        if (grown > lane.baseQty * 0.15 && !lane.pending) {
-          const prev = lane.baseQty;
-          lane.baseQty = prev + grown;
-          if (p.avgEntry > 0 && prev > 0) {
-            lane.baseEntry = (lane.baseEntry * prev + p.avgEntry * grown) / Math.max(lane.baseQty, 1e-9);
-          }
-        }
-      }
+      // Later slices of the original entry may complete it; strategy additions never become new base volume.
+      lane.baseQty = Math.max(lane.baseQty, first);
     }
   }
   for (const k of Object.keys(e.blockLanes)) {
@@ -7868,13 +7881,13 @@ function syncBlockParents(e: VstEngine, conn: string, block?: BlockConfig) {
   }
 }
 
-function recordBlockFill(e: VstEngine, o: LiveOrder, take: number) {
+function recordBlockFill(e: VstEngine, o: LiveOrder, take: number, p: LivePosition) {
   if (!isBlockOrder(o)) return;
   if (isOverallBlockOrder(o)) return;
   e.blockLanes = e.blockLanes ?? {};
-  const k = blockLaneKey(o.symbol, o.side, blockModeOf(o));
+  const k = blockLaneKey(p, blockModeOf(o));
   const lane = e.blockLanes[k];
-  if (!lane) return;
+  if (!lane || lane.parentPositionId !== p.id) return;
   lane.confirmedAdd += take;
   const n = Math.max(1, o.level || lane.pending || 1);
   const cfg = e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
@@ -7899,9 +7912,9 @@ function recordBlockClose(e: VstEngine, p: LivePosition, ratio: number) {
   const frac = Number.isFinite(ratio) ? ratio : 0;
   const keep = (e.blockCfg ?? DEFAULT_BLOCK_CONFIG).keepAdjusted === true;
   for (const mode of modes) {
-  const k = blockLaneKey(p.symbol, p.side, mode);
+  const k = blockLaneKey(p, mode);
   const lane = e.blockLanes?.[k];
-  if (!lane) continue;
+  if (!lane || lane.parentPositionId !== p.id) continue;
   const hitNs = new Set<number>();
   for (const [key, ok] of Object.entries(lane.satisfied ?? {})) {
     if (ok) {
@@ -8021,13 +8034,13 @@ export function collectActiveOrderBlocks(e: VstEngine, connId?: string) {
   const live = collectBlockOrders(e, conn);
   const map = new Map<string, LiveOrder[]>();
   for (const o of live) {
-    const k = `${o.symbol}:${o.side}:${blockModeOf(o)}`;
+    const k = JSON.stringify([o.connId, o.symbol, o.side, blockParentId(o) ?? o.batchId, blockModeOf(o)]);
     const arr = map.get(k);
     if (arr) arr.push(o);
     else map.set(k, [o]);
   }
   return [...map.entries()].map(([k, orders]) => {
-    const [symbol, side] = k.split(":") as [string, Side];
+    const { symbol, side } = orders[0];
     return { id: k, symbol, side, orders, multiple: orders.length };
   });
 }
@@ -8103,15 +8116,14 @@ export function adjustActiveBlocks(
   };
 
   if (block.flattenConflict && block.sides !== "both" && block.sides !== "mixed") {
-    const bySym = new Map<string, { long?: (typeof blocks)[0]; short?: (typeof blocks)[0] }>();
+    const bySym = new Map<string, { long: typeof blocks; short: typeof blocks }>();
     for (const b of blocks) {
-      const row = bySym.get(b.symbol) ?? {};
-      if (b.side === "long") row.long = b;
-      else row.short = b;
+      const row = bySym.get(b.symbol) ?? { long: [], short: [] };
+      row[b.side].push(b);
       bySym.set(b.symbol, row);
     }
     for (const [sym, sides] of bySym) {
-      if (!sides.long || !sides.short) continue;
+      if (!sides.long.length || !sides.short.length) continue;
       let longU = 0;
       let shortU = 0;
       for (const p of e.positions) {
@@ -8120,15 +8132,16 @@ export function adjustActiveBlocks(
         else shortU += p.unrealized;
       }
       const victim = longU <= shortU ? sides.long : sides.short;
-      for (const o of victim.orders) dropOrder(o);
+      for (const group of victim) for (const o of group.orders) dropOrder(o);
       flattened += 1;
     }
     if (flattened) blocks = collectActiveOrderBlocks(e, conn);
   }
 
   for (const b of blocks) {
-    if (b.multiple <= maxM) continue;
-    for (const o of b.orders.slice(maxM)) dropOrder(o);
+    // maxMultiple bounds the configured step. Relation/scoped Overall orders at
+    // the same step are independent streams, not additional step numbers.
+    for (const o of b.orders) if (Math.max(1, o.level || 1) > maxM) dropOrder(o);
   }
 
   syncBlockParents(e, conn, block);
@@ -8170,7 +8183,7 @@ export function adjustActiveBlocks(
       else blockByLeg.set(k, [o]);
     };
     for (const o of collectBlockOrders(e, conn)) rememberBlock(o);
-    const legBlocks = (symbol: string, side: string) => blockByLeg.get(`${symbol}\0${side}`) ?? [];
+    const legBlocks = (p: LivePosition) => (blockByLeg.get(`${p.symbol}\0${p.side}`) ?? []).filter((o) => blockTargets(o, p));
     for (const p of e.positions) {
       if (adds >= addCap) break;
       if (!ownedByDesk(p, conn)) continue;
@@ -8210,7 +8223,7 @@ export function adjustActiveBlocks(
       if ((e.cooldown[cooldownKey(conn, p.symbol)] ?? 0) > e.tick) continue;
       if (!blockCoordsAllow(e, p, move)) continue;
       let usedQty = 0;
-      for (const o of legBlocks(p.symbol, p.side)) {
+      for (const o of legBlocks(p)) {
         if (o.status === "cancelled" || o.status === "filled" || o.status === "rejected") continue;
         usedQty += Math.max(0, o.remaining || 0);
       }
@@ -8224,18 +8237,18 @@ export function adjustActiveBlocks(
         relExtra?: boolean;
       }[] = [];
       const plannedOv: typeof plannedRel = [];
-      let parentBase = Math.max(p.legs[0]?.qty || 0, 1e-12);
+      const parentBase = originalParentQty(p);
+      if (!(parentBase > 0)) continue;
       const stackLimit = parentBase * Math.min(8, maxMul);
       let stackQty = p.qty + usedQty;
       const plannedCount = () => plannedRel.length + plannedOv.length;
       let relExtraAttached = false;
       for (const mode of volModes) {
         if (adds + plannedCount() >= addCap) break;
-        const k = blockLaneKey(p.symbol, p.side, mode);
+        const k = blockLaneKey(p, mode);
         const lane = e.blockLanes[k];
-        if (!lane || !lane.active || lane.baseQty <= 0) continue;
-        if (lane.baseQty > 0) parentBase = Math.min(parentBase, lane.baseQty);
-        const liveBlock = legBlocks(p.symbol, p.side).filter(
+        if (!lane || !lane.active || lane.baseQty <= 0 || lane.parentPositionId !== p.id) continue;
+        const liveBlock = legBlocks(p).filter(
           (o) =>
             o.status !== "cancelled" &&
             o.status !== "filled" &&
@@ -8283,7 +8296,6 @@ export function adjustActiveBlocks(
             liveOvLevels[scope].add(next);
             ovQty[scope] += qty;
           } else if (!relExtra) {
-            lane.pending = next;
             liveRelLevels.add(next);
             relQty += qty;
           } else {
@@ -8305,6 +8317,7 @@ export function adjustActiveBlocks(
           const relCap = lane.baseQty * (mode === "additive" ? Math.min(next * vrModeRel, extraCap) : blockMaxAdditionalRatio(next, vrModeRel, maxMul, mode));
           if (
             tacticOn &&
+            blockVolumeModes(block).includes(mode) &&
             block.sets !== false &&
             !lane.satisfied[next] &&
             !liveRelLevels.has(next) &&
@@ -8347,10 +8360,8 @@ export function adjustActiveBlocks(
           }
         }
       }
-      const flushPlanned = (planned: typeof plannedRel, independent = false) => {
-        const capQty = independent ? parentBase * Math.max(1, vrOv) : parentBase * maxMul;
-        const modeRoom = independent ? capQty : capQty - (parentBase + usedQty);
-        const room = Math.min(modeRoom, stackLimit - stackQty);
+      const flushPlanned = (planned: typeof plannedRel) => {
+        const room = stackLimit - stackQty;
         if (!(room > 1e-12) || !planned.length) return;
         const raw = planned.reduce((s, x) => s + x.qty, 0);
         const scale = raw > room ? room / raw : 1;
@@ -8416,6 +8427,7 @@ export function adjustActiveBlocks(
             slDist: lv.slDist,
             tpDist: lv.tpDist,
             batchId: `${p.id}:${item.scope}:${item.next}`,
+            parentPositionId: p.id,
             tactic: p.tactic ?? tactic,
             indication: p.indication,
             kind: "block",
@@ -8430,6 +8442,7 @@ export function adjustActiveBlocks(
             note: `${tag} ${item.mode} #${item.next} ${p.symbol} ${p.side} · ${oid} · ${p.id} · ${conn}`,
           });
           rememberBlock(e.queue[e.queue.length - 1]!);
+          if (!item.overallKind && !item.relExtra) item.lane.pending = item.next;
           countPlaced(e);
           usedQty += qty;
           stackQty += qty;
@@ -8439,9 +8452,9 @@ export function adjustActiveBlocks(
           e.lastBlockAt = e.tick;
         }
       };
-      // Sets / relation Block first, then Overall Block uses leftover room (additional, not share-scaled).
-      flushPlanned(plannedOv, true);
-      flushPlanned(plannedRel);
+      // Each enabled stream keeps its own request; share the parent's remaining total cap proportionally.
+      // Flushing one family first starved the other family even when both had qualifying independent plans.
+      flushPlanned([...plannedRel, ...plannedOv]);
     }
   }
 
@@ -8455,7 +8468,7 @@ export function adjustActiveBlocks(
 
 function dropUnadjustedNormal(e: VstEngine) {
   if ((e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).normal !== false) return;
-  const plain = (o: LiveOrder) => unadjustedNormalOrder(o);
+  const plain = (o: LiveOrder) => ownedByDesk(o, e.activeConnId) && unadjustedNormalOrder(o);
   if (e.queue.some(plain)) {
     for (const o of e.queue) if (plain(o)) markTerminal(e, o, "cancelled");
     e.queue = e.queue.filter((o) => !plain(o));
@@ -11652,7 +11665,7 @@ export function laneLastNDecision(
 
 export function lanePassExec(
   e: VstEngine,
-  rel: {
+  rel: ConfigIdentity & {
     symbol?: string;
     side?: Side;
     indication?: IndicationId;
@@ -11783,7 +11796,7 @@ function paperCellOpen(
 
 export function liveShouldExecute(
   e: VstEngine,
-  rel: {
+  rel: ConfigIdentity & {
     symbol: string;
     side: Side;
     tactic?: TacticKind;

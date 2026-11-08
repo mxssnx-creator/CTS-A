@@ -765,6 +765,8 @@ export interface VstQuote {
 }
 
 export interface LiveOrder {
+  /** Exact position receiving an additional-strategy fill; never inferred from a sibling's geometry. */
+  parentPositionId?: string;
   shortRange?: boolean;
   modelRtCost?: number;
   protectionKey?: string;
@@ -876,6 +878,9 @@ export interface VstBatch {
 }
 
 export interface ClosedTrade {
+  /** Economic policy captured by the owned position, not the current settings. */
+  modelRtCost?: number;
+  minSlDistancePct?: number;
   shortRange?: boolean;
   id: string;
   connId: string;
@@ -1515,6 +1520,8 @@ export interface VstEngine {
 }
 
 export interface BlockLaneState {
+  /** Current owned episode; history remains confined to the complete config/connection lane. */
+  parentPositionId?: string;
   symbol: string;
   side: Side;
   baseQty: number;

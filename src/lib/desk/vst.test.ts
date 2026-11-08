@@ -1997,7 +1997,7 @@ describe("VST engine", () => {
     assert.ok(ov.length >= 1, "Overall Block queued after eval");
   });
 
-  it("relation Block keeps full qty; Overall Block takes leftover room instead of share-scaling", () => {
+  it("relation and Overall Block preserve their requested ratio inside the parent cap", () => {
     const e = initVstEngine(CFG, { warmup: 0, symbolCount: 4, arm: false });
     e.running = true;
     e.phase = "running";
@@ -2008,6 +2008,9 @@ describe("VST engine", () => {
       overall: true,
       overallSymbol: false,
       overallDirection: false,
+      overallIndication: false,
+      overallType: false,
+      overallIndicationType: false,
       stack: true,
       windows: false,
       sets: true,
@@ -2051,14 +2054,17 @@ describe("VST engine", () => {
       kind: "short",
       playbook: "short",
     });
-    for (let i = 0; i < 4; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
+    q.px *= 1.005;
+    e.positions[0]!.mark = q.px;
+    e.positions[0]!.unrealized = (q.px - e.positions[0]!.avgEntry) * e.positions[0]!.qty;
+    adjustActiveBlocks(e, CFG, "trailing", e.blockCfg, "atr", { endStage: true });
     const rel = [...e.queue, ...e.orders].filter((o) => /Block additive #1/.test(o.note || "") && !/Overall/.test(o.note || ""));
     const ov = [...e.queue, ...e.orders].filter((o) => /Overall Block/i.test(o.note || "") && o.level === 1);
     assert.ok(rel.length >= 1, "relation Block present");
     assert.ok(ov.length >= 1, "Overall Block present");
     const relQty = rel.reduce((s, o) => s + o.qty, 0);
     const ovQty = ov.reduce((s, o) => s + o.qty, 0);
-    assert.ok(Math.abs(relQty - 0.4) < 0.02, `relation must keep 0.4, not share-scale, got ${relQty}`);
+    assert.ok(Math.abs(relQty / ovQty - 0.4 / 1.5) < 1e-9, `requested ratios must survive scaling: ${relQty}/${ovQty}`);
     assert.ok(relQty + ovQty <= 1.5 + 1e-6, `extra ${relQty + ovQty} exceeds 1.5 room`);
     assert.ok(ovQty > 0.5, `overall leftover ${ovQty}`);
   });
@@ -2206,8 +2212,13 @@ describe("VST engine", () => {
       indication: "trend",
       kind: "short",
       playbook: "short",
+      validExec: true,
     });
-    for (let i = 0; i < 8; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
+    // Planner fixture: an already admitted parent and a real favorable mark.
+    q.px *= 1.005;
+    e.positions[0]!.mark = q.px;
+    e.positions[0]!.unrealized = (q.px - e.positions[0]!.avgEntry) * e.positions[0]!.qty;
+    adjustActiveBlocks(e, CFG, "trailing", e.blockCfg, "atr", { endStage: true });
     const ov = [...e.queue, ...e.orders].filter((o) => /Overall Block/i.test(o.note || "") && o.level === 1);
     const notes = ov.map((o) => o.note || "");
     const book = ov.filter((o) => /Overall Block shared #1/.test(o.note || "") && !/symbol|dir|indication|type/.test(o.note || ""));
@@ -2233,6 +2244,7 @@ describe("VST engine", () => {
     e.blockCfg = {
       ...DEFAULT_BLOCK_CONFIG,
       enabled: true,
+      sets: true,
       overall: true,
       stack: true,
       windows: false,
@@ -2275,7 +2287,10 @@ describe("VST engine", () => {
       kind: "short",
       playbook: "short",
     });
-    for (let i = 0; i < 10; i++) tickVst(e, CFG, "trailing", { rangeType: "atr", block: e.blockCfg, skipWalk: true, skipMatch: true });
+    q.px *= 1.005;
+    e.positions[0]!.mark = q.px;
+    e.positions[0]!.unrealized = (q.px - e.positions[0]!.avgEntry) * e.positions[0]!.qty;
+    adjustActiveBlocks(e, CFG, "trailing", e.blockCfg, "atr", { endStage: true });
     const rungs = [...e.queue, ...e.orders].filter((o) => /Block/i.test(o.note || ""));
     const notes = rungs.map((o) => o.note || "");
     assert.ok(notes.some((n) => /Block shared #1/.test(n) && !/Overall/.test(n)), `rel shared ${notes.join(" | ")}`);
@@ -2828,8 +2843,8 @@ describe("VST engine", () => {
       evalPosCount: 6,
       endStageOnly: false,
     };
-    const shared = simulateHours(16, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...par, volumeMode: "shared" } });
-    const additive = simulateHours(16, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...par, volumeMode: "additive" } });
+    const shared = simulateHours(16, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...par, volumeMode: "shared", overallMode: "shared" } });
+    const additive = simulateHours(16, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: { ...par, volumeMode: "additive", overallMode: "additive" } });
     const both = simulateHours(16, CFG, "hybrid", { symbolCount: 8, rangeType: "fibonacci", block: par });
     finiteNum(shared.report.pf, additive.report.pf, both.report.pf);
     assert.ok(shared.report.trades >= 1 && both.report.trades >= 1);
@@ -2868,6 +2883,7 @@ describe("VST engine", () => {
               stack: t.stack,
               windows: t.windows,
               volumeMode: m,
+              overallMode: m,
               counts: [1, 2],
               maxMultiple: 2,
               evalPosCount: 6,
