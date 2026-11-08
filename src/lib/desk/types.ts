@@ -1,3 +1,4 @@
+import type { FeePolicy, FeeSnapshot } from "./fee-policy.ts";
 export type Venue = "bingx" | "bybit";
 export type IndCalcKind = "base" | "dd" | "px" | "rng" | "ax-prev" | "ax-last" | "ax-cont" | "ax-pause";
 
@@ -541,6 +542,8 @@ export interface FeedStatus {
 }
 
 export interface TacticConfig {
+  stepPf?: import("./step-pf.ts").StepPfRules;
+  fees?: Partial<FeePolicy>;
   trailingPct: number;
   dcaCount: number;
   dcaDrawdown: number;
@@ -789,6 +792,8 @@ export interface LiveOrder {
 }
 
 export interface LivePosition {
+  /** Frozen modeled cost; fee updates never rewrite held-position evidence. */
+  modelRtCost?: number;
   id: string;
   connId: string;
   symbol: string;
@@ -1348,6 +1353,10 @@ export interface LosingHourState {
 }
 
 export interface VstEngine {
+  stepPf?: import("./step-pf.ts").StepPfRules;
+  fees?: Partial<FeePolicy>;
+  feeSnapshots?: Record<string, FeeSnapshot>;
+  feeAsOfMs?: number;
   quotes: Record<string, VstQuote>;
   queue: LiveOrder[];
   orders: LiveOrder[];
