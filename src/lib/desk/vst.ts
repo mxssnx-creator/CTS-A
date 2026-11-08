@@ -3476,7 +3476,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           : short
             ? shortProtectGrid(e, cfg)
             : [null];
-        let grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : [null];
+        const grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : [null];
         const hourBusy = livePace && hourTapeBusy(e);
         const trailBase = snapTrailPct(cfg.trailingPct);
         for (const prot of grid) {
@@ -3518,7 +3518,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const bands = livePace || dirExam ? symbolBands : undefined;
           const useCalc = openTape || dirExam;
           const parallelRanges = allLanes ? expandPayRanges(ind, range) : [range];
-          let legs: IndCalcLeg[] = !useCalc
+          const legs: IndCalcLeg[] = !useCalc
             ? parallelRanges.map((r, i) => ({
                 kind: i === 0 ? "base" as const : "rng" as const,
                 range: r,
@@ -4612,7 +4612,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       return;
     }
   }
-  let created = !pos;
+  const created = !pos;
   if (!pos) {
     const keys = signalKeys(e, o.connId);
     const known = keys.has(signalKey(o.symbol, o.side));
@@ -4889,6 +4889,36 @@ function bookRealized(e: VstEngine, pnl: number, reason: "sl" | "tp" | "time" | 
   return x;
 }
 
+/** A settled parent or Block slice has the same cash, return and symbol accounting. */
+function bookClosedSlice(e: VstEngine, symbol: string, pnl: number, ratio: number, reason: "sl" | "tp" | "time") {
+  if (!Number.isFinite(pnl) || !Number.isFinite(ratio)) throw new RangeError("Invalid settlement economics");
+  bookRealized(e, pnl, reason);
+  if (ratio > 0) {
+    e.ledger.ratioProfit = (e.ledger.ratioProfit ?? 0) + ratio;
+    e.ledger.ratioWins = (e.ledger.ratioWins ?? 0) + 1;
+  } else if (ratio < 0) e.ledger.ratioLoss = (e.ledger.ratioLoss ?? 0) - ratio;
+  if (reason === "sl") e.ledger.slExits++;
+  else if (reason === "tp") e.ledger.tpExits++;
+  else e.ledger.timeExits = (e.ledger.timeExits ?? 0) + 1;
+  if (pnl > 0) {
+    e.ledger.winStreak++;
+    e.ledger.lossStreak = 0;
+    e.ledger.maxWinStreak = Math.max(e.ledger.maxWinStreak, e.ledger.winStreak);
+  } else if (pnl < 0) {
+    e.ledger.lossStreak++;
+    e.ledger.winStreak = 0;
+    e.ledger.maxLossStreak = Math.max(e.ledger.maxLossStreak, e.ledger.lossStreak);
+  }
+  const tape = e.symbolStats[symbol] ??= { id: symbol, trades: 0, wins: 0, profit: 0, loss: 0, sl: 0, tp: 0 };
+  tape.trades++;
+  if (pnl > 0) { tape.wins++; tape.profit += pnl; }
+  else tape.loss -= pnl;
+  if (ratio > 0) tape.ratioProfit = (tape.ratioProfit ?? 0) + ratio;
+  else if (ratio < 0) tape.ratioLoss = (tape.ratioLoss ?? 0) - ratio;
+  if (reason === "sl") tape.sl++;
+  else if (reason === "tp") tape.tp++;
+}
+
 const tickCloseTape = new WeakMap<VstEngine, { tick: number; rows: VstEngine["closed"] }>();
 
 function noteTickClose(e: VstEngine, row: VstEngine["closed"][number]) {
@@ -4977,7 +5007,7 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   bumpBookPf(e, `block:${reason}`, ratio);
   noteHourLane(e, "play:block", ratio);
   noteHourLane(e, `ind:${String(p.indication || "trend")}`, ratio);
-  bookRealized(e, pnl, reason);
+  bookClosedSlice(e, p.symbol, pnl, ratio, reason);
   noteLaneLive(e, "block", ratio);
   noteHourLive(e, pnl, p.validExec === true, ratio);
   const row: VstEngine["closed"][number] = {
@@ -5066,54 +5096,18 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     noteIndRange(e, p.indication, p.controllingRange, ratio, p.validExec === true);
   }
   p.realized += pnl;
-  if (!botBook) {
-    bookRealized(e, pnl, reason);
-    if (ratio > 0) {
-      e.ledger.ratioProfit = (e.ledger.ratioProfit ?? 0) + ratio;
-      e.ledger.ratioWins = (e.ledger.ratioWins ?? 0) + 1;
-    } else if (ratio < 0) e.ledger.ratioLoss = (e.ledger.ratioLoss ?? 0) + -ratio;
-  }
+  if (!botBook) bookClosedSlice(e, p.symbol, pnl, ratio, reason);
   if (!botBook && reason === "sl") {
-    e.ledger.slExits += 1;
     e.cooldown[cooldownKey(p.connId, p.symbol)] = e.tick + (completeOpenTape(e) || performingLive(e) ? 2 : 20);
   } else if (!botBook && reason === "time") {
-    e.ledger.timeExits = (e.ledger.timeExits ?? 0) + 1;
     e.cooldown[cooldownKey(p.connId, p.symbol)] = e.tick + (completeOpenTape(e) || performingLive(e) ? 1 : 6);
   } else if (!botBook) {
-    e.ledger.tpExits += 1;
     e.cooldown[cooldownKey(p.connId, p.symbol)] = e.tick + (completeOpenTape(e) || performingLive(e) ? 1 : 8);
-  }
-  if (!botBook && pnl > 0) {
-    e.ledger.winStreak += 1;
-    e.ledger.lossStreak = 0;
-    if (e.ledger.winStreak > e.ledger.maxWinStreak) e.ledger.maxWinStreak = e.ledger.winStreak;
-  } else if (!botBook && pnl < 0) {
-    e.ledger.lossStreak += 1;
-    e.ledger.winStreak = 0;
-    if (e.ledger.lossStreak > e.ledger.maxLossStreak) e.ledger.maxLossStreak = e.ledger.lossStreak;
   }
   const r = pnl / Math.max(p.slDist * p.qty, 1e-9);
   const originBook = p.playbook || "normal";
   const originKind = p.kind;
-  const tape = e.symbolStats[p.symbol] ??= {
-    id: p.symbol,
-    trades: 0,
-    wins: 0,
-    profit: 0,
-    loss: 0,
-    sl: 0,
-    tp: 0
-  };
   if (!botBook) {
-    tape.trades += 1;
-    if (pnl > 0) {
-      tape.wins += 1;
-      tape.profit += pnl;
-    } else tape.loss += Math.abs(pnl);
-    if (ratio > 0) tape.ratioProfit = (tape.ratioProfit ?? 0) + ratio;
-    else if (ratio < 0) tape.ratioLoss = (tape.ratioLoss ?? 0) + -ratio;
-    if (reason === "sl") tape.sl += 1;
-    else if (reason === "tp") tape.tp += 1;
     noteHourLive(e, pnl, p.validExec === true, ratio);
   }
   const closedRow = {
@@ -9075,6 +9069,8 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   let notionalSum = 0;
   let marginSum = 0;
   let maxMarginSeen = 0;
+  let scoredMaxPositions = 0, scoredMaxOrders = 0;
+  let preCapRejects = 0, preRateSkips = 0;
   const MARGIN_LEV = 125;
   const rSlots = [
     {
@@ -9125,6 +9121,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const playIndAcc = accMap();
   const kindAcc = accMap();
   const rangeAcc = accMap();
+  const scoredSymbols = new Map<string, { id: string; trades: number; wins: number; profit: number; loss: number; gp: number; gl: number; sl: number; tp: number }>();
   const hourIndAcc = accMap();
   const hourPlayAcc = accMap();
   const hourPlayIndAcc = accMap();
@@ -9134,6 +9131,8 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   let hourGatedN = 0;
   let hourGatedP = 0;
   let hourGatedL = 0;
+  let hourGatedRatioP = 0;
+  let hourGatedRatioL = 0;
   let hourRatioP = 0;
   let hourRatioL = 0;
   let liveRatioP = 0;
@@ -9227,9 +9226,8 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   let liveProfit = 0;
   let liveLoss = 0;
   let livePeak = startEq;
-  let gatedLiveP = 0;
-  let gatedLiveL = 0;
-  let gatedLiveN = 0;
+  let scoredMaxDd = 0;
+  let scoredWinStreak = 0, scoredLossStreak = 0, scoredMaxWins = 0, scoredMaxLosses = 0;
   for (let i = 0; i < totalTicks; i++) {
     tickVst(engine, use, tactic, {
       rangeType,
@@ -9392,15 +9390,34 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       prevWins = engine.ledger.wins;
       prevPlaced = engine.ledger.ordersPlaced;
       prevFilled = engine.ledger.ordersFilled;
+      preCapRejects = engine.ledger.capRejects;
+      preRateSkips = engine.ledger.rateSkips;
     }
     const inLive = i >= preTicks;
-    if (engine.ledger.trades > seenClosed) {
+    if (engine.ledger.trades > seenClosed || tickCloses(engine).length > 0) {
       const fresh = tickCloses(engine);
       const added = engine.ledger.trades - seenClosed;
       if (fresh.length < added) missedCloses += added - fresh.length;
       for (const t of fresh) {
-        if (!inLive) continue;
+        if (!inLive || !deskTapeRow(engine, t) || isBotPlay(t.playbook)) continue;
         const edge = edgePnl(t);
+        const sym = scoredSymbols.get(t.symbol) ?? { id: t.symbol, trades: 0, wins: 0, profit: 0, loss: 0, gp: 0, gl: 0, sl: 0, tp: 0 };
+        scoredSymbols.set(t.symbol, sym);
+        sym.trades++;
+        if (t.pnl > 0) {
+          sym.wins++; sym.profit += t.pnl;
+          scoredMaxWins = Math.max(scoredMaxWins, ++scoredWinStreak); scoredLossStreak = 0;
+        } else if (t.pnl < 0) {
+          sym.loss -= t.pnl;
+          scoredMaxLosses = Math.max(scoredMaxLosses, ++scoredLossStreak); scoredWinStreak = 0;
+        }
+        if (edge > 0) sym.gp += edge; else sym.gl -= edge;
+        if (t.reason === "sl") sym.sl++; else if (t.reason === "tp") sym.tp++;
+        rSum += t.r;
+        rN++;
+        const slot = rSlots.find((b) => t.r >= b.lo && t.r < b.hi) ?? rSlots[rSlots.length - 1];
+        slot.n++;
+        bumpClose(t);
         if (edge > 0) {
           hourRatioP += edge;
           intRatioP += edge;
@@ -9412,6 +9429,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
           hourGatedN += 1;
           if (t.pnl > 0) hourGatedP += t.pnl;
           else hourGatedL += Math.abs(t.pnl);
+          if (edge > 0) hourGatedRatioP += edge; else hourGatedRatioL -= edge;
           continue;
         }
         if (t.validExec !== true) {
@@ -9420,14 +9438,10 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
           else hourPaperL += Math.abs(edge);
           continue;
         }
-        rSum += t.r;
-        rN += 1;
-        const slot = rSlots.find((b) => t.r >= b.lo && t.r < b.hi) ?? rSlots[rSlots.length - 1];
-        slot.n += 1;
-        bumpClose(t);
         hourGatedN += 1;
         if (t.pnl > 0) hourGatedP += t.pnl;
         else hourGatedL += Math.abs(t.pnl);
+        if (edge > 0) hourGatedRatioP += edge; else hourGatedRatioL -= edge;
       }
       seenClosed = engine.ledger.trades;
     }
@@ -9436,6 +9450,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     const dd = peak > 0 ? Math.max(0, (peak - eq) / peak) : 0;
     if (!inLive) continue;
     if (eq > livePeak) livePeak = eq;
+    scoredMaxDd = Math.max(scoredMaxDd, livePeak > 0 ? (livePeak - eq) / livePeak : 0);
+    scoredMaxPositions = Math.max(scoredMaxPositions, signalKeys(engine).size);
+    scoredMaxOrders = Math.max(scoredMaxOrders, engine.orders.length + engine.queue.length + engine.positions.length);
     posSum += engine.positions.length;
     ordSum += engine.stats.openOrders || engine.orders.filter((o) => o.status === "open" || o.status === "partial").length;
     slotSum += bookCounts(engine).positions.slots;
@@ -9478,9 +9495,6 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       prevLoss = engine.ledger.loss;
       liveProfit += hp;
       liveLoss += hl;
-      gatedLiveP += hourGatedP;
-      gatedLiveL += hourGatedL;
-      gatedLiveN += hourGatedN;
       liveRatioP += hourRatioP;
       liveRatioL += hourRatioL;
       const realized = hp - hl;
@@ -9489,7 +9503,6 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       const hourProfitNow = hourRatioP;
       const hourLossNow = hourRatioL;
       const hourPf = profitFactor(hourProfitNow, hourLossNow);
-      const gatedHourNet = hourGatedP - hourGatedL;
       const livePf = profitFactor(liveRatioP, liveRatioL);
       const book = bookCounts(engine);
       const hourIndSnap = finish(hourIndAcc);
@@ -9526,7 +9539,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       const avgNotionalH = hourTickN ? hourNotionalAcc / hourTickN : hourNotional;
       const hourRow = {
         h,
-        net: complete ? gatedHourNet : realized,
+        net: realized,
         mtm: hourMtm,
         unreal,
         trades: hourTrades,
@@ -9537,7 +9550,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         hourLoss: hourLossNow,
         wr: liveTradesNow > 0 ? liveWinsNow / liveTradesNow : 0,
         hourWr: hourTrades > 0 ? hourWins / hourTrades : 0,
-        mdd: livePeak > 0 ? Math.max(0, (livePeak - eq) / livePeak) : 0,
+        mdd: scoredMaxDd,
         ddt: engine.stats.ddt,
         pos: engine.positions.length,
         avgPos: avgPosH,
@@ -9551,7 +9564,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         hourTp,
         placed: hourPlaced,
         filled: hourFilled,
-        netCum: complete ? gatedLiveP - gatedLiveL : liveProfit - liveLoss,
+        netCum: liveProfit - liveLoss,
         vol: engine.relVolumeFactor ?? 0,
         notional: hourNotional,
         avgNotional: avgNotionalH,
@@ -9562,7 +9575,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         eqUsePct: eq > 0 ? avgMarginH / eq : 0,
         blockOrd: hourBlock,
         gatedN: hourGatedN,
-        gatedPf: profitFactor(hourRatioP, hourRatioL),
+        gatedPf: profitFactor(hourGatedRatioP, hourGatedRatioL),
         gatedNet: hourGatedP - hourGatedL,
         paperN: hourPaperN,
         paperPf: hourPaperN ? profitFactor(hourPaperP, hourPaperL) : 0,
@@ -9585,6 +9598,8 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       hourGatedN = 0;
       hourGatedP = 0;
       hourGatedL = 0;
+      hourGatedRatioP = 0;
+      hourGatedRatioL = 0;
       hourRatioP = 0;
       hourRatioL = 0;
       hourPaperN = 0;
@@ -9596,7 +9611,14 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       hourMaxMargin = 0;
       hourNotionalAcc = 0;
       hourTickN = 0;
-      if (markAt.has(h)) marks.push(horizonFromEngine(engine, h, peak));
+      if (markAt.has(h)) {
+        const net = eq - startEq, slExits = engine.ledger.slExits - preSnap.slExits,
+          tpExits = engine.ledger.tpExits - preSnap.tpExits;
+        const wr = liveTradesNow ? liveWinsNow / liveTradesNow : 0;
+        marks.push({ hours: h, trades: liveTradesNow, pf: livePf, wr, net, mdd: scoredMaxDd,
+          equity: eq, slExits, tpExits,
+          ...scoreHorizon(h, liveTradesNow, livePf, wr, net, scoredMaxDd, slExits, tpExits, auditEngine(engine).nanCount) });
+      }
     }
     if ((liveI + 1) % ticksPerIntervalOf(engine) === 0 || i === totalTicks - 1) {
       const step = ticksPerIntervalOf(engine);
@@ -9620,7 +9642,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         hourPf: profitFactor(intRatioP, intRatioL),
         hourProfit: intRatioP,
         hourLoss: intRatioL,
-        mdd: livePeak > 0 ? Math.max(0, (livePeak - eq) / livePeak) : 0,
+        mdd: scoredMaxDd,
         ddt: engine.stats.ddt,
         pos: engine.positions.length,
         netCum: engine.ledger.profit - engine.ledger.loss,
@@ -9642,10 +9664,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const liveSl = Math.max(0, engine.ledger.slExits - preSnap.slExits);
   const liveTp = Math.max(0, engine.ledger.tpExits - preSnap.tpExits);
   const liveRealized = liveProfit - liveLoss;
-  const ratioPf = ratioProfitFactor(engine.ledger.ratioProfit || 0, engine.ledger.ratioLoss || 0, engine.ledger.ratioWins || 0);
-  const livePf = (engine.ledger.ratioProfit || 0) + (engine.ledger.ratioLoss || 0) > 0 ? ratioPf : profitFactor(liveProfit, liveLoss);
+  const livePf = profitFactor(liveRatioP, liveRatioL);
   const liveWr = liveTrades ? liveWinsCount / liveTrades : 0;
-  const liveMdd = livePeak > 0 ? Math.max(0, (livePeak - engine.stats.equity) / livePeak) : 0;
+  const liveMdd = scoredMaxDd;
   if ((prehours > 0 ? liveTrades : tradesAll) < 1) issues.push("No closed trades");
   if (hours >= 8) {
     if ((prehours > 0 ? liveSl : engine.ledger.slExits) < 1) issues.push("No stop-loss exits");
@@ -9655,12 +9676,14 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   const wins = prehours > 0 ? liveWinsCount : winsAll;
   const liveProfitRep = prehours > 0 ? liveProfit : profit;
   const liveLossRep = prehours > 0 ? liveLoss : loss;
-  const bySymbol = Object.values(engine.symbolStats).map((s) => ({
+  const bySymbol = [...scoredSymbols.values()].map((s) => ({
     id: s.id,
     trades: s.trades,
     net: s.profit - s.loss,
     wr: s.trades ? s.wins / s.trades : 0,
-    pf: profitFactor(s.profit, s.loss),
+    pf: profitFactor(s.gp, s.gl),
+    returnProfit: s.gp,
+    returnLoss: s.gl,
     sl: s.sl,
     tp: s.tp
   })).sort((a, b) => b.net - a.net);
@@ -9774,40 +9797,10 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     greenHours,
     hours: hourly.length,
   };
-  const gatedPf = liveGated.n >= 4 ? liveGated.pf : 0;
-  const gatedNetVal = liveGated.net;
-  const paperPf = prehours > 0 ? livePf : engine.stats.pf;
-  const selectedPositive = selected.n >= 4 && selected.pf + 1e-9 >= GATED_MIN_PF && selected.net >= 0;
-  const gatedPositive = liveGated.n >= 4 && gatedPf + 1e-9 >= GATED_MIN_PF && gatedNetVal >= 0;
-  const proc = engine.progressEval?.lastNModes;
-  const procMode = engine.progressEval?.lastNMode ?? ln.mode;
-  const overallProc = engine.progressEval?.lastNOverall;
-  const procRow = overallProc?.pass
-    ? overallProc
-    : procMode === "combined"
-      ? proc?.combined
-      : procMode === "majority"
-        ? proc?.majority
-        : proc?.independent;
-  const procPf = Number(procRow?.gatedPf ?? procRow?.pf) || 0;
-  const procN = Number(procRow?.gatedN ?? procRow?.n) || 0;
-  const procNet = Number(procRow?.net) || 0;
-  const procPositive = Boolean(procRow?.pass) && procN >= 4 && procPf + 1e-9 >= GATED_MIN_PF && procNet >= -1e-12;
-  const reportPf = prehours > 0 && liveGated.n >= 4
-    ? liveGated.pf
-    : engine.shortComboOnly
-    ? paperPf
-    : complete && ((engine.ledger.ratioProfit || 0) + (engine.ledger.ratioLoss || 0) > 0)
-      ? paperPf
-      : selectedPositive
-      ? selected.pf
-      : procPositive
-        ? procPf
-        : gatedPositive
-          ? gatedPf
-          : afterTypesStage.n >= 4 && afterTypesStage.pf + 1e-9 >= GATED_MIN_PF && afterTypesStage.net > 0
-            ? afterTypesStage.pf
-            : 0;
+  // Executed headline statistics use every owned close in the scored interval. Selection,
+  // candidate-stage and final winning-subset diagnostics must never replace this cohort.
+  const paperPf = livePf;
+  const reportPf = livePf;
   const floors = {
     overall: minPfFor(engine, "overall"),
     base: minPfFor(engine, engine.shortRange ? "shortBase" : "base"),
@@ -9816,15 +9809,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     axis: minPfFor(engine, "axis"),
   };
   const reportWr = prehours > 0 ? liveWr : engine.stats.wr;
-  const gatedRealized = gatedLiveP - gatedLiveL;
-  const closedNet = prehours > 0 ? (complete ? gatedRealized : liveRealized) : profit - loss;
-  const reportNet = engine.shortComboOnly
-    ? closedNet
-    : selectedPositive
-      ? selected.net
-      : prehours > 0
-        ? closedNet + engine.positions.reduce((s, p) => s + (p.unrealized || 0), 0)
-        : engine.stats.net;
+  const reportNet = engine.stats.equity - startEq;
   const reportMdd = prehours > 0 ? liveMdd : engine.stats.mdd;
   const report = {
     hours,
@@ -9834,6 +9819,11 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     wins,
     wr: reportWr,
     pf: reportPf,
+    cashPf: profitFactor(liveProfitRep, liveLossRep),
+    returnProfit: liveRatioP,
+    returnLoss: liveRatioL,
+    settledSlices: [...scoredSymbols.values()].reduce((n, row) => n + row.trades, 0),
+    statisticsScope: "Owned settled slices in the scored interval; prehistory and selected subsets excluded",
     net: reportNet,
     mdd: reportMdd,
     equity: engine.stats.equity,
@@ -9841,10 +9831,10 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     tpExits: prehours > 0 ? liveTp : engine.ledger.tpExits,
     openPositions: engine.positions.length,
     openOrders: engine.stats.openOrders,
-    maxPositionsSeen: engine.ledger.maxPositions,
-    maxOrdersSeen: engine.ledger.maxOrders,
-    capRejects: engine.ledger.capRejects,
-    rateSkips: engine.ledger.rateSkips,
+    maxPositionsSeen: scoredMaxPositions,
+    maxOrdersSeen: scoredMaxOrders,
+    capRejects: engine.ledger.capRejects - preCapRejects,
+    rateSkips: engine.ledger.rateSkips - preRateSkips,
     ratioViolations: audit.ratioViolations,
     negativePx: audit.negativePx,
     nanCount: audit.nanCount,
@@ -9857,8 +9847,8 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     recovery: reportMdd > 1e-9 ? (prehours > 0 ? liveRealized : engine.stats.net) / (reportMdd * startEq) : (prehours > 0 ? liveRealized : engine.stats.net) > 0 ? 8 : 0,
     profit: liveProfitRep,
     loss: liveLossRep,
-    maxWinStreak: engine.ledger.maxWinStreak,
-    maxLossStreak: engine.ledger.maxLossStreak,
+    maxWinStreak: scoredMaxWins,
+    maxLossStreak: scoredMaxLosses,
     bySymbol,
     byIndication,
     byTactic,
@@ -9866,8 +9856,8 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     byPlayInd,
     byKind,
     byRange,
-    ordersPlaced: engine.ledger.ordersPlaced,
-    ordersFilled: engine.ledger.ordersFilled,
+    ordersPlaced: Math.max(0, engine.ledger.ordersPlaced - (internStage.orders ?? 0)),
+    ordersFilled: Math.max(0, engine.ledger.ordersFilled - (internStage.fills ?? 0)),
     hourly,
     intervals,
     avgR,
@@ -9885,7 +9875,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     startEquity: startEq,
     costStep,
     unitNotional: positionNotional(startEq, costStep),
-    realizedNet: prehours > 0 ? (complete ? gatedRealized : liveRealized) : profit - loss,
+    realizedNet: liveRealized,
     prehours,
     pre: preSnap,
     lastN: {
