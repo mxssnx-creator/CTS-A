@@ -1,5 +1,6 @@
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopFraction } from "./protection-policy.ts";
 import { roundTripFeeRate, parseCommission } from "./fee-policy.ts";
+import { connectionNetwork } from "./connection-network.ts";
 import type { VstEngine } from "./types.ts";
 import { createHash, createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -58,7 +59,7 @@ function envKey(name: string): string {
 }
 
 export function keysForConn(connId?: string): { apiKey: string; secret: string } {
-  const slot = connId === "bingx-vst-02" ? "X02" : "X01";
+  const slot = connId === "bingx-vst-02" || connId === "bingx-x02" ? "X02" : "X01";
   const apiKey =
     envKey(`BINGX_${slot}_API_KEY`) || envKey("BINGX_API_KEY") || envKey("CTS_A_BINGX_API_KEY");
   const secret =
@@ -355,13 +356,14 @@ async function signedTrade(
   path: string,
   extra: Record<string, string | number>,
 ): Promise<LiveOrderResult> {
+  connectionNetwork(connId, network);
   const { apiKey, secret } = resolveKeys(connId, undefined, undefined);
   if (!apiKey || !secret) return { ok: false, error: "API key and secret required" };
   let last = "trade failed";
   for (const host of HOSTS[network]) {
     try {
       const params: Record<string, string | number> = {
-        recvWindow: 5000,
+        recvWindow: 10000,
         timestamp: Date.now(),
         ...extra,
       };
@@ -577,7 +579,7 @@ async function getJson(url: string, init?: RequestInit): Promise<{ json: unknown
   const t0 = Date.now();
   const res = await fetch(url, {
     ...init,
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(10000),
     headers: {
       Accept: "application/json",
       "User-Agent": "AXIS-Desk/1.0",
@@ -820,12 +822,13 @@ export async function pingAccount(input: {
   network: "mainnet" | "testnet";
   connId?: string;
 }): Promise<AccountPing> {
+  connectionNetwork(input.connId, input.network);
   const { apiKey, secret } = resolveKeys(input.connId, input.apiKey, input.secret);
   if (!apiKey || !secret) return { ok: false, latencyMs: 0, error: "API key and secret required" };
-  const params = { recvWindow: 5000, timestamp: Date.now() };
   const path = "/openApi/swap/v2/user/balance";
   for (const host of HOSTS[input.network]) {
     try {
+      const params = { recvWindow: 10000, timestamp: Date.now() };
       const url = signedUrl(host, path, secret, params);
       const out = await getJson(url, { headers: { "X-BX-APIKEY": apiKey } });
       const body = out.json as {
@@ -890,6 +893,7 @@ export async function placeSwapOrder(input: {
   equity?: number;
   clientOrderId?: string;
 }): Promise<LiveOrderResult> {
+  connectionNetwork(input.connId, input.network);
   if (!input.confirmLive) return { ok: false, error: "Live confirm required" };
   const { apiKey, secret } = resolveKeys(input.connId, input.apiKey, input.secret);
   if (!apiKey || !secret) return { ok: false, error: "API key and secret required" };
@@ -1018,18 +1022,20 @@ export async function placeSwapOrder(input: {
         return { ok: false, error: body?.msg || `BingX ${body?.code ?? out.status}` };
       }
       const orderId = placedOrderId(body.data);
-      if (!orderId) return { ok: false, error: "missing orderId" };
+      if (!orderId) return { ok: false, uncertain: true, clientOrderId: tagged, error: "missing orderId" };
       return { ok: true, orderId, clientOrderId: tagged };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "order failed" };
+      return { ok: false, uncertain: true, clientOrderId: tagged, error: err instanceof Error ? err.message : "order failed" };
     }
   };
 
   let result = await post(qty, true);
+  if (result.uncertain) return result;
   const protectBad = (err?: string) =>
     /TP Price|SL Price|stopPrice|takeProfit|Order Price|Last Price|must be (greater|lower|above|below)/i.test(String(err || ""));
   if (!result.ok && protectBad(result.error) && !input.closePosition) {
     result = await post(qty, false);
+    if (result.uncertain) return result;
   }
   if (isRateLimitedMsg(result.error)) return result;
   if (!result.ok && isMinSizeError(result.error) && !input.closePosition && !input.exactQty) {
@@ -1041,7 +1047,9 @@ export async function placeSwapOrder(input: {
       const lev = Math.max(10, Number(spec?.maxLeverage) || 50);
       if (eq > 0 && bump.notional / lev > eq * 0.85) break;
       result = await post(bump.qty, true);
+      if (result.uncertain) return result;
       if (!result.ok && protectBad(result.error)) result = await post(bump.qty, false);
+      if (result.uncertain) return result;
       if (result.ok || isRateLimitedMsg(result.error) || !isMinSizeError(result.error)) break;
       qty = bump.qty;
     }
@@ -1057,6 +1065,7 @@ export async function cancelSwapOrder(input: {
   symbol: string;
   orderId: string;
 }): Promise<LiveOrderResult> {
+  connectionNetwork(input.connId, input.network);
   const { apiKey, secret } = resolveKeys(input.connId, input.apiKey, input.secret);
   if (!apiKey || !secret) return { ok: false, error: "API key and secret required" };
   if (!input.orderId || !exchangeOrderId(input.orderId)) return { ok: false, error: "orderId required" };
@@ -1066,7 +1075,7 @@ export async function cancelSwapOrder(input: {
   const params: Record<string, string | number> = {
     symbol: venue,
     orderId: exchangeOrderId(input.orderId),
-    recvWindow: 5000,
+    recvWindow: 10000,
     timestamp: Date.now(),
   };
   try {
@@ -1129,13 +1138,14 @@ async function signedJson(
   path: string,
   extra?: Record<string, string | number>,
 ): Promise<{ ok: boolean; data?: unknown; ms: number; error?: string }> {
+  connectionNetwork(connId, network);
   const { apiKey, secret } = resolveKeys(connId, undefined, undefined);
   if (!apiKey || !secret) return { ok: false, ms: 0, error: "API key and secret required" };
   let last = "request failed";
   let ms = 0;
   for (const host of HOSTS[network]) {
     try {
-      const params = { recvWindow: 5000, timestamp: Date.now(), ...(extra ?? {}) };
+      const params = { recvWindow: 10000, timestamp: Date.now(), ...(extra ?? {}) };
       const url = signedUrl(host, path, secret, params);
       const out = await getJson(url, { headers: { "X-BX-APIKEY": apiKey } });
       ms = out.ms;
@@ -1155,6 +1165,7 @@ export async function querySymbolLeverage(
   venueSymbol: string,
   opts?: { fresh?: boolean },
 ): Promise<SymbolLeverage | null> {
+  connectionNetwork(connId, network);
   loadLeverageCaps();
   const venue = venueSymbol;
   if (!venue) return null;
@@ -1214,7 +1225,8 @@ export async function fetchExchangeBook(input: {
       ? posRes.data
       : Array.isArray((posRes.data as { positions?: unknown[] } | null)?.positions)
         ? ((posRes.data as { positions: unknown[] }).positions)
-        : [];
+        : null;
+    if (!raw) return { ...empty, latencyMs: ms, error: "positions array missing; exposure unknown" };
     for (const row of raw) {
       const r = row as Record<string, unknown>;
       const venueSymbol = String(r.symbol ?? "");
@@ -1318,6 +1330,7 @@ export async function fetchLiveExecutions(input: {
   bySymbol: { key: string; n: number; pf: number; wr: number; net: number }[];
   at: number;
 }> {
+  connectionNetwork(input.connId, input.network);
   const empty = {
     ok: false as const,
     orders: [] as LiveExecution[],

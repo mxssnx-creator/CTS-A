@@ -1,5 +1,6 @@
 import type { LastNCompleteScore, LastNOverallScore, LastNPassMode, LastNProgressConfig } from "./types";
 import { profitFactor } from "./profit-factor.ts";
+import { negativeLastN, negativeLastNDecision, type NegativeResult } from "./negative-last-n.ts";
 
 function seq(from: number, to: number, step: number): number[] {
   const out: number[] = [];
@@ -13,6 +14,9 @@ export const EVAL_POS_NS = seq(15, 80, 5);
 export const VALID_EXEC_NS = seq(8, 24, 4);
 /** Disable last-N: 6–20 step 2. */
 export const LIVE_DISABLE_NS = seq(6, 20, 2);
+/** Expanded research choices. Existing operator selections are preserved. */
+export const LAST_N_RESEARCH_NS = [1,2,3,5,8,10,12,15,20,25,30,40,50,60,80,100,150,200];
+export const NEGATIVE_LAST_N_RESEARCH_NS = [1,2,3,5,8,10,12,15,20,25,30,40,50];
 
 export const EVAL_POS_N = 50;
 export const VALID_EXEC_POS_N = 15;
@@ -71,23 +75,10 @@ export const LAST_N_PASS_META: { id: LastNPassMode; label: string; blurb: string
   { id: "majority", label: "Majority 2+", blurb: "Two or more valid windows PF≥1. Confirms Independent, rejects a single lucky N." },
 ];
 
-function snapTo(grid: readonly number[], n: number): number {
-  let best = grid[0] ?? n;
-  let dist = Infinity;
-  for (const g of grid) {
-    const d = Math.abs(g - n);
-    if (d < dist) {
-      dist = d;
-      best = g;
-    }
-  }
-  return best;
-}
-
 function sanitizeNs(raw: unknown, grid: readonly number[], fallback: number[]): number[] {
   if (!Array.isArray(raw)) return [...fallback];
   const src = raw.map((x) => Math.round(Number(x))).filter((n) => Number.isFinite(n) && n > 0);
-  const mapped = [...new Set(src.map((n) => (grid.includes(n) ? n : snapTo(grid, n))))].filter((n) => grid.includes(n)).sort((a, b) => a - b);
+  const mapped = [...new Set(src.filter(n => n >= 1 && n <= 200))].sort((a, b) => a - b);
   if (mapped.length) return mapped;
   return [fallback[0] ?? grid[0] ?? 8];
 }
@@ -97,11 +88,24 @@ export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null |
   if (!raw || typeof raw !== "object") {
     return { ...d, evalNs: [...d.evalNs], validNs: [...d.validNs], disableNs: [...d.disableNs] };
   }
+  let policies: LastNProgressConfig["policies"];
+  if (raw.policies !== undefined) {
+    if (!Array.isArray(raw.policies) || raw.policies.length > 8) throw new Error("At most 8 Last-N policies");
+    const ids = new Set<string>();
+    policies = raw.policies.map(p => {
+      if (!p || typeof p.id !== "string" || !p.id.trim() || ids.has(p.id) || !["major","minor","independent","additional"].includes(p.role) || "policies" in p)
+        throw new Error("Invalid independent Last-N policy");
+      ids.add(p.id);
+      return { ...sanitizeLastNProgress(p), id: p.id, role: p.role };
+    });
+  }
   const mode: LastNPassMode =
     raw.mode === "independent" || raw.mode === "combined" || raw.mode === "parallel" || raw.mode === "majority"
       ? raw.mode
       : d.mode;
   return {
+    ...(policies === undefined ? {} : { policies }),
+    ...(raw.negativeFilter == null ? {} : {negativeFilter:negativeLastN(raw.negativeFilter)}),
     evalNs: sanitizeNs(raw.evalNs, EVAL_POS_NS, d.evalNs),
     validNs: sanitizeNs(raw.validNs, VALID_EXEC_NS, d.validNs),
     disableNs: sanitizeNs(raw.disableNs, LIVE_DISABLE_NS, d.disableNs),
@@ -112,11 +116,11 @@ export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null |
 }
 
 export function lastNMaxOf(cfg: LastNProgressConfig): number {
-  return Math.max(8, ...cfg.evalNs, ...cfg.validNs, ...cfg.disableNs);
+  return Math.max(1, ...cfg.evalNs, ...cfg.validNs, ...cfg.disableNs, ...(cfg.negativeFilter?.windows ?? []), ...(cfg.policies ?? []).map(p => lastNMaxOf(p)));
 }
 
 /** Prefix sums over newest-first rows. O(min(len, maxN)) then O(1) per window. */
-export type LastNPrefix = { n: number; gp: number[]; gl: number[]; net: number[]; invalid?: number[] };
+export type LastNPrefix = { n: number; gp: number[]; gl: number[]; net: number[]; invalid?: number[]; values?: number[] };
 
 export function lastNPrefix(rows: { pnl?: number; ratio?: number }[], maxN: number): LastNPrefix {
   const cap = Math.min(rows.length, Math.max(0, Math.round(maxN) || 0));
@@ -132,7 +136,7 @@ export function lastNPrefix(rows: { pnl?: number; ratio?: number }[], maxN: numb
     gl[i + 1] = gl[i]! + (p < 0 ? -p : 0);
     net[i + 1] = net[i]! + p;
   }
-  return { n: cap, gp, gl, net, invalid };
+  return { n: cap, gp, gl, net, invalid, values: rows.slice(0,cap).map(measuredEdgePnl) };
 }
 
 export function lastNHitFromPrefix(pre: LastNPrefix, n: number): LastNWindowHit {
@@ -232,6 +236,9 @@ export function disableLastNBad(h: LastNWindowHit): boolean {
 }
 
 export type LastNDecision = {
+  negative?: NegativeResult;
+  policyDecisions?: Record<string, LastNDecision & { role: string }>;
+  selectedPolicy?: string;
   pass: boolean;
   independent: boolean;
   combined: boolean;
@@ -252,6 +259,17 @@ export function decideLastNFromPrefix(
   minPf: number,
   basePf: number,
 ): LastNDecision {
+  if (cfg.policies?.length) {
+    const policyDecisions: NonNullable<LastNDecision["policyDecisions"]> = {};
+    for (const p of cfg.policies) policyDecisions[p.id] = { ...decideLastNFromPrefix(pre,
+      {...p,negativeFilter:p.negativeFilter ?? cfg.negativeFilter}, minPf, basePf), role: p.role };
+    const passing = cfg.policies.filter(p => policyDecisions[p.id].pass);
+    const selected = passing[0] ?? cfg.policies[0];
+    // Agreement does not add synthetic returns or multiply a parent's budget.
+    return { ...policyDecisions[selected.id], pass: passing.length > 0,
+      stack: passing.length ? Math.max(...passing.map(p => policyDecisions[p.id].stack)) : 1,
+      selectedPolicy: selected.id, policyDecisions };
+  }
   const evalHits = hitsOf(pre, cfg.evalNs);
   const validHits = hitsOf(pre, cfg.validNs);
   const disableHits = hitsOf(pre, cfg.disableNs);
@@ -274,9 +292,12 @@ export function decideLastNFromPrefix(
   else if (cfg.mode === "majority") pass = majority;
   // Disable windows are scored for live-disable / display. They must not override a valid-execute pass.
 
-  const both = independent && combined;
+  const negative = negativeLastNDecision(pre.values ?? [], cfg.negativeFilter);
+  pass = pass && negative.pass;
+  const both = pass && independent && combined;
   const stack = cfg.mode === "parallel" && cfg.parallelStack !== false && both ? cfg.parallelVolRatio : 1;
-  return { pass, independent, combined, majority, stack, evalHits, validHits, disableHits };
+  return { pass, independent:independent && negative.pass, combined:combined && negative.pass,
+    majority:majority && negative.pass, stack, evalHits, validHits, disableHits, negative };
 }
 
 export function decideLastN(
@@ -524,7 +545,7 @@ export function scoreLastNModeTape(
   const tinyNoLoss = gatedPf >= 4 - 1e-9 && net <= 1e-4;
   const majorityOk = mode !== "majority" || validOk.length >= MAJORITY_MIN_POSITIVE;
   const gatedOk =
-    gatedN >= VALID_EXEC_NS[0]! &&
+    !!gated && gated.samples >= gated.n && gatedN > 0 &&
     gatedPf + 1e-9 >= floor &&
     net > 1e-9 &&
     !tinyNoLoss;
@@ -551,7 +572,7 @@ export function foldOverallProcessing(modes: Record<LastNPassMode, LastNModeScor
   const pass =
     positive >= MAJORITY_MIN_POSITIVE &&
     headline.gatedPf + 1e-9 >= GATED_MIN_PF &&
-    headline.gatedN >= VALID_EXEC_NS[0]! &&
+    headline.gatedN > 0 &&
     headline.net > 1e-4;
   return {
     pass,
@@ -612,10 +633,11 @@ export function completeLastNCorrectness(
   modes: Record<LastNPassMode, LastNModeScore>,
   overall: LastNOverallScore,
   catalogs?: LastNTypeCatalogs,
+  configured: LastNProgressConfig = DEFAULT_LAST_N_PROGRESS,
 ): LastNCompleteScore {
-  const evalOk = EVAL_POS_NS.every((n) => evalNs[String(n)] != null);
-  const validOk = VALID_EXEC_NS.every((n) => validNs[String(n)] != null);
-  const disableOk = LIVE_DISABLE_NS.every((n) => disableNs[String(n)] != null);
+  const evalOk = configured.evalNs.every((n) => evalNs[String(n)] != null);
+  const validOk = configured.validNs.every((n) => validNs[String(n)] != null);
+  const disableOk = configured.disableNs.every((n) => disableNs[String(n)] != null);
   const internCovered = [evalNs, validNs, disableNs].every((grid) =>
     Object.values(grid).every((r) => (r.n > 0 ? true : r.ok)),
   );

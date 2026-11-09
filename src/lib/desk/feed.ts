@@ -35,6 +35,8 @@ export interface AccountPing {
 
 export interface LiveOrderResult {
   ok: boolean;
+  /** The request may have reached the venue; reconcile its client identity before retrying. */
+  uncertain?: boolean;
   orderId?: string;
   clientOrderId?: string;
   error?: string;
