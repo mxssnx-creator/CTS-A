@@ -118,6 +118,7 @@ import {
   deskCredentialStatus,
   loadLiveDesk,
 } from "./feed";
+import { simulationRequest } from "./simulation-request.ts";
 import { pinDeskScroll } from "./scroll-pane";
 
 import {
@@ -1414,63 +1415,12 @@ export const useDesk = create<DeskStore>((set, get) => ({
   },
   runSimHours: (hours) => {
     try {
-      const complete = hours >= 12;
-      const marks = hours >= 32 ? [2, 4, 8, 16, 32, 72].filter((h) => h <= hours) : undefined;
-      const cfg = complete
-        ? {
-            ...get().tacticConfig,
-            shortRange: true as const,
-            tpAtr: 0.48,
-            slOfTp: 1,
-            slAtr: 0.48,
-            tpRatio: 1,
-            trailingPct: 1.5,
-            maxHoldTicks: 8,
-            maxHoldBars: 3,
-            axisPartialRatio: 3,
-          }
-        : get().tacticConfig;
-      const { report } = simulateHours(hours, cfg, complete ? "trailing" : get().tactic, {
-        symbolCount: complete ? Math.max(80, get().symbolCount) : get().symbolCount,
-        orderType: get().orderType,
-        rangeType: complete ? "atr" : get().rangeType,
-        marks,
-        block: complete
-          ? {
-              ...DEFAULT_BLOCK_CONFIG,
-              ...get().blockConfig,
-              enabled: true,
-              counts: [1, 2, 3, 4, 5, 6],
-              volumeRatio: 0.4,
-              relVolumeRatio: 0.4,
-              sharedVolumeRatio: 1.5,
-              overallVolumeRatio: 1.5,
-              maxVolumeMultiplier: 8,
-              minActiveLevel: 1,
-              pauseCountRatio: 0,
-              windows: true,
-              stack: true,
-              volumeMode: "parallel",
-              overallMode: "parallel",
-              liveDisable: false,
-              autoEval: true,
-            }
-          : get().blockConfig,
-        equity: complete ? 10 : undefined,
-        costStep: complete ? 3 : undefined,
-        complete,
-        comboOnly: false,
-        prehours: 0,
-        shortPf: 0.95,
-        shortBasePf: 0.7,
-        blockPf: 1.15,
-        minPf: 0.95,
-        basePf: 0.7,
-      });
+      const request = simulationRequest(hours, get());
+      const { report } = simulateHours(hours, request.cfg, request.tactic, request.options);
       const e = get().vst;
       e.sim = report;
       e.lastMsg = report.passed
-        ? `${hours}h sim passed · ${report.trades} trades · PF ${report.pf.toFixed(2)}`
+        ? `${hours}h ${report.qualification === "post-base" ? "post-Base model" : "discovery model"} · ${report.trades} trades · PF ${report.pf.toFixed(2)} · checks passed`
         : `${hours}h sim · ${report.issues[0] ?? "check report"}`;
       set({
         vst: snapshotVst(e),

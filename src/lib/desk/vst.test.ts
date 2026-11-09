@@ -3620,22 +3620,16 @@ describe("VST engine", () => {
     assert.ok(byTac.size >= 2, `tacs ${[...byTac]}`);
   });
 
-  it("live progress arms every tactic, type, and range together", () => {
-    const e = initVstEngine({ ...CFG, shortRange: true, trailingPct: 1.5, dcaCount: 3 }, { warmup: 4, symbolCount: 6, arm: false });
+  it("live progress does not queue unproven configurations after Base", () => {
+    const cfg = { ...CFG, shortRange: true, trailingPct: 1.5, dcaCount: 3 };
+    const e = initVstEngine(cfg, { warmup: 4, symbolCount: 6, arm: false });
     e.liveTape = true;
     e.preEvalDone = true;
     e.strategyToggles = { normal: true, trailing: true, axis: true, block: true, dca: true };
-    armUniverse(e, { ...CFG, shortRange: true, trailingPct: 1.5, dcaCount: 3 }, "hybrid", "atr");
-    const tacs = new Set(e.queue.map((o) => o.tactic).filter(Boolean));
-    const plays = new Set(e.queue.map((o) => o.playbook).filter(Boolean));
-    const ranges = new Set(e.queue.map((o) => o.rangeType).filter(Boolean));
-    assert.ok(tacs.has("trailing") && tacs.has("axis") && tacs.has("hybrid") && tacs.has("dca"), `tacs ${[...tacs]}`);
-    assert.ok(plays.has("axis") && plays.has("dca") && (plays.has("short") || plays.has("normal")), `plays ${[...plays]}`);
-    assert.ok(ranges.size >= 2, `ranges ${[...ranges]}`);
-    const exec = e.queue.filter((o) => o.validExec === true);
-    const held = e.queue.filter((o) => o.validExec !== true);
-    assert.ok(exec.length + held.length === e.queue.length);
-    assert.ok(e.queue.length > 20, `queued ${e.queue.length}`);
+    armUniverse(e, cfg, "hybrid", "atr");
+    // A completed-phase flag supplies no configuration history. The former
+    // assertion counted unqualified placeholders as successful live progress.
+    assert.equal(e.queue.length, 0);
   });
 
   it("post-eval valid rels are 1-10% of intern and much higher PF", () => {

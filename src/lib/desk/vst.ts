@@ -3032,12 +3032,10 @@ export function shortProtectGrid(e: VstEngine, cfg: TacticConfig) {
   if (internAllPhase(e)) return allShortTpSlCombos().filter(inRange);
   const intern = e.progressEval?.shortCombos;
   const gated = Boolean(e.preEvalDone || e.liveTape);
-  if (gated && intern) {
-    return allShortTpSlCombos().filter((c) => {
-      if (!withinFloors(c) || !inRange(c)) return false;
-      return shortComboProven(e, c.tpAtr, c.slOfTp) || relComboAlive(e, c.tpAtr, c.slOfTp) || comboExamAlive(e, c.tpAtr, c.slOfTp);
-    });
-  }
+  // A pooled TP×SL score is discovery/ranking evidence, not a veto on an
+  // independently qualified symbol/indication/calculation cell. Enumerate the
+  // requested band; the final exact order identity is judged after geometry.
+  if (gated) return allShortTpSlCombos().filter(c => withinFloors(c) && inRange(c));
   if (intern) {
     const keep = floors.filter((c) => {
       const row = intern[shortComboKey(c.tpAtr, c.slOfTp)];
@@ -3186,6 +3184,9 @@ function spinList<T>(arr: T[], tick: number, rank: number): T[] {
 export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind, rangeType?: RangeType) {
   if (!isDeskConn(e.activeConnId)) e.activeConnId = VST_DEFAULT_CONN;
   const connId = e.activeConnId;
+  // Arming is synchronous and closes no positions. Reuse a verdict only within
+  // this call, keyed by the complete configuration; the next call re-evaluates it.
+  const entryVerdicts = new Map<string, boolean>();
   keepCatalogLanes(e, connId);
   thinCrowdedLanes(e, connId);
   const qMax = maxQueue(e);
@@ -3475,7 +3476,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           const comboOk = !short || !prot || internAll || internSlot || internKeep || shortComboProven(e, prot.tpAtr, prot.slOfTp) || relOk;
           const comboExec = internHere
             ? false
-            : !gatedExec || liveShouldExecute(e, prot ? { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp } : execRel);
+            : afterBase ? false : !gatedExec || liveShouldExecute(e, prot ? { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp } : execRel);
           if (gatedExec && short && prot && !internHere && !(e.shortComboOnly && paperMode(e))) {
             if (!comboOk && !afterBase) continue;
             if (!comboExec && !internKeep && !(keepInd && !afterBase) && !afterBase) continue;
@@ -3573,11 +3574,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           if (!(e.completeSim && paperMode(e)) && tac === "dca" && leg.range === "volume") continue;
           if (!(e.completeSim && paperMode(e)) && tac === "axis" && !internAllPhase(e) && leg.range === "volume" && disp < 0.18) continue;
           if (afterBase && !internHere) {
-            legOk = liveShouldExecute(e, prot
-              ? { ...execRel, rangeType: leg.range, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp }
-              : { ...execRel, rangeType: leg.range });
-            if (e.completeSim && paperMode(e)) legOk = true;
-            else if (!legOk && !e.liveTape) continue;
+            // This is only a geometry candidate. Missing calc/trail/range and
+            // economics here would let sibling outcomes veto the exact cell.
+            legOk = false;
           } else legOk = laneValid;
           const legKey = laneBusyKey({ ...execRel, calc: leg.kind, rangeType: leg.range,
             tpAtr: prot?.tpAtr, slOfTp: prot?.slOfTp, microRange: cfg.microRange,
@@ -3671,12 +3670,19 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             let entryValid = legOk;
             // The coarse selection above does not yet know the final calc/trail
             // or snapped distance. Admission must use the actual order identity.
-            if (afterBase && !internHere && !(e.completeSim && paperMode(e))) {
-              entryValid = liveShouldExecute(e, { ...execRel, rangeType: hi.rangeType,
+            if (afterBase && !internHere) {
+              const entryRel = { ...execRel, rangeType: hi.rangeType,
                 tpAtr: miniTp, slOfTp: miniSl, trailPct, calc: leg.kind,
                 microRange: microOn, minimalRange: minimalOn, shortRange: short,
-                modelRtCost: modeledPositionCost(e, s.id), minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct) });
-              if (!entryValid && !e.liveTape) return;
+                modelRtCost: modeledPositionCost(e, s.id), minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct) };
+              const proofKey = configSampleKey(entryRel);
+              let verdict = entryVerdicts.get(proofKey);
+              if (verdict === undefined) {
+                verdict = liveShouldExecute(e, entryRel);
+                entryVerdicts.set(proofKey, verdict);
+              }
+              entryValid = verdict;
+              if (!entryValid) return;
             }
             queueOrder(e, {
               id: nextId(e, "q"),
@@ -8961,7 +8967,13 @@ function resetLiveBook(e: VstEngine) {
   e.stats.equity = base;
 }
 
-export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; comboOnly?: boolean; prehours?: number; minPf?: number; basePf?: number; blockPf?: number; shortPf?: number; shortBasePf?: number; shortBlockPf?: number; pfCoords?: Partial<PfCoordToggles> | false; strategyToggles?: Partial<StrategyToggles>; skipIndications?: string[]; onHour?: (row: { h: number; eq: number; net: number; hourPf: number; pf: number; gatedN?: number; gatedPf?: number; trades?: number; mdd?: number; avgPos?: number; avgOrd?: number; pos?: number; orders?: number }) => void }) {
+/** Reproducible simulation policy only; never credentials, orders or account positions. */
+export type SimulationPolicy = Partial<Pick<VstEngine,
+  "activeConnId" | "fees" | "feeSnapshots" | "feeAsOfMs" | "minSlDistancePct" | "stepPf" |
+  "lastNProgress" | "shortProgress" | "intervalStrategy" | "minPf" | "basePf" | "blockPf" |
+  "axisPf" | "shortPf" | "shortBasePf" | "shortAxisPf" | "shortBlockPf">>;
+
+export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { policy?: SimulationPolicy; symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; comboOnly?: boolean; prehours?: number; minPf?: number; basePf?: number; blockPf?: number; shortPf?: number; shortBasePf?: number; shortBlockPf?: number; pfCoords?: Partial<PfCoordToggles> | false; strategyToggles?: Partial<StrategyToggles>; skipIndications?: string[]; onHour?: (row: { h: number; eq: number; net: number; hourPf: number; pf: number; gatedN?: number; gatedPf?: number; trades?: number; mdd?: number; avgPos?: number; avgOrd?: number; pos?: number; orders?: number }) => void }) {
   const hadPair = cfg.tpAtr != null && cfg.slOfTp != null;
   const use = cfgUsesShortRange(cfg) ? snapShortTacticConfig(cfg) : cfg;
   const ticks = Math.max(1, Math.round(hours * TICKS_PER_HOUR));
@@ -8988,9 +9000,14 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     comboOnly,
     arm: false,
   });
+  Object.assign(engine, structuredClone(Object.fromEntries(
+    Object.entries(opts?.policy ?? {}).filter(([, value]) => value !== undefined),
+  )));
   engine.completeSim = complete;
   engine.openCompleteTape = complete && preTicks <= 0;
-  engine.preEvalDone = preTicks <= 0;
+  // A quick geometry/discovery simulation without prehistory has not passed
+  // Base. Only the explicit complete open-tape diagnostic skips that phase.
+  engine.preEvalDone = complete && preTicks <= 0;
   engine.shortRange = Boolean(use.shortRange);
   engine.minimalRange = Boolean(use.minimalRange);
   engine.microRange = Boolean(use.microRange);
@@ -9010,8 +9027,6 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   } else if (complete || (opts?.pfCoords && typeof opts.pfCoords === "object")) {
     engine.pfCoords = { ...DEFAULT_PF_COORDS, ...(typeof opts?.pfCoords === "object" ? opts.pfCoords : {}) };
   }
-  // Arm only after the tape mode and toggles are set.
-  armUniverse(engine, use, tactic, rangeType);
   const applySimFloors = () => {
     if (opts?.minPf != null) engine.minPf = opts.minPf;
     if (opts?.basePf != null) engine.basePf = opts.basePf;
@@ -9026,7 +9041,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   applySimFloors();
   engine.shortProgress = sanitizeShortProgress(engine.shortProgress);
   engine.intervalStrategy = sanitizeIntervalStrategy(engine.intervalStrategy);
-  engine.lastNProgress = sanitizeLastNProgress(opts?.block?.lastNProgress ?? engine.lastNProgress);
+  engine.lastNProgress = sanitizeLastNProgress(opts?.policy?.lastNProgress ?? opts?.block?.lastNProgress ?? engine.lastNProgress);
+  // Geometry, fees, windows and floors must apply to the very first order too.
+  armUniverse(engine, use, tactic, rangeType);
   let peak = startEq;
   const curve = [{
     t: 0,
@@ -9230,12 +9247,8 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       const examOrders = engine.ledger.ordersPlaced;
       const examFills = engine.ledger.ordersFilled;
       const examEq = engine.stats.equity;
-      engine.preEvalDone = true;
       const blk = opts?.block ?? engine.blockCfg ?? DEFAULT_BLOCK_CONFIG;
-      evalBlockRelations(engine, blk);
-      flattenNonPerforming(engine);
-      refreshProgressEvals(engine, blk);
-      refreshLiveDisable(engine, blk);
+      finishBaseEval(engine, blk);
       internStage = {
         n: examTrades,
         pf: examPf,
@@ -9811,7 +9824,10 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     returnProfit: liveRatioP,
     returnLoss: liveRatioL,
     settledSlices: [...scoredSymbols.values()].reduce((n, row) => n + row.trades, 0),
-    statisticsScope: "Owned settled slices in the scored interval; prehistory and selected subsets excluded",
+    qualification: prehours > 0 ? "post-base" as const : "discovery" as const,
+    statisticsScope: prehours > 0
+      ? "Synthetic model: owned settled slices after Base; prehistory and selected subsets excluded"
+      : "Synthetic discovery only: no completed Base qualification; not a live-readiness result",
     net: reportNet,
     mdd: reportMdd,
     equity: engine.stats.equity,
@@ -11753,47 +11769,6 @@ export function isShortComboRel(
   return Number.isFinite(tp) && Number.isFinite(sl) && tp <= 0.6 + 1e-9;
 }
 
-/** Sampled and failed. An empty paper cell is not a miss. */
-function judgedMiss(
-  e: VstEngine,
-  rel: { tpAtr?: number; slOfTp?: number },
-): boolean {
-  if (rel.tpAtr == null || rel.slOfTp == null) return false;
-  const floor = Math.min(baseStageFloor(e), GATED_MIN_PF);
-  const key = shortComboKey(rel.tpAtr, rel.slOfTp);
-  const row = e.progressEval?.shortCombos?.[key];
-  if (row && row.n >= 8) {
-    const ok = row.ok !== false && row.net > 0 && row.pf + 1e-9 >= floor;
-    if (!ok) return true;
-  }
-  const rings = [e.shortComboLiveTape?.[key], e.shortComboPreTape?.[key], e.shortComboTape?.[key]];
-  for (const ring of rings) {
-    if (!ring || ring.length < 8) continue;
-    const st = comboTapeStats(ring);
-    if (!(st.net > 0 && st.pf + 1e-9 >= floor)) return true;
-  }
-  return false;
-}
-
-/** Paper measurement only. Live after the exam still requires a validated set. */
-function paperCellOpen(
-  e: VstEngine,
-  rel: { tactic?: string; playbook?: string; note?: string; tpAtr?: number; slOfTp?: number },
-): boolean {
-  if (e.liveTape || !e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return false;
-  if (validatedSet(e, rel)) return false;
-  if (judgedMiss(e, rel)) return false;
-  const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
-  if (t.normal !== true && !e.minimalRange && !e.microRange) return false;
-  const play = String(rel.playbook || "");
-  const tac = String(rel.tactic || "");
-  if (tac === "dca" || play === "dca") return t.dca === true;
-  if (play === "block" || /Block/i.test(String(rel.note || ""))) return t.block !== false;
-  if (tac === "axis" || play === "axis") return t.axis !== false;
-  if (tac === "trailing" && t.trailing === false) return false;
-  return true;
-}
-
 export function liveShouldExecute(
   e: VstEngine,
   rel: ConfigIdentity & {
@@ -11826,20 +11801,22 @@ export function liveShouldExecute(
   const isDca = play === "dca" || rel.tactic === "dca" || /^DCA/i.test(note);
   if (isDca && t.dca === false) return false;
   const ready = Boolean(e.preEvalDone && validatedSet(e, rel));
-  const paperOpen = paperCellOpen(e, rel);
+  // After Base, the funded paper path must use the same exact proof as live.
+  // Learning/exam entries remain upstream (internAllPhase/completeOpenTape);
+  // an unobserved paper sibling is never a qualified execution.
   if (!t.normal && unadjustedNormalOrder(rel) && !ready) return false;
-  if (e.preEvalDone && !validatedSet(e, rel) && !paperOpen) return false;
+  if (e.preEvalDone && !ready) return false;
   const extra = play === "block" || play === "axis" || play === "dca" || rel.tactic === "axis" || rel.tactic === "dca" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   if (t.trailing === false && rel.tactic === "trailing" && !extra) return false;
   if (isDca) return t.dca;
   const shortCombo = isShortComboRel(e, rel);
-  if (shortCombo && !ready && !paperOpen && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!) && !internRelProven(e, rel) && !relExamPass(e, rel)) return false;
-  if (!ready && !paperOpen && !shortCombo && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
-  if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel) && unadjustedNormalOrder(rel) && !paperOpen) return false;
+  if (shortCombo && !ready && !(e.shortComboOnly && paperMode(e)) && !shortComboProven(e, rel.tpAtr!, rel.slOfTp!) && !internRelProven(e, rel) && !relExamPass(e, rel)) return false;
+  if (!ready && !shortCombo && (e.preEvalDone || e.liveTape) && !prePassOk(e, rel)) return false;
+  if ((e.preEvalDone || e.liveTape) && !lanePassExec(e, rel) && unadjustedNormalOrder(rel)) return false;
   const gated = Boolean(e.preEvalDone || e.liveTape);
   if (!blockFill && gated && laneExecProven(e, rel)) {
     if (rel.kind === "normal" || play === "normal" || play === "short" || rel.kind === "short") {
-      return !unadjustedNormalOrder(rel) || t.normal || ready || paperOpen;
+      return !unadjustedNormalOrder(rel) || t.normal || ready;
     }
     if (play === "axis" || rel.tactic === "axis") return t.axis;
     if (rel.tactic === "trailing") return t.trailing !== false;
@@ -11871,8 +11848,8 @@ export function liveShouldExecute(
     const take = laneClosed(e, { tactic: rel.tactic, indication: rel.indication, kind: rel.kind, playbook: play }, 40);
     if (take.length >= 8 && pfFromPnls(take) + 1e-9 < minPfFor(e, e.shortRange ? "short" : "overall")) return false;
   }
-  if (rel.kind === "normal" || play === "normal") return t.normal || ready || paperOpen;
-  return t.normal || ready || paperOpen;
+  if (rel.kind === "normal" || play === "normal") return t.normal || ready;
+  return t.normal || ready;
 }
 
 export function queueOrder(e: VstEngine, o: LiveOrder): void {

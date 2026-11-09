@@ -1015,6 +1015,7 @@ export interface SimReport {
   returnLoss?: number;
   settledSlices?: number;
   statisticsScope?: string;
+  qualification?: "discovery" | "post-base";
   net: number;
   mdd: number;
   equity: number;
