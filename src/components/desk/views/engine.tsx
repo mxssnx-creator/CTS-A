@@ -223,6 +223,7 @@ export function EngineView() {
           title={`${sim.hours}h simulation · ${sim.passed ? "passed" : "issues"}`}
           action={<Pill tone={sim.passed ? "up" : "down"}>{sim.passed ? "Invariants ok" : "Check"}</Pill>}
         >
+          <p className="mb-3 text-xs text-muted-foreground">{sim.statisticsScope ?? "Synthetic model; market and venue execution are separate."}</p>
           <div className="grid grid-cols-2 gap-x-6 sm:grid-cols-4">
             <StatLine k="Trades" v={String(sim.trades)} />
             <StatLine k="PF" v={fmtPf(sim.pf)} tone={pfTone(sim.pf)} />
