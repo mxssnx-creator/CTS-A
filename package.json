@@ -18,7 +18,7 @@
     "check:auth": "node scripts/check-auth-invariant.mjs",
     "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts",
     "test:stable": "node --experimental-strip-types --test src/lib/desk/profit-factor.test.ts src/lib/desk/settlement-integrity.test.ts src/lib/desk/last-n-progress.test.ts src/lib/desk/stable-regression.test.ts src/lib/desk/stable-book.regression.test.ts",
-    "test:integrity": "node --experimental-strip-types --test src/lib/desk/simulation-request.test.ts src/lib/desk/low-range-admission.test.ts src/lib/desk/block-ownership.test.ts src/lib/desk/config-evidence.test.ts src/lib/desk/settlement-integrity.test.ts src/lib/desk/last-n-progress.test.ts src/lib/desk/profit-factor.test.ts",
+    "test:integrity": "node --experimental-strip-types --test src/lib/desk/simulation-request.test.ts src/lib/desk/low-range-admission.test.ts src/lib/desk/block-ownership.test.ts src/lib/desk/overlay-integrity.test.ts src/lib/desk/config-evidence.test.ts src/lib/desk/settlement-integrity.test.ts src/lib/desk/last-n-progress.test.ts src/lib/desk/profit-factor.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

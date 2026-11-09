@@ -91,3 +91,34 @@ test("settlement preserves the original fee and stop policy for subsequent quali
   assert.equal(c.pnl, closePnl(1, c.entry, c.exit, c.qty, .0011));
   assert.equal(c.calc, "px"); assert.equal(c.microRange, true); assert.equal(c.trailPct, .2);
 });
+
+for (const side of ["long", "short"] as const) for (const liveTape of [false, true]) {
+  test(`${side} liveTape=${liveTape}: a bar cannot rewrite an already-touched stop with its later peak`, () => {
+    const { e, p, q, cfg } = fixture(side, false);
+    e.liveTape = liveTape;
+    e.strategyToggles!.trailing = true;
+    p.tp = side === "long" ? 110 : 90;
+    p.tpDist = 10;
+    p.trailPct = .5;
+    const oldStop = p.sl;
+    Object.assign(q, side === "long"
+      ? { open: 100, lo: 98, hi: 106, px: 104 }
+      : { open: 100, lo: 94, hi: 102, px: 96 });
+    tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+    const c = e.closed.find((x) => x.id === p.id)!;
+    assert.ok(c);
+    assert.equal(c.exit, oldStop, "OHLC cannot establish a new stop before the earlier old-stop touch");
+    assert.ok(c.ratio! < 0);
+  });
+  test(`${side} liveTape=${liveTape}: a stop gap settles at the adverse observed open`, () => {
+    const { e, p, q, cfg } = fixture(side, false);
+    e.liveTape = liveTape;
+    const open = side === "long" ? 98 : 102;
+    Object.assign(q, { open, lo: open, hi: open, px: open });
+    tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+    const c = e.closed.find((x) => x.id === p.id)!;
+    assert.ok(c);
+    assert.equal(c.exit, open, "a stop trigger is not a guaranteed fill through a price gap");
+    assert.equal(c.pnl, closePnl(side === "long" ? 1 : -1, c.entry, open, c.qty));
+  });
+}
