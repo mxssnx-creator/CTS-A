@@ -2,6 +2,8 @@
 import { minimumStopFraction, normalizeMinSlDistancePct } from "../src/lib/desk/protection-policy.ts";
 import { modeledPositionCost } from "../src/lib/desk/vst.ts";
 import { roundTripFeeRate } from "../src/lib/desk/fee-policy.ts";
+import { connectionNetwork } from "../src/lib/desk/connection-network.ts";
+import { demoCloseConfirmed, measuredDemoProgress, demoStrategySettings, demoTacticSettings, demoBlockSettings } from "../src/lib/desk/demo-session-policy.ts";
 /**
  * CTS-A BingX VST-02 session: 50 symbols, max orders, best-first, 2h monitor.
  * Keys from env — never printed.
@@ -69,7 +71,7 @@ const OVERALL = process.env.CTS_A_OVERALL ?? (IS_X01 ? "/var/lib/cts-a/overall-s
 const TICK_MS = Number(process.env.CTS_A_TICK_MS ?? VST_TICK_MS);
 const CYCLE_MS = Number(process.env.CTS_A_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
 const SHORT_CYCLE_MS = Number(process.env.CTS_A_SHORT_CYCLE_MS ?? (IS_X01 ? 1000 : 40_000));
-const NETWORK_PREF = process.env.CTS_A_NETWORK === "mainnet" || IS_X01 ? "mainnet" : "testnet";
+const NETWORK_PREF = connectionNetwork(CONN, process.env.CTS_A_NETWORK);
 const LIVE_MAX_POS = Number(process.env.CTS_A_LIVE_MAX_POS ?? LIVE_MAX_POSITIONS);
 /** Own gross cap, × equity: positions plus resting entry limits. The position count alone let 12 legs of $18–36
  *  (exchange minimum sizes) reach 7× equity on x01 within five minutes (3 October). 0 = off (the demo default). */
@@ -440,54 +442,8 @@ function goodOtherCells() {
     (c) => tps.has(Number(c.tpAtr)) && sls.has(Number(c.slOfTp)) && allowedTrail.has(Number(c.trailPct)),
   );
 }
-/** Coordination mark from the block-off 12×12. Live rows replace a cell only when that cell is still positive. */
-const STABLE_PROGRESSION = {
-  preset: "stable-12h-0928",
-  pf: 1.194,
-  indications: {
-    trend: { n: 21391, pf: 1.257, ok: true },
-    macd: { n: 26277, pf: 1.252, ok: true },
-    break: { n: 17463, pf: 1.25, ok: true },
-    move: { n: 7366, pf: 1.193, ok: true },
-    direction: { n: 20863, pf: 1.187, ok: true },
-    ema: { n: 18438, pf: 1.175, ok: true },
-    rsi: { n: 14507, pf: 1.167, ok: true },
-    bollinger: { n: 19016, pf: 1.14, ok: true },
-    sar: { n: 8173, pf: 1.133, ok: true },
-    active: { n: 17412, pf: 1.131, ok: true },
-  },
-  ranges: { geometric: { n: 170906, pf: 1.194, ok: true } },
-  tactics: {
-    hybrid: { n: 163171, pf: 1.161, ok: true },
-    axis: { n: 7735, pf: 2.347, ok: true },
-  },
-  plays: {
-    short: { n: 163171, pf: 1.161, ok: true },
-    axis: { n: 7735, pf: 2.347, ok: true },
-  },
-};
-function liveProgression(e) {
-  const pe = e?.progressEval;
-  const merge = (base, live) => {
-    const out = { ...base };
-    for (const [k, row] of Object.entries(live || {})) {
-      const n = Number(row?.n) || 0;
-      const pf = Number(row?.pf) || 0;
-      if (n >= 4 && pf >= 1 && row?.ok !== false) out[k] = { n, pf, ok: true };
-    }
-    return out;
-  };
-  return {
-    preset: STABLE_PROGRESSION.preset,
-    pf: Number(e?.stats?.pf) >= 1 ? Number(e.stats.pf) : STABLE_PROGRESSION.pf,
-    indications: merge(STABLE_PROGRESSION.indications, pe?.indications),
-    ranges: merge(STABLE_PROGRESSION.ranges, pe?.ranges),
-    tactics: merge(STABLE_PROGRESSION.tactics, pe?.tactics),
-    plays: { ...STABLE_PROGRESSION.plays },
-    overall: pe?.lastNOverall?.pass ? pe.lastNOverall : { pass: true, positive: 3, pf: STABLE_PROGRESSION.pf, gatedPf: STABLE_PROGRESSION.pf },
-    complete: { pass: true },
-  };
-}
+/** Current evidence only: historical presets cannot stand in for this session's results. */
+function liveProgression(e) { return measuredDemoProgress(e); }
 function otherProtectRows() {
   if (protectCells.length) return protectCells;
   return goodOtherCells();
@@ -995,9 +951,8 @@ function snapshot(e, extra) {
 }
 
 function writeSettingsPick(pick, extra = {}) {
-  const cfg = !IS_X01 && cfgUsesShortRange(pick?.cfg)
-    ? { ...pick.cfg, ...LIVE_CFG, tpAtr: SHORT_WINNER.tpAtr, slOfTp: SHORT_WINNER.slOfTp, slAtr: SHORT_WINNER.tpAtr * SHORT_WINNER.slOfTp, tpRatio: 1 / SHORT_WINNER.slOfTp, trailingPct: 1.5, shortRange: true }
-    : pick.cfg;
+  const previous = !IS_X01 ? readSettingsPick() : null;
+  const cfg = pick.cfg;
   const body = {
     v: 1,
     at: Date.now(),
@@ -1045,6 +1000,11 @@ function writeSettingsPick(pick, extra = {}) {
       evalHours: SHORT_EVAL_HOURS,
       evalPositiveOnly: shortEvalPositive,
     }),
+    ...(!IS_X01 && previous ? {
+      thresholds: previous.thresholds ?? undefined,
+      lastNProgress: previous.lastNProgress ?? sanitizeLastNProgress(undefined),
+      minSizeRatio: previous.minSizeRatio ?? 1.5,
+    } : {}),
     ...extra,
   };
   try {
@@ -1344,9 +1304,6 @@ async function pingVst() {
   if (isRateLimited(err)) {
     apiQuietUntil = Math.max(apiQuietUntil || 0, Date.now() + quietMs(err));
   }
-  if (NETWORK_PREF === "mainnet") return { network: "mainnet", pingOk: false, equity: 0, error: err };
-  const live = await pingAccount({ ...keys, network: "mainnet", connId: CONN });
-  if (live.ok) return { network: "mainnet", pingOk: true, equity: live.equity ?? 0 };
   return { network: NETWORK_PREF, pingOk: false, equity: 0, error: err };
 }
 
@@ -1413,7 +1370,9 @@ function diversifyLiveIntents(list) {
   return out;
 }
 /** Live ticket cost in USDT. Exchange minimum wins when it is larger. Cap stays 2× equity. */
-const LIVE_COST = 18;
+const DEMO_NOTIONAL = Number(process.env.CTS_A_DEMO_NOTIONAL ?? 18);
+if (!IS_X01 && !(Number.isFinite(DEMO_NOTIONAL) && DEMO_NOTIONAL > 0)) throw new Error("demo notional must be positive");
+const LIVE_COST = IS_X01 ? 18 : DEMO_NOTIONAL;
 function sizeNotional() {
   return LIVE_COST;
 }
@@ -1640,7 +1599,7 @@ async function flattenBelowMinPf(network, book, e) {
       if (n >= 2 || apiQuiet()) break;
       const key = `${p.symbol}:${p.side}`;
       const r = await closeHit(network, p);
-      if (r?.ok) {
+      if (demoCloseConfirmed(r)) {
         n += 1;
         closedKeys.add(key);
         systemClosed.add(key);
@@ -1664,7 +1623,7 @@ async function flattenBelowMinPf(network, book, e) {
       const lock = hourNet > 0.004 && pnl < 0 && hourNet + pnl >= 0;
       if (adverse && age > Math.max(15_000, MIN_HOLD_MS) && keeps && (pathRed || lock)) {
         const r = await closeHit(network, worst);
-        if (r?.ok) {
+        if (demoCloseConfirmed(r)) {
           n += 1;
           closedKeys.add(key);
           systemClosed.add(key);
@@ -1697,7 +1656,7 @@ async function flattenBelowMinPf(network, book, e) {
     const lockHour = IS_X01 && hourNet > 0.002 && Number(p.pnl) < 0 && hourNet + Number(p.pnl) >= 0 && age > 20_000;
     if (!pastSl && !timed && !lockHour) continue;
     const r = await closeHit(network, p);
-    if (r?.ok) {
+    if (demoCloseConfirmed(r)) {
       n += 1;
       systemClosed.add(key);
       openedAt.delete(key);
@@ -1794,8 +1753,12 @@ async function withLiveBusy(fn) {
   }
 }
 
+const pendingCloses = new Set();
 async function closeHit(network, hit) {
   if (!isOwnedLeg(hit.symbol, hit.side)) return { ok: false, error: "foreign" };
+  const closeKey = `${hit.symbol}:${hit.side}`;
+  if (pendingCloses.has(closeKey)) return { ok: false, error: "previous close still needs reconciliation" };
+  pendingCloses.add(closeKey);
   const clientOrderId = makeClientOrderId(CONN, "C");
   const r = await withLiveBusy(() =>
     placeSwapOrder({
@@ -1816,7 +1779,11 @@ async function closeHit(network, hit) {
       clientOrderId,
     }),
   );
-  if (!r?.ok) return r;
+  // Even a timeout can be an accepted close; never resubmit an uncertain write.
+  if (!r?.ok) {
+    if (!r?.uncertain) pendingCloses.delete(closeKey);
+    return r;
+  }
   noteLiveOrder(r.orderId, {
     clientOrderId: r.clientOrderId || clientOrderId,
     symbol: hit.symbol,
@@ -1824,9 +1791,13 @@ async function closeHit(network, hit) {
     type: "MARKET",
     role: "close",
     qty: hit.qty,
-    status: "filled",
-    closedAt: Date.now(),
+    status: "pending",
   });
+  const confirmed = await fetchExchangeBook({ network, connId: CONN });
+  if (!confirmed.ok || confirmed.error || confirmed.positions.some((p) => p.symbol === hit.symbol && p.side === hit.side))
+    return { ...r, pending: true };
+  markLiveOrder(r.orderId, "closed", { flatConfirmedAt: Date.now() });
+  pendingCloses.delete(closeKey);
   for (const rec of controlsForLeg(hit.symbol, hit.side)) {
     const c = await withLiveBusy(() =>
       cancelSwapOrder({
@@ -3333,7 +3304,7 @@ function applyExecFromSettings(remote) {
     marginMode: remote.marginMode === "isolated" ? "isolated" : "cross",
     useMaxLeverage: true,
     leverage: 0,
-    minSizeRatio: Math.min(2, Math.max(1.5, Number(remote.minSizeRatio) || 1.5)),
+    minSizeRatio: Math.min(2, Math.max(IS_X01 ? 1.5 : 1, Number(remote.minSizeRatio) || 1.5)),
   });
 }
 
@@ -3353,20 +3324,11 @@ function x02VolFromRemote(bc) {
   const rel = Number(bc?.relVolumeRatio);
   const shr = Number(bc?.sharedVolumeRatio);
   const ov = Number(bc?.overallVolumeRatio);
-  const stale = !(add >= 0.15) || !(shr >= 1.2) || !(ov >= 1.2);
-  if (stale) {
-    return {
-      volumeRatio: BLOCK.volumeRatio,
-      relVolumeRatio: BLOCK.relVolumeRatio,
-      sharedVolumeRatio: BLOCK.sharedVolumeRatio,
-      overallVolumeRatio: BLOCK.overallVolumeRatio,
-    };
-  }
   return {
-    volumeRatio: clampBlockVol(add),
-    relVolumeRatio: clampBlockVol(Number.isFinite(rel) && rel > 0 ? rel : add),
-    sharedVolumeRatio: clampSharedVol(shr),
-    overallVolumeRatio: clampOverallVol(ov),
+    volumeRatio: clampBlockVol(add, BLOCK.volumeRatio),
+    relVolumeRatio: clampBlockVol(Number.isFinite(rel) && rel > 0 ? rel : add, BLOCK.relVolumeRatio),
+    sharedVolumeRatio: clampSharedVol(shr, BLOCK.sharedVolumeRatio),
+    overallVolumeRatio: clampOverallVol(ov, BLOCK.overallVolumeRatio),
   };
 }
 
@@ -3409,6 +3371,11 @@ function applyPfGates(engine, remote) {
   }
   const ln = sanitizeLastNProgress(remote?.lastNProgress ?? remote?.blockConfig?.lastNProgress ?? DEFAULT_LAST_N_PROGRESS);
   engine.lastNProgress = ln;
+  if (!IS_X01) {
+    engine.blockCfg = demoBlockSettings(BLOCK, { ...bc, minRelPf: blockPf,
+      liveDisableMinPf: blockPf, lastNProgress: ln }, STRAT);
+    return;
+  }
   const vol = IS_X01
     ? { volumeRatio: 0.4, relVolumeRatio: 0.4, sharedVolumeRatio: 1.5, overallVolumeRatio: 1.5 }
     : x02VolFromRemote(bc);
@@ -3437,7 +3404,8 @@ function applyPfGates(engine, remote) {
 async function main() {
   const started = Date.now();
   sessionStarted = started;
-  const ends = started + HOURS * 3600 * 1000;
+  let ends = started + HOURS * 3600 * 1000;
+  let activeStarted = started;
   let pick = pickFromSweep();
   currentPick = pick;
   const engine = initVstEngine(pick.cfg, { warmup: 0, symbolCount: IS_X01 ? LIVE_SYMBOLS : EVAL_SYMBOLS, liveSymbolCap: LIVE_SYMBOLS, orderType: "limit", arm: false, block: BLOCK, costStep: IS_X01 ? 18 : 3 });
@@ -3497,8 +3465,17 @@ async function main() {
   }
 
   let ping = await pingVst();
-  applyExecFromSettings(readSettingsPick());
-  applyPfGates(engine, readSettingsPick());
+  const initialSettings = readSettingsPick();
+  if (!IS_X01 && initialSettings) {
+    Object.assign(STRAT, demoStrategySettings(STRAT, initialSettings.strategyToggles));
+    Object.assign(BLOCK, demoBlockSettings(BLOCK, initialSettings.blockConfig, STRAT));
+    pick = { tactic: initialSettings.tactic ?? pick.tactic, range: initialSettings.rangeType ?? pick.range,
+      cfg: demoTacticSettings({ ...pick.cfg, ...initialSettings.tacticConfig }, STRAT) };
+    currentPick = pick;
+    engine.strategyToggles = { ...STRAT };
+  }
+  applyExecFromSettings(initialSettings);
+  applyPfGates(engine, initialSettings);
   if (IS_X01) {
     engine.shortRange = true;
     pick.cfg = { ...pick.cfg, ...X01_LIVE_CFG, shortRange: true, trailingPct: 1.5, dcaCount: STRAT.dca ? 3 : 1 };
@@ -3630,6 +3607,7 @@ async function main() {
     const elapsedMin = (Date.now() - started) / 60000;
     return {
       startedAt: new Date(started).toISOString(),
+      activeStartedAt: new Date(activeStarted).toISOString(),
       endsAt: new Date(ends).toISOString(),
       elapsedMin: Number(elapsedMin.toFixed(2)),
       network: ping.network,
@@ -3671,21 +3649,21 @@ async function main() {
     try {
       engine.liveOpenN = lastBook.pos || 0;
       engine.strategyToggles = { ...STRAT };
-      engine.blockCfg = {
+      engine.blockCfg = IS_X01 ? {
         ...BLOCK,
         ...(engine.blockCfg || {}),
         enabled: STRAT.block,
         overall: false,
         minRelPf: engine.blockPf || DEFAULT_BLOCK_PF,
         liveDisableMinPf: engine.blockPf || DEFAULT_BLOCK_PF,
-      };
-      pick.cfg = {
+      } : demoBlockSettings(BLOCK, engine.blockCfg, STRAT);
+      pick.cfg = IS_X01 ? {
         ...pick.cfg,
         shortRange: cfgUsesShortRange(pick.cfg),
         dcaCount: STRAT.dca ? 3 : 1,
         axisPartialRatio: AXIS_PARTIAL_RATIO,
         trailingPct: Math.max(1.5, Number(pick.cfg.trailingPct) || 1.5),
-      };
+      } : demoTacticSettings(pick.cfg, STRAT);
       engine.shortRange = cfgUsesShortRange(pick.cfg);
       mergeLivePositions(engine, lastBook);
       tickVst(engine, pick.cfg, pick.tactic, {
@@ -4029,6 +4007,10 @@ async function main() {
 
   let lastSettingsAt = Date.now();
 
+  // Warmup/network startup is reported separately from the requested active window.
+  activeStarted = Date.now();
+  if (!IS_X01) ends = activeStarted + HOURS * 3600 * 1000;
+
   let lastSettingsRead = 0;
   let cachedRemote = null;
   while (Date.now() < ends) {
@@ -4089,25 +4071,32 @@ async function main() {
               Number(nextCfg.axisSpacing) !== Number(pick.cfg.axisSpacing) ||
               Number(nextCfg.axisLevels) !== Number(pick.cfg.axisLevels) ||
               Number(nextCfg.dcaCount) !== Number(pick.cfg.dcaCount) ||
-              Number(nextCfg.dcaDrawdown) !== Number(pick.cfg.dcaDrawdown)),
+              Number(nextCfg.dcaDrawdown) !== Number(pick.cfg.dcaDrawdown) ||
+              Boolean(nextCfg.microRange) !== Boolean(pick.cfg.microRange) ||
+              Boolean(nextCfg.minimalRange) !== Boolean(pick.cfg.minimalRange) ||
+              Boolean(nextCfg.shortRange) !== Boolean(pick.cfg.shortRange) ||
+              Number(nextCfg.tpAtr) !== Number(pick.cfg.tpAtr) ||
+              Number(nextCfg.slOfTp) !== Number(pick.cfg.slOfTp)),
         );
         if (nextCfg && cfgChanged) {
           pick = {
             tactic: pick.tactic,
             range: pick.range,
-            cfg: { ...pick.cfg, ...nextCfg, dcaCount: 1 },
+            cfg: demoTacticSettings({ ...pick.cfg, ...nextCfg }, STRAT),
           };
           adjustments.push(`settings cfg sl ${pick.cfg.slAtr} tp ${pick.cfg.tpRatio} trail ${pick.cfg.trailingPct}`);
           healEngine(engine, pick.cfg, pick.tactic, pick.range);
         }
         if (remote.strategyToggles) {
           if (IS_X01) Object.assign(STRAT, remote.strategyToggles, { dca: false, block: false, trailing: false });
-          else Object.assign(STRAT, remote.strategyToggles, { dca: false, axis: false, trailing: true, normal: false });
+          else Object.assign(STRAT, demoStrategySettings(STRAT, remote.strategyToggles));
         }
         pinX01Strat();
         engine.strategyToggles = { ...STRAT };
         if (IS_X01) engine.skipIndications = [];
         if (remote.blockConfig) {
+          if (!IS_X01) Object.assign(BLOCK, demoBlockSettings(BLOCK, remote.blockConfig, STRAT));
+          else {
           const vol = IS_X01
             ? { volumeRatio: 0.4, relVolumeRatio: 0.4, sharedVolumeRatio: 1.5, overallVolumeRatio: 1.5 }
             : x02VolFromRemote(remote.blockConfig);
@@ -4127,6 +4116,7 @@ async function main() {
             overallIndicationType: true,
             minActiveLevel: Math.max(1, Math.round(remote.blockConfig.minActiveLevel || BLOCK.minActiveLevel || 1)),
           });
+          }
         }
         engine.blockCfg = { ...BLOCK };
         if (engine.lastMsg?.startsWith("Host reset") || (remote.sessionPhase === "running" && engine.positions.length === 0 && Date.now() - lastResetAt > 8000 && engine.phase === "idle")) {
@@ -4217,7 +4207,41 @@ async function main() {
 
   clearInterval(watchdog);
   clearInterval(ioTimer);
+  stopAsked = true;
+  hostPhase = "stopped";
+  engine.running = false;
+  let demoCleanup = null;
+  if (!IS_X01 && process.env.CTS_A_CLOSE_AT_END === "1") {
+    // Drain actual promises before cancelling entries and closing owned legs. A race timeout
+    // does not cancel a venue write and must never make room for a second close.
+    while (ioInFlight || mirrorJob || levBusy || liveBusy > 0) {
+      if (mirrorJob) await mirrorJob.catch(() => {});
+      else await sleep(100);
+    }
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const book = await fetchExchangeBook({ network: ping.network, connId: CONN });
+      if (!book.ok || book.error) throw new Error("demo cleanup cannot verify exchange book");
+      const own = (book.orders ?? []).filter((o) => isOwnedExchangeOrder(o, CONN));
+      const entries = own.filter((o) => !/STOP|TAKE_PROFIT|TRAILING/.test(String(o.type).toUpperCase()));
+      await cancelOwnOrders(ping.network, entries);
+      // Re-read after entry cancellation: a resting order may have filled in the meantime.
+      const confirmed = await fetchExchangeBook({ network: ping.network, connId: CONN });
+      if (!confirmed.ok || confirmed.error) throw new Error("demo cleanup positions unavailable");
+      const positions = (confirmed.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
+      for (const p of positions) await closeHit(ping.network, p);
+      const after = await fetchExchangeBook({ network: ping.network, connId: CONN });
+      if (!after.ok || after.error) throw new Error("demo cleanup confirmation unavailable");
+      const held = (after.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
+      const resting = (after.orders ?? []).filter((o) => isOwnedExchangeOrder(o, CONN));
+      if (!held.length) await cancelOwnOrders(ping.network, resting);
+      demoCleanup = { remainingOwnedPositions: held.length, remainingOwnedOrdersBeforeFinalCancel: resting.length,
+        activeSeconds: (Date.now() - activeStarted) / 1000, attempt: attempt + 1 };
+      lastBook = after;
+      if (!held.length) break;
+    }
+  }
   const final = snapshot(engine, statusBase());
+  final.demoCleanup = demoCleanup;
   final.stable = locked || (final.positive && final.mdd <= 0.22);
   writeStatus(final);
   console.log(
@@ -4269,6 +4293,7 @@ process.on("unhandledRejection", (err) => {
   noteFatal("unhandled", err);
 });
 process.on("SIGTERM", () => {
+  if (!IS_X01 && process.env.CTS_A_CLOSE_AT_END === "1") return;
   try {
     let prev = {};
     try {

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { LAST_N_RESEARCH_NS, NEGATIVE_LAST_N_RESEARCH_NS } from "../../../lib/desk/last-n-progress";
 import { Link } from "@tanstack/react-router";
 import {
   BASE_EQUITY,
@@ -716,7 +717,7 @@ export function SettingsView() {
           <div className="mt-4">
             <p className="text-xs font-medium uppercase tracking-wide text-subtle">Progress last-N</p>
             <p className="mt-1 text-xs text-muted">
-              Base eval 15–80 step 5 · Valid 8–24 step 4 · Disable 6–20 step 2. Independent (any valid window PF≥1) · Combined (eval then valid, majority) · Parallel (either, extra stack when they agree) · Majority 2+ (two or more valid windows PF≥1 — confirms Independent, rejects a single lucky N). Overall passes only when 2 or more of Independent / Combined / Majority are gated-positive. Complete keeps the full grid intern-scored for future configs.
+              Choose independent evaluation windows from 1 to 200 closes. Existing selections stay unchanged. Independent uses any passing window; Combined requires a majority; Parallel allows either. Overall requires two passing processing modes. The optional recent-loss filter uses the same exact configuration's net returns and pauses new entries only.
               Primaries Eval {LAST_N_PROGRESS_META[0]!.n} · Valid {LAST_N_PROGRESS_META[1]!.n} · Disable {LAST_N_PROGRESS_META[2]!.n}.
               Settings grid stays full. Live uses coordinated windows, types and combinations that actually pass — not a complete parallel sweep.
             </p>
@@ -752,7 +753,7 @@ export function SettingsView() {
             <div className="mt-3">
               <p className="mb-1 text-[11px] uppercase tracking-widest text-subtle">Base eval</p>
               <div className="flex flex-wrap gap-1">
-                {EVAL_POS_NS.map((n) => {
+                {[...new Set([...EVAL_POS_NS,...LAST_N_RESEARCH_NS,...lastNProgress.evalNs])].sort((a,b)=>a-b).map((n) => {
                   const on = lastNProgress.evalNs.includes(n);
                   return (
                     <button
@@ -775,7 +776,7 @@ export function SettingsView() {
             <div className="mt-3">
               <p className="mb-1 text-[11px] uppercase tracking-widest text-subtle">Valid execute</p>
               <div className="flex flex-wrap gap-1">
-                {VALID_EXEC_NS.map((n) => {
+                {[...new Set([...VALID_EXEC_NS,...LAST_N_RESEARCH_NS,...lastNProgress.validNs])].sort((a,b)=>a-b).map((n) => {
                   const on = lastNProgress.validNs.includes(n);
                   return (
                     <button
@@ -798,7 +799,7 @@ export function SettingsView() {
             <div className="mt-3">
               <p className="mb-1 text-[11px] uppercase tracking-widest text-subtle">Disable</p>
               <div className="flex flex-wrap gap-1">
-                {LIVE_DISABLE_NS.map((n) => {
+                {[...new Set([...LIVE_DISABLE_NS,...NEGATIVE_LAST_N_RESEARCH_NS,...lastNProgress.disableNs])].sort((a,b)=>a-b).map((n) => {
                   const on = lastNProgress.disableNs.includes(n);
                   return (
                     <button
@@ -817,6 +818,24 @@ export function SettingsView() {
                   );
                 })}
               </div>
+            </div>
+            <div className="mt-3 space-y-2">
+              <button type="button" aria-pressed={!!lastNProgress.negativeFilter} className={`${chip} ${lastNProgress.negativeFilter?chipOn:chipOff}`}
+                onClick={()=>setLastNProgress({negativeFilter:lastNProgress.negativeFilter?undefined:{windows:[3,5],mode:"all",maxPf:1}})}>
+                Recent-loss filter {lastNProgress.negativeFilter?"on":"off"}
+              </button>
+              {lastNProgress.negativeFilter && <>
+                <div className="flex flex-wrap gap-1">{NEGATIVE_LAST_N_RESEARCH_NS.map(n=>{
+                  const f=lastNProgress.negativeFilter!,on=f.windows.includes(n);
+                  return <button key={n} type="button" aria-pressed={on} disabled={on&&f.windows.length===1}
+                    className={`${chip} ${on?chipOn:chipOff}`} onClick={()=>setLastNProgress({negativeFilter:{...f,windows:on?f.windows.filter(x=>x!==n):[...f.windows,n]}})}>{n}</button>;
+                })}</div>
+                <label className="block text-xs">Pause when <select value={lastNProgress.negativeFilter.mode} className="rounded border border-line bg-panel p-1"
+                  onChange={e=>setLastNProgress({negativeFilter:{...lastNProgress.negativeFilter!,mode:e.target.value as "any"|"all"}})}>
+                  <option value="any">any selected window is negative</option><option value="all">all selected windows are negative</option>
+                </select></label>
+                <p className="text-xs text-muted">Each selected loss window needs its full N closes. Missing returns remain unknown.</p>
+              </>}
             </div>
             <div className="mt-3 max-w-sm">
               <RangeKnob

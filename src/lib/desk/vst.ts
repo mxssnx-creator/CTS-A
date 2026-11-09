@@ -625,7 +625,7 @@ function rangeComboKey(rel: { rangeType?: string; tpAtr?: number; slOfTp?: numbe
 function pushTapeRing(map: Map<string, ConfigTapeRow[]>, key: string, row: ConfigTapeRow) {
   const ring = map.get(key) ?? [];
   ring.unshift(row);
-  if (ring.length > 80) ring.length = 80;
+  if (ring.length > 200) ring.length = 200;
   map.set(key, ring);
 }
 function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id?: string }) {
@@ -6462,7 +6462,7 @@ export function selectMinPfCells(
   };
 }
 
-export type StepPfContext = { tpPct?: number; tpAtr?: number; rangeType?: string; symbol?: string;
+export type StepPfContext = { slOfTp?: number; tpPct?: number; tpAtr?: number; rangeType?: string; symbol?: string;
   microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; modelRtCost?: number;
   tpDist?: number; price?: number; avgEntry?: number };
 export function configStepFloor(e: VstEngine, legacy: number, rel?: StepPfContext | null): number {
@@ -6473,7 +6473,7 @@ export function configStepFloor(e: VstEngine, legacy: number, rel?: StepPfContex
   const minimal = hasOwnRange ? rel?.minimalRange : e.minimalRange;
   const pct = rel?.tpPct ?? ownGeometry ?? (micro && rel?.tpAtr != null ? rel.tpAtr : undefined) ?? (minimal && rel?.tpAtr != null
     ? rel.tpAtr * (rel.modelRtCost ?? modeledPositionCost(e, rel.symbol ?? "")) * 100 : undefined);
-  return stepPfFloor(legacy, pct, e.stepPf);
+  return stepPfFloor(legacy, pct, e.stepPf, rel?.slOfTp);
 }
 export function entryMinPfFor(e: VstEngine, rel?: Parameters<typeof pfLaneOf>[0] & StepPfContext): number {
   return configStepFloor(e, minPfFor(e, pfLaneOf(rel)), rel);
@@ -7386,7 +7386,7 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
       rangeKeys: RANGE_TYPES,
       tacticKeys: ["trailing", "axis", "hybrid", "dca"],
       playbookKeys: ["short", "block", "axis", "normal", "dca"],
-    }),
+    }, ln),
     evalNs,
     validNs,
     disableNs,
