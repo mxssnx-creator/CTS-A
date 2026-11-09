@@ -1333,6 +1333,7 @@ export interface ProgressEvalRow {
 /** Engine-progress PF validation of last-N types, Block types, indications, tactics, ranges. */
 export interface ProgressEval {
   at: number;
+  sampleCoverage?: import("./last-n-samples.ts").SampleCoverage;
   lastNMode: LastNPassMode;
   lastNModes: Record<LastNPassMode, LastNModeScore>;
   lastNOverall?: LastNOverallScore;
