@@ -1529,8 +1529,12 @@ export interface BlockLaneState {
   baseEntry: number;
   confirmedAdd: number;
   satisfied: Record<number, boolean>;
-  pfRing: Record<number, number[]>;
-  parentPf: number[];
+  pfRing: Record<number, (number | null)[]>;
+  parentPf: (number | null)[];
+  /** Own closed slices, accumulated until the complete parent settles; survives JSON restart. */
+  settledPnl?: number;
+  settledNotional?: number;
+  settledUnknown?: boolean;
   pending?: number;
   active: boolean;
   pauseRemaining: Record<number, number>;

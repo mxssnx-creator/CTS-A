@@ -278,7 +278,7 @@ function recentLanePays(recent: number[] | undefined): boolean | null {
     if (x > 0) gp += x;
     else gl -= x;
   }
-  const pf = gl > 1e-12 ? gp / gl : gp > 0 ? PF_NO_LOSS : 0;
+  const pf = profitFactor(gp, gl);
   if (pf < 0.9 && gp - gl <= 0) return false;
   return true;
 }
@@ -357,7 +357,7 @@ function applyStickyIndicationEval(e: VstEngine, indications: Record<string, { n
       if (!row.fail) anyPay = true;
     }
     if (!seen) continue;
-    const pf = gl > 1e-12 ? gp / gl : gp > 0 ? PF_NO_LOSS : 0;
+    const pf = profitFactor(gp, gl);
     indications[id] = { n, pf, net: gp - gl, ok: anyPay };
   }
 }
@@ -487,7 +487,7 @@ function validatedOrderDepth(
   if (tpAtr != null && slOfTp != null) {
     const key = shortComboKey(tpAtr, slOfTp);
     const full = comboPreRun.get(e)?.[key];
-    const fullPf = full && full.gl > 1e-12 ? full.gp / full.gl : full && full.gp > 0 ? PF_NO_LOSS : 0;
+    const fullPf = full ? profitFactor(full.gp, full.gl) : 0;
     const fullNet = full ? full.gp - full.gl : 0;
     if (full && full.n >= 12) {
       if (fullPf + 1e-9 < 1 || fullNet <= 0) return kept;
@@ -921,7 +921,7 @@ function noteLaneLive(e: VstEngine, lane: string, pnl: number) {
   const need = lane === "axis" || openShort ? 24 : 8;
   const cut = openShort ? 0.85 : lane === "axis" ? 0.75 : 1;
   if (bag.n >= need) {
-    const pf = bag.gl > 1e-12 ? bag.gp / bag.gl : bag.gp > 0 ? PF_NO_LOSS : 0;
+    const pf = profitFactor(bag.gp, bag.gl);
     bag.cold = pf + 1e-9 < cut && bag.gp - bag.gl <= 0;
   } else bag.cold = false;
   all[lane] = bag;
@@ -955,7 +955,7 @@ function shortRestCap(e: VstEngine, shareCap: number): number {
   const tog = e.strategyToggles;
   const room = tog?.dca === false && tog?.block === false;
   if (!bag) return room ? 24 : 8;
-  const pf = bag.gl > 1e-12 ? bag.gp / bag.gl : bag.gp > 0 ? PF_NO_LOSS : 0;
+  const pf = profitFactor(bag.gp, bag.gl);
   const net = bag.gp - bag.gl;
   if (room && bag.n >= 8 && pf >= 1.8 && net > 0) return Math.min(shareCap, 64);
   if (room && bag.n >= 8 && pf >= 1.25 && net > 0) return Math.min(shareCap, 32);
@@ -1143,7 +1143,7 @@ export function refreshValidRelKeys(e: VstEngine) {
   const full = relPreRun.get(e);
   const execStats = full && Object.keys(full).length
     ? Object.entries(full).map(([k, r]) => {
-        const pf = r.gl > 1e-12 ? r.gp / r.gl : r.gp > 0 ? PF_NO_LOSS : 0;
+        const pf = profitFactor(r.gp, r.gl);
         return { k, n: r.n, pf, net: r.gp - r.gl };
       })
     : stats;
@@ -1330,7 +1330,7 @@ export function shortComboProven(e: VstEngine, tpAtr: number, slOfTp: number): b
   if (e.preEvalDone && !e.liveTape) {
     const pre = e.shortComboPreTape?.[key];
     const full = comboPreRun.get(e)?.[key];
-    const fullPf = full && full.gl > 1e-12 ? full.gp / full.gl : full && full.gp > 0 ? PF_NO_LOSS : 0;
+    const fullPf = full ? profitFactor(full.gp, full.gl) : 0;
     const fullNet = full ? full.gp - full.gl : 0;
     // The whole exam decides. A cold last-80 tail must not erase a winning combo or keep a losing one.
     if (full && full.n >= 12) return fullPf + 1e-9 >= 1 && fullNet > 0;
@@ -4989,7 +4989,7 @@ export function bookPfStats(e: VstEngine) {
   const bag = bookPfRun.get(e) ?? {};
   const view = (key: string) => {
     const r = bag[key] ?? { n: 0, gp: 0, gl: 0 };
-    const pf = r.gl > 1e-12 ? r.gp / r.gl : r.gp > 0 ? 9 : 0;
+    const pf = profitFactor(r.gp, r.gl);
     return { n: r.n, pf, net: r.gp - r.gl };
   };
   return { normal: view("normal"), axis: view("axis"), block: view("block"), adds: bag.adds?.n ?? 0, fills: bag.fills?.n ?? 0 };
@@ -5070,7 +5070,7 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   };
   e.closed.unshift(row);
   noteTickClose(e, row);
-  if (countsOnBlockTape(e, p.validExec === true)) recordBlockClose(e, p, ratio);
+  if (countsOnBlockTape(e, p.validExec === true)) recordBlockClose(e, p, ratio, false, bq * bpx);
   if (bank && ratio > 0) queueWinAgain(e, p);
 }
 
@@ -5242,26 +5242,30 @@ function dcaOverlayShare(qty: number, dcaQty: number | undefined, playbook?: str
   return 0;
 }
 
-function dcaOverlayStats(e: VstEngine): { n: number; pf: number } {
-  const stamp = `${e.closed.length}:${e.closed[0]?.id || ""}`;
+export function dcaOverlayStats(e: VstEngine): { n: number; pf: number } {
+  const stamp = `${e.activeConnId}:${e.preEvalDone}:${e.liveTape}:${e.closed.length}:${e.closed[0]?.id || ""}`;
   const hit = dcaOvCache.get(e);
   if (hit && hit.tick === e.tick && hit.stamp === stamp) return hit;
   let gp = 0;
   let gl = 0;
   let n = 0;
+  let unknown = false;
   for (const c of e.closed) {
     if (n >= 60) break;
-    if (c.protect) continue;
-    if ((e.preEvalDone || e.liveTape) && c.validExec === false) continue;
+    if (c.protect || c.connId !== e.activeConnId) continue;
+    if ((e.preEvalDone || e.liveTape) && c.validExec !== true) continue;
     const sh = dcaOverlayShare(c.qty ?? 0, c.dcaQty, c.playbook, c.tactic);
     if (!(sh > 0)) continue;
-    const edge = edgePnl(c) * sh;
-    if (Math.abs(edge) < 1e-15) continue;
     n += 1;
+    // Every measured close, including flat/tiny losses, occupies its own window slot.
+    // A legacy cash PnL cannot stand in for missing unit-return evidence.
+    if (typeof c.ratio !== "number" || !Number.isFinite(c.ratio)) { unknown = true; continue; }
+    const edge = c.ratio * sh;
+    if (!Number.isFinite(edge)) { unknown = true; continue; }
     if (edge > 0) gp += edge;
     else gl -= edge;
   }
-  const row = { tick: e.tick, stamp, n, pf: profitFactor(gp, gl) };
+  const row = { tick: e.tick, stamp, n, pf: unknown ? 0 : profitFactor(gp, gl) };
   dcaOvCache.set(e, row);
   return row;
 }
@@ -5473,13 +5477,32 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       p.slDist = stop.slDist;
       p.tpDist = stop.tpDist;
     }
-    if (!botBook && (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca === true && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
-    if (!shortPos && !minimalPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
-    if (!botBook) peelBlockOverlay(e, p, q);
     if (e.tick === p.openedTick || e.tick - p.openedTick < Math.max(1, opts?.minHold ?? 1)) {
       keep.push(p);
       continue;
     }
+    // Resolve the bracket carried into this observation before any peak-based update or new addition.
+    // OHLC does not establish that this bar's favorable extreme preceded its adverse extreme.
+    // A tightened stop can act on the next observation, never reprice a stop already touched on this one.
+    let carriedSlHit = p.side === "long" ? q.lo <= p.sl : q.hi >= p.sl;
+    let carriedTpHit = p.side === "long" ? q.hi >= p.tp : q.lo <= p.tp;
+    if (minimalPos) {
+      const openPx = q.open && q.open > 0 ? q.open : q.px;
+      const touch = resolveRangeTouch(p.side, openPx, q.hi, q.lo, q.px, p.sl, p.tp);
+      carriedSlHit = touch === "sl";
+      carriedTpHit = touch === "tp";
+    }
+    if (carriedSlHit || (carriedTpHit && !partial)) {
+      const observedOpen = typeof q.open === "number" && q.open > 0 && Number.isFinite(q.open) ? q.open : q.px;
+      const stopFill = observedOpen > 0 && Number.isFinite(observedOpen)
+        ? p.side === "long" ? Math.min(p.sl, observedOpen) : Math.max(p.sl, observedOpen)
+        : p.sl;
+      closePosition(e, p, carriedSlHit ? stopFill : p.tp, carriedSlHit ? "sl" : "tp");
+      continue;
+    }
+    if (!botBook && (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca === true && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
+    if (!shortPos && !minimalPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
+    if (!botBook) peelBlockOverlay(e, p, q);
     if (!botBook && pfCoordOn(e, "bankWin") && p.avgEntry > 0 && p.validExec === true) {
       const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo > 0 ? q.lo : q.px, q.px);
       p.peakPx = p.peakPx && p.peakPx > 0
@@ -5512,14 +5535,6 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       p.slDist = Math.abs(p.sl - p.avgEntry);
     }
     const miniTrail = minimalPos ? minimalTrailPct(p.tpAtr || cfg.tpAtr || 0, p.slOfTp || cfg.slOfTp || 0) : null;
-    let hitSl = p.side === "long" ? q.lo <= p.sl : q.hi >= p.sl;
-    let hitTp = p.side === "long" ? q.hi >= p.tp : q.lo <= p.tp;
-    if (minimalPos) {
-      const openPx = q.open && q.open > 0 ? q.open : q.px;
-      const touch = resolveRangeTouch(p.side, openPx, q.hi, q.lo, q.px, p.sl, p.tp);
-      hitSl = touch === "sl";
-      hitTp = touch === "tp";
-    }
     if (opts?.liveTape || e.liveTape) {
       if (trailingOverlayOn(e) && !botBook && (!minimalPos || miniTrail != null)) {
         const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
@@ -5540,10 +5555,6 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
           p.sl = next;
           p.slDist = Math.abs(p.sl - p.avgEntry);
         }
-      }
-      if (hitSl || (hitTp && !partial)) {
-        closePosition(e, p, hitSl ? p.sl : p.tp, hitSl ? "sl" : "tp");
-        continue;
       }
       keep.push(p);
       continue;
@@ -5567,7 +5578,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
             : 1;
     const maxHold = botBook ? 180 : Math.max(4, Math.round((cfg.maxHoldTicks ?? DEFAULT_MAX_HOLD_TICKS) * holdMul * slow));
     const timed = holdTicks >= maxHold && (!partial || openTape);
-    if (timed && !hitSl && !hitTp) {
+    if (timed) {
       if (openTape || p.unrealized <= 0) {
         closePosition(e, p, q.px, "time");
         continue;
@@ -5575,11 +5586,6 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       if (p.side === "long") p.sl = Math.max(p.sl, p.avgEntry);
       else p.sl = Math.min(p.sl, p.avgEntry);
       p.slDist = Math.abs(p.sl - p.avgEntry);
-    }
-    if (hitSl || (hitTp && !partial)) {
-      const reason: "sl" | "tp" = hitSl ? "sl" : "tp";
-      closePosition(e, p, reason === "sl" ? p.sl : p.tp, reason);
-      continue;
     }
     if (!botBook && trailingOverlayOn(e) && (!minimalPos || miniTrail != null)) {
       const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
@@ -7055,6 +7061,7 @@ function refreshIndicationSets(e: VstEngine, block: BlockConfig) {
 }
 
 function groupPf(rows: { pnl: number }[], minPf: number, minN = 3): ProgressEvalRow {
+  if (rows.some((r) => !Number.isFinite(r.pnl))) return { n: rows.length, pf: 0, net: 0, ok: false };
   const sc = pfRows(rows);
   return { n: sc.n, pf: sc.pf, net: sc.net, ok: sc.n >= minN && sc.pf + 1e-9 >= minPf && sc.net >= 0 };
 }
@@ -7269,8 +7276,8 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
   const sharedRows: { pnl: number }[] = [];
   const addRows: { pnl: number }[] = [];
   for (const [k, lane] of Object.entries(e.blockLanes ?? {})) {
-    if (k.endsWith(":shared")) for (const x of lane.parentPf ?? []) sharedRows.push({ pnl: x });
-    if (k.endsWith(":additive")) for (const x of lane.parentPf ?? []) addRows.push({ pnl: x });
+    if (k.endsWith(":shared")) for (const x of lane.parentPf ?? []) sharedRows.push({ pnl: x ?? NaN });
+    if (k.endsWith(":additive")) for (const x of lane.parentPf ?? []) addRows.push({ pnl: x ?? NaN });
   }
   volumeModes.shared = groupPf(sharedRows, minPf, 4);
   volumeModes.additive = groupPf(addRows, minPf, 4);
@@ -7875,6 +7882,9 @@ function syncBlockParents(e: VstEngine, conn: string, block?: BlockConfig) {
         lane.confirmedAdd = 0;
         lane.satisfied = {};
         lane.pending = undefined;
+        lane.settledPnl = 0;
+        lane.settledNotional = 0;
+        lane.settledUnknown = false;
         // Keep pauseRemaining + pfRing — they are the live Block gate across parents.
         continue;
       }
@@ -7913,14 +7923,32 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number, p: LivePositi
   }
 }
 
-function recordBlockClose(e: VstEngine, p: LivePosition, ratio: number) {
+function recordBlockClose(e: VstEngine, p: LivePosition, ratio: number, final = true, notional = p.qty * p.avgEntry) {
   const modes = liveVolumeModes(e.blockCfg);
-  const frac = Number.isFinite(ratio) ? ratio : 0;
   const keep = (e.blockCfg ?? DEFAULT_BLOCK_CONFIG).keepAdjusted === true;
   for (const mode of modes) {
   const k = blockLaneKey(p, mode);
   const lane = e.blockLanes?.[k];
-  if (!lane || lane.parentPositionId !== p.id) continue;
+  if (!lane || !lane.active || lane.parentPositionId !== p.id) continue;
+  const slicePnl = ratio * notional;
+  if (!Number.isFinite(ratio) || !Number.isFinite(notional) || !(notional > 0) || !Number.isFinite(slicePnl)) {
+    lane.settledUnknown = true;
+  } else {
+    lane.settledPnl = (lane.settledPnl ?? 0) + slicePnl;
+    lane.settledNotional = (lane.settledNotional ?? 0) + notional;
+    if (!Number.isFinite(lane.settledPnl) || !Number.isFinite(lane.settledNotional)) {
+      lane.settledUnknown = true;
+      lane.settledPnl = 0; lane.settledNotional = 0;
+    }
+  }
+  // Peeling only the overlay does not end the parent, advance Last-N or consume a pause.
+  if (!final) continue;
+  const frac = lane.settledUnknown || !(lane.settledNotional! > 0)
+    ? null : lane.settledPnl! / lane.settledNotional!;
+  for (const count of Object.keys(lane.pauseRemaining)) {
+    const n = Number(count);
+    lane.pauseRemaining[n] = Math.max(0, (lane.pauseRemaining[n] || 0) - 1);
+  }
   const hitNs = new Set<number>();
   for (const [key, ok] of Object.entries(lane.satisfied ?? {})) {
     if (ok) {
@@ -7939,9 +7967,7 @@ function recordBlockClose(e: VstEngine, p: LivePosition, ratio: number) {
     if (lane.pfRing[n]!.length > 75) lane.pfRing[n] = lane.pfRing[n]!.slice(-75);
     const ring = (lane.pfRing[n] ?? []).slice(-need);
     if (ring.length >= need) {
-      const gp = ring.filter((x) => x > 0).reduce((s, x) => s + x, 0);
-      const gl = Math.abs(ring.filter((x) => x < 0).reduce((s, x) => s + x, 0));
-      const pf = profitFactor(gp, gl);
+      const pf = blockRingPf(ring);
       if (pf < 1.05 && !keep) lane.pauseRemaining[n] = Math.max(lane.pauseRemaining[n] || 0, n);
     }
   }
@@ -7952,31 +7978,47 @@ function recordBlockClose(e: VstEngine, p: LivePosition, ratio: number) {
   lane.confirmedAdd = 0;
   lane.pending = undefined;
   lane.satisfied = {};
+  lane.settledPnl = 0;
+  lane.settledNotional = 0;
+  lane.settledUnknown = false;
   }
+}
+
+function blockRingPf(ring: readonly (number | null)[]): number {
+  let gp = 0, gl = 0;
+  for (const x of ring) {
+    if (typeof x !== "number" || !Number.isFinite(x)) return 0;
+    if (x > 0) gp += x; else gl -= x;
+  }
+  return profitFactor(gp, gl);
 }
 
 const blockOvCache = new WeakMap<VstEngine, { tick: number; stamp: string; n: number; pf: number }>();
 
-function blockOverlayStats(e: VstEngine): { n: number; pf: number } {
-  const stamp = `${e.closed.length}:${e.closed[0]?.id || ""}`;
+export function blockOverlayStats(e: VstEngine): { n: number; pf: number } {
+  const stamp = `${e.activeConnId}:${e.preEvalDone}:${e.liveTape}:${e.closed.length}:${e.closed[0]?.id || ""}`;
   const hit = blockOvCache.get(e);
   if (hit && hit.tick === e.tick && hit.stamp === stamp) return hit;
   let gp = 0;
   let gl = 0;
   let n = 0;
+  let unknown = false;
   for (const c of e.closed) {
     if (n >= 60) break;
-    if (c.protect) continue;
-    if ((e.preEvalDone || e.liveTape) && c.validExec === false) continue;
+    if (c.protect || c.connId !== e.activeConnId) continue;
+    if ((e.preEvalDone || e.liveTape) && c.validExec !== true) continue;
     const sh = blockOverlayShare(c.qty ?? 0, c.blockQty, c.playbook);
     if (!(sh > 0)) continue;
-    const edge = edgePnl(c) * sh;
-    if (Math.abs(edge) < 1e-15) continue;
     n += 1;
+    // Every measured close, including flat/tiny losses, occupies its own window slot.
+    // A legacy cash PnL cannot stand in for missing unit-return evidence.
+    if (typeof c.ratio !== "number" || !Number.isFinite(c.ratio)) { unknown = true; continue; }
+    const edge = c.ratio * sh;
+    if (!Number.isFinite(edge)) { unknown = true; continue; }
     if (edge > 0) gp += edge;
     else gl -= edge;
   }
-  const row = { tick: e.tick, stamp, n, pf: profitFactor(gp, gl) };
+  const row = { tick: e.tick, stamp, n, pf: unknown ? 0 : profitFactor(gp, gl) };
   blockOvCache.set(e, row);
   return row;
 }
@@ -8007,16 +8049,14 @@ function blockCountPositive(e: VstEngine, n: number, minPf: number) {
 
 function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minPf: number) {
   if ((lane.pauseRemaining[count] || 0) > 0) {
-    lane.pauseRemaining[count] -= 1;
     return false;
   }
   if (minPf <= 0) return true;
   const need = Math.max(5, Math.min(24, 8));
   const ring = (lane.pfRing[count] ?? []).slice(-need);
+  if (ring.some((x) => typeof x !== "number" || !Number.isFinite(x))) return false;
   if (ring.length < need) return true;
-  const gp = ring.filter((x) => x > 0).reduce((s, x) => s + x, 0);
-  const gl = Math.abs(ring.filter((x) => x < 0).reduce((s, x) => s + x, 0));
-  const pf = profitFactor(gp, gl);
+  const pf = blockRingPf(ring);
   const vr = clampBlockVol(block.volumeRatio);
   const inc = vr * Math.max(1, count);
   const floor = Math.max(minPf, blockMinimumProfitFactor(minPf, block.pfRatio || 1.25, inc) || minPf);
@@ -8070,7 +8110,7 @@ function blockCoordsAllow(e: VstEngine, p: LivePosition, move: number): boolean 
   if (pfCoordOn(e, "hourKeep")) {
     const bag = hourLaneOf(e, "play:block");
     if (bag.p + bag.l > 1e-6) {
-      const pf = bag.l > 1e-12 ? bag.p / bag.l : 9;
+      const pf = profitFactor(bag.p, bag.l);
       if (pf + 1e-9 < STABLE_HOUR_PF) return false;
     }
   }
@@ -9188,7 +9228,6 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     const origin = String(t.playbook || "normal");
     const dcaShare = origin === "dca" ? 0 : dcaOverlayShare(qty, t.dcaQty, origin, t.tactic);
     const split = (play: string, share: number) => {
-      if (Math.abs(share) < 1e-15) return;
       bump(playAcc, play, share);
       bump(playIndAcc, `${play}:${ind}`, share);
       bump(hourPlayAcc, play, share);

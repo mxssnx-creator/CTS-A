@@ -1,10 +1,54 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { adjustActiveBlocks, initVstEngine, tickVst } from "./vst.ts";
+import { adjustActiveBlocks, blockPfOk, initVstEngine, tickVst } from "./vst.ts";
 import type { LivePosition, LiveOrder } from "./types.ts";
 
 const cfg = { ...DEFAULT_TACTIC_CONFIG, maxHoldTicks: 1000 };
+
+test("Block qualification reads do not consume a pause without a settled parent", () => {
+  const lane = { symbol: "BTCUSDT", side: "long" as const, baseQty: 1, baseEntry: 100,
+    confirmedAdd: 0, satisfied: {}, pfRing: { 1: Array(8).fill(.01) }, parentPf: [],
+    active: true, pauseRemaining: { 1: 2 }, heldFactor: {} };
+  for (let i = 0; i < 50; i++) assert.equal(blockPfOk(lane, 1, DEFAULT_BLOCK_CONFIG, 1.01), false);
+  assert.equal(lane.pauseRemaining[1], 2);
+});
+
+test("Block partials preserve the parent lane and count one notional-weighted result after restart", () => {
+  let { e, parent, block } = fixture();
+  const p = parent("split-parent", 3);
+  Object.assign(p, { blockQty: 1, blockAvg: 100, blockTick: 1, blockLevel: 1,
+    sl: 98, slDist: 2, tp: 104, tpDist: 4 });
+  p.legs = [{ orderId: "base:split-parent", qty: 2, px: 100 }, { orderId: "add", qty: 1, px: 100 }];
+  e.tick = 100; e.positions = [p];
+  block = { ...block, stack: false, keepAdjusted: true }; e.blockCfg = block;
+  adjustActiveBlocks(e, cfg, "trailing", block, "atr");
+  for (const lane of Object.values(e.blockLanes)) { lane.satisfied[1] = true; lane.pauseRemaining[1] = 2; }
+  Object.assign(e.quotes.BTCUSDT, { px: 99.5, lo: 99.5, hi: 99.5, open: 99.5 });
+  tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+  assert.equal(e.positions.length, 1);
+  assert.equal(e.positions[0].qty, 2);
+  const partial = e.closed.find((c) => c.playbook === "block")!;
+  assert.ok(partial && partial.pnl < 0);
+  for (const lane of Object.values(e.blockLanes)) {
+    assert.equal(lane.active, true, "a partial cannot retire a still-open parent");
+    assert.equal(lane.parentPf.length, 0, "one partial is not a complete parent sample");
+    assert.equal(lane.pauseRemaining[1], 2);
+  }
+  e = JSON.parse(JSON.stringify(e));
+  Object.assign(e.quotes.BTCUSDT, { px: 97, lo: 97, hi: 97, open: 97 });
+  tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+  const final = e.closed.find((c) => c.id === "split-parent")!;
+  assert.ok(final);
+  const expected = (partial.pnl + final.pnl) / (partial.qty * partial.entry + final.qty * final.entry);
+  for (const lane of Object.values(e.blockLanes)) {
+    assert.equal(lane.active, false);
+    assert.equal(lane.parentPf.length, 1);
+    assert.ok(Math.abs(lane.parentPf[0]! - expected) < 1e-12);
+    assert.equal(lane.pfRing[1].length, 1);
+    assert.equal(lane.pauseRemaining[1], 1, "one complete parent consumes one pause step");
+  }
+});
 function fixture() {
   const e = initVstEngine(cfg, { warmup: 0, symbolCount: 3, arm: false, equity: 10000 });
   e.queue = []; e.orders = []; e.positions = []; e.fills = [];
