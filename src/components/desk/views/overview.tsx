@@ -22,6 +22,7 @@ import { fmtNum, fmtPct, fmtSigned, fmtUsd, fmtEquity } from "@/lib/utils";
 import { EquityChart, MultiCurveChart } from "../charts";
 import { CostHeatmap } from "../heatmap";
 import { SessionProgress } from "../session-progress";
+import { LastNSampleCoverageTable } from "../last-n-samples";
 import { LiveExchangeStats, type LiveOverview } from "../live-exchange-stats";
 import { Field, fmtMdd, fmtPf, fmtWr, Kpi, Panel, pfTone, Pill, Segmented, StatLine } from "../widgets";
 
@@ -55,7 +56,9 @@ export function OverviewView() {
   const exchange = liveSnap.exchange;
   const session = liveSnap.session;
   const overallFile = liveSnap.overall;
-  const sessionProg = (liveSnap.hasLive ? (session as { progression?: { indications?: Record<string, { n?: number; pf?: number; ok?: boolean }>; ranges?: Record<string, { n?: number; pf?: number; ok?: boolean }>; tactics?: Record<string, { n?: number; pf?: number; ok?: boolean }>; overall?: { pass?: boolean; positive?: number; pf?: number; gatedPf?: number }; complete?: { pass?: boolean; typesOk?: boolean } } } | null)?.progression : null) ?? null;
+  const sessionProg = (liveSnap.hasLive ? (session as { progression?: { sampleCoverage?: import("@/lib/desk/last-n-samples").SampleCoverage; indications?: Record<string, { n?: number; pf?: number; ok?: boolean }>; ranges?: Record<string, { n?: number; pf?: number; ok?: boolean }>; tactics?: Record<string, { n?: number; pf?: number; ok?: boolean }>; overall?: { pass?: boolean; positive?: number; pf?: number; gatedPf?: number }; complete?: { pass?: boolean; typesOk?: boolean } } } | null)?.progression : null) ?? null;
+  const samplesForConnection = liveSnap.hasLive ? sessionProg?.sampleCoverage : progressEval?.sampleCoverage;
+  const shownSamples = samplesForConnection?.connId === activeConnId ? samplesForConnection : undefined;
   const shownProgress = sessionProg
     ? {
         ...progressEval,
@@ -208,6 +211,7 @@ export function OverviewView() {
         <p className="text-sm text-muted">
           Settings grid stays full. Live execute uses coordinated windows, types and combinations that actually pass — not a full parallel sweep.
         </p>
+        <LastNSampleCoverageTable coverage={shownSamples} />
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
           {LAST_N_PROGRESS_META.map((st) => {
             const coord = vstCoord;

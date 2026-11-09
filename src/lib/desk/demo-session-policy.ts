@@ -34,11 +34,13 @@ export function demoBlockSettings(current: BlockConfig, patch: Partial<BlockConf
 export function measuredDemoProgress(e: { stats?: { pf?: number }; progressEval?: {
   indications?: Record<string, unknown>; ranges?: Record<string, unknown>; tactics?: Record<string, unknown>;
   lastNOverall?: unknown; lastNComplete?: unknown;
+  sampleCoverage?: import("./last-n-samples.ts").SampleCoverage;
 } } | undefined) {
   const pe = e?.progressEval;
   return { preset: "current-session", pf: Number.isFinite(e?.stats?.pf) ? e!.stats!.pf : null,
     indications: { ...pe?.indications }, ranges: { ...pe?.ranges }, tactics: { ...pe?.tactics }, plays: {},
     overall: pe?.lastNOverall ?? { pass: false, state: "unknown", pf: null },
     complete: pe?.lastNComplete ?? { pass: false, state: "unknown" },
+    sampleCoverage: pe?.sampleCoverage ?? null,
   };
 }

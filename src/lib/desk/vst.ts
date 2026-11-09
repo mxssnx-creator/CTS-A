@@ -1,3 +1,5 @@
+import { sampleRows, type SampleCoverage } from "./last-n-samples.ts";
+import { measuredEdgePnl } from "./last-n-progress.ts";
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
 import { DEFAULT_STEP_PF, stepPfFloor } from "./step-pf.ts";
 import { actualFillFee, feePolicy, resolveFeePolicy, roundTripFeeRate } from "./fee-policy.ts";
@@ -611,7 +613,7 @@ function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
   return true;
 }
 function configTapeRow(c: ConfigTapeRow): ConfigTapeRow {
-  return { pnl: edgePnl(c), connId: c.connId, symbol: c.symbol, side: c.side,
+  return { pnl: measuredEdgePnl(c), connId: c.connId, symbol: c.symbol, side: c.side,
     indication: c.indication, tactic: c.tactic, rangeType: c.rangeType, playbook: c.playbook, kind: c.kind,
     tpAtr: c.tpAtr, slOfTp: c.slOfTp, trailPct: c.trailPct, calc: c.calc,
     microRange: c.microRange, minimalRange: c.minimalRange, shortRange: c.shortRange,
@@ -652,6 +654,38 @@ function historyRows(e: VstEngine, rel: ConfigIdentity) {
   if (!bag) return [];
   return bag.get(configSampleKey(rel)) ?? [];
 }
+
+/** The retained exact configs of this connection, including known empty open/pending configs.
+ * Never substitute a pooled indication or a remote session for a missing own tape. */
+export function lastNSampleCoverage(e: VstEngine): SampleCoverage {
+  const tapes = new Map<string, Array<{pnl?:number;ratio?:number}>>();
+  for (const row of e.closed) {
+    if (row.connId !== e.activeConnId || !deskTapeRow(e,row) || ("examFlat" in row && row.examFlat)) continue;
+    const key=configSampleKey(row), own=tapes.get(key) ?? [];
+    if (own.length < 200) own.push(row);
+    tapes.set(key,own);
+  }
+  for (const [key, rows] of configTapeMem.get(e) ?? []) {
+    const own=rows.filter(row=>row.connId === e.activeConnId && !row.examFlat);
+    if (own.length && !tapes.has(key)) tapes.set(key,own);
+  }
+  // Match qualification precedence: present closes, retained history, then
+  // frozen Base. A short new tape cannot be replaced by older passing proof.
+  const frozen = new Map<string, ConfigTapeRow[]>();
+  for (const row of configPreMem.get(e) ?? []) {
+    if (row.connId !== e.activeConnId || row.examFlat) continue;
+    const key = configSampleKey(row), own = frozen.get(key) ?? [];
+    if (own.length < 200) own.push(row);
+    frozen.set(key, own);
+  }
+  for (const [key, rows] of frozen) if (!tapes.has(key)) tapes.set(key, rows);
+  for (const row of [...e.positions,...e.orders,...e.queue]) {
+    if (row.connId !== e.activeConnId) continue;
+    const key=configSampleKey(row);
+    if (!tapes.has(key)) tapes.set(key,[]);
+  }
+  return {at:e.tick,connId:e.activeConnId,scope:"retained-exact-contexts",rows:sampleRows(tapes.values(),lastNProgressOf(e))};
+}
 function snapshotConfigPreTape(e: VstEngine) {
   const rows: ConfigTapeRow[] = [];
   for (const c of e.closed) {
@@ -661,7 +695,7 @@ function snapshotConfigPreTape(e: VstEngine) {
   }
   configPreMem.set(e, rows);
 }
-function filterConfigRows(rows: ConfigTapeRow[], rel: ConfigIdentity) {
+function filterConfigRows(rows: ConfigTapeRow[], rel: ConfigIdentity, limit: number) {
   const out: ConfigTapeRow[] = [];
   for (const c of rows) {
     if (c.examFlat) continue;
@@ -676,7 +710,7 @@ function filterConfigRows(rows: ConfigTapeRow[], rel: ConfigIdentity) {
     if (rel.tpAtr != null && (c.tpAtr == null || Math.abs(c.tpAtr - rel.tpAtr) > 1e-6)) continue;
     if (rel.slOfTp != null && (c.slOfTp == null || Math.abs(c.slOfTp - rel.slOfTp) > 1e-6)) continue;
     out.push(c);
-    if (out.length >= 80) break;
+    if (out.length >= limit) break;
   }
   return out;
 }
@@ -1100,9 +1134,13 @@ function baseStageFloor(e: VstEngine): number {
 /** Process a full last-N once the eval count is filled. Under that count, keep accepting from 8. */
 function lastNTapePass(e: VstEngine, rows: { pnl: number }[] | undefined, floor = baseStageFloor(e)): boolean {
   const base = floor;
-  const evalCount = evalWindowCount(lastNProgressOf(e));
-  if (!rows || rows.length < evalCount) return nearLastNPass(rows, 8, base);
-  const d = decideLastN(rows, lastNProgressOf(e), base, base);
+  const cfg = lastNProgressOf(e);
+  if (!rows) return false;
+  const evalCount = evalWindowCount(cfg);
+  // Legacy default warm-up remains available; explicit independent policies and
+  // negative vetoes must reach their own decision, even on a short tape.
+  if (rows.length < evalCount && !cfg.policies?.length && !cfg.negativeFilter) return nearLastNPass(rows, 8, base);
+  const d = decideLastN(rows, cfg, base, base);
   const validOk = d.validHits.some((h) => h.samples >= h.n && h.pf + 1e-9 >= base && h.net > 0);
   if (!validOk || !d.pass) return false;
   const evalFull = d.evalHits.filter((h) => h.samples >= h.n);
@@ -7087,8 +7125,9 @@ function validatedSet(
   if (!e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return true;
   const base = configStepFloor(e, baseStageFloor(e), rel);
   const ident = { ...rel, connId: e.activeConnId };
-  const exact = filterConfigRows(laneClosed(e, ident, 80) as ConfigTapeRow[], ident);
-  const frozen = filterConfigRows(configPreMem.get(e) ?? [], ident);
+  const need = lastNMaxOf(lastNProgressOf(e));
+  const exact = filterConfigRows(laneClosed(e, ident, need) as ConfigTapeRow[], ident, need);
+  const frozen = filterConfigRows(configPreMem.get(e) ?? [], ident, need);
   const hist = historyRows(e, ident);
   const tape = exact.length ? exact : hist.length ? hist : frozen;
   if (lastNTapePass(e, tape, base)) return true;
@@ -7118,7 +7157,7 @@ function validatedSet(
   return false;
 }
 
-const LAST_N_GROUP_CAP = 80;
+const LAST_N_GROUP_CAP = 200;
 const LAST_N_LOOK = 240;
 
 function takeNewestDeskClosed(e: VstEngine, cap: number, opts?: { liveOnly?: boolean }) {
@@ -7374,6 +7413,7 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
 
   const snap: ProgressEval = {
     at: e.tick,
+    sampleCoverage: lastNSampleCoverage(e),
     lastNMode,
     lastNModes,
     lastNOverall,
