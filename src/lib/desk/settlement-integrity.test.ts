@@ -77,3 +77,17 @@ test("losing Block partial retains its fill economics and the parent stays indep
   assert.equal(e.positions[0].avgEntry, 100);
   assert.equal(e.positions[0].blockQty, 0);
 });
+
+test("settlement preserves the original fee and stop policy for subsequent qualification", () => {
+  const { e, p, cfg } = fixture("long", false);
+  p.modelRtCost = .0011; p.minSlDistancePct = .25;
+  p.microRange = true; p.minimalRange = false; p.shortRange = true; p.calc = "px"; p.trailPct = .2;
+  e.minSlDistancePct = .8;
+  tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+  const c = e.closed.find((x) => x.id === p.id)!;
+  assert.ok(c);
+  assert.equal(c.modelRtCost, .0011);
+  assert.equal(c.minSlDistancePct, .25);
+  assert.equal(c.pnl, closePnl(1, c.entry, c.exit, c.qty, .0011));
+  assert.equal(c.calc, "px"); assert.equal(c.microRange, true); assert.equal(c.trailPct, .2);
+});
