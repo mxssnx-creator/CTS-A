@@ -25,6 +25,7 @@ import {
 } from "./feed.ts";
 import type { ExchangeBook, ExchangeOrder, ExchangePosition, Side } from "./types.ts";
 import { profitFactor, SHORT_EVAL_HOURS } from "./engine.ts";
+import { completedHistoricalHours, prehistoryHours } from "./prehistory.ts";
 
 export const HOSTS = {
   mainnet: ["https://open-api.bingx.com", "https://open-api.bingx.pro"],
@@ -667,25 +668,10 @@ export function cachedVol1h(id: string): number {
   return x.v;
 }
 
-function klineBar(row: unknown): { px: number; hi: number; lo: number } | null {
-  if (!row) return null;
-  if (Array.isArray(row)) {
-    const hi = num(row[2]);
-    const lo = num(row[3]);
-    const px = num(row[4]) || num(row[1]);
-    if (px > 0 && hi > 0 && lo > 0 && hi + 1e-12 >= lo) return { px, hi, lo };
-    return null;
-  }
-  const o = row as { high?: string | number; low?: string | number; close?: string | number; highPrice?: string | number; lowPrice?: string | number };
-  const hi = num(o.high ?? o.highPrice);
-  const lo = num(o.low ?? o.lowPrice);
-  const px = num(o.close);
-  if (px > 0 && hi > 0 && lo > 0 && hi + 1e-12 >= lo) return { px, hi, lo };
-  return null;
-}
-
-/** Last 24 one-hour bars so the 20h lookback has room. ATR is that 20h mean true range, as a fraction of price. */
-export async function fetchPrehistory(network: "mainnet" | "testnet"): Promise<Map<string, { atrFrac: number; hourFrac: number; bars: { px: number; hi: number; lo: number }[] }>> {
+/** Completed hourly market bars seed indications/ATR, never closed-trade evidence. */
+export async function fetchPrehistory(network: "mainnet" | "testnet", requestedHours = SHORT_EVAL_HOURS): Promise<Map<string, { atrFrac: number; hourFrac: number; bars: { px: number; hi: number; lo: number }[] }>> {
+  const hours = prehistoryHours(requestedHours);
+  const nowMs = Date.now();
   const hosts = HOSTS[network];
   const host = hosts[0]!;
   const ids = [...LIVE_IDS];
@@ -697,16 +683,31 @@ export async function fetchPrehistory(network: "mainnet" | "testnet"): Promise<M
       if (!id) break;
       const vs = BINGX_SYMBOL[id] ?? (id.includes("-") ? id : `${id.replace(/USDT$/i, "")}-USDT`);
       for (const path of [
-        `${host}/openApi/swap/v3/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=24`,
-        `${host}/openApi/swap/v2/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h&limit=24`,
+        `${host}/openApi/swap/v3/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h`,
+        `${host}/openApi/swap/v2/quote/klines?symbol=${encodeURIComponent(vs)}&interval=1h`,
       ]) {
         try {
-          const got = await getJson(path);
-          const body = got.json as { code?: number; data?: unknown };
-          const rows = Array.isArray(body?.data) ? body.data : [];
-          const bars = rows.map(klineBar).filter((b): b is { px: number; hi: number; lo: number } => Boolean(b));
+          let endTime = nowMs;
+          const raw: unknown[] = [];
+          const limit = Math.min(1000, hours + 2);
+          for (let page = 0; page < Math.ceil((hours + 2) / limit) + 1; page++) {
+            const got = await getJson(`${path}&limit=${limit}&endTime=${endTime}`);
+            const body = got.json as { code?: number; data?: unknown };
+            const rows = Array.isArray(body?.data) ? body.data : [];
+            raw.push(...rows);
+            if (completedHistoricalHours(raw, hours, nowMs).length >= hours || rows.length < limit) break;
+            const times = rows.map(row => {
+              const o = row as Record<string, unknown>;
+              const time = Number(Array.isArray(row) ? row[0] : o?.time ?? o?.timestamp ?? o?.openTime);
+              return time < 1e12 ? time * 1000 : time;
+            }).filter(time => Number.isFinite(time) && time > 0);
+            const earliest = Math.min(...times);
+            if (!Number.isFinite(earliest) || earliest >= endTime) break;
+            endTime = earliest - 1;
+          }
+          const bars = completedHistoricalHours(raw, hours, nowMs);
           if (bars.length < 8) continue;
-          const tail = bars.slice(-SHORT_EVAL_HOURS);
+          const tail = bars;
           let tr = 0;
           let n = 0;
           for (let i = 0; i < tail.length; i++) {
@@ -1157,6 +1158,18 @@ async function signedJson(
     }
   }
   return { ok: false, ms, error: last };
+}
+
+/** Read an existing ticket identity; never retries or resubmits its write. */
+export async function querySwapOrder(input: { network: "mainnet" | "testnet"; connId: string; symbol: string; clientOrderId: string; orderId?: string }) {
+  if (!isDeskClientOrderId(input.clientOrderId, input.connId)) return { ok: false, error: "unowned order identity" };
+  const symbol = input.symbol.includes("-") ? input.symbol : BINGX_SYMBOL[input.symbol] ?? `${input.symbol.replace(/USDT$/i, "")}-USDT`;
+  const result = await signedJson(input.network, input.connId, "/openApi/swap/v2/trade/order", {
+    symbol, ...(input.orderId ? { orderId: input.orderId } : { clientOrderID: input.clientOrderId }),
+  });
+  const raw = result.data as Record<string, unknown> | undefined;
+  const order = raw?.order ?? raw;
+  return { ...result, order: order as Record<string, unknown> | undefined };
 }
 
 export async function querySymbolLeverage(

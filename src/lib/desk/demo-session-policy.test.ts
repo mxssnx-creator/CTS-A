@@ -1,9 +1,30 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG } from "./engine.ts";
-import { demoBlockSettings, demoCloseConfirmed, measuredDemoProgress, demoStrategySettings, demoTacticSettings } from "./demo-session-policy.ts";
+import { demoBlockSettings, demoCloseConfirmed, measuredDemoProgress, demoStrategySettings, demoTacticSettings, demoRangeConfigs, demoConfigKey } from "./demo-session-policy.ts";
 
 const enabled = { normal: true, trailing: true, axis: true, block: true, dca: true };
+
+it("a Micro or Minimal session rebuild cannot substitute a Short range", () => {
+  const short = [{tpAtr:.48,slOfTp:1}];
+  for (const family of ["microRange", "minimalRange", "shortRange"] as const) {
+    const cfg = {...DEFAULT_TACTIC_CONFIG,microRange:false,minimalRange:false,shortRange:false,
+      [family]:true,trailingPct:.25,dcaCount:3,minSlDistancePct:.2};
+    const rows = demoRangeConfigs(cfg,short);
+    assert.ok(rows.length > 0);
+    assert.ok(rows.every(r=>r[family] && r.trailingPct===.25 && r.dcaCount===3 && r.minSlDistancePct===.2));
+    assert.equal(new Set(rows.map(demoConfigKey)).size,rows.length);
+    if (family==="microRange") assert.deepEqual([...new Set(rows.map(r=>r.tpAtr))],[.2,.3]);
+    if (family==="minimalRange") assert.deepEqual([...new Set(rows.map(r=>r.tpAtr))],[1,1.25,1.5,1.75,2,2.25,2.5,2.75,3]);
+  }
+});
+
+it("configuration matching includes range, trailing, costs and nested own PF policy",()=>{
+  const cfg={...DEFAULT_TACTIC_CONFIG,microRange:true,trailingPct:.25};
+  assert.equal(demoConfigKey(cfg),demoConfigKey(Object.fromEntries(Object.entries(cfg).reverse()) as typeof cfg));
+  for(const patch of [{microRange:false,minimalRange:true},{trailingPct:.5},{minSlDistancePct:.2}])
+    assert.notEqual(demoConfigKey(cfg),demoConfigKey({...cfg,...patch}));
+});
 
 it("an accepted pending or unknown close retains ownership", () => {
   assert.equal(demoCloseConfirmed({ok:true}),true);

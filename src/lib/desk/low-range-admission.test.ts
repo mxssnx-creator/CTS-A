@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { armUniverse, finishBaseEval, initVstEngine, liveShouldExecute } from "./vst.ts";
+import { armUniverse, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine } from "./vst.ts";
+
+test("audit accepts the own cost-plus-stop floor but rejects an unjustified wider stop",()=>{
+  for (const side of ["long","short"] as const) {
+    const e=initVstEngine(DEFAULT_TACTIC_CONFIG,{arm:false,warmup:0,symbolCount:3});
+    const sign=side==="long"?1:-1;
+    e.positions=[{id:"floor",symbol:"BTCUSDT",side,avgEntry:100,qty:1,unrealized:0,
+      sl:100-sign*.276,tp:100+sign*.2,slOfTp:.25,modelRtCost:.00176,minSlDistancePct:.1} as never];
+    assert.equal(auditEngine(e).ratioViolations,0);
+    e.positions[0].sl=100-sign*.4;
+    assert.equal(auditEngine(e).ratioViolations,1);
+  }
+});
 
 for (const range of ["micro", "minimal", "short"] as const) {
   test(`${range}: complete paper admission uses the same exact evidence as the execution gate`, () => {

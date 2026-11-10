@@ -1,6 +1,7 @@
 import type { BlockConfig, OrderTypeId, PfCoordToggles, RangeType, StrategyToggles, TacticConfig, TacticKind, VstEngine } from "./types.ts";
 import type { SimulationPolicy, simulateHours } from "./vst.ts";
 import { SHORT_EVAL_HOURS } from "./engine.ts";
+import { prehistoryHours } from "./prehistory.ts";
 
 type SimulationSource = {
   tacticConfig: TacticConfig; tactic: TacticKind; rangeType: RangeType;
@@ -24,7 +25,7 @@ export function simulationRequest(hours: number, state: SimulationSource) {
     symbolCount: state.symbolCount, orderType: state.orderType, rangeType: state.rangeType,
     block: state.blockConfig, costStep: state.costStep, equity: e.startEquity,
     strategyToggles: state.strategyToggles, pfCoords: state.pfCoords, skipIndications: e.skipIndications,
-    complete, comboOnly: false, prehours: complete ? SHORT_EVAL_HOURS : 0, policy,
+    complete, comboOnly: false, prehours: complete ? prehistoryHours(e.shortProgress?.evalHours ?? SHORT_EVAL_HOURS) : 0, policy,
     marks: [2, 4, 8, 16, 32, 72].filter(h => h <= hours),
   };
   return structuredClone({ cfg: state.tacticConfig, tactic: state.tactic, options });

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
+import { PendingCloseState } from "./pending-close-state.mjs";
+import { querySwapOrder } from "../src/lib/desk/feed.server.ts";
 import { minimumStopFraction, normalizeMinSlDistancePct } from "../src/lib/desk/protection-policy.ts";
 import { modeledPositionCost } from "../src/lib/desk/vst.ts";
 import { roundTripFeeRate } from "../src/lib/desk/fee-policy.ts";
 import { connectionNetwork } from "../src/lib/desk/connection-network.ts";
-import { demoCloseConfirmed, measuredDemoProgress, demoStrategySettings, demoTacticSettings, demoBlockSettings } from "../src/lib/desk/demo-session-policy.ts";
+import { demoCloseConfirmed, measuredDemoProgress, demoStrategySettings, demoTacticSettings, demoBlockSettings, demoRangeConfigs, demoConfigKey } from "../src/lib/desk/demo-session-policy.ts";
 /**
  * CTS-A BingX VST-02 session: 50 symbols, max orders, best-first, 2h monitor.
  * Keys from env — never printed.
@@ -415,6 +417,7 @@ const X01_LIVE_CFG = {
 const LIVE_CFG = IS_X01
   ? { ...X01_LIVE_CFG }
   : { trailingPct: 1.5, tpRatio: 1, dcaCount: 1, slAtr: 0.48, tpAtr: 0.48, slOfTp: 1, shortRange: true, maxHoldTicks: 24, maxHoldBars: 3, axisLevels: 5, axisPartialRatio: AXIS_PARTIAL_RATIO };
+let demoGridConfig = { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG };
 const LIVE_SHORT_TACTICS = ["trailing", "hybrid"];
 const BASE_GRID = LIVE_SHORT_TACTICS.flatMap((tactic) =>
   ["atr", "fibonacci"].map((range) => ({
@@ -479,11 +482,11 @@ function x01BestGrid() {
 
 function buildLiveGrid() {
   if (IS_X01) return x01BestGrid();
-  return shortGridCombos().flatMap((s) =>
+  return demoRangeConfigs(demoGridConfig, shortGridCombos()).flatMap((cfg) =>
     LIVE_SHORT_TACTICS.map((tactic) => ({
       tactic,
       range: "atr",
-      cfg: { ...DEFAULT_TACTIC_CONFIG, ...LIVE_CFG, ...s, dcaCount: 1, maxHoldTicks: 24 },
+      cfg: { ...cfg },
     })),
   );
 }
@@ -513,10 +516,11 @@ function rebuildShortGrid() {
     }));
   }
   GRID = buildLiveGrid();
+  if (!IS_X01) SHORT_GRID = GRID.filter(g => cfgUsesShortRange(g.cfg));
   const hit = preferWinner(GRID);
   if (hit) GRID = [hit, ...GRID.filter((g) => g !== hit)];
   if (currentPick) {
-    const same = GRID.find((g) => g.tactic === currentPick.tactic && g.range === currentPick.range && g.cfg.tpAtr === currentPick.cfg.tpAtr && g.cfg.slOfTp === currentPick.cfg.slOfTp);
+    const same = GRID.find((g) => g.tactic === currentPick.tactic && g.range === currentPick.range && demoConfigKey(g.cfg) === demoConfigKey(currentPick.cfg));
     currentPick = same || GRID[0];
   }
 }
@@ -622,8 +626,8 @@ function gridLive(e) {
   });
   if (filtered.length) return filtered;
   if (IS_X01) return GRID.length ? GRID : x01BestGrid();
-  const prefer = GRID.filter((g) => g.tactic === "trailing" && Number(g.cfg?.tpAtr) === SHORT_WINNER.tpAtr && Number(g.cfg?.slOfTp) === SHORT_WINNER.slOfTp);
-  return prefer.length ? prefer : GRID.slice(0, 1);
+  return []; // Disabled configurations must not return as an historical fallback.
+
 }
 function persistDisabled(e) {
   try {
@@ -702,12 +706,12 @@ async function refreshPrehistory(e, network) {
   if (preInFlight || Date.now() - lastPreAt < 15 * 60 * 1000) return -1;
   preInFlight = true;
   try {
-    const map = await fetchPrehistory(network);
+    const map = await fetchPrehistory(network, e.shortProgress?.evalHours ?? SHORT_EVAL_HOURS);
     let n = 0;
     for (const [id, row] of map) {
       if (!(row.atrFrac > 0) || !row.bars?.length) continue;
       seedPreAtr(id, row.atrFrac);
-      seedIndicationHistory(id, row.bars);
+      seedIndicationHistory(id, row.bars, e.shortProgress?.evalHours ?? SHORT_EVAL_HOURS);
       const q = e.quotes?.[id];
       if (q && q.px > 0) q.atr = q.px * row.atrFrac;
       if (row.hourFrac > 0) {
@@ -734,9 +738,7 @@ function gridIndex(pick, list = GRID) {
     (g) =>
       g.tactic === pick.tactic &&
       g.range === pick.range &&
-      Boolean(g.cfg?.shortRange) === Boolean(pick.cfg?.shortRange) &&
-      Number(g.cfg?.tpAtr || 0) === Number(pick.cfg?.tpAtr || 0) &&
-      Number(g.cfg?.slOfTp || 0) === Number(pick.cfg?.slOfTp || 0),
+      demoConfigKey(g.cfg) === demoConfigKey(pick.cfg),
   );
   return i < 0 ? 0 : i;
 }
@@ -1753,65 +1755,54 @@ async function withLiveBusy(fn) {
   }
 }
 
-const pendingCloses = new Set();
+const pendingCloses = new PendingCloseState(process.env.CTS_A_PENDING_CLOSES ?? `${STATUS}.pending-closes.json`, CONN);
+async function reconcilePendingClose(network, closeKey) {
+  const saved = pendingCloses.rows.get(closeKey);
+  if (!saved) return { ok: false, pending: true };
+  const order = await querySwapOrder({ network, connId: CONN, ...saved });
+  const book = await fetchExchangeBook({ network, connId: CONN });
+  const resolved = pendingCloses.resolve(closeKey, order, book);
+  if (resolved.state !== "flat") return { ok: false, pending: true, error: "close requires reconciliation" };
+  noteLiveOrder(resolved.orderId, { ...saved, type: "MARKET", role: "close", status: "pending" });
+  for (const rec of controlsForLeg(saved.symbol, saved.side)) {
+    const cancelled = await withLiveBusy(() => cancelSwapOrder({ network, connId: CONN, symbol: saved.symbol, orderId: rec.id }));
+    if (!(cancelled?.ok || /not exist|filled|nothing to cancel|no need/i.test(String(cancelled?.error || ""))))
+      return { ok: false, pending: true, error: "flat but protective cleanup remains unconfirmed" };
+    markLiveOrder(rec.id, "cancelled", { replaces: resolved.orderId });
+  }
+  markLiveOrder(resolved.orderId, "closed", { flatConfirmedAt: Date.now() });
+  pendingCloses.complete(closeKey);
+  return { ok: true, orderId: resolved.orderId, clientOrderId: saved.clientOrderId, flatConfirmed: true };
+}
 async function closeHit(network, hit) {
   if (!isOwnedLeg(hit.symbol, hit.side)) return { ok: false, error: "foreign" };
   const closeKey = `${hit.symbol}:${hit.side}`;
-  if (pendingCloses.has(closeKey)) return { ok: false, error: "previous close still needs reconciliation" };
-  pendingCloses.add(closeKey);
+  if (pendingCloses.rows.has(closeKey)) return reconcilePendingClose(network, closeKey);
   const clientOrderId = makeClientOrderId(CONN, "C");
-  const r = await withLiveBusy(() =>
-    placeSwapOrder({
-      network,
-      connId: CONN,
-      symbol: hit.symbol,
+  if (!pendingCloses.begin({ symbol: hit.symbol, side: hit.side, qty: hit.qty, clientOrderId }))
+    return { ok: false, pending: true };
+  let r;
+  try {
+    r = await withLiveBusy(() => placeSwapOrder({
+      network, connId: CONN, symbol: hit.symbol,
       side: hit.side === "long" ? "SELL" : "BUY",
       positionSide: hit.side === "long" ? "LONG" : "SHORT",
-      quantity: hit.qty,
-      type: "MARKET",
-      price: hit.mark || hit.entry || 1,
+      quantity: hit.qty, type: "MARKET", price: hit.mark || hit.entry || 1,
       notional: Math.max(6, Math.abs(hit.qty * (hit.mark || hit.entry || 1))),
-      confirmLive: true,
-      closePosition: false,
-      reduceOnly: false,
-      exactQty: true,
-      attachProtect: false,
-      clientOrderId,
-    }),
-  );
-  // Even a timeout can be an accepted close; never resubmit an uncertain write.
-  if (!r?.ok) {
-    if (!r?.uncertain) pendingCloses.delete(closeKey);
+      confirmLive: true, closePosition: false, reduceOnly: false, exactQty: true,
+      attachProtect: false, clientOrderId,
+    }));
+  } catch {
+    return { ok: false, uncertain: true, pending: true, error: "close response unknown; durable identity retained" };
+  }
+  pendingCloses.acknowledge(closeKey, r);
+  if (r?.ok === false && !r.uncertain) {
+    pendingCloses.complete(closeKey); // Explicit rejected/not-dispatched result; no protection cancellation.
     return r;
   }
-  noteLiveOrder(r.orderId, {
-    clientOrderId: r.clientOrderId || clientOrderId,
-    symbol: hit.symbol,
-    side: hit.side,
-    type: "MARKET",
-    role: "close",
-    qty: hit.qty,
-    status: "pending",
-  });
-  const confirmed = await fetchExchangeBook({ network, connId: CONN });
-  if (!confirmed.ok || confirmed.error || confirmed.positions.some((p) => p.symbol === hit.symbol && p.side === hit.side))
-    return { ...r, pending: true };
-  markLiveOrder(r.orderId, "closed", { flatConfirmedAt: Date.now() });
-  pendingCloses.delete(closeKey);
-  for (const rec of controlsForLeg(hit.symbol, hit.side)) {
-    const c = await withLiveBusy(() =>
-      cancelSwapOrder({
-        network,
-        connId: CONN,
-        symbol: hit.symbol,
-        orderId: rec.id,
-      }),
-    );
-    if (c?.ok || /not exist|filled|nothing to cancel|no need/i.test(String(c?.error || ""))) {
-      markLiveOrder(rec.id, "cancelled", { replaces: r.orderId || "" });
-    }
-  }
-  return r;
+  // Missing/uncertain acknowledgements keep the exact durable identity.
+  // Reads reconcile it; there is no blind resend.
+  return reconcilePendingClose(network, closeKey);
 }
 
 function shortStopPrices(p, cfg, spec, e) {
@@ -2469,6 +2460,7 @@ async function mirrorToExchange(e, network, cfg) {
     book = { ...book, orders: lastBook.orders };
   }
   noteApiOk();
+  for (const key of [...pendingCloses.rows.keys()]) await reconcilePendingClose(network, key);
   if ((book.positions?.length ?? 0) === 0 && lastBook.pos > 0) {
     try {
       await sleep(250);
@@ -3182,6 +3174,8 @@ async function mirrorToExchange(e, network, cfg) {
         null,
         e,
       );
+      if (pendingCloses.rows.has(`${f.symbol}:${f.side}`))
+        return { f, r: { ok: false, pending: true, error: "owned close still pending" }, skip: true };
       const r = await withLiveBusy(() =>
         placeSwapOrder({
           network,
@@ -3333,6 +3327,7 @@ function x02VolFromRemote(bc) {
 }
 
 function applyPfGates(engine, remote) {
+  if (!IS_X01) demoGridConfig = demoTacticSettings({ ...demoGridConfig, ...remote?.tacticConfig }, STRAT);
   const th = remote?.thresholds || {};
   const overall = IS_X01
     ? 1.15
@@ -3869,12 +3864,12 @@ async function main() {
     while (examLeft > 0 && !stopAsked) await sleep(200);
     if (stopAsked) return;
     await sleep(IS_X01 ? 15000 : 180_000);
-    adjustments.push(`complete compute start · prehistory ${SHORT_EVAL_HOURS}h · full coverage`);
+    adjustments.push(`complete compute start · prehistory ${engine.shortProgress?.evalHours ?? SHORT_EVAL_HOURS}h · full coverage`);
     try {
       const complete = await completeComputationsAsync(pick.cfg, {
         symbolCount: IS_X01 ? 8 : 12,
         hours: [...AUTO_EVAL_HOURS],
-        prehours: SHORT_EVAL_HOURS,
+        prehours: engine.shortProgress?.evalHours ?? SHORT_EVAL_HOURS,
         complete: false,
         strategyToggles: { ...STRAT },
         yieldFn: async () => {
@@ -4187,6 +4182,7 @@ async function main() {
     if (now - lastCycleAt > cycleMs) {
       lastCycleAt = now;
       const live = gridLive(engine);
+      if (live.length) {
       gridCursor = (gridIndex(pick, live) + 1) % live.length;
       pick = live[gridCursor];
       currentPick = pick;
@@ -4199,6 +4195,7 @@ async function main() {
       const short = cfgUsesShortRange(pick.cfg) ? ` short ${pick.cfg.tpAtr}/${pick.cfg.slOfTp}` : "";
       adjustments.push(`configs ${live.length} held · seed ${gridCursor + 1}/${live.length} ${pick.tactic}/${pick.range}${short}`);
       writeSettingsPick(pick, { rev: Date.now() % 1e9, locked: IS_X01 });
+      } else adjustments.push("no enabled configuration for rotation");
     }
 
     if (wantStatus(false)) writeStatus(snapshot(engine, { ...statusBase(), computeDone }));

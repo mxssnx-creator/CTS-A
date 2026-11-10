@@ -1,3 +1,4 @@
+import { DEFAULT_PREHISTORY_HOURS, MAX_PREHISTORY_HOURS } from "../../../lib/desk/prehistory";
 import { useMemo, useState } from "react";
 import { LAST_N_RESEARCH_NS, NEGATIVE_LAST_N_RESEARCH_NS } from "../../../lib/desk/last-n-progress";
 import { Link } from "@tanstack/react-router";
@@ -1736,9 +1737,9 @@ export function SettingsView() {
             />
             <RangeKnob
               label="Auto eval hours"
-              value={shortProgress.evalHours ?? 20}
+              value={shortProgress.evalHours ?? DEFAULT_PREHISTORY_HOURS}
               min={4}
-              max={48}
+              max={MAX_PREHISTORY_HOURS}
               step={4}
               format={(n) => `${n}h`}
               onChange={(n) => setShortProgress({ evalHours: n })}
