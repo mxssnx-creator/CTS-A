@@ -5041,7 +5041,7 @@ describe("full config coverage", () => {
     assert.ok(!pos.some((c) => c.tpAtr === 0.48 && c.slOfTp === 0.75));
     assert.equal(filterLiveShortCombos(0.42, 1.7, 0.6, false).length, 32);
     assert.equal(filterLiveShortCombos(0.4, 1.7, 0.6, false).length, 36);
-    assert.ok(AUTO_EVAL_HOURS.includes(20) && SHORT_EVAL_HOURS === 20);
+    assert.ok(AUTO_EVAL_HOURS.includes(20) && SHORT_EVAL_HOURS === 48);
     const eOv = initVstEngine(CFG, {
       warmup: 0,
       symbolCount: 2,

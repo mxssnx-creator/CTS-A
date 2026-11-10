@@ -1,4 +1,5 @@
-import { sampleRows, type SampleCoverage } from "./last-n-samples.ts";
+import { prehistoryHours } from "./prehistory.ts";
+import { extendOwnSampleHistory, sampleRows, type SampleCoverage } from "./last-n-samples.ts";
 import { measuredEdgePnl } from "./last-n-progress.ts";
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
 import { DEFAULT_STEP_PF, stepPfFloor } from "./step-pf.ts";
@@ -569,7 +570,7 @@ export function engageLiveBook(e: VstEngine) {
 }
 
 
-type ConfigIdentity = {
+export type ConfigIdentity = {
   connId?: string;
   symbol?: string;
   side?: Side;
@@ -588,12 +589,34 @@ type ConfigIdentity = {
   modelRtCost?: number;
   minSlDistancePct?: number;
 };
-type ConfigTapeRow = ConfigIdentity & {
+export type ConfigTapeRow = ConfigIdentity & {
+  id?: string;
+  tick?: number;
   pnl: number;
   /** Flattened at the Base boundary. Not a strategy outcome. */
   examFlat?: boolean;
 };
 const configPreMem = new WeakMap<VstEngine, ConfigTapeRow[]>();
+function frozenConfigRows(e: VstEngine): ConfigTapeRow[] {
+  return configPreMem.get(e) ?? e.frozenBaseSamples ?? [];
+}
+function hasConfigProvenance(rel: ConfigIdentity): boolean {
+  return [rel.connId, rel.symbol, rel.side, rel.indication, rel.tactic, rel.rangeType, rel.playbook, rel.kind, rel.calc]
+    .every(value => typeof value === "string" && value.length > 0) &&
+    [rel.tpAtr, rel.slOfTp, rel.trailPct, rel.modelRtCost, rel.minSlDistancePct].every(Number.isFinite) &&
+    [rel.microRange, rel.minimalRange, rel.shortRange].every(value=>typeof value === "boolean");
+}
+/** Record the configured candidate before its qualification verdict or order lifecycle.
+ * An empty/denied/cancelled own cohort must not disappear from sample percentages. */
+export function registerSampleContext(e: VstEngine, rel: ConfigIdentity): void {
+  if (!hasConfigProvenance(rel)) return;
+  const key = configSampleKey(rel);
+  const contexts = e.configuredSampleContexts ?? (e.configuredSampleContexts = {});
+  if (!(key in contexts)) {
+    const { pnl: _pnl, examFlat: _flat, id: _id, tick: _tick, ...identity } = configTapeRow({ ...rel, pnl: NaN });
+    contexts[key] = identity;
+  }
+}
 const configTapeMem = new WeakMap<VstEngine, Map<string, ConfigTapeRow[]>>();
 const rangeComboMem = new WeakMap<VstEngine, Map<string, ConfigTapeRow[]>>();
 function configSampleKey(rel: ConfigIdentity) {
@@ -613,7 +636,7 @@ function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
   return true;
 }
 function configTapeRow(c: ConfigTapeRow): ConfigTapeRow {
-  return { pnl: measuredEdgePnl(c), connId: c.connId, symbol: c.symbol, side: c.side,
+  return { id:c.id, tick:c.tick, pnl: measuredEdgePnl(c), connId: c.connId, symbol: c.symbol, side: c.side,
     indication: c.indication, tactic: c.tactic, rangeType: c.rangeType, playbook: c.playbook, kind: c.kind,
     tpAtr: c.tpAtr, slOfTp: c.slOfTp, trailPct: c.trailPct, calc: c.calc,
     microRange: c.microRange, minimalRange: c.minimalRange, shortRange: c.shortRange,
@@ -633,6 +656,7 @@ function pushTapeRing(map: Map<string, ConfigTapeRow[]>, key: string, row: Confi
 function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id?: string }) {
   if (!deskTapeRow(e, c)) return;
   const row = configTapeRow(c);
+  registerSampleContext(e, row);
   const key = configSampleKey(row);
   let bag = configTapeMem.get(e);
   if (!bag) {
@@ -655,45 +679,73 @@ function historyRows(e: VstEngine, rel: ConfigIdentity) {
   return bag.get(configSampleKey(rel)) ?? [];
 }
 
-/** The retained exact configs of this connection, including known empty open/pending configs.
- * Never substitute a pooled indication or a remote session for a missing own tape. */
+/** Own configured candidates survive empty, rejected and cancelled order lifecycles.
+ * Keep actual Base/current tape stages distinct from the configured window names. */
 export function lastNSampleCoverage(e: VstEngine): SampleCoverage {
-  const tapes = new Map<string, Array<{pnl?:number;ratio?:number}>>();
+  type Tape = Array<{id?:string;tick?:number;pnl?:number;ratio?:number}>;
+  const current = new Map<string, Tape | null>();
+  const identities = new Map<string, ConfigIdentity>();
   for (const row of e.closed) {
     if (row.connId !== e.activeConnId || !deskTapeRow(e,row) || ("examFlat" in row && row.examFlat)) continue;
-    const key=configSampleKey(row), own=tapes.get(key) ?? [];
+    const key=configSampleKey(row);
+    identities.set(key,row);
+    if (!hasConfigProvenance(row)) { current.set(key,null); continue; }
+    const own=current.get(key) ?? [];
     if (own.length < 200) own.push(row);
-    tapes.set(key,own);
+    current.set(key,own);
   }
   for (const [key, rows] of configTapeMem.get(e) ?? []) {
     const own=rows.filter(row=>row.connId === e.activeConnId && !row.examFlat);
-    if (own.length && !tapes.has(key)) tapes.set(key,own);
+    if (own.length) {
+      identities.set(key,own[0]);
+      const present=current.get(key);
+      if (!current.has(key)) current.set(key,hasConfigProvenance(own[0]) ? own : null);
+      else if (present) current.set(key,extendOwnSampleHistory(present,own));
+    }
   }
-  // Match qualification precedence: present closes, retained history, then
-  // frozen Base. A short new tape cannot be replaced by older passing proof.
-  const frozen = new Map<string, ConfigTapeRow[]>();
-  for (const row of configPreMem.get(e) ?? []) {
+  const frozen = new Map<string, Tape | null>();
+  for (const row of frozenConfigRows(e)) {
     if (row.connId !== e.activeConnId || row.examFlat) continue;
-    const key = configSampleKey(row), own = frozen.get(key) ?? [];
-    if (own.length < 200) own.push(row);
-    frozen.set(key, own);
-  }
-  for (const [key, rows] of frozen) if (!tapes.has(key)) tapes.set(key, rows);
-  for (const row of [...e.positions,...e.orders,...e.queue]) {
-    if (row.connId !== e.activeConnId) continue;
     const key=configSampleKey(row);
-    if (!tapes.has(key)) tapes.set(key,[]);
+    identities.set(key,row);
+    if (!hasConfigProvenance(row)) { frozen.set(key,null); continue; }
+    const own=frozen.get(key) ?? [];
+    if (own.length < 200) own.push(row);
+    frozen.set(key,own);
   }
-  return {at:e.tick,connId:e.activeConnId,scope:"retained-exact-contexts",rows:sampleRows(tapes.values(),lastNProgressOf(e))};
+  for (const row of [...Object.values(e.configuredSampleContexts ?? {}),...e.positions,...e.orders,...e.queue]) {
+    if (row.connId === e.activeConnId) identities.set(configSampleKey(row),row);
+  }
+  const selected = new Map<string, Tape | null>();
+  for (const [key, rel] of identities) {
+    const empty = hasConfigProvenance(rel) ? [] : null;
+    // A short current losing tape takes priority over an older full Base tape.
+    selected.set(key, current.has(key) ? current.get(key)! : frozen.has(key) ? frozen.get(key)! : empty);
+    if (!current.has(key)) current.set(key,empty);
+    if (!frozen.has(key)) frozen.set(key,empty);
+  }
+  const cfg=lastNProgressOf(e);
+  return {at:e.tick,connId:e.activeConnId,scope:"registered-exact-contexts",rows:sampleRows(selected.values(),cfg),
+    stages:{currentOwn:sampleRows(current.values(),cfg),
+      frozenBase:configPreMem.has(e) || e.frozenBaseSamples !== undefined ? sampleRows(frozen.values(),cfg) : null}};
 }
 function snapshotConfigPreTape(e: VstEngine) {
-  const rows: ConfigTapeRow[] = [];
+  // Retain up to the supported Last-200 per exact cohort, not 2,400 mixed rows
+  // that truncate quiet symbols/configs when the active book gets larger.
+  const grouped = new Map<string, ConfigTapeRow[]>();
   for (const c of e.closed) {
-    if (!deskTapeRow(e, c)) continue;
-    rows.push(configTapeRow(c));
-    if (rows.length >= 2400) break;
+    if (!deskTapeRow(e,c) || ("examFlat" in c && c.examFlat)) continue;
+    const row=configTapeRow(c), key=configSampleKey(row), own=grouped.get(key) ?? [];
+    if (own.length < 200) own.push(row);
+    grouped.set(key,own);
   }
-  configPreMem.set(e, rows);
+  for (const [key,rows] of configTapeMem.get(e) ?? []) {
+    const retained=rows.filter(row=>!row.examFlat).map(configTapeRow);
+    grouped.set(key,extendOwnSampleHistory(grouped.get(key) ?? [],retained));
+  }
+  const rows=[...grouped.values()].flat();
+  e.frozenBaseSamples=rows;
+  configPreMem.set(e,rows);
 }
 function filterConfigRows(rows: ConfigTapeRow[], rel: ConfigIdentity, limit: number) {
   const out: ConfigTapeRow[] = [];
@@ -3709,11 +3761,12 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             // The coarse selection above does not yet know the final calc/trail
             // or snapped distance. Admission must use the actual order identity.
             if (afterBase && !internHere) {
-              const entryRel = { ...execRel, rangeType: hi.rangeType,
+              const entryRel = { ...execRel, connId, rangeType: hi.rangeType, price: px, tpDist: lv.tpDist, slDist: lv.slDist,
                 tpAtr: miniTp, slOfTp: miniSl, trailPct, calc: leg.kind,
                 microRange: microOn, minimalRange: minimalOn, shortRange: short,
                 modelRtCost: modeledPositionCost(e, s.id), minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct) };
-              const proofKey = configSampleKey(entryRel);
+              registerSampleContext(e, entryRel);
+              const proofKey = JSON.stringify([configSampleKey(entryRel), configStepFloor(e, baseStageFloor(e), entryRel)]);
               let verdict = entryVerdicts.get(proofKey);
               if (verdict === undefined) {
                 verdict = liveShouldExecute(e, entryRel);
@@ -6502,7 +6555,7 @@ export function selectMinPfCells(
 
 export type StepPfContext = { slOfTp?: number; tpPct?: number; tpAtr?: number; rangeType?: string; symbol?: string;
   microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; modelRtCost?: number;
-  tpDist?: number; price?: number; avgEntry?: number };
+  tpDist?: number; slDist?: number; price?: number; avgEntry?: number };
 export function configStepFloor(e: VstEngine, legacy: number, rel?: StepPfContext | null): number {
   const px = rel?.avgEntry ?? rel?.price;
   const ownGeometry = px && px > 0 && rel?.tpDist != null ? 100 * rel.tpDist / px : undefined;
@@ -6511,7 +6564,10 @@ export function configStepFloor(e: VstEngine, legacy: number, rel?: StepPfContex
   const minimal = hasOwnRange ? rel?.minimalRange : e.minimalRange;
   const pct = rel?.tpPct ?? ownGeometry ?? (micro && rel?.tpAtr != null ? rel.tpAtr : undefined) ?? (minimal && rel?.tpAtr != null
     ? rel.tpAtr * (rel.modelRtCost ?? modeledPositionCost(e, rel.symbol ?? "")) * 100 : undefined);
-  return stepPfFloor(legacy, pct, e.stepPf, rel?.slOfTp);
+  const requestedFloor = stepPfFloor(legacy, pct, e.stepPf, rel?.slOfTp);
+  const effectiveSlRatio = rel?.tpDist && rel.tpDist > 0 && rel.slDist != null && rel.slDist >= 0
+    ? rel.slDist / rel.tpDist : undefined;
+  return effectiveSlRatio == null ? requestedFloor : stepPfFloor(requestedFloor, pct, e.stepPf, effectiveSlRatio);
 }
 export function entryMinPfFor(e: VstEngine, rel?: Parameters<typeof pfLaneOf>[0] & StepPfContext): number {
   return configStepFloor(e, minPfFor(e, pfLaneOf(rel)), rel);
@@ -7120,16 +7176,17 @@ function pickPositiveKeys(
 /** After base eval, only a sampled set that passed its own last-N trades. An unsampled overall set does not. */
 function validatedSet(
   e: VstEngine,
-  rel: ConfigIdentity,
+  rel: ConfigIdentity & StepPfContext,
 ): boolean {
   if (!e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return true;
   const base = configStepFloor(e, baseStageFloor(e), rel);
   const ident = { ...rel, connId: e.activeConnId };
   const need = lastNMaxOf(lastNProgressOf(e));
   const exact = filterConfigRows(laneClosed(e, ident, need) as ConfigTapeRow[], ident, need);
-  const frozen = filterConfigRows(configPreMem.get(e) ?? [], ident, need);
+  const frozen = filterConfigRows(frozenConfigRows(e), ident, need);
   const hist = historyRows(e, ident);
-  const tape = exact.length ? exact : hist.length ? hist : frozen;
+  const own = extendOwnSampleHistory(exact,hist);
+  const tape = own.length ? own : frozen;
   if (lastNTapePass(e, tape, base)) return true;
   // An exact execution context cannot borrow a broader range or sibling configuration's wins.
   if (rel.symbol || rel.side) return false;
@@ -8959,7 +9016,10 @@ export function auditEngine(e: VstEngine) {
     const trailed = p.side === "long" ? p.sl >= p.avgEntry : p.sl <= p.avgEntry;
     const ratio = p.slOfTp != null && p.slOfTp > 0 ? Math.max(0.3, 1 / p.slOfTp) : snapTpRatio(e.tpRatio || TP_SL_RATIO);
     // Axis/hybrid may pull TP in to 0.95× risk. That is not a wider stop.
-    const allow = tpD / ratio / 0.95 + Math.max(1e-6, tpD * 1e-4);
+    let minimum = 0;
+    try { minimum = minimumStopDistance(p.avgEntry, p.modelRtCost ?? modeledPositionCost(e, p.symbol),
+      p.minSlDistancePct ?? e.minSlDistancePct); } catch { nanCount++; }
+    const allow = Math.max(tpD / ratio / 0.95, minimum) + Math.max(1e-6, tpD * 1e-4);
     if (!trailed && tpD > 0 && slD > allow) ratioViolations += 1;
     if (!Number.isFinite(p.avgEntry) || !Number.isFinite(p.unrealized)) nanCount += 1;
   }
@@ -9066,7 +9126,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     : (!complete && cfgUsesShortRange(use) && hadPair);
   const prehours = opts?.prehours != null
     ? Math.max(0, Math.round(opts.prehours))
-    : complete && hours >= 12 ? SHORT_EVAL_HOURS : 0;
+    : complete && hours >= 12 ? prehistoryHours(opts?.policy?.shortProgress?.evalHours) : 0;
   const preTicks = prehours * TICKS_PER_HOUR;
   const totalTicks = preTicks + ticks;
   const engine = initVstEngine(use, {
@@ -9293,6 +9353,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
   let internStage: import("./types.ts").SimStageTape = { n: 0, pf: 0, net: 0, wr: 0 };
   let afterEvalStage: import("./types.ts").SimStageTape = { n: 0, pf: 0, net: 0, wr: 0 };
   let afterTypesStage: import("./types.ts").SimStageTape = { n: 0, pf: 0, net: 0, wr: 0 };
+  let prehistorySampleCoverage: SampleCoverage | undefined;
   let preSnap = {
     hours: prehours,
     trades: 0,
@@ -9328,6 +9389,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       const examEq = engine.stats.equity;
       const blk = opts?.block ?? engine.blockCfg ?? DEFAULT_BLOCK_CONFIG;
       finishBaseEval(engine, blk);
+      prehistorySampleCoverage = lastNSampleCoverage(engine);
       internStage = {
         n: examTrades,
         pf: examPf,
@@ -9904,10 +9966,15 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     returnLoss: liveRatioL,
     settledSlices: [...scoredSymbols.values()].reduce((n, row) => n + row.trades, 0),
     qualification: prehours > 0 ? "post-base" as const : "discovery" as const,
+    sampleCoverage: lastNSampleCoverage(engine),
+    prehistorySampleCoverage,
     statisticsScope: prehours > 0
       ? "Synthetic model: owned settled slices after Base; prehistory and selected subsets excluded"
       : "Synthetic discovery only: no completed Base qualification; not a live-readiness result",
     net: reportNet,
+    netScope: "Modeled marked equity change; includes open positions and retained discovery inventory",
+    settledNet: liveRealized,
+    markedMinusSettledNet: reportNet - liveRealized,
     mdd: reportMdd,
     equity: engine.stats.equity,
     slExits: prehours > 0 ? liveSl : engine.ledger.slExits,
@@ -11850,7 +11917,7 @@ export function isShortComboRel(
 
 export function liveShouldExecute(
   e: VstEngine,
-  rel: ConfigIdentity & {
+  rel: ConfigIdentity & StepPfContext & {
     symbol: string;
     side: Side;
     tactic?: TacticKind;
@@ -11864,6 +11931,7 @@ export function liveShouldExecute(
     slOfTp?: number;
   },
 ): boolean {
+  registerSampleContext(e, { ...rel, connId: e.activeConnId });
   const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
   const note = String(rel.note || "");
   const play = String(rel.playbook || "");
@@ -11937,6 +12005,7 @@ export function queueOrder(e: VstEngine, o: LiveOrder): void {
   o.microRange ??= e.microRange === true;
   o.modelRtCost ??= modeledPositionCost(e, o.symbol);
   o.minSlDistancePct ??= normalizeMinSlDistancePct(e.minSlDistancePct);
+  registerSampleContext(e, o);
   e.queue.push(o);
 }
 

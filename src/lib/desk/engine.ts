@@ -1,3 +1,4 @@
+import { DEFAULT_PREHISTORY_HOURS, prehistoryHours } from "./prehistory.ts";
 import { SL_TP_RATIOS, SL_TP_MIN, SL_TP_MAX, SL_TP_STEP, DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection } from "./protection-policy.ts";
 import { roundTripFeeRate } from "./fee-policy.ts";
 import { profitFactor } from "./profit-factor.ts";
@@ -750,7 +751,7 @@ export type LastNChoice = (typeof LAST_N_OPTIONS)[number];
 export const STAGE_HOURS = [4, 8, 16] as const;
 /** Auto-eval pre-historic lookback for Short Progress / live GRID lock. */
 export const AUTO_EVAL_HOURS = [4, 8, 16, 20] as const;
-export const SHORT_EVAL_HOURS = 20;
+export { DEFAULT_PREHISTORY_HOURS as SHORT_EVAL_HOURS } from "./prehistory.ts";
 export const SYMBOL_EVAL_HOURS = 100;
 export const SYMBOL_HOUR_WINDOWS = [4, 8, 16, 20, 24, 48, 100] as const;
 export type StageHour = (typeof STAGE_HOURS)[number];
@@ -3135,10 +3136,10 @@ const TICK_RING_MAX = 72;
 /** Closed bars before the live print. Live price replaces the last point each refresh. */
 const HIST_BARS: Record<string, { px: number; hi: number; lo: number }[]> = {};
 
-export function seedIndicationHistory(symbol: string, bars: { px: number; hi: number; lo: number }[]): number {
+export function seedIndicationHistory(symbol: string, bars: { px: number; hi: number; lo: number }[], lookbackHours = DEFAULT_PREHISTORY_HOURS): number {
   const clean = (bars || []).filter((b) => b && b.px > 0 && b.hi > 0 && b.lo > 0 && b.hi + 1e-12 >= b.lo);
   if (!symbol || clean.length < 8) return 0;
-  HIST_BARS[symbol] = clean.slice(-48);
+  HIST_BARS[symbol] = clean.slice(-prehistoryHours(lookbackHours));
   return HIST_BARS[symbol].length;
 }
 
@@ -3328,7 +3329,7 @@ export function indicationFromQuote(
   const ringLive = symbol ? pushTick(symbol, q) : [];
   const hist = symbol ? HIST_BARS[symbol] : undefined;
   const ring = hist && hist.length >= 14
-    ? hist.slice(-48).map((b, i, arr) => {
+    ? hist.map((b, i, arr) => {
         const live = i === arr.length - 1;
         const barPx = live ? px : b.px;
         return {

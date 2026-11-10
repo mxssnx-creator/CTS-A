@@ -19,6 +19,9 @@ test("long desk simulations preserve Micro/Minimal/Short settings, costs and dis
       assert.deepEqual(request.cfg, cfg); assert.equal(request.tactic, "axis");
       assert.equal(request.options.symbolCount, 4); assert.equal(request.options.rangeType, "fibonacci");
       assert.equal(request.options.prehours, SHORT_EVAL_HOURS);
+      e.shortProgress={...e.shortProgress!,evalHours:96};
+      assert.equal(simulationRequest(hours,state).options.prehours,96);
+      e.shortProgress={...e.shortProgress!,evalHours:SHORT_EVAL_HOURS};
       assert.deepEqual(request.options.block, state.blockConfig);
       assert.deepEqual(request.options.strategyToggles, state.strategyToggles);
       assert.equal(request.options.costStep, 7);

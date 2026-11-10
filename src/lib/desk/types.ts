@@ -1005,6 +1005,8 @@ export interface SymbolTape {
 }
 
 export interface SimReport {
+  sampleCoverage?: import("./last-n-samples.ts").SampleCoverage;
+  prehistorySampleCoverage?: import("./last-n-samples.ts").SampleCoverage;
   hours: number;
   ticks: number;
   symbols: number;
@@ -1469,6 +1471,10 @@ export interface VstEngine {
   intervalStrategy?: IntervalStrategyConfig;
   lastNProgress?: LastNProgressConfig;
   progressEval?: ProgressEval;
+  /** Registered exact candidates, including denied/cancelled candidates with zero closes. */
+  configuredSampleContexts?: Record<string, import("./vst.ts").ConfigIdentity>;
+  /** Up to Last-200 per own Base cohort; survives a serialized engine restart. */
+  frozenBaseSamples?: import("./vst.ts").ConfigTapeRow[];
   /** Coordinated active last-N / types / combos. Not the settings grid. */
   lastNCoord?: LastNCoordState;
   /** Paper-only: arm every indication × config independently (thousands of orders). */

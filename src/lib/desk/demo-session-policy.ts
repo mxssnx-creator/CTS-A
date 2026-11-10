@@ -1,4 +1,4 @@
-import { clampBlockVol, clampSharedVol, clampOverallVol, sanitizeBlockCounts, sanitizeLastNProgress, sanitizeStrategyToggles } from "./engine.ts";
+import { allMicroCombos, allMinimalCombos, clampBlockVol, clampSharedVol, clampOverallVol, sanitizeBlockCounts, sanitizeLastNProgress, sanitizeStrategyToggles } from "./engine.ts";
 import type { BlockConfig, StrategyToggles, TacticConfig } from "./types.ts";
 
 /** An acknowledged close cannot release ownership before the venue confirms flat. */
@@ -15,6 +15,28 @@ export function demoTacticSettings(config: TacticConfig, toggles: StrategyToggle
     dcaCount: toggles.dca ? Math.max(1, Math.round(config.dcaCount)) : 1,
     trailingPct: toggles.trailing ? Math.max(0, config.trailingPct) : 0,
   };
+}
+
+/** The session sweep must keep the selected native range family. A periodic
+ * Short rebuild used to silently replace Micro/Minimal settings. */
+export function demoRangeConfigs(config: TacticConfig, short: Partial<TacticConfig>[]): TacticConfig[] {
+  const cells = config.microRange ? allMicroCombos()
+    : config.minimalRange ? allMinimalCombos()
+    : config.shortRange ? short : [config];
+  return cells.map(cell => ({ ...config, ...cell,
+    microRange: config.microRange === true,
+    minimalRange: config.microRange !== true && config.minimalRange === true,
+    shortRange: config.microRange !== true && config.minimalRange !== true && config.shortRange === true,
+  }));
+}
+
+/** Full configuration equality, independent of property insertion order. */
+export function demoConfigKey(config: TacticConfig): string {
+  const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
+    : value && typeof value === "object" ? Object.fromEntries(Object.entries(value)
+      .filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => [k, canonical(v)])) : value;
+  return JSON.stringify(canonical(config));
 }
 
 export function demoBlockSettings(current: BlockConfig, patch: Partial<BlockConfig> | undefined, toggles: StrategyToggles): BlockConfig {
