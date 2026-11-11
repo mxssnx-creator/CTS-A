@@ -24,8 +24,8 @@
   },
   "prehours": 48,
   "hours": 24,
-  "symbolCount": 3,
-  "elapsedMs": 12729.91823,
+  "symbolCount": 8,
+  "elapsedMs": 9788.808,
   "report": {
     "hours": 24,
     "ticks": 1440,

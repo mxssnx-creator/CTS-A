@@ -12,7 +12,9 @@ The audit accepts an initial SL legitimately raised to its own cost-plus-minimum
 
 ## Bounded generated-tape diagnostic
 
-This is synthetic native processing, not historical market data or x02 venue acceptance. Three symbols, 48h generated prehistory and 24h generated trading, frozen clock/seed. Repeating the run gives identical economics and sample coverage. Settled PF **0.000**, **26** settled slices; settled net **-1.646162** model currency. Stop-ratio audit violations: **0**. No profitability preset is promoted.
+This is synthetic native processing, not historical market data or x02 venue acceptance. Eight symbols, 48h generated prehistory and 24h generated trading, frozen clock/seed. Repeating the run gives identical economics and sample coverage. Settled PF **0.000**, **26** settled slices; settled net **-1.646162** model currency. Stop-ratio audit violations: **0**. No profitability preset is promoted.
+
+Final report reconciliation corrected the launcher's requested symbol count of three: the native engine had enforced its minimum of eight, as the report and per-symbol rows already showed. The launcher now accepts its actual 8–12 range and asserts the report's effective count. A frozen rerun with an explicit eight preserves every economic result and coverage count; the former three-symbol label was incorrect.
 
 At final Last-15 coverage, **137** registered contexts include **105** with unavailable provenance, **32** known short histories and **0** complete histories. Therefore overall sample readiness is **unavailable**, not a fabricated percentage. There is no market-data tape adapter for this engine equivalent to the CTS-G study.
 

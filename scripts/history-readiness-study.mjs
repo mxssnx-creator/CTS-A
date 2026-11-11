@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /** Native generated-tape diagnostics. No exchange transport, credentials or orders. */
 import { mkdirSync, writeFileSync } from "node:fs";
+import assert from "node:assert/strict";
 import { DEFAULT_TACTIC_CONFIG, DEFAULT_BLOCK_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "../src/lib/desk/engine.ts";
 import { simulateHours } from "../src/lib/desk/vst.ts";
-const [range="micro",preArg="48",symbolArg="3",output="docs/verification/history-study"] = process.argv.slice(2);
+const [range="micro",preArg="48",symbolArg="8",output="docs/verification/history-study"] = process.argv.slice(2);
 if (!["micro","minimal","short"].includes(range)) throw new Error("Unknown range");
 const prehours=Number(preArg),symbolCount=Number(symbolArg),hours=24;
-if (![24,48].includes(prehours) || !Number.isInteger(symbolCount) || symbolCount<3 || symbolCount>12) throw new Error("Study is bounded to 48/72 total hours and 3–12 symbols");
+if (![24,48].includes(prehours) || !Number.isInteger(symbolCount) || symbolCount<8 || symbolCount>12) throw new Error("Study is bounded to 48/72 total hours and the native 8–12 symbol range");
 const cfg={...DEFAULT_TACTIC_CONFIG,microRange:range==="micro",minimalRange:range==="minimal",shortRange:range==="short",
   tpAtr:range==="micro"?.3:range==="minimal"?2:.6,slOfTp:.5};
 const t0=performance.now();
@@ -16,10 +17,13 @@ let randomState=seed;
 Date.now=()=>frozenClock;
 Math.random=()=>{randomState=(Math.imul(1664525,randomState)+1013904223)>>>0;return randomState/4294967296;};
 console.log(JSON.stringify({event:"start",range,prehours,hours,symbolCount}));
-const {report}=simulateHours(hours,cfg,"trailing",{symbolCount,prehours,complete:false,comboOnly:true,
-  rangeType:"atr",block:{...DEFAULT_BLOCK_CONFIG,enabled:false,overall:false},
-  strategyToggles:{...DEFAULT_STRATEGY_TOGGLES,normal:true,trailing:true,axis:false,dca:false,block:false}});
-Date.now=realNow; Math.random=realRandom;
+let report;
+try {
+  ({report}=simulateHours(hours,cfg,"trailing",{symbolCount,prehours,complete:false,comboOnly:true,
+    rangeType:"atr",block:{...DEFAULT_BLOCK_CONFIG,enabled:false,overall:false},
+    strategyToggles:{...DEFAULT_STRATEGY_TOGGLES,normal:true,trailing:true,axis:false,dca:false,block:false}}));
+} finally { Date.now=realNow; Math.random=realRandom; }
+assert.equal(report.symbols,symbolCount,"Report must describe the native effective universe");
 const result={frozenClock,seed,evidence:"native CTS-A generated tape; synthetic, not historical market or venue acceptance",
   comparison:"Different generated prehistory lengths; not a same-period market comparison",
   range,cfg,prehours,hours,symbolCount,elapsedMs:performance.now()-t0,report};
