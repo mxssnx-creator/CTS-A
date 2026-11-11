@@ -1137,6 +1137,12 @@ export function SettingsView() {
               </select>
               <span className="mt-1 block text-muted">Uses known price-percent targets and Minimal cost steps; stricter lane floors remain.</span>
             </label>
+            <RangeKnob label="Micro minimum SL (% of entry)" value={cfg.microMinSlDistancePct ?? .1} min={0} max={10} step={.01}
+              format={(n) => `${n.toFixed(2)}%`} ariaLabel="Micro minimum stop distance"
+              onChange={(n) => setCfg({ microMinSlDistancePct: n })} />
+            <RangeKnob label="Micro minimum trailing gap (% of entry)" value={cfg.microMinTrailDistancePct ?? .05} min={0} max={10} step={.01}
+              format={(n) => `${n.toFixed(2)}%`} ariaLabel="Micro minimum trailing gap"
+              onChange={(n) => setCfg({ microMinTrailDistancePct: n })} />
             <RangeKnob label="Minimum SL above costs (%)" value={cfg.minSlDistancePct ?? 0.1} min={0.1} max={1} step={0.1}
               format={(n) => `${n.toFixed(1)}%`} ariaLabel="Minimum initial stop distance above costs"
               onChange={(n) => setCfg({ minSlDistancePct: n })} />

@@ -267,6 +267,7 @@ export function trailStopFromPeak(input: {
   shortRange?: boolean;
   /** Minimal range: trailPct is 1–2.6 and is not snapped onto the short 1.5 pin. */
   minimalRange?: boolean;
+  microMinTrailDistancePct?: number;
 }): number {
   const { side, entry, peak, tp, sl, trailPct } = input;
   if (!(entry > 0) || !(peak > 0) || !(tp > 0)) return sl;
@@ -285,7 +286,8 @@ export function trailStopFromPeak(input: {
     : trailGiveback(peakProfit / tpDist, trailPct);
   const used = minimal ? give : wide ? give : Math.min(give, short ? 0.5 : give);
   const minFrac = minimal ? 0.1 : short ? (wide ? 0.22 : 0.16) : 0.45;
-  const gap = Math.max(peakProfit * used, tpDist * minFrac);
+  const microGap = Math.max(0, Number(input.microMinTrailDistancePct) || 0) * entry / 100;
+  const gap = Math.max(peakProfit * used, tpDist * minFrac, microGap);
   let next = peak - signed * gap;
   if (side === "long") {
     next = Math.max(next, sl);
@@ -320,9 +322,13 @@ export function snapMicroTpPct(value: number): number {
   return snapMinimalStep(value, MICRO_TP_PCT, MICRO_TP_PCT[0]);
 }
 export function microControlPrices(side: "long" | "short", entry: number, tpPct = .2, slOfTp = .5,
-  rtCost = POSITION_RT_COST_PCT, minSlDistancePct = DEFAULT_MIN_SL_DISTANCE_PCT) {
+  rtCost = POSITION_RT_COST_PCT, minSlDistancePct = DEFAULT_MIN_SL_DISTANCE_PCT, microMinSlDistancePct?: number) {
   const tpDist = entry * snapMicroTpPct(tpPct) / 100;
-  return initialProtection(side, entry, tpDist * snapSlOfTp(slOfTp), tpDist, rtCost, minSlDistancePct);
+  if (microMinSlDistancePct === undefined) return initialProtection(side, entry, tpDist * snapSlOfTp(slOfTp), tpDist, rtCost, minSlDistancePct);
+  if (!Number.isFinite(microMinSlDistancePct) || microMinSlDistancePct < 0 || microMinSlDistancePct > 10) throw new RangeError("Invalid Micro minimum SL");
+  const slDist = Math.max(tpDist * snapSlOfTp(slOfTp), entry * microMinSlDistancePct / 100);
+  const sign = side === "long" ? 1 : -1;
+  return {sl: entry - sign * slDist, tp: entry + sign * tpDist, slDist, tpDist};
 }
 export function allMicroCombos() {
   return MICRO_TP_PCT.flatMap(tpAtr => SL_OF_TP.map(slOfTp => ({ microRange: true as const,
@@ -1063,6 +1069,7 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 
 export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
   minSlDistancePct: DEFAULT_MIN_SL_DISTANCE_PCT,
+  microMinSlDistancePct: .1, microMinTrailDistancePct: .05,
   trailingPct: 1.5,
   dcaCount: 1,
   dcaDrawdown: 0.8,
