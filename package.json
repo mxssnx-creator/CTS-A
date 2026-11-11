@@ -20,7 +20,8 @@
     "test:stable": "node --experimental-strip-types --test src/lib/desk/profit-factor.test.ts src/lib/desk/settlement-integrity.test.ts src/lib/desk/last-n-progress.test.ts src/lib/desk/stable-regression.test.ts src/lib/desk/stable-book.regression.test.ts",
     "test:integrity": "node --experimental-strip-types --test src/lib/desk/lane-policy.test.ts src/lib/desk/step-pf.test.ts src/lib/desk/connection-network.test.ts src/lib/desk/demo-session-policy.test.ts src/lib/desk/simulation-request.test.ts src/lib/desk/low-range-admission.test.ts src/lib/desk/block-ownership.test.ts src/lib/desk/overlay-integrity.test.ts src/lib/desk/config-evidence.test.ts src/lib/desk/settlement-integrity.test.ts src/lib/desk/last-n-progress.test.ts src/lib/desk/profit-factor.test.ts src/lib/desk/last-n-samples.test.ts src/lib/desk/prehistory.test.ts",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:strategy-features": "node --experimental-strip-types --test src/lib/desk/strategy-processing.test.ts src/lib/desk/volume-policy.test.ts src/lib/desk/ported-indications.test.ts shared/cts-indications/ported.test.ts shared/cts-volume/ratios.test.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

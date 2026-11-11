@@ -1,3 +1,6 @@
+import {VolumeRatioSliders} from "../../../../shared/cts-volume/sliders.tsx";
+import {PORTED_CATALOG,DEFAULT_TACTIC_SOURCES,DEFAULT_INVERSE_SOURCES} from "../../../../shared/cts-indications/catalog.ts";
+import { STRATEGY_PROCESSING_RANGES } from "@/lib/desk/strategy-processing";
 import { DEFAULT_PREHISTORY_HOURS, MAX_PREHISTORY_HOURS } from "../../../lib/desk/prehistory";
 import { useMemo, useState } from "react";
 import { LAST_N_RESEARCH_NS, NEGATIVE_LAST_N_RESEARCH_NS } from "../../../lib/desk/last-n-progress";
@@ -1005,6 +1008,10 @@ export function SettingsView() {
               </button>
             ))}
           </div>
+          <div className="mt-4 space-y-2" aria-label="Strategy processing per Coordination and Range">
+            <p className="text-xs text-subtle">Coordination / Range · Normal off keeps calculations for Axis, Block and DCA. Plain Trailing also requires Normal. Both overall and range switches must be on.</p>
+            {STRATEGY_PROCESSING_RANGES.map(range=><div key={range} className="flex flex-wrap items-center gap-3"><span className="w-28 text-xs capitalize">{range}</span>{(["normal","trailing"] as const).map(key=><label key={key} className="flex items-center gap-2 text-xs"><input type="checkbox" aria-label={`${range} ${key} processing`} checked={strategyToggles.ranges?.[range]?.[key] !== false} onChange={e=>setStrategyToggles({ranges:{...strategyToggles.ranges,[range]:{...strategyToggles.ranges?.[range],[key]:e.target.checked}}})} />{key}</label>)}</div>)}
+          </div>
           <p className="mt-2 text-xs text-subtle">
             Live: {strategyToggles.normal ? "Normal lanes" : "no general lanes"}
             {strategyToggles.trailing ? " · Trailing overlay" : " · no trailing"}
@@ -1015,6 +1022,12 @@ export function SettingsView() {
         </Panel>
       </div>
 
+      <Panel title="Relational volume · Indications"><VolumeRatioSliders overall value={cfg.relationalVolumeRatios} onChange={v=>setCfg({relationalVolumeRatios:v})} buckets={{indicationTypes:['trend','break','active','direction','move','rsi','bollinger','sar','macd','ema','tactic','inverse'],indications:cfg.indicationSourceIds??[]}}/></Panel>
+      <Panel title="Relational volume · Strategies / Ranges"><VolumeRatioSliders value={cfg.relationalVolumeRatios} onChange={v=>setCfg({relationalVolumeRatios:v})} buckets={{strategies:['normal','trailing','axis','block','dca'],ranges:['normal','micro','minimal','short','linear','geometric','atr','volume','fibonacci']}}/></Panel>
+      <Panel title="Tactic & Inverse indications"><p className="mb-3 text-sm text-muted">Independent CTS-A-O sources: DCA decline / recovery levels and Inverse before entry. Every source keeps its own configuration, costs, Last-N and execution proof. Closed OHLCV is required.</p>
+        <button type="button" className={chip} onClick={()=>setCfg({indicationSourceIds:[...DEFAULT_TACTIC_SOURCES,...DEFAULT_INVERSE_SOURCES]})}>Prepare Tactic + Inverse sources</button>
+        <label className="mt-3 block text-xs">Independent source configurations<select multiple size={8} className="mt-2 w-full rounded border bg-bg p-2" aria-label="Tactic and Inverse source configurations" value={cfg.indicationSourceIds??[]} onChange={e=>setCfg({indicationSourceIds:Array.from(e.target.selectedOptions,o=>o.value)})}>{PORTED_CATALOG.map(s=><option key={s.id} value={s.id}>{s.label} · {s.id}</option>)}</select></label>
+      </Panel>
       <div id="pf-coords" className="scroll-mt-24">
         <PfCoordPanel />
       </div>
