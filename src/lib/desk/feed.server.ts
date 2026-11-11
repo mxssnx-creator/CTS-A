@@ -1513,3 +1513,12 @@ export async function refreshEngineFees(e: VstEngine, network: "mainnet" | "test
   } catch { state.next = Date.now() + 60_000; }
   finally { state.busy = false; }
 }
+
+/** Public market candles only; bounded workers and per-network caches keep order control independent. */
+export async function fetchIndicationBarBatch(network:"mainnet"|"testnet",symbols:string[]){
+ const {fetchClosedIndicationBars}=await import("./closed-indication-feed.ts");
+ const out:Record<string,import("../../../shared/cts-indications/index.ts").PortedBar[]>={};
+ let cursor=0;await Promise.all(Array.from({length:Math.min(4,symbols.length)},async()=>{
+  while(cursor<symbols.length){const symbol=symbols[cursor++];try{out[symbol]=await fetchClosedIndicationBars(network,symbol,HOSTS[network],getJson);}catch{out[symbol]=[];}}
+ }));return out;
+}

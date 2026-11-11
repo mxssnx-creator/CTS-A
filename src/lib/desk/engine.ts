@@ -1,3 +1,4 @@
+import { sanitizeStrategyRangeSwitches } from "./strategy-processing.ts";
 import { DEFAULT_PREHISTORY_HOURS, prehistoryHours } from "./prehistory.ts";
 import { SL_TP_RATIOS, SL_TP_MIN, SL_TP_MAX, SL_TP_STEP, DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection } from "./protection-policy.ts";
 import { roundTripFeeRate } from "./fee-policy.ts";
@@ -866,6 +867,7 @@ export function sanitizeStrategyToggles(raw: Partial<StrategyToggles> | null | u
   const d = DEFAULT_STRATEGY_TOGGLES;
   if (!raw || typeof raw !== "object") return { ...d };
   return {
+    ...(raw.ranges !== undefined ? {ranges: sanitizeStrategyRangeSwitches(raw.ranges)} : {}),
     normal: typeof raw.normal === "boolean" ? raw.normal : d.normal,
     trailing: typeof raw.trailing === "boolean" ? raw.trailing : d.trailing,
     axis: typeof raw.axis === "boolean" ? raw.axis : d.axis,
@@ -902,7 +904,8 @@ export function liveTacticsOf(t: StrategyToggles = DEFAULT_STRATEGY_TOGGLES): Ta
   if (t.trailing) out.push("trailing");
   if (t.axis) out.push("axis");
   if (t.dca) out.push("dca");
-  return out.length ? out : ["trailing"];
+  if (t.normal) out.push("hybrid");
+  return out;
 }
 
 export function isBlockAdjustedRel(rel: {
@@ -2272,6 +2275,8 @@ export interface IndicationHit {
 }
 
 export interface IndicationSummary {
+  [id: `tactic-${string}`]: number;
+  [id: `inverse-${string}`]: number;
   trend: number;
   break: number;
   active: number;
@@ -3547,10 +3552,15 @@ export function refreshLiveIndications(quotes: Record<string, { id: string; px: 
   let n = 0;
   for (const q of Object.values(quotes)) {
     if (!q?.id || !(q.px > 0)) continue;
-    LIVE_IND[q.id] = indicationFromQuote(q, LIVE_IND[q.id], q.id);
+    LIVE_IND[q.id] = {...indicationFromQuote(q, LIVE_IND[q.id], q.id),...(q as {portedDirections?:Record<string,number>}).portedDirections} as IndicationSummary;
     n += 1;
   }
   return n;
+}
+
+export function publishPortedIndications(symbol:string,directions:Record<string,number>) {
+  const base=LIVE_IND[symbol]??IND_CACHE[symbol]??EMPTY_IND;
+  LIVE_IND[symbol]={...base,...directions} as IndicationSummary;
 }
 
 export function symbolIndications(symbol: string): IndicationSummary {

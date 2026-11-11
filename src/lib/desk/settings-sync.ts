@@ -1,3 +1,5 @@
+import {relationalVolumeSettings} from "../../../shared/cts-volume/ratios.ts";
+import {indicationSourceIds} from "./ported-indications.ts";
 import { createServerFn } from "@tanstack/react-start";
 import { normalizeMinSlDistancePct } from "./protection-policy.ts";
 import {
@@ -251,12 +253,14 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     },
     tacticConfig: (() => {
       const minSlDistancePct = normalizeMinSlDistancePct(cfg.minSlDistancePct);
+      const sourceSettings={...(cfg.indicationSourceIds===undefined?{}:{indicationSourceIds:indicationSourceIds(cfg.indicationSourceIds)}),...(cfg.relationalVolumeRatios===undefined?{}:{relationalVolumeRatios:relationalVolumeSettings(cfg.relationalVolumeRatios,true)})};
       const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;
       if (cfg.microRange === true || asBool(cfg.minimalRange, false) || cfgUsesMinimalRange(cfg)) {
         const micro = cfg.microRange === true;
         const tpAtr = micro ? snapMicroTpPct(asNum(cfg.tpAtr, .2)) : snapMinimalTpCost(asNum(cfg.tpAtr, MINIMAL_WINNER.tpCost));
         const slOfTp = snapMinimalSlOfTp(asNum(cfg.slOfTp, MINIMAL_WINNER.slOfTp));
         return {
+          ...sourceSettings,
           minSlDistancePct,
           trailingPct: snapTrailPct(asNum(cfg.trailingPct, MINIMAL_WINNER.trailPct)),
           dcaCount: Math.min(3, Math.max(1, Math.round(asNum(cfg.dcaCount, d.tacticConfig.dcaCount)))),
@@ -281,6 +285,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         const slOfTp = clamped.slOfTp;
         const tpAtr = clamped.tpAtr;
         return {
+          ...sourceSettings,
           minSlDistancePct,
           trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.5)),
           dcaCount: Math.min(3, Math.max(1, Math.round(asNum(cfg.dcaCount, d.tacticConfig.dcaCount)))),
@@ -302,6 +307,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         asNum(cfg.tpAtr, hasPair ? 1 : asNum(cfg.slAtr, d.tacticConfig.slAtr) / Math.max(0.5, slOfTp)),
       );
       return {
+      ...sourceSettings,
       minSlDistancePct,
       trailingPct: snapTrailPct(asNum(cfg.trailingPct, 1.5)),
       dcaCount: Math.min(3, Math.max(1, Math.round(asNum(cfg.dcaCount, d.tacticConfig.dcaCount)))),

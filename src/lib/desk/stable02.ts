@@ -281,6 +281,7 @@ export function stable02Factor(q: VstQuote | undefined): number {
  */
 export function stable02ProcessSide(q: VstQuote | undefined, indication: string, tactic: string): Side | null {
   if (!q || !(q.px > 0)) return null;
+  if(indication.startsWith("tactic-")||indication.startsWith("inverse-"))return stable02EntrySide(q,indication);
   const book = stable02Book(q);
   const logistics = stable02Logistics(q.pxHist ?? []);
   const rel = stable02Relation(book, logistics);
@@ -297,6 +298,7 @@ export function stable02ProcessSide(q: VstQuote | undefined, indication: string,
 
 /** Extra side this indication or strategy wants. Null means no added entry. */
 export function stable02EntrySide(q: VstQuote | undefined, indication: string): Side | null {
+  if (indication.startsWith("tactic-") || indication.startsWith("inverse-")) {const value=q?.portedDirections?.[indication]??0;return value>0?"long":value<0?"short":null;}
   if (!IND_ENTRY.has(indication)) return null;
   const book = stable02Book(q);
   if (indication === "direction") return book.direction;

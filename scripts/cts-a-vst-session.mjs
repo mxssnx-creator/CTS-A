@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { improvesTrailingStop, confirmedUnfilledCancellation, selectTrailingControls } from "./trailing-control-policy.mjs";
 import { PendingCloseState } from "./pending-close-state.mjs";
 import { querySwapOrder } from "../src/lib/desk/feed.server.ts";
 import { minimumStopFraction, normalizeMinSlDistancePct } from "../src/lib/desk/protection-policy.ts";
@@ -337,6 +338,7 @@ const protectHold = new Map();
 const lastPostedTp = new Map();
 const lastPeakPx = new Map();
 const lastProtectQty = new Map();
+const lastTrailAttempt = new Map();
 const bookAvg = { pos: 0, ord: 0, n: 0 };
 let cachedOverall = null;
 let cachedOverallTick = -1;
@@ -2231,7 +2233,7 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
     const mode = network === "mainnet" ? "main" : "vst";
     const trailNeed = [];
     for (const p of posByVol) {
-      if (trailNeed.length >= 40) break;
+
       if (!isOwnedLeg(p.symbol, p.side)) continue;
       const key = `${p.symbol}:${p.side}`;
       if (!hasSl.has(key)) continue;
@@ -2273,20 +2275,24 @@ async function ensureProtect(network, book, cfg, vanished = new Set(), e = null)
       const tick = spec?.pxPrec != null ? Math.pow(10, -Math.max(0, spec.pxPrec)) : mark * 1e-4;
       const minMove = Math.max(tick * 3, mark * 0.0004);
       const improved = p.side === "long" ? next > cur + minMove : next < cur - minMove;
-      const tooTight = cur > 0 && curGap < minGap * 0.92 && (p.side === "long" ? next < cur - minMove : next > cur + minMove);
-      if (!(next > 0) || (!improved && !tooTight)) continue;
+      if (!improved || !improvesTrailingStop(p.side, cur, next, minMove)) continue;
       if (p.side === "long" && !(next < mark)) continue;
       if (p.side === "short" && !(next > mark)) continue;
       trailNeed.push({ p, key, spec, cell, mark, next, slOrd });
     }
-    const trailOut = await mapLimit(trailNeed.slice(0, 1), 1, async (row) => {
+    const trailOut = await mapLimit(selectTrailingControls(trailNeed, lastTrailAttempt, Date.now()), 1, async (row) => {
       const { p, key, spec, mark, next, slOrd } = row;
       const slId = String(slOrd?.id || "");
+      lastTrailAttempt.set(key, Date.now());
       const prev = Number(slOrd?.stopPrice || lastPostedSl.get(key) || 0);
       const qty = snapQtyDown(p.qty, spec);
       if (slId) {
         const c = await cancelOne(slOrd, true);
-        if (!c.ok && !/not exist|filled|nothing to cancel|no need/i.test(String(c.error || ""))) return null;
+        if (!c.ok) return null;
+        const clientOrderId = slOrd?.clientOrderId || orderLedger.get(slId)?.clientOrderId;
+        if (!clientOrderId) return null;
+        const terminal = await querySwapOrder({ network, connId: CONN, symbol: p.symbol, clientOrderId, orderId: slId });
+        if (!confirmedUnfilledCancellation(terminal, slId)) return null;
         hasSl.delete(key);
       }
       let r = await placeControl(p, qty, "STOP_MARKET", next, mark);
