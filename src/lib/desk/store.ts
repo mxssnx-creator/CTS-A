@@ -1,3 +1,4 @@
+import {refreshPortedIndications} from "./ported-indications.ts";
 import { create } from "zustand";
 import type {
   AutoValidateResult,
@@ -114,6 +115,7 @@ import {
   pingBingxAccount,
   placeBingxOrder,
   pullLiveTape,
+  pullClosedIndicationBars,
   pullExchangeBook,
   deskCredentialStatus,
   loadLiveDesk,
@@ -438,6 +440,21 @@ function queueExchangeOpen(get: () => { activeConnId: string; connections: Conne
       liveBotSent.delete(`ex:${id}:${sym}`);
       set({ ticketMsg: `LIVE rejected ${id}: ${err instanceof Error ? err.message : "order failed"}` });
     });
+}
+const sourcePulls=new Map<string,number>();
+async function pullSourceCandles(e:VstEngine,network:"mainnet"|"testnet",connId:string,ids:readonly string[],stillCurrent:()=>boolean,currentEngine:()=>VstEngine){
+ if(!ids.length)return;
+ const key=connId+':'+network,minute=Math.floor(Date.now()/60000);
+ if(sourcePulls.get(key)===minute||sourcePulls.get(key)===-1)return;
+ sourcePulls.set(key,-1);
+ try{
+  const symbols=Object.keys(e.quotes).slice(0,e.symbolCount||20);
+  const rows=await pullClosedIndicationBars({data:{network,symbols}});
+  if(!stillCurrent())return;
+  const current=currentEngine();
+  for(const [symbol,bars]of Object.entries(rows))if(current.quotes[symbol])current.quotes[symbol].closedBars=bars;
+  refreshPortedIndications(current,ids);
+ }finally{sourcePulls.set(key,minute);}
 }
 let pulling = false;
 let bookPulling = false;
@@ -1720,6 +1737,9 @@ export const useDesk = create<DeskStore>((set, get) => ({
       }
       const e = get().vst;
       applyLiveTape(e, snap.tickers);
+      const sourceContext=String(conn?.id)+':'+network;
+      if(e.indicationBarsContext!==sourceContext){for(const q of Object.values(e.quotes)){q.closedBars=[];q.portedDirections={};}e.indicationBarsContext=sourceContext;}
+      void pullSourceCandles(e,network,conn?.id??get().activeConnId,get().tacticConfig.indicationSourceIds??[],()=>get().activeConnId===(conn?.id??get().activeConnId)&&get().vst.indicationBarsContext===sourceContext,()=>get().vst).catch(()=>{});
       set({
         vst: snapshotVst(e),
         feed: {

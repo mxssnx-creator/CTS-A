@@ -338,7 +338,7 @@ describe("live feed", () => {
 
   it("live protect keeps SL/TP ratio (does not clamp trail to 1:1)", () => {
     const p = liveProtectPrices(100, "long", 0.525, 1 / 1.5, null, "main");
-    assert.ok(p.slPct + 1e-9 >= 0.008, `slPct ${p.slPct}`);
+    assert.ok(p.slPct >= 0.00525 && p.slPct <= 0.00535, `requested 0.525% stop rounded away to one tick: ${p.slPct}`);
     assert.ok(p.tpPct + 1e-9 < p.slPct, `tp ${p.tpPct} should be < sl ${p.slPct} for slOfTp 1.5`);
     assert.ok(Math.abs(p.slPct / p.tpPct - 1.5) < 0.35, `ratio ${p.slPct / p.tpPct}`);
     assert.ok(p.sl < 100 && p.tp > 100);

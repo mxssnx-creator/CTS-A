@@ -1,3 +1,4 @@
+import {blockPrefix,blockRequired,checkBlockPolicy,evaluateBlocks,type BlockResult} from "../../../shared/cts-lastn/blocks.ts";
 import type { LastNCompleteScore, LastNOverallScore, LastNPassMode, LastNProgressConfig } from "./types";
 import { profitFactor } from "./profit-factor.ts";
 import { negativeLastN, negativeLastNDecision, type NegativeResult } from "./negative-last-n.ts";
@@ -99,12 +100,14 @@ export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null |
       return { ...sanitizeLastNProgress(p), id: p.id, role: p.role };
     });
   }
+  if(raw.blocks!==undefined) checkBlockPolicy(raw.blocks);
   const mode: LastNPassMode =
     raw.mode === "independent" || raw.mode === "combined" || raw.mode === "parallel" || raw.mode === "majority"
       ? raw.mode
       : d.mode;
   return {
     ...(policies === undefined ? {} : { policies }),
+    ...(raw.blocks ? {blocks:{...raw.blocks}} : {}),
     ...(raw.negativeFilter == null ? {} : {negativeFilter:negativeLastN(raw.negativeFilter)}),
     evalNs: sanitizeNs(raw.evalNs, EVAL_POS_NS, d.evalNs),
     validNs: sanitizeNs(raw.validNs, VALID_EXEC_NS, d.validNs),
@@ -116,7 +119,7 @@ export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null |
 }
 
 export function lastNMaxOf(cfg: LastNProgressConfig): number {
-  return Math.max(1, ...cfg.evalNs, ...cfg.validNs, ...cfg.disableNs, ...(cfg.negativeFilter?.windows ?? []), ...(cfg.policies ?? []).map(p => lastNMaxOf(p)));
+  return Math.max(1, cfg.blocks?blockRequired(cfg.blocks):0, ...cfg.evalNs, ...cfg.validNs, ...cfg.disableNs, ...(cfg.negativeFilter?.windows ?? []), ...(cfg.policies ?? []).map(p => lastNMaxOf(p)));
 }
 
 /** Prefix sums over newest-first rows. O(min(len, maxN)) then O(1) per window. */
@@ -269,6 +272,13 @@ export function decideLastNFromPrefix(
     return { ...policyDecisions[selected.id], pass: passing.length > 0,
       stack: passing.length ? Math.max(...passing.map(p => policyDecisions[p.id].stack)) : 1,
       selectedPolicy: selected.id, policyDecisions };
+  }
+  if(cfg.blocks){
+    const v=evaluateBlocks(blockPrefix(pre.values??[],blockRequired(cfg.blocks)),cfg.blocks,Math.max(1.000001,minPf,basePf));
+    const hit=(w:BlockResult):LastNWindowHit=>({n:w.requested,samples:w.count,pf:w.pf===Infinity?99:w.pf??0,avg:w.count?w.net/w.count:0,net:w.net,ok:w.state==="qualified"});
+    const pass=v.state==="qualified";
+    // Signed blocks are conjunctive evidence on this exact lane; they never multiply its volume.
+    return {pass,independent:pass,combined:pass,majority:pass,stack:1,evalHits:[hit(v.long)],validHits:[hit(v.short)],disableHits:[hit(v.minimal)]};
   }
   const evalHits = hitsOf(pre, cfg.evalNs);
   const validHits = hitsOf(pre, cfg.validNs);

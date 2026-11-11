@@ -28,6 +28,7 @@ export type StrategyKind = "normal" | "trend" | "mean" | "breakout" | "volume" |
 
 /** Independent live switches. Normal is always computed internally even when live is off. */
 export interface StrategyToggles {
+  ranges?: import("./strategy-processing.ts").StrategyRangeSwitches;
   /** Live-execute the Normal and Trailing base sets. Off = those bases stay calc-only. Axis, Block, and DCA still run. */
   normal: boolean;
   /** Trailing stop only. Off = no trail anywhere, including Axis, Block, and DCA. */
@@ -58,7 +59,7 @@ export interface PfCoordHits {
   again: number;
   scratch: number;
 }
-export type IndicationId =
+export type IndicationId = `tactic-${string}` | `inverse-${string}`
   | "trend"
   | "break"
   | "active"
@@ -542,6 +543,8 @@ export interface FeedStatus {
 }
 
 export interface TacticConfig {
+  indicationSourceIds?: string[];
+  relationalVolumeRatios?: import("../../../shared/cts-volume/ratios.ts").RelationalVolumeRatios;
   /** Net initial stop distance in price percent, added to modeled round-trip costs. */
   minSlDistancePct?: number;
   stepPf?: import("./step-pf.ts").StepPfRules;
@@ -641,6 +644,7 @@ export interface LastNCompleteScore {
 
 /** Multi last-N progress: Base eval 15–80 / Valid 8–24 / Disable 6–20. Independent, combined, or both (parallel stack). */
 export interface LastNProgressConfig {
+  blocks?: import("../../../shared/cts-lastn/blocks").BlockPolicy;
   negativeFilter?: import("./negative-last-n").NegativeLastN;
   /** Independent policies on this exact configuration stream; never a pooled sibling tape. */
   policies?: Array<Omit<LastNProgressConfig, "policies"> & { id: string; role: "major" | "minor" | "independent" | "additional" }>;
@@ -765,6 +769,8 @@ export interface VstQuote {
   open?: number;
   /** Recent closes for Stable-02 indication and strategy entry. */
   pxHist?: number[];
+  closedBars?: import("../../../shared/cts-indications/index.ts").PortedBar[];
+  portedDirections?: Record<string, number>;
 }
 
 export interface LiveOrder {
@@ -1506,6 +1512,9 @@ export interface VstEngine {
   /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
   microRange?: boolean;
   strategyToggles?: StrategyToggles;
+  indicationSourceIds?: IndicationId[];
+  indicationBarsContext?: string;
+  relationalVolumeRatios?: import("../../../shared/cts-volume/ratios.ts").RelationalVolumeRatios;
   /** PF coordinations. Missing = hour-keep only (older books). */
   pfCoords?: PfCoordToggles;
   pfCoordHits?: PfCoordHits;

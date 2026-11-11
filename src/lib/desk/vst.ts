@@ -1,3 +1,7 @@
+import {laneVolumeFactor,additionalLaneVolumeFactor} from "./volume-policy.ts";
+import {indicationSourceIds,refreshPortedIndications} from "./ported-indications.ts";
+import {publishPortedIndications} from "./engine.ts";
+import { strategyTogglesForRange } from "./strategy-processing.ts";
 import { prehistoryHours } from "./prehistory.ts";
 import { extendOwnSampleHistory, sampleRows, type SampleCoverage } from "./last-n-samples.ts";
 import { measuredEdgePnl } from "./last-n-progress.ts";
@@ -1191,7 +1195,7 @@ function lastNTapePass(e: VstEngine, rows: { pnl: number }[] | undefined, floor 
   const evalCount = evalWindowCount(cfg);
   // Legacy default warm-up remains available; explicit independent policies and
   // negative vetoes must reach their own decision, even on a short tape.
-  if (rows.length < evalCount && !cfg.policies?.length && !cfg.negativeFilter) return nearLastNPass(rows, 8, base);
+  if (rows.length < evalCount && !cfg.policies?.length && !cfg.negativeFilter && !cfg.blocks) return nearLastNPass(rows, 8, base);
   const d = decideLastN(rows, cfg, base, base);
   const validOk = d.validHits.some((h) => h.samples >= h.n && h.pf + 1e-9 >= base && h.net > 0);
   if (!validOk || !d.pass) return false;
@@ -2844,18 +2848,26 @@ export function pickLiveTactic(e: VstEngine, ind: IndicationId, fallback: Tactic
 
 /** Every enabled tactic — no skip of trailing/axis/hybrid. DCA only if toggle on. A switch that is off stays off, including during the eval. */
 export function enabledLiveTactics(e: VstEngine): TacticKind[] {
-  const tog = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  const tog = strategyProcessingFor(e);
   const intern = internAllPhase(e);
   const out: TacticKind[] = [];
-  if (tog.trailing !== false && (intern || tog.normal !== false)) out.push("trailing");
+  if (tog.trailing !== false && (intern || tog.normal !== false || tog.block)) out.push("trailing");
   if (tog.axis !== false) out.push("axis");
-  if (intern || tog.normal !== false) out.push("hybrid");
+  if (intern || tog.normal !== false || tog.block) out.push("hybrid");
   if (tog.dca) out.push("dca");
   return out;
 }
 
-function trailingOverlayOn(e: VstEngine): boolean {
-  return (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).trailing !== false;
+export function strategyProcessingFor(e: VstEngine, rel?: { rangeType?: RangeType; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean }) {
+  const micro = rel?.microRange ?? e.microRange;
+  const minimal = rel?.minimalRange ?? e.minimalRange;
+  const short = rel?.shortRange ?? e.shortRange;
+  return strategyTogglesForRange(e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES,
+    micro ? "micro" : minimal ? "minimal" : short ? "short" : "normal", rel?.rangeType ?? e.lastRange);
+}
+
+function trailingOverlayOn(e: VstEngine, rel?: { rangeType?: RangeType; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean }): boolean {
+  return strategyProcessingFor(e, rel).trailing;
 }
 
 /** All catalog indications, winner and higher-quality first. Never drops a lane. */
@@ -2873,6 +2885,8 @@ function liveLaneScore(e: VstEngine, ind: string): number {
   return verdict ? 60 : -80;
 }
 
+function allEngineIndications(e?:VstEngine):IndicationId[]{return [...new Set([...SHORT_PROGRESS_INDICATIONS,...(e?.indicationSourceIds??[])])];}
+
 function liveTacticScore(e: VstEngine, tac: string): number {
   const bag = liveIndTally.get(e);
   if (!bag) return 0;
@@ -2889,7 +2903,7 @@ function liveTacticScore(e: VstEngine, tac: string): number {
 
 export function rankIndications(e: VstEngine, pack: Parameters<typeof indicationQuality>[1], winner: IndicationId): IndicationId[] {
   const picked = (e.shortProgress?.indications?.length ? e.shortProgress.indications : SHORT_PROGRESS_INDICATIONS) as IndicationId[];
-  const catalog = [...new Set<IndicationId>([...COMMON_INDICATIONS, ...picked])];
+  const catalog = [...new Set<IndicationId>([...COMMON_INDICATIONS, ...picked,...(e?.indicationSourceIds??[])])];
   const after = Boolean(e.preEvalDone && !internAllPhase(e));
   const score = (id: IndicationId) => {
     const q = indicationQuality(id, pack);
@@ -3424,6 +3438,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       trailPct?: number;
     }>();
     for (const ind of inds) {
+      const exactSource=ind.startsWith("tactic-")||ind.startsWith("inverse-");
+      const sourceSide=exactSource?stable02EntrySide(q,ind):null;
+      if(exactSource&&!sourceSide)continue;
       if (fresh >= freshCap) break;
       if (e.skipIndications?.includes(ind)) continue;
       let sides = trySides;
@@ -3480,7 +3497,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         }
       }
       const axisInd = tac === "axis";
-      const normalOff = e.strategyToggles?.normal === false;
+      const normalOff = !strategyProcessingFor(e, {rangeType: rangeType ?? e.lastRange,microRange:cfg.microRange,minimalRange:cfgUsesMinimalRange(cfg),shortRange:cfgUsesShortRange(cfg)}).normal;
       const book = tac === "dca"
         ? "dca"
         : tac === "axis"
@@ -3489,9 +3506,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             ? (cfgUsesShortRange(cfg) ? "short" : "normal")
             : cfgUsesShortRange(cfg)
               ? "short"
-              : normalOff
-                ? "short"
-                : openPlaybook(tac, ind);
+              : openPlaybook(tac, ind);
       const kind = cfgUsesShortRange(cfg) ? "short" : kindFromIndication(ind, book, tac);
       const range = pickIndicationRange(e, ind, rangeType ?? e.lastRange ?? "atr");
       const shortLane = cfgUsesShortRange(cfg);
@@ -3501,7 +3516,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         (DEFAULT_LOSING_HOUR_INDS as readonly string[]).includes(ind) ||
         ind === "break" ||
         ind === "active";
-      const fadeSide = (tac === "axis" ? [processed || axisEntrySide(q)] : tac === "dca" ? [direction(q)] : sides).filter(
+      const fadeSide = (exactSource ? (sourceSide&&sides.includes(sourceSide)?[sourceSide]:[]) : tac === "axis" ? [processed || axisEntrySide(q)] : tac === "dca" ? [direction(q)] : sides).filter(
         (side) => !e.manualClosed?.[`${s.id}:${side}`] && !(processed === null && side === stable02EntrySide(q, ind)),
       );
       for (const side of fadeSide) {
@@ -3740,7 +3755,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             const anchor = nearBook ? q.px * 0.7 + q.axis * 0.3 : q.axis;
             const px = side === "long" ? anchor - nearOff : anchor + nearOff;
             if (px <= 0) return;
-            const baseQty = notional / px;
+            const baseQty = notional / px * laneVolumeFactor(cfg.relationalVolumeRatios,{symbol:s.id,indication:ind,tactic:tac,playbook:book,microRange:cfg.microRange,minimalRange:cfgUsesMinimalRange(cfg),shortRange:short,rangeType:leg.range});
             const qty = axisInd ? baseQty * axisPartial : baseQty;
             const lv0 = !short && (axisInd || book === "dca")
               ? axisProtect(px, side, q, hi.spacing, cfg, hi.rangeType, modeledPositionCost(e, s.id))
@@ -3814,10 +3829,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 symbol: s.id,
                 side,
                 type: "limit",
-                qty,
+                qty:qty*additionalLaneVolumeFactor(e.relationalVolumeRatios,{tactic:tac,playbook:book},"block"),
                 filled: 0,
                 price: px,
-                remaining: qty,
+                remaining:qty*additionalLaneVolumeFactor(e.relationalVolumeRatios,{tactic:tac,playbook:book},"block"),
                 status: "queued",
                 rangeType: hi.rangeType,
                 level: 1,
@@ -5413,7 +5428,7 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   const px = q.px;
   const legN = p.legs.length;
   const scale = legN <= 1 ? 0.4 : legN === 2 ? 0.25 : 0.15;
-  const qty = Math.max((positionNotional(paperSizeEquity(e), e.costStep || 10) / px) * scale, 1e-8);
+  const qty = Math.max((positionNotional(paperSizeEquity(e), e.costStep || 10) / px) * scale * laneVolumeFactor(e.relationalVolumeRatios,p,"dca"), 1e-8);
   const nextQty = Math.max(p.qty, 0) + qty;
   const nextAvg = nextQty > 0 ? (p.avgEntry * Math.max(p.qty, 0) + px * qty) / nextQty : px;
   if (p.side === "long" ? !(p.sl < nextAvg && p.tp > nextAvg) : !(p.sl > nextAvg && p.tp < nextAvg)) return;
@@ -5627,7 +5642,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     }
     const miniTrail = minimalPos ? minimalTrailPct(p.tpAtr || cfg.tpAtr || 0, p.slOfTp || cfg.slOfTp || 0) : null;
     if (opts?.liveTape || e.liveTape) {
-      if (trailingOverlayOn(e) && !botBook && (!minimalPos || miniTrail != null)) {
+      if (trailingOverlayOn(e, p) && !botBook && (!minimalPos || miniTrail != null)) {
         const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
         p.peakPx = p.peakPx && p.peakPx > 0
           ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
@@ -7384,7 +7399,7 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
   const typeFloor = internAllPhase(e) ? GATED_MIN_PF : Math.max(GATED_MIN_PF, basePf);
   const indications = coverCatalogRows(
     scoreTypeMap(grouped.ind, ln, typeFloor, typeFloor),
-    SHORT_PROGRESS_INDICATIONS,
+    allEngineIndications(e),
   );
   const tactics = coverCatalogRows(
     scoreTypeMap(grouped.tac, ln, typeFloor, typeFloor),
@@ -7479,7 +7494,7 @@ export function refreshProgressEvals(e: VstEngine, block: BlockConfig = e.blockC
       ranges,
       tactics,
       playbooks,
-      indicationKeys: SHORT_PROGRESS_INDICATIONS,
+      indicationKeys: allEngineIndications(e),
       rangeKeys: RANGE_TYPES,
       tacticKeys: ["trailing", "axis", "hybrid", "dca"],
       playbookKeys: ["short", "block", "axis", "normal", "dca"],
@@ -8432,7 +8447,7 @@ export function adjustActiveBlocks(
           const stepMode: "additive" | "shared" = mode;
           const prove = blockProveScale(e, next);
           const step = relExtra ? 0 : blockStepQty(lane.baseQty, next, vr * prove, maxMul, 1, 0, stepMode);
-          const qty = step + Math.max(0, extraQty);
+          const qty = (step + Math.max(0, extraQty))*additionalLaneVolumeFactor(e.relationalVolumeRatios,p,"block");
           if (!(qty > 0)) return false;
           (overallKind ? plannedOv : plannedRel).push({ overallKind, next, qty, scope, mode, lane, relExtra });
           if (overallKind) {
@@ -8610,8 +8625,7 @@ export function adjustActiveBlocks(
 }
 
 function dropUnadjustedNormal(e: VstEngine) {
-  if ((e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).normal !== false) return;
-  const plain = (o: LiveOrder) => ownedByDesk(o, e.activeConnId) && unadjustedNormalOrder(o);
+  const plain = (o: LiveOrder) => !strategyProcessingFor(e, o).normal && ownedByDesk(o, e.activeConnId) && unadjustedNormalOrder(o);
   if (e.queue.some(plain)) {
     for (const o of e.queue) if (plain(o)) markTerminal(e, o, "cancelled");
     e.queue = e.queue.filter((o) => !plain(o));
@@ -8656,8 +8670,12 @@ function capBookCheap(e: VstEngine) {
   }
 }
 
-export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { freezeIds?: Set<string>; skipWalk?: boolean; skipMatch?: boolean; bookOnly?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
+export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { indicationTime?:number; freezeIds?: Set<string>; skipWalk?: boolean; skipMatch?: boolean; bookOnly?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
   ensureEngine(e);
+  e.relationalVolumeRatios=cfg.relationalVolumeRatios;
+  e.indicationSourceIds=indicationSourceIds(cfg.indicationSourceIds);
+  refreshPortedIndications(e,e.indicationSourceIds,opts?.indicationTime??Date.now());
+  for(const q of Object.values(e.quotes))if(q.portedDirections)publishPortedIndications(q.id,q.portedDirections);
   if (cfg.minSlDistancePct !== undefined) e.minSlDistancePct = normalizeMinSlDistancePct(cfg.minSlDistancePct);
   if (cfg.fees) e.fees = feePolicy(cfg.fees);
   if (cfg.stepPf) e.stepPf = { ...DEFAULT_STEP_PF, ...cfg.stepPf };
@@ -9722,7 +9740,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
         paperN: hourPaperN,
         paperPf: hourPaperN ? profitFactor(hourPaperP, hourPaperL) : 0,
         paperNet: hourPaperN ? hourPaperP - hourPaperL : 0,
-        inds: coverBag(asBag(hourIndSnap), SHORT_PROGRESS_INDICATIONS),
+        inds: coverBag(asBag(hourIndSnap), allEngineIndications(engine)),
         plays: coverBag(asBag(hourPlaySnap), ["short", "block", "axis", "normal", "dca"]),
         playInds: Object.fromEntries(hourPlayIndSnap.map((r) => [r.id, { n: r.n, pf: r.pf, net: r.profit - r.loss, profit: r.profit, loss: r.loss }])),
         kinds: Object.fromEntries(hourKindSnap.map((r) => [r.id, { n: r.n, pf: r.pf }])),
@@ -9836,7 +9854,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       .map((id) => ({ id, n: 0, wins: 0, profit: 0, loss: 0, pf: 0, wr: 0 }));
     return [...rows, ...extra];
   };
-  const byIndication = coverRows(finish(indAcc), SHORT_PROGRESS_INDICATIONS);
+  const byIndication = coverRows(finish(indAcc), allEngineIndications(engine));
   const byTactic = coverRows(finish(tacAcc), ["trailing", "axis", "hybrid", "dca"]);
   const byPlaybook = coverRows(finish(playAcc), ["short", "block", "axis", "normal", "dca"]);
   const byPlayInd = finish(playIndAcc);
@@ -9868,7 +9886,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       disable: laneLastNStats(laneClosed(engine, { indication: id }, LIVE_DISABLE_N)),
     };
   }
-  for (const id of SHORT_PROGRESS_INDICATIONS) {
+  for (const id of allEngineIndications(engine)) {
     if (lastNByIndication[id]) continue;
     const empty = laneLastNStats([]);
     lastNByIndication[id] = { eval: empty, valid: empty, exec: empty, disable: empty };
@@ -10338,7 +10356,7 @@ export function overlayLiveExecutions(
     return keys.map((k) => pnlBucket(asRows(newest.filter((r) => pick(tagOf(r)) === k)), k));
   };
   stats.bySide = overlayNamed(stats.bySide, ["long", "short"] as const, (t) => t.side);
-  stats.byIndication = overlayNamed(stats.byIndication, SHORT_PROGRESS_INDICATIONS, (t) => t.indication);
+  stats.byIndication = overlayNamed(stats.byIndication, allEngineIndications(e), (t) => t.indication);
   stats.byTactic = overlayNamed(stats.byTactic, ["trailing", "dca", "axis", "hybrid"] as const, (t) => t.tactic);
   stats.byPlaybook = overlayNamed(stats.byPlaybook, ["normal", "axis", "block", "dca", "short"] as const, (t) => t.playbook);
   stats.byKind = overlayNamed(
@@ -10528,7 +10546,7 @@ export function overallLiveStats(e: VstEngine, opts?: { seed?: boolean }) {
     pnlBucket(closed.filter((c) => c.reason === k), k),
   );
   const bySide = (["long", "short"] as const).map((k) => pnlBucket(closed.filter((c) => (c.side || "long") === k), k));
-  const byIndication = SHORT_PROGRESS_INDICATIONS.map((k) =>
+  const byIndication = allEngineIndications(e).map((k) =>
     pnlBucket(closed.filter((c) => (c.indication || "trend") === k), k),
   );
   const byKind = (["normal", "trend", "mean", "breakout", "volume", "hybrid", "active", "block", "short"] as const).map((k) =>
@@ -11932,7 +11950,7 @@ export function liveShouldExecute(
   },
 ): boolean {
   registerSampleContext(e, { ...rel, connId: e.activeConnId });
-  const t = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+  const t = strategyProcessingFor(e, rel);
   const note = String(rel.note || "");
   const play = String(rel.playbook || "");
   if (rel.indication && e.skipIndications?.includes(rel.indication)) return false;
@@ -11951,7 +11969,7 @@ export function liveShouldExecute(
   // After Base, the funded paper path must use the same exact proof as live.
   // Learning/exam entries remain upstream (internAllPhase/completeOpenTape);
   // an unobserved paper sibling is never a qualified execution.
-  if (!t.normal && unadjustedNormalOrder(rel) && !ready) return false;
+  if (!t.normal && unadjustedNormalOrder(rel)) return false;
   if (e.preEvalDone && !ready) return false;
   const extra = play === "block" || play === "axis" || play === "dca" || rel.tactic === "axis" || rel.tactic === "dca" || /Block/i.test(note) || (rel.blockLevel ?? 0) >= 1;
   if (t.trailing === false && rel.tactic === "trailing" && !extra) return false;
@@ -11963,7 +11981,7 @@ export function liveShouldExecute(
   const gated = Boolean(e.preEvalDone || e.liveTape);
   if (!blockFill && gated && laneExecProven(e, rel)) {
     if (rel.kind === "normal" || play === "normal" || play === "short" || rel.kind === "short") {
-      return !unadjustedNormalOrder(rel) || t.normal || ready;
+      return !unadjustedNormalOrder(rel) || t.normal;
     }
     if (play === "axis" || rel.tactic === "axis") return t.axis;
     if (rel.tactic === "trailing") return t.trailing !== false;

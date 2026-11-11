@@ -587,6 +587,14 @@ export function applyLiveTape(e: VstEngine, tickers: LiveTicker[]): number {
   return n;
 }
 
+export const pullClosedIndicationBars = createServerFn({method:"POST"})
+ .validator((d:{network:"mainnet"|"testnet";symbols:string[]})=>{
+   if(!['mainnet','testnet'].includes(d.network)||!Array.isArray(d.symbols)||d.symbols.length>200||d.symbols.some(s=>typeof s!=="string"||!/^([A-Z0-9]{1,30})(-?USDT)?$/.test(s)))throw new Error("Invalid indication market request");
+   return {...d,symbols:[...new Set(d.symbols)]};
+ }).handler(async({data})=>{
+   const {fetchIndicationBarBatch}=await import("./feed.server.ts");return fetchIndicationBarBatch(data.network,data.symbols);
+ });
+
 export const pullLiveTape = createServerFn({ method: "POST" })
   .validator((d?: { network?: "mainnet" | "testnet" }) => d ?? {})
   .handler(async ({ data }): Promise<FeedSnapshot> => {
