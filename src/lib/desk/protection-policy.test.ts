@@ -140,7 +140,7 @@ test("native Micro and Minimal grids arm every cell without rearming an occupied
     assert.equal(new Set(rows.map(exactProtectionCombo)).size,expected);
     assert.ok(rows.some(r=>r.indication==="trend") && rows.some(r=>r.indication==="break"));
     for(const r of rows) {
-      assert.ok(r.slDist/r.price+1e-12 >= (r.modelRtCost ?? 0)+.001);
+      assert.ok(r.slDist/r.price+1e-12 >= (range === "micro" ? (r.microMinSlDistancePct ?? .1)/100 : (r.modelRtCost ?? 0)+.001));
       const target=range==="micro"?r.tpAtr!/100:r.tpAtr!*r.modelRtCost!;
       assert.ok(Math.abs(r.tpDist/r.price-target)<1e-10);
     }

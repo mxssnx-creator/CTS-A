@@ -1557,6 +1557,8 @@ const MAX_HOLD_MS = Math.max(4, Number(LIVE_CFG.maxHoldTicks) || 24) * 60_000;
 function capturedProtectionPolicy(e, p) {
   const held = e?.positions?.find((x) => x.symbol === p?.symbol && x.side === p?.side);
   return { cost: held?.modelRtCost ?? p?.modelRtCost ?? (e ? modeledPositionCost(e, p?.symbol ?? "") : roundTripFeeRate()),
+    microMinSlDistancePct: held?.microMinSlDistancePct ?? p?.microMinSlDistancePct ?? e?.microMinSlDistancePct ?? LIVE_CFG.microMinSlDistancePct,
+    microMinTrailDistancePct: held?.microMinTrailDistancePct ?? p?.microMinTrailDistancePct ?? e?.microMinTrailDistancePct ?? LIVE_CFG.microMinTrailDistancePct,
     minSlDistancePct: normalizeMinSlDistancePct(held?.minSlDistancePct ?? p?.minSlDistancePct ?? e?.minSlDistancePct ?? LIVE_CFG.minSlDistancePct) };
 }
 
@@ -1825,7 +1827,7 @@ function shortStopPrices(p, cfg, spec, e) {
   const policy = capturedProtectionPolicy(e, p);
   const micro = enginePos ? enginePos.microRange === true : cfg?.microRange === true;
   const raw = micro
-    ? microControlPrices(side, px, tpAtr, slOfTp, policy.cost, policy.minSlDistancePct)
+    ? microControlPrices(side, px, tpAtr, slOfTp, policy.cost, policy.minSlDistancePct, policy.microMinSlDistancePct)
     : minimal
     ? minimalControlPrices(side, px, tpAtr, slOfTp, policy.cost, policy.minSlDistancePct)
     : shortControlPrices(side, px, atr, tpAtr, slOfTp, policy.cost, policy.minSlDistancePct);

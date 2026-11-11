@@ -547,6 +547,8 @@ export interface TacticConfig {
   relationalVolumeRatios?: import("../../../shared/cts-volume/ratios.ts").RelationalVolumeRatios;
   /** Net initial stop distance in price percent, added to modeled round-trip costs. */
   minSlDistancePct?: number;
+  microMinSlDistancePct?: number;
+  microMinTrailDistancePct?: number;
   stepPf?: import("./step-pf.ts").StepPfRules;
   fees?: Partial<FeePolicy>;
   trailingPct: number;
@@ -780,6 +782,8 @@ export interface LiveOrder {
   modelRtCost?: number;
   protectionKey?: string;
   minSlDistancePct?: number;
+  microMinSlDistancePct?: number;
+  microMinTrailDistancePct?: number;
   id: string;
   connId: string;
   symbol: string;
@@ -816,6 +820,8 @@ export interface LivePosition {
   shortRange?: boolean;
   /** Frozen initial-stop policy; trailing may tighten without this floor. */
   minSlDistancePct?: number;
+  microMinSlDistancePct?: number;
+  microMinTrailDistancePct?: number;
   /** Frozen modeled cost; fee updates never rewrite held-position evidence. */
   modelRtCost?: number;
   protectionKey?: string;
@@ -890,6 +896,8 @@ export interface ClosedTrade {
   /** Economic policy captured by the owned position, not the current settings. */
   modelRtCost?: number;
   minSlDistancePct?: number;
+  microMinSlDistancePct?: number;
+  microMinTrailDistancePct?: number;
   shortRange?: boolean;
   id: string;
   connId: string;
@@ -1399,6 +1407,8 @@ export interface LosingHourState {
 export interface VstEngine {
   /** Net initial stop distance in price percent, added to modeled round-trip costs. */
   minSlDistancePct?: number;
+  microMinSlDistancePct?: number;
+  microMinTrailDistancePct?: number;
   stepPf?: import("./step-pf.ts").StepPfRules;
   fees?: Partial<FeePolicy>;
   feeSnapshots?: Record<string, FeeSnapshot>;
