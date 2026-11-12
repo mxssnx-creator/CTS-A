@@ -23,7 +23,7 @@
     "format": "prettier --write .",
     "test:strategy-features": "node --experimental-strip-types --test src/lib/desk/strategy-processing.test.ts src/lib/desk/volume-policy.test.ts src/lib/desk/ported-indications.test.ts shared/cts-indications/ported.test.ts shared/cts-volume/ratios.test.ts",
     "test:lastn-blocks": "node --experimental-strip-types --test shared/cts-lastn/blocks.test.ts",
-    "test:execution-offline": "node --require ./scripts/lib/offline-test-guard.cjs --experimental-strip-types --test src/lib/desk/project-order-identity.test.ts src/lib/desk/feed.server.test.ts"
+    "test:execution-offline": "node --require ./scripts/lib/offline-test-guard.cjs --experimental-strip-types --test src/lib/desk/project-order-identity.test.ts src/lib/desk/feed.server.test.ts src/lib/desk/demo-cleanup.test.ts src/lib/desk/demo-session-policy.test.ts src/lib/desk/entry-protection.test.ts src/lib/desk/entry-native-protection.test.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

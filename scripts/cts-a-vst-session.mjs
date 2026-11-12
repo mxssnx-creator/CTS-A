@@ -6,6 +6,8 @@ import { minimumStopFraction, normalizeMinSlDistancePct } from "../src/lib/desk/
 import { modeledPositionCost } from "../src/lib/desk/vst.ts";
 import { roundTripFeeRate } from "../src/lib/desk/fee-policy.ts";
 import { connectionNetwork } from "../src/lib/desk/connection-network.ts";
+import { capturedEntryProtection } from "../src/lib/desk/entry-protection.ts";
+import { runDemoCleanup } from "../src/lib/desk/demo-cleanup.ts";
 import { demoCloseConfirmed, measuredDemoProgress, demoStrategySettings, demoTacticSettings, demoBlockSettings, demoRangeConfigs, demoConfigKey } from "../src/lib/desk/demo-session-policy.ts";
 /**
  * CTS-A BingX VST-02 session: 50 symbols, max orders, best-first, 2h monitor.
@@ -3039,6 +3041,7 @@ async function mirrorToExchange(e, network, cfg) {
         continue;
       }
       const allowed = liveShouldExecute(e, rel) && !liveRelationDisabled(e, { ...rel, indication, kind, tactic: rel.tactic, rangeType });
+      if (!IS_X01 && !allowed) { markWhy(f, "own qualification"); continue; }
       const normalOff = e.strategyToggles?.normal === false && unadjustedNormalOrder(rel);
       const unjudgedOpen =
         IS_X01 &&
@@ -3176,12 +3179,15 @@ async function mirrorToExchange(e, network, cfg) {
       const minN = mark > 0 ? exchangeMinNotional(contractMap?.get(BINGX_SYMBOL[f.symbol] ?? (f.symbol.includes("-") ? f.symbol : `${f.symbol.replace(/USDT$/i, "")}-USDT`)), mark) : 0;
       refreshCoordVolume(e);
       const cell = protectFor(f.symbol);
-      const prot = shortStopPrices(
-        { symbol: f.symbol, side: f.side, mark, entry: mark, qty: 1 },
-        { ...cell, ...(currentPick?.cfg || {}), ...(cfg || {}) },
-        null,
-        e,
-      );
+      const entryPrice = f.ladder || resting ? ladder : mark;
+      const sourceOrder = [...e.orders, ...e.queue].find((order) => order.id === f.orderId);
+      const captured = capturedEntryProtection(sourceOrder, { orderId: f.orderId, connId: CONN,
+        symbol: f.symbol, side: f.side, entry: entryPrice });
+      const prot = captured || (IS_X01 ? shortStopPrices(
+        { symbol: f.symbol, side: f.side, mark: entryPrice, entry: entryPrice, qty: 1 },
+        { ...cell, ...(currentPick?.cfg || {}), ...(cfg || {}) }, null, e,
+      ) : null);
+      if (!prot) return { f, r: { ok: false, error: "exact source entry protection unavailable" }, skip: true };
       if (pendingCloses.rows.has(`${f.symbol}:${f.side}`))
         return { f, r: { ok: false, pending: true, error: "owned close still pending" }, skip: true };
       const r = await withLiveBusy(() =>
@@ -3201,7 +3207,7 @@ async function mirrorToExchange(e, network, cfg) {
           tpRatio: cell.tpRatio,
           slPrice: prot?.sl,
           tpPrice: prot?.tp,
-          attachProtect: triggerQuiet() || f.ladder ? false : !resting,
+          attachProtect: true,
           equity: Number(book.equity) || 0,
         }),
       );
@@ -4223,35 +4229,26 @@ async function main() {
       if (mirrorJob) await mirrorJob.catch(() => {});
       else await sleep(100);
     }
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const book = await fetchExchangeBook({ network: ping.network, connId: CONN });
-      if (!book.ok || book.error) throw new Error("demo cleanup cannot verify exchange book");
-      const own = (book.orders ?? []).filter((o) => isOwnedExchangeOrder(o, CONN));
-      const entries = own.filter((o) => !/STOP|TAKE_PROFIT|TRAILING/.test(String(o.type).toUpperCase()));
-      await cancelOwnOrders(ping.network, entries);
-      // Re-read after entry cancellation: a resting order may have filled in the meantime.
-      const confirmed = await fetchExchangeBook({ network: ping.network, connId: CONN });
-      if (!confirmed.ok || confirmed.error) throw new Error("demo cleanup positions unavailable");
-      const positions = (confirmed.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
-      for (const p of positions) await closeHit(ping.network, p);
-      const after = await fetchExchangeBook({ network: ping.network, connId: CONN });
-      if (!after.ok || after.error) throw new Error("demo cleanup confirmation unavailable");
-      const held = (after.positions ?? []).filter((p) => isOwnedLeg(p.symbol, p.side));
-      const resting = (after.orders ?? []).filter((o) => isOwnedExchangeOrder(o, CONN));
-      if (!held.length) await cancelOwnOrders(ping.network, resting);
-      demoCleanup = { remainingOwnedPositions: held.length, remainingOwnedOrdersBeforeFinalCancel: resting.length,
-        activeSeconds: (Date.now() - activeStarted) / 1000, attempt: attempt + 1 };
-      lastBook = after;
-      if (!held.length) break;
-    }
+    const receipt = await runDemoCleanup({
+      read: () => fetchExchangeBook({ network: ping.network, connId: CONN }),
+      ownPosition: (p) => isOwnedLeg(p.symbol, p.side),
+      ownOrder: (o) => isOwnedExchangeOrder(o, CONN),
+      entryOrder: (o) => !/STOP|TAKE_PROFIT|TRAILING/.test(String(o.type).toUpperCase()),
+      cancel: (orders) => cancelOwnOrders(ping.network, orders),
+      close: (position) => closeHit(ping.network, position),
+      pendingCloses: () => pendingCloses.rows.size,
+      observed: (book) => { lastBook = book; },
+    });
+    demoCleanup = { ...receipt, activeSeconds: (Date.now() - activeStarted) / 1000 };
+    if (!receipt.complete) process.exitCode = 1;
   }
   const final = snapshot(engine, statusBase());
   final.demoCleanup = demoCleanup;
-  final.stable = locked || (final.positive && final.mdd <= 0.22);
+  final.stable = (!demoCleanup || demoCleanup.complete) && (locked || (final.positive && final.mdd <= 0.22));
   writeStatus(final);
   console.log(
     JSON.stringify({
-      done: true,
+      done: !demoCleanup || demoCleanup.complete,
       positive: final.positive,
       stable: final.stable,
       pf: final.pf,

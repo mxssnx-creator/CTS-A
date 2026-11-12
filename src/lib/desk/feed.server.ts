@@ -28,8 +28,8 @@ import { profitFactor, SHORT_EVAL_HOURS } from "./engine.ts";
 import { completedHistoricalHours, prehistoryHours } from "./prehistory.ts";
 
 export const HOSTS = {
-  mainnet: ["https://open-api.bingx.com", "https://open-api.bingx.pro"],
-  testnet: ["https://open-api-vst.bingx.com", "https://open-api-vst.bingx.pro"],
+  mainnet: ["https://open-api.bingx.com"],
+  testnet: ["https://open-api-vst.bingx.com"],
 } as const;
 
 type RawTicker = {
@@ -957,7 +957,7 @@ export async function placeSwapOrder(input: {
     await ensureLiveAccountMode({ network: input.network, connId: input.connId, venueSymbol, spec });
   }
 
-  const post = async (sendQty: number, withProtect = true): Promise<LiveOrderResult> => {
+  const post = async (sendQty: number): Promise<LiveOrderResult> => {
     const params: Record<string, string | number> = {
       symbol: venueSymbol,
       side: input.side,
@@ -982,24 +982,26 @@ export async function placeSwapOrder(input: {
         price: input.type === "LIMIT" ? snapPx(px, spec) : 0,
       }),
     );
-    if ((input.type === "MARKET" || input.type === "LIMIT") && !input.closePosition && input.attachProtect !== false && withProtect) {
+    if ((input.type === "MARKET" || input.type === "LIMIT") && !input.closePosition && input.attachProtect !== false) {
       const ref = px > 0 ? px : sendQty > 0 ? usedNotional / sendQty : 0;
       if (ref > 0) {
-        const given = Number(input.slPrice) > 0 && Number(input.tpPrice) > 0
-          ? { sl: Number(input.slPrice), tp: Number(input.tpPrice) }
-          : null;
-        const sideOk = given
-          ? (protectSide === "long" ? given.sl < ref && given.tp > ref : given.sl > ref && given.tp < ref)
-          : false;
-        const prot = sideOk && given
-          ? given
-          : liveProtectPrices(ref, protectSide, input.slAtr ?? 1.05, input.tpRatio ?? 2.6, spec, input.network === "mainnet" ? "main" : "vst");
+        const requested = input.slPrice !== undefined || input.tpPrice !== undefined;
+        const given = requested ? { sl: snapPx(Number(input.slPrice), spec),
+          tp: input.tpPrice === undefined ? undefined : snapPx(Number(input.tpPrice), spec) } : null;
+        const sideOk = given && Number.isFinite(given.sl) && given.sl > 0 &&
+          (protectSide === "long" ? given.sl < ref : given.sl > ref) &&
+          (given.tp === undefined || (Number.isFinite(given.tp) && given.tp > 0 &&
+            (protectSide === "long" ? given.tp > ref : given.tp < ref)));
+        if (requested && !sideOk)
+          return { ok: false, error: "Captured entry protection is invalid at the submitted entry price" };
+        const prot = given ?? liveProtectPrices(ref, protectSide, input.slAtr ?? 1.05, input.tpRatio ?? 2.6,
+          spec, input.network === "mainnet" ? "main" : "vst");
         params.stopLoss = JSON.stringify({
           type: "STOP_MARKET",
           stopPrice: prot.sl,
           workingType: "MARK_PRICE",
         });
-        params.takeProfit = JSON.stringify({
+        if (prot.tp !== undefined) params.takeProfit = JSON.stringify({
           type: "TAKE_PROFIT_MARKET",
           stopPrice: prot.tp,
           workingType: "MARK_PRICE",
@@ -1030,14 +1032,9 @@ export async function placeSwapOrder(input: {
     }
   };
 
-  let result = await post(qty, true);
+  let result = await post(qty);
   if (result.uncertain) return result;
-  const protectBad = (err?: string) =>
-    /TP Price|SL Price|stopPrice|takeProfit|Order Price|Last Price|must be (greater|lower|above|below)/i.test(String(err || ""));
-  if (!result.ok && protectBad(result.error) && !input.closePosition) {
-    result = await post(qty, false);
-    if (result.uncertain) return result;
-  }
+  // A bracket refusal is a refused entry. Never reopen the same request without its requested protection.
   if (isRateLimitedMsg(result.error)) return result;
   if (!result.ok && isMinSizeError(result.error) && !input.closePosition && !input.exactQty) {
     const eq = Number(input.equity) || 0;
@@ -1047,9 +1044,8 @@ export async function placeSwapOrder(input: {
       if (!(bump.qty > qty)) continue;
       const lev = Math.max(10, Number(spec?.maxLeverage) || 50);
       if (eq > 0 && bump.notional / lev > eq * 0.85) break;
-      result = await post(bump.qty, true);
+      result = await post(bump.qty);
       if (result.uncertain) return result;
-      if (!result.ok && protectBad(result.error)) result = await post(bump.qty, false);
       if (result.uncertain) return result;
       if (result.ok || isRateLimitedMsg(result.error) || !isMinSizeError(result.error)) break;
       qty = bump.qty;
