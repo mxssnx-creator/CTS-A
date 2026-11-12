@@ -177,8 +177,15 @@ export function connClientTag(connId: string | undefined | null): string {
   return "XX";
 }
 
+/** An optional, stable instance namespace keeps concurrent studies on the same connection disjoint. */
+function clientNamespace(): string {
+  const value = typeof process === "undefined" ? "" : (process.env.CTS_A_CLIENT_NAMESPACE ?? "").trim().toUpperCase();
+  if (value && !/^[A-Z0-9]{1,8}$/.test(value)) throw new Error("CTS_A_CLIENT_NAMESPACE must contain 1–8 letters or digits");
+  return value;
+}
 export function deskClientPrefix(connId?: string | null): string {
-  return `${DESK_CLIENT_PREFIX}${connClientTag(connId)}_`;
+  const namespace = clientNamespace();
+  return `${DESK_CLIENT_PREFIX}${connClientTag(connId)}_${namespace ? namespace + "_" : ""}`;
 }
 
 export function makeClientOrderId(connId: string | undefined | null, kind: DeskClientKind = "E"): string {
@@ -192,7 +199,8 @@ export function isDeskClientOrderId(id: string | undefined | null, connId?: stri
   const s = String(id || "").toUpperCase();
   if (!s.startsWith(DESK_CLIENT_PREFIX)) return false;
   if (connId) return s.startsWith(deskClientPrefix(connId).toUpperCase());
-  return /^CTSA(V1|V2|X1|XX)_/.test(s);
+  const namespace = clientNamespace();
+  return namespace ? ["bingx-vst-01", "bingx-vst-02", "bingx-x01", "unknown"].some(conn => s.startsWith(deskClientPrefix(conn))) : /^CTSA(V1|V2|X1|XX)_/.test(s);
 }
 
 export function clientOrderKindOf(type: string | undefined, closePosition?: boolean): DeskClientKind {
