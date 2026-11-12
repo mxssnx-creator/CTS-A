@@ -394,19 +394,23 @@ describe("live feed", () => {
     assert.ok(q.lo <= 76425.6 && q.lo > 0);
   });
 
-  it("pulls mainnet tickers for the mapped universe", async () => {
-    const snap = await fetchBingxTape("mainnet");
-    assert.equal(snap.ok, true, snap.error);
-    assert.ok(snap.tickers.length >= 40, `got ${snap.tickers.length}`);
-    const btc = snap.tickers.find((t) => t.id === "BTCUSDT");
-    assert.ok(btc && btc.last > 1000, "BTC last");
-    assert.ok(btc && btc.bid > 0 && btc.ask > 0);
-  });
-
-  it("pulls VST testnet tickers", async () => {
-    const snap = await fetchBingxTape("testnet");
-    assert.equal(snap.ok, true, snap.error);
-    assert.ok(snap.tickers.length >= 40, `vst ${snap.tickers.length}`);
+  for (const network of ["mainnet", "testnet"] as const) it(`parses ${network} ticker fixtures without network access`, async () => {
+    const saved = globalThis.fetch, urls: string[] = [];
+    globalThis.fetch = async (input) => {
+      const url = String(input); urls.push(url);
+      assert.equal(new URL(url).pathname, "/openApi/swap/v2/quote/ticker");
+      const data = [...new Set(LIVE_IDS.map(id => BINGX_SYMBOL[id]))].filter(Boolean).map((symbol, i) => ({
+        symbol, lastPrice: String(76000+i), bidPrice: String(75999+i), askPrice: String(76001+i),
+        highPrice: String(77000+i), lowPrice: String(75000+i), priceChangePercent: "0.72", quoteVolume: "1000000",
+      }));
+      return new Response(JSON.stringify({code:0,data}), {status:200,headers:{"content-type":"application/json"}});
+    };
+    try {
+      const snap = await fetchBingxTape(network);
+      assert.equal(snap.ok,true,snap.error);assert.ok(snap.tickers.length>=40);
+      const btc=snap.tickers.find(t=>t.id==="BTCUSDT");assert.ok(btc&&btc.last>1000&&btc.bid>0&&btc.ask>0);
+      assert.ok(urls.every(url=>new URL(url).hostname===(network==="testnet"?"open-api-vst.bingx.com":"open-api.bingx.com")));
+    } finally { globalThis.fetch = saved; }
   });
 
   it("exchange book uses BingX x02 when keys exist, else fails closed", async () => {

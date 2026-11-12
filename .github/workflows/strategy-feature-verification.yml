@@ -24,3 +24,4 @@ jobs:
       - run: node --experimental-strip-types --test src/lib/desk/disjoint-last-n.test.ts
       - run: npm run build:dev
       - run: node --test scripts/trailing-control-policy.test.mjs
+      - run: npm run test:execution-offline
