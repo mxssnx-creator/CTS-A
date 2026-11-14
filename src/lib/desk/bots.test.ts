@@ -32,6 +32,19 @@ import { GATED_MIN_PF } from "./last-n-progress.ts";
 import { DEFAULT_TACTIC_CONFIG, closePnl, dynamicMinRateDist } from "./engine.ts";
 import { engageLiveBook, initVstEngine, tickVst } from "./vst.ts";
 
+function assertReportReconciles(report: ReturnType<typeof runBotBacktest>): void {
+  const profit = report.liveFills.filter((fill) => fill.pnl > 0).reduce((sum, fill) => sum + fill.pnl, 0);
+  const loss = -report.liveFills.filter((fill) => fill.pnl < 0).reduce((sum, fill) => sum + fill.pnl, 0);
+  const net = report.liveFills.reduce((sum, fill) => sum + fill.pnl, 0);
+  assert.equal(report.liveStats.n, report.liveFills.length);
+  assert.ok(Math.abs(report.liveStats.profit - profit) < 1e-10);
+  assert.ok(Math.abs(report.liveStats.loss - loss) < 1e-10);
+  assert.ok(Math.abs(report.liveStats.net - net) < 1e-10);
+  assert.equal(report.hourly.reduce((sum, hour) => sum + hour.n, 0), report.liveFills.length);
+  assert.ok(Math.abs(report.hourly.reduce((sum, hour) => sum + hour.net, 0) - net) < 1e-10);
+  assert.ok(report.liveFills.every((fill) => Number.isFinite(fill.pnl) && Number.isFinite(fill.cost) && fill.cost >= 0));
+}
+
 describe("sandwich bots — config + volume", () => {
   it("sanitizes overall + independent per-type settings", () => {
     const raw = sanitizeBotsPersist({
@@ -90,18 +103,17 @@ describe("sandwich bots — config + volume", () => {
 });
 
 describe("sandwich bots — backtest correctness", () => {
-  it("default sandwich 12h×10 is high-order, low-DD, every active hour green", () => {
+  it("default sandwich 12h×10 retains every admitted close, including losses", () => {
     clearBotCache();
     const r = runBotBacktest(defaultBotConfig("sandwich"), 12, 20260922);
     assert.ok(r.liveOrders >= 120, `orders ${r.liveOrders}`);
-    assert.ok(r.liveStats.pf + 1e-9 >= 1, `pf ${r.liveStats.pf}`);
-    assert.ok(r.liveStats.net > 0, `net ${r.liveStats.net}`);
     assert.ok(r.hourActive >= 8, `active hours ${r.hourActive}`);
-    assert.equal(r.hourSuccess, r.hourActive, `green ${r.hourSuccess}/${r.hourActive} hours ${r.hourly.filter((h) => !h.green).map((h) => `${h.hour}:${h.net.toFixed(2)}/${h.n}`).join(",")}`);
-    assert.ok(r.hourly.every((h) => h.green), "empty hours count as G0, active hours net≥0");
+    assert.ok(r.liveFills.some((fill) => fill.pnl < 0), "closed losses must stay in the executed tape");
+    assert.ok(r.hourly.some((hour) => !hour.green), "a red hour must not be removed after its outcome is known");
+    assertReportReconciles(r);
     const busy12 = r.hourly.filter((h) => h.n > 0);
     assert.ok(busy12.length >= 10, `active ${busy12.length}`);
-    assert.ok(r.liveStats.mdd < 0.12, `mdd ${r.liveStats.mdd}`);
+    assert.ok(Number.isFinite(r.liveStats.mdd) && r.liveStats.mdd >= 0, `mdd ${r.liveStats.mdd}`);
     assert.ok(r.maxDdt < 400, `ddt ${r.maxDdt}`);
     assert.equal(r.hourly.length, 12);
   });
@@ -149,12 +161,12 @@ describe("sandwich bots — backtest correctness", () => {
     assert.ok(r.lastPos["12"]!.ddt <= r.lastPos["75"]!.ddt + 1e-9 || r.lastPos["12"]!.n < 12);
   });
 
-  it("24h sandwich stays hour-green with more symbols", () => {
+  it("24h sandwich with more symbols keeps complete hourly accounting", () => {
     const r = runBotBacktest({ ...defaultBotConfig("sandwich"), symbolCount: 20 }, 24, 20260922);
     assert.equal(r.hourly.length, 24);
     assert.ok(r.liveOrders >= 300, `orders ${r.liveOrders}`);
-    assert.ok(r.hourly.every((h) => h.green), r.hourly.filter((h) => !h.green).map((h) => `${h.hour}:${h.net.toFixed(3)} n=${h.n}`).join(" "));
-    assert.ok(r.liveStats.pf >= 1, `pf ${r.liveStats.pf}`);
+    assert.ok(r.liveFills.some((fill) => fill.pnl < 0));
+    assertReportReconciles(r);
     const busy = r.hourly.filter((h) => h.n > 0);
     assert.ok(busy.length >= 20, `active hours ${busy.length}`);
     assert.ok(busy.every((h) => h.n >= 4), `thin hour ${busy.filter((h) => h.n < 4).map((h) => h.hour).join(",")}`);
@@ -174,7 +186,8 @@ describe("sandwich bots — backtest correctness", () => {
     }
     const marks = [1, 6, 12, 18, 24].map((n) => r.hourly[n - 1]!);
     assert.equal(marks.length, 5);
-    assert.ok(marks.every((h) => h.green), marks.filter((h) => !h.green).map((h) => h.hour).join(","));
+    assert.ok(marks.every((h) => Number.isFinite(h.net) && Number.isFinite(h.pf)));
+    assertReportReconciles(r);
     assert.ok(r.liveStats.net !== 0 || r.liveOrders > 0);
   });
 
@@ -188,25 +201,25 @@ describe("sandwich bots — backtest correctness", () => {
 });
 
 describe("other high-freq bots", () => {
-  it("all types produce a tape and sandwich is competitive", () => {
+  it("all types produce complete, reconciling tapes", () => {
     const all = compareBots(12, 20260922, 10);
     for (const t of BOT_TYPES) {
       assert.ok(all[t].hourly.length === 12);
       assert.ok(all[t].liveOrders + all[t].internFills.length > 0, t);
+      assertReportReconciles(all[t]);
     }
     const best = bestBotType(12, 20260922);
     assert.ok(BOT_TYPES.includes(best));
     const sand = all.sandwich.liveStats;
     assert.ok(sand.n > 0);
-    assert.ok(sand.pf >= 1, `sandwich pf ${sand.pf}`);
-    assert.ok(all.sandwich.hourly.every((h) => h.green));
+    assert.ok(Number.isFinite(sand.pf) && Number.isFinite(sand.net));
   });
 
   it("select modes 1H vol / 15m / ATR / burst / session all run", () => {
     for (const mode of BOT_SELECT_MODES) {
       const r = runBotBacktest({ ...defaultBotConfig("sandwich"), selectMode: mode }, 12, 11);
       assert.equal(r.cfg.selectMode, mode);
-      assert.ok(r.hourly.every((h) => h.green || h.empty));
+      assertReportReconciles(r);
     }
   });
 });
@@ -237,7 +250,7 @@ describe("best 3 parallel bots — independent process + results", () => {
     assert.notEqual(raw.configs.clamp.minTp, raw.configs.sandwich.minTp);
   });
 
-  it("rankBotTypes / bestBotTypes returns 3 unique best with PF ≥ 1", () => {
+  it("rankBotTypes / bestBotTypes returns 3 unique score-ranked tapes", () => {
     clearBotCache();
     const ranked = rankBotTypes(12, 20260922, 10);
     assert.equal(ranked.length, BOT_TYPES.length);
@@ -249,19 +262,17 @@ describe("best 3 parallel bots — independent process + results", () => {
     for (const t of best) {
       const r = ranked.find((x) => x.type === t)!.report;
       assert.ok(r.liveStats.n > 0, t);
-      assert.ok(r.liveStats.pf + 1e-9 >= 1, `${t} pf ${r.liveStats.pf}`);
-      assert.ok(r.hourly.every((h) => h.green), t);
+      assertReportReconciles(r);
     }
   });
 
-  it("clamp pivot sandwich each keep an independent tape and PF>=1 on 12h", () => {
+  it("clamp pivot sandwich each keep an independent complete tape on 12h", () => {
     clearBotCache();
     for (const t of ["clamp", "pivot", "sandwich"] as const) {
       const r = runBotBacktest(defaultBotConfig(t), 12, 20260922);
       assert.equal(r.type, t);
       assert.ok(r.liveOrders >= 80, `${t} orders ${r.liveOrders}`);
-      assert.ok(r.liveStats.pf + 1e-9 >= 1, `${t} pf ${r.liveStats.pf}`);
-      assert.ok(r.hourly.every((h) => h.green), `${t} red hours ${r.hourly.filter((h) => !h.green).map((h) => h.hour).join(",")}`);
+      assertReportReconciles(r);
       assert.equal(r.gatedFailClosed, true);
     }
   });
@@ -295,38 +306,35 @@ describe("best 3 parallel bots — independent process + results", () => {
     assert.notEqual(aPnls, bPnls);
   });
 
-  it("every type is hour-green on 12h and 24h with PF ≥ 1", () => {
+  it("every type keeps complete strategy outcomes on 12h and 24h", () => {
     clearBotCache();
     for (const hours of [12, 24] as const) {
       for (const t of BOT_TYPES) {
         const r = runBotBacktest(defaultBotConfig(t), hours, 20260922);
         assert.ok(r.liveOrders > 0, `${t} ${hours}h empty`);
-        assert.ok(r.liveStats.pf + 1e-9 >= 1, `${t} ${hours}h pf ${r.liveStats.pf}`);
-        assert.ok(r.hourly.every((h) => h.green), `${t} ${hours}h red ${r.hourly.filter((h) => !h.green).map((h) => h.hour).join(",")}`);
+        assertReportReconciles(r);
         assert.equal(r.gatedFailClosed, true);
         assert.ok(r.cfg.minSl <= 0.5, `${t} sl ${r.cfg.minSl}`);
-        for (const row of r.indication.hours) {
-          assert.ok(row.green, `${t} ${hours}h indication ${r.indication.id} H${row.hour} ${row.net}`);
-        }
+        for (const row of r.indication.hours)
+          assert.ok(Number.isFinite(row.net) && Number.isFinite(row.pf), `${t} ${hours}h indication ${r.indication.id} H${row.hour}`);
         for (const key of ["normal", "trailing", "axis", "block", "dca"] as const) {
           const st = r.strategies[key];
           assert.equal(st.active, true);
           assert.ok(st.live && st.live.n > 0, `${t} ${key} empty`);
-          assert.ok(st.live!.pf + 1e-9 >= 1 && st.live!.net > 0, `${t} ${key} pf ${st.live?.pf} net ${st.live?.net}`);
-          for (const row of st.hours) assert.ok(row.green, `${t} ${key} H${row.hour} ${row.net}`);
+          assert.ok(Number.isFinite(st.live!.pf) && Number.isFinite(st.live!.net), `${t} ${key}`);
+          assert.equal(st.hours.reduce((sum, row) => sum + row.n, 0), st.live!.n);
         }
       }
     }
   });
 
-  it("72h featured types stay almost every hour green", () => {
+  it("72h featured types retain all red and green hours", () => {
     clearBotCache();
     for (const t of ["clamp", "pivot", "sandwich", "snap", "sweep", "magnet"] as const) {
       const r = runBotBacktest(defaultBotConfig(t), 72, 20260922);
-      const red = r.hourly.filter((h) => !h.green).length;
-      assert.ok(r.liveStats.pf + 1e-9 >= 1, `${t} pf ${r.liveStats.pf}`);
-      assert.ok(red / r.hourly.length <= 0.05, `${t} red ${red}/${r.hourly.length}`);
-      assert.ok(r.hourSuccess + 1 >= r.hourActive || r.hourSuccess / Math.max(1, r.hourActive) >= 0.95, `${t} ${r.hourSuccess}/${r.hourActive}`);
+      assertReportReconciles(r);
+      assert.equal(r.hourSuccess, r.hourly.filter((hour) => !hour.empty && hour.green).length);
+      assert.equal(r.hourActive, r.hourly.filter((hour) => !hour.empty).length);
     }
   });
 
@@ -345,31 +353,21 @@ describe("best 3 parallel bots — independent process + results", () => {
     assert.ok(trail + 1e-9 >= px * 0.004);
     const r = runBotBacktest(defaultBotConfig("sandwich"), 12, 20260922);
     assert.ok(r.liveFills.length >= 120);
-    assert.ok(r.hourly.every((h) => h.green));
+    assertReportReconciles(r);
     assert.ok(r.cfg.minSl <= 0.5);
   });
 
-  it("across seeds, almost every hour stays green with PF ≥ 1", () => {
+  it("across seeds, losses remain visible and every tape reconciles", () => {
     clearBotCache();
     const seeds = [1, 7, 11, 42, 99, 2024, 20260921, 20260922, 123456, 999999];
     for (const t of ["sandwich", "clamp", "pivot"] as const) {
-      let redRuns = 0;
-      let runs = 0;
-      let redHours = 0;
-      let hours = 0;
+      let losses = 0;
       for (const seed of seeds) {
         const r = runBotBacktest(defaultBotConfig(t), 24, seed);
-        runs += 1;
-        hours += r.hourly.length;
-        const red = r.hourly.filter((h) => !h.green).length;
-        redHours += red;
-        if (red > 0 || r.liveStats.pf < 1 || r.liveStats.net <= 0) redRuns += 1;
-        assert.ok(r.liveStats.pf + 1e-9 >= 1, `${t} seed ${seed} pf ${r.liveStats.pf}`);
-        assert.ok(r.liveStats.net > 0, `${t} seed ${seed} net ${r.liveStats.net}`);
-        assert.ok(red / r.hourly.length <= 0.12, `${t} seed ${seed} red ${red}/${r.hourly.length}`);
+        losses += r.liveFills.filter((fill) => fill.pnl < 0).length;
+        assertReportReconciles(r);
       }
-      assert.ok(redHours / hours <= 0.05, `${t} red hours ${redHours}/${hours}`);
-      assert.ok(redRuns <= 3, `${t} red runs ${redRuns}/${runs}`);
+      assert.ok(losses > 0, `${t} must retain losing outcomes across seeds`);
     }
   });
 

@@ -889,7 +889,6 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
   let vfRecalcs = 0;
   let fid = 0;
   const warmup = 8;
-  const laneNet = new Map<string, number>();
   const strategyBooks: Record<BotStrategyKey, BotFill[]> = {
     normal: [],
     trailing: [],
@@ -898,21 +897,10 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
     dca: [],
   };
 
-  const takeLane = (fill: BotFill, lanes: string[]): boolean => {
-    for (const k of lanes) {
-      if ((laneNet.get(k) ?? 0) + fill.pnl < -1e-12) return false;
-    }
-    for (const k of lanes) laneNet.set(k, (laneNet.get(k) ?? 0) + fill.pnl);
-    return true;
-  };
-
   const take = (fill: BotFill) => {
     if (!fill.live) return;
-    const lanes = [`h:${fill.hour}`, `s:${fill.strategy}:${fill.hour}`, `i:${BOT_IND[cfg.type]}:${fill.hour}`];
-    if (!takeLane(fill, lanes)) {
-      internFills.push({ ...fill, live: false, id: `ih${fill.id}` });
-      return;
-    }
+    // Eligibility is fixed before the close. Once an admitted position closes,
+    // its realized outcome belongs to the executed tape, including losses.
     liveFills.push(fill);
     equity += fill.pnl;
     const rec = recalcVolumeFactor(cfg.volumeFactor, BOT_START_EQUITY, equity, lastRecalc);
@@ -926,10 +914,6 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
   const bookStrategy = (fill: BotFill) => {
     internFills.push({ ...fill, live: false, id: `is${fill.id}` });
     if (!toggles[fill.strategy]) return;
-    if (fill.pnl <= 0) return;
-    const key = `b:${fill.strategy}:${fill.hour}`;
-    if ((laneNet.get(key) ?? 0) + fill.pnl < -1e-12) return;
-    laneNet.set(key, (laneNet.get(key) ?? 0) + fill.pnl);
     strategyBooks[fill.strategy].push({ ...fill, live: true });
   };
 
@@ -992,7 +976,7 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
         const extra = emitFill(`a${fid}`, pos, liveExit, i, "axis", Boolean(toggles.axis), pos.qty * 2);
         internFills.push({ ...extra, live: false });
         bookStrategy(extra);
-        if (toggles.axis && pos.quality >= 1 && extra.pnl > 0) take({ ...extra, live: true, id: `la${fid}` });
+        if (toggles.axis && pos.quality >= 1) take({ ...extra, live: true, id: `la${fid}` });
       }
 
       const streak = winStreak[id] ?? 0;
@@ -1003,7 +987,7 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
         const bFill = emitFill(`b${fid}`, pos, liveExit, i, "block", false, extraQ);
         internFills.push({ ...bFill, live: false });
         bookStrategy(bFill);
-        if (toggles.block && streak >= 1 && blockN >= 1 && bFill.pnl > 0) take({ ...bFill, live: true, id: `lb${fid}` });
+        if (toggles.block && streak >= 1 && blockN >= 1) take({ ...bFill, live: true, id: `lb${fid}` });
       }
 
       if (pos.dcaOn) {
@@ -1014,7 +998,7 @@ export function runBotBacktest(cfgIn: Partial<BotConfig> | BotConfig, hoursIn?: 
         const dFill = emitFill(`d${fid}`, dcaPos, liveExit, i, "dca", Boolean(toggles.dca), addQ);
         internFills.push({ ...dFill, live: false });
         bookStrategy(dFill);
-        if (toggles.dca && dFill.pnl > 0) take({ ...dFill, live: true, id: `ld${fid}` });
+        if (toggles.dca) take({ ...dFill, live: true, id: `ld${fid}` });
       }
 
       const liveNet = liveFills.slice(beforeLive).reduce((s, f) => s + f.pnl, 0);

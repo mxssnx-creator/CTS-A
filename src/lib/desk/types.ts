@@ -776,6 +776,8 @@ export interface VstQuote {
 }
 
 export interface LiveOrder {
+  /** Exact research/source strategy when the entry provenance is known. */
+  strategyId?: string;
   /** Exact position receiving an additional-strategy fill; never inferred from a sibling's geometry. */
   parentPositionId?: string;
   shortRange?: boolean;
@@ -817,6 +819,8 @@ export interface LiveOrder {
 }
 
 export interface LivePosition {
+  /** Exact research/source strategy when the entry provenance is known. */
+  strategyId?: string;
   shortRange?: boolean;
   /** Frozen initial-stop policy; trailing may tighten without this floor. */
   minSlDistancePct?: number;
@@ -881,6 +885,9 @@ export interface Fill {
   planned?: number;
   /** Bookkeeping from the exchange position. Never send this fill again. */
   liveEcho?: boolean;
+  /** Position snapshots prove quantity only; execution history must confirm economics. */
+  pnlKnown?: boolean;
+  priceKnown?: boolean;
 }
 
 export interface VstBatch {
@@ -902,6 +909,8 @@ export interface ClosedTrade {
   id: string;
   connId: string;
   symbol: string;
+  /** Present only when the originating source strategy is proven. */
+  strategyId?: string;
   side: Side;
   pnl: number;
   /** Net return vs entry after cost. 0 is breakeven (ratio base 1). */
@@ -925,6 +934,8 @@ export interface ClosedTrade {
   validExec?: boolean;
   /** Hour-protect scratch. Not a live loss and not an intern fill. */
   protect?: boolean;
+  /** Research-only flat row; never execution evidence. */
+  examFlat?: boolean;
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
@@ -1256,6 +1267,7 @@ export interface LastNEvalRow {
   net: number;
   trades: number;
   ok: boolean;
+  unknown?: number;
 }
 
 export interface LaneEvalTrack {
@@ -1265,6 +1277,7 @@ export interface LaneEvalTrack {
   tactic: TacticKind;
   kind: StrategyKind;
   ns: LastNEvalRow[];
+  evidence?: "source-model" | "settled-identity";
   effective: boolean;
   lastAt: number;
 }
@@ -1277,6 +1290,7 @@ export interface CoordValidate {
   wr: number;
   lastN: number;
   recommend: string;
+  lanePassing?: number;
 }
 
 export interface StageEval {
@@ -1288,6 +1302,7 @@ export interface StageEval {
   mdd: number;
   trades: number;
   ok: boolean;
+  recorded?: boolean;
   effective: number;
   valid: number;
   pfAvg?: number;
