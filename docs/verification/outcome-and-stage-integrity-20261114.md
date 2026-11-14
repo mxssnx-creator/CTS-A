@@ -1,6 +1,6 @@
 # Complete outcomes and exact stage evidence — 14 November 2026
 
-Base: main `543248f1205ca6fb95e7671afbe780c59a30a805`.
+Initial base: main `543248f1205ca6fb95e7671afbe780c59a30a805`. During this continuation, the parallel old-PR audit merged #28 as `6c50971d29040b379c8990c0b3bdc471a03c442f`. Its outcome/quantity/stage fixes and claim-by-claim audit are preserved. The follow-up adds the complete configuration key, active-account restriction, explicit unavailable end evidence/UI and the mature DCA fixture.
 
 Bot replay used the realized outcome to withhold losing fills from the executed book and additional-strategy books, including closes that would turn an hour red. Every admitted close now remains in the relevant book. Hourly counts, cash PnL, drawdown and the existing bot-report PF reconcile to the complete retained tape. A positive hour or positive PF is no longer a test prerequisite. This correction can lower previously displayed results; no profitable default is inferred from the corrected fixture.
 
