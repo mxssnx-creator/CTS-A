@@ -881,6 +881,7 @@ describe("VST engine", () => {
     e.positions[0].qty = 10;
     e.positions[0].plannedQty = 10;
     e.fills = [];
+    const ledgerBefore = JSON.stringify(e.ledger);
     const n = syncLivePartials(e, {
       positions: [{ symbol: "ETHUSDT", side: "long", qty: 4, entry: 1, mark: 1.01 }],
     });
@@ -893,6 +894,11 @@ describe("VST engine", () => {
     assert.equal(cut.qty, 6);
     assert.equal(cut.remaining, 4);
     assert.equal(cut.planned, 10);
+    assert.equal(cut.pnl, 0);
+    assert.equal(cut.pnlKnown, false);
+    assert.equal(cut.priceKnown, false);
+    assert.equal(e.positions[0].realized, 0);
+    assert.equal(JSON.stringify(e.ledger), ledgerBefore);
     const n2 = syncLivePartials(e, {
       positions: [{ symbol: "ETHUSDT", side: "long", qty: 7, entry: 1, mark: 1.02 }],
     });
@@ -900,6 +906,10 @@ describe("VST engine", () => {
     assert.equal(e.positions[0].qty, 7);
     assert.equal(e.fills[0].qty, 3);
     assert.equal(e.fills[0].remaining, 3);
+    assert.equal(e.fills[0].pnlKnown, false);
+    assert.equal(e.fills[0].priceKnown, false);
+    assert.equal(e.positions[0].realized, 0);
+    assert.equal(JSON.stringify(e.ledger), ledgerBefore);
     assert.ok(e.fills.length <= VST_FILL_KEEP);
   });
 
