@@ -24,7 +24,6 @@ import {
   RANGE_TYPES,
   SL_ATR_RATIOS,
   STAGE_HOURS,
-  STAGE_META,
   STRATEGY_KINDS,
   SYMBOLS,
   TACTICS,
@@ -40,7 +39,7 @@ import {
   profitFactor,
   strategiesForKinds,
 } from "./engine.ts";
-import { adjustActiveBlocks, simulateHours } from "./vst.ts";
+import { adjustActiveBlocks, completeConfigSampleKey, simulateHours } from "./vst.ts";
 
 export const HIST_HOURS = [2, 4, 8, 16, 32] as const;
 export const DAYS_HOURS = 72;
@@ -219,19 +218,26 @@ export function autoValidateConfigs(opts?: {
 function pfClosed(closed: ClosedTrade[], n: number): LastNEvalRow {
   const xs = closed.slice(0, Math.max(1, n));
   const trades = xs.length;
-  const wins = xs.filter((c) => c.pnl > 0);
-  const profit = wins.reduce((s, c) => s + c.pnl, 0);
-  const loss = Math.abs(xs.filter((c) => c.pnl < 0).reduce((s, c) => s + c.pnl, 0));
-  const net = xs.reduce((s, c) => s + c.pnl, 0);
+  const values = xs.map((c) => {
+    if (c.ratio !== undefined) return Number.isFinite(c.ratio) ? c.ratio : NaN;
+    const notional = c.entry * c.qty;
+    return Number.isFinite(c.pnl) && Number.isFinite(notional) && notional > 0 ? c.pnl / notional : NaN;
+  });
+  const unknown = values.filter((value) => !Number.isFinite(value)).length;
+  const wins = values.filter((value) => value > 0);
+  const profit = wins.reduce((sum, value) => sum + value, 0);
+  const loss = Math.abs(values.filter((value) => value < 0).reduce((sum, value) => sum + value, 0));
+  const net = unknown ? NaN : values.reduce((sum, value) => sum + value, 0);
   const pf = profitFactor(profit, loss);
-  const wr = trades ? wins.length / trades : 0;
+  const wr = unknown ? NaN : trades ? wins.length / trades : 0;
   return {
     n,
-    pf: Number.isFinite(pf) ? pf : 0,
-    wr: Number.isFinite(wr) ? wr : 0,
-    net: Number.isFinite(net) ? net : 0,
+    pf: unknown ? 0 : Number.isFinite(pf) ? pf : 0,
+    wr,
+    net,
     trades,
-    ok: pf >= 1 && trades > 0,
+    ok: !unknown && pf >= 1 && net > 0 && trades >= n,
+    ...(unknown ? { unknown } : {}),
   };
 }
 
@@ -254,7 +260,7 @@ export function trackLaneEvals(
           wr: s.wr,
           net: s.net,
           trades: s.trades,
-          ok: isPositive(s, th) || (s.pf >= th.minPf * 0.92 && s.volumeFactor >= th.minVf),
+          ok: s.trades >= n && s.net > 0 && (isPositive(s, th) || (s.pf >= th.minPf * 0.92 && s.volumeFactor >= th.minVf)),
         };
       });
       const end = ns.find((r) => r.n === (lastNs[lastNs.length - 1] ?? 15)) ?? ns[ns.length - 1];
@@ -268,6 +274,7 @@ export function trackLaneEvals(
           tactic,
           kind: st.kind,
           ns,
+          evidence: "source-model",
           effective: Boolean(fullOk && end?.ok && passing >= Math.max(2, lastNs.length - 1)),
           lastAt: now,
         });
@@ -280,37 +287,70 @@ export function trackLaneEvals(
 export function liveLastNEvals(closed: ClosedTrade[], lastNs: readonly number[] = LANE_EVAL_NS, minPf = 1): LastNEvalRow[] {
   return lastNs.map((n) => {
     const row = pfClosed(closed, n);
-    return { ...row, ok: row.pf >= minPf && row.trades > 0 };
+    return { ...row, ok: row.ok && row.pf >= minPf };
   });
 }
 
-function overlayLiveTracks(
+export function overlayLiveTracks(
   tracks: LaneEvalTrack[],
   closed: ClosedTrade[],
-  lastNs: readonly number[],
   minPf: number,
 ): LaneEvalTrack[] {
-  const bySym = new Map<string, ClosedTrade[]>();
+  const byLane = new Map<string, ClosedTrade[]>();
   for (const c of closed) {
-    const arr = bySym.get(c.symbol);
+    if (!c.strategyId || !c.tactic || !c.kind || c.validExec !== true || c.protect || c.examFlat) continue;
+    const executionKey = completeConfigSampleKey(c);
+    if (!executionKey) continue;
+    const key = JSON.stringify([c.strategyId, executionKey]);
+    const arr = byLane.get(key);
     if (arr) arr.push(c);
-    else bySym.set(c.symbol, [c]);
+    else byLane.set(key, [c]);
   }
-  const need = lastNs[lastNs.length - 1] ?? 15;
   return tracks.map((t) => {
-    const xs = bySym.get(t.symbol);
+    const laneNs = t.ns.map((row) => row.n);
+    const need = Math.max(1, ...laneNs);
+    if (!t.executionKey) return t;
+    const xs = byLane.get(JSON.stringify([t.strategyId, t.executionKey]));
     if (!xs || xs.length < need) return t;
-    const ns = lastNs.map((n) => {
+    const ns = laneNs.map((n) => {
       const row = pfClosed(xs, n);
-      return { ...row, ok: row.pf >= minPf && row.trades > 0 };
+      return { ...row, ok: row.ok && row.pf >= minPf };
     });
     const end = ns[ns.length - 1];
     const passing = ns.filter((r) => r.ok).length;
     return {
       ...t,
       ns,
-      effective: t.effective && Boolean(end?.ok) && passing >= Math.max(2, lastNs.length - 1),
+      evidence: "settled-identity",
+      effective: t.effective && Boolean(end?.ok) && passing >= Math.min(laneNs.length, Math.max(2, laneNs.length - 1)),
       lastAt: Date.now(),
+    };
+  });
+}
+
+/** Keep every requested horizon; missing marks are not replaced by another period. */
+export function stageMarkers(
+  hours: readonly number[],
+  marks: readonly HorizonMark[],
+  end: { samples: number; pf: number; minPf: number; effective: number; valid: number },
+): StageEval[] {
+  const ordered = [...new Set(hours.filter((hour) => Number.isFinite(hour) && hour > 0))].sort((a, b) => a - b);
+  return ordered.map((hour, index) => {
+    const mark = marks.find((row) => row.hours === hour);
+    const isEnd = index === ordered.length - 1;
+    return {
+      id: isEnd ? "end" : index === 0 ? "pre" : "mid",
+      hours: hour,
+      pf: isEnd ? end.pf : mark?.pf ?? 0,
+      wr: mark?.wr ?? 0,
+      net: mark?.net ?? 0,
+      mdd: mark?.mdd ?? 0,
+      trades: mark?.trades ?? 0,
+      ok: isEnd ? end.samples > 0 && end.pf >= end.minPf && Boolean(mark?.ok) : Boolean(mark?.ok),
+      recorded: Boolean(mark) && (!isEnd || end.samples > 0),
+      effective: isEnd ? end.effective : 0,
+      valid: isEnd ? end.valid : 0,
+      pfAvg: isEnd ? end.pf : undefined,
     };
   });
 }
@@ -328,7 +368,7 @@ export function evaluateStages(opts?: {
   const th = opts?.th ?? DEFAULT_THRESHOLDS;
   const cfg = { ...DEFAULT_TACTIC_CONFIG, ...opts?.base };
   const lastNs = [...(opts?.lastNs?.length ? opts.lastNs : LANE_EVAL_NS)];
-  const hours = [...(opts?.hours?.length ? opts.hours : STAGE_HOURS)];
+  const hours = [...new Set(opts?.hours?.length ? opts.hours : STAGE_HOURS)].sort((a, b) => a - b);
   const maxH = Math.max(...hours);
   const tactic = opts?.tactic ?? "hybrid";
   const rangeType = opts?.rangeType ?? "atr";
@@ -345,33 +385,19 @@ export function evaluateStages(opts?: {
   const blockAdjust = adjustActiveBlocks(engine, cfg, tactic, block, rangeType, { endStage: true });
   const marks = report.marks ?? [];
 
-  const laneTracks = overlayLiveTracks(trackLaneEvals(th, kinds, lastNs), engine.closed, lastNs, th.minPf);
-  const effectiveTracks = laneTracks.filter((t) => t.effective);
-  const valid = laneTracks.filter((t) => t.ns.some((r) => r.ok)).length;
+  const settled = engine.closed.filter((row) => row.connId === engine.activeConnId && row.validExec === true && !row.protect && !row.examFlat);
+  const laneTracks = overlayLiveTracks(trackLaneEvals(th, kinds, lastNs), settled, th.minPf);
+  const effectiveTracks = laneTracks.filter((t) => t.evidence === "settled-identity" && t.effective);
+  const valid = laneTracks.filter((t) => t.evidence === "settled-identity" && t.ns.some((r) => r.ok)).length;
   const endRows = effectiveTracks.map((t) => t.ns.find((r) => r.n === lastNs[lastNs.length - 1]) ?? t.ns[t.ns.length - 1]!);
   const endPfAvg = endRows.length ? endRows.reduce((s, r) => s + r.pf, 0) / endRows.length : 0;
-  const liveNs = liveLastNEvals(engine.closed, lastNs, th.minPf);
-
-  const stages: StageEval[] = STAGE_META.filter((s) => hours.includes(s.hours)).map((meta) => {
-    const m = marks.find((x) => x.hours === meta.hours);
-    const isEnd = meta.id === "end";
-    const pf = isEnd && endRows.length ? endPfAvg : (m?.pf ?? report.pf);
-    const ok = isEnd
-      ? endRows.length > 0 && endPfAvg >= th.minPf * 0.9 && (m?.ok ?? report.pf >= 1)
-      : Boolean(m?.ok);
-    return {
-      id: meta.id,
-      hours: meta.hours,
-      pf,
-      wr: m?.wr ?? report.wr,
-      net: m?.net ?? report.net,
-      mdd: m?.mdd ?? report.mdd,
-      trades: m?.trades ?? report.trades,
-      ok,
-      effective: isEnd ? effectiveTracks.length : 0,
-      valid: isEnd ? valid : 0,
-      pfAvg: isEnd ? endPfAvg : undefined,
-    };
+  const liveNs = liveLastNEvals(settled, lastNs, th.minPf);
+  const stages = stageMarkers(hours, marks, {
+    samples: endRows.length,
+    pf: endPfAvg,
+    minPf: th.minPf,
+    effective: effectiveTracks.length,
+    valid,
   });
 
   const coords: CoordValidate[] = [];
@@ -436,16 +462,17 @@ export function evaluateStages(opts?: {
     });
   }
   for (const n of lastNs) {
-    const row = liveNs.find((x) => x.n === n) ?? pfClosed(engine.closed, n);
+    const row = liveNs.find((x) => x.n === n) ?? pfClosed(settled, n);
     const laneOk = laneTracks.filter((t) => t.ns.some((r) => r.n === n && r.ok)).length;
     coords.push({
       axis: "lastN",
       value: `N${n}`,
-      ok: row.ok || laneOk > 0,
+      ok: row.ok,
       pf: row.pf,
       wr: row.wr,
       lastN: n,
       recommend: row.ok ? "add" : "wait",
+      lanePassing: laneOk,
     });
   }
 
@@ -460,6 +487,7 @@ export function evaluateStages(opts?: {
     laneTracks,
     liveNs,
     endPfAvg,
+    endEvidence: endRows.length ? "settled-identity" : "unavailable",
     effective: effectiveTracks.length,
     valid,
     endOk,

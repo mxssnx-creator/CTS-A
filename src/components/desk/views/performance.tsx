@@ -422,13 +422,13 @@ export function PerformanceView() {
           </p>
           <div className="flex flex-wrap gap-2">
             {stageEval.stages.map((s) => (
-              <Pill key={s.id} tone={s.ok ? "up" : "down"}>
-                {s.id} {s.hours}h · PF {s.pf.toFixed(2)}
-                {s.id === "end" ? ` · avg ${s.pfAvg?.toFixed(2) ?? "—"} · ${s.effective} eff` : ""}
+              <Pill key={`${s.id}:${s.hours}`} tone={s.ok ? "up" : "neutral"}>
+                {s.id} {s.hours}h · PF {s.recorded !== true ? "—" : s.pf.toFixed(2)}
+                {s.id === "end" ? ` · avg ${s.recorded === true ? s.pfAvg?.toFixed(2) ?? "—" : "—"} · ${s.effective} eff` : ""}
               </Pill>
             ))}
             <Pill tone={stageEval.endOk ? "up" : "down"}>
-              End avg {stageEval.endPfAvg.toFixed(2)} · {stageEval.effective}/{stageEval.valid} effective
+              End avg {stageEval.endEvidence === "settled-identity" ? stageEval.endPfAvg.toFixed(2) : "—"} · {stageEval.effective}/{stageEval.valid} effective
             </Pill>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">

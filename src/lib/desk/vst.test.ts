@@ -881,6 +881,7 @@ describe("VST engine", () => {
     e.positions[0].qty = 10;
     e.positions[0].plannedQty = 10;
     e.fills = [];
+    const ledgerBefore = JSON.stringify(e.ledger);
     const n = syncLivePartials(e, {
       positions: [{ symbol: "ETHUSDT", side: "long", qty: 4, entry: 1, mark: 1.01 }],
     });
@@ -893,6 +894,11 @@ describe("VST engine", () => {
     assert.equal(cut.qty, 6);
     assert.equal(cut.remaining, 4);
     assert.equal(cut.planned, 10);
+    assert.equal(cut.pnl, 0);
+    assert.equal(cut.pnlKnown, false);
+    assert.equal(cut.priceKnown, false);
+    assert.equal(e.positions[0].realized, 0);
+    assert.equal(JSON.stringify(e.ledger), ledgerBefore);
     const n2 = syncLivePartials(e, {
       positions: [{ symbol: "ETHUSDT", side: "long", qty: 7, entry: 1, mark: 1.02 }],
     });
@@ -900,6 +906,10 @@ describe("VST engine", () => {
     assert.equal(e.positions[0].qty, 7);
     assert.equal(e.fills[0].qty, 3);
     assert.equal(e.fills[0].remaining, 3);
+    assert.equal(e.fills[0].pnlKnown, false);
+    assert.equal(e.fills[0].priceKnown, false);
+    assert.equal(e.positions[0].realized, 0);
+    assert.equal(JSON.stringify(e.ledger), ledgerBefore);
     assert.ok(e.fills.length <= VST_FILL_KEEP);
   });
 
@@ -1692,7 +1702,12 @@ describe("VST engine", () => {
     assert.ok(bundle.laneTracks.every((t) => t.ns.length === 3));
     assert.ok(TACTICS.every((t) => bundle.coords.some((c) => c.axis === "tactic" && c.value === t)));
     assert.ok(RANGE_TYPES.every((r) => bundle.coords.some((c) => c.axis === "range" && c.value === r)));
-    const effective = bundle.laneTracks.filter((t) => t.effective);
+    const effective = bundle.laneTracks.filter((t) => t.evidence === "settled-identity" && t.effective);
+    assert.equal(bundle.effective, effective.length, "source-model tracks never certify settled execution");
+    if (!effective.length) {
+      assert.equal(bundle.endEvidence, "unavailable");
+      assert.equal(bundle.endOk, false);
+    }
     if (effective.length) {
       const endN = bundle.lastNs[bundle.lastNs.length - 1]!;
       const avg =

@@ -1,0 +1,13 @@
+# Complete outcomes and exact stage evidence — 14 November 2026
+
+Base: main `543248f1205ca6fb95e7671afbe780c59a30a805`.
+
+Bot replay used the realized outcome to withhold losing fills from the executed book and additional-strategy books, including closes that would turn an hour red. Every admitted close now remains in the relevant book. Hourly counts, cash PnL, drawdown and the existing bot-report PF reconcile to the complete retained tape. A positive hour or positive PF is no longer a test prerequisite. This correction can lower previously displayed results; no profitable default is inferred from the corrected fixture.
+
+Stage Last-N scoring uses measured return ratios, requires the requested sample count and a positive net result, and fails closed when economics are unknown. A settled overlay requires an exact recorded strategy ID and complete connection, symbol, direction, indication, tactic, range, playbook, kind, protection, calculation and cost-policy identity. Micro identities additionally require both captured distance floors. An abstract source-model track cannot acquire settled provenance from a same-symbol or sibling close. Only settled-identity tracks can certify the end stage; missing evidence displays unavailable in Settings and Performance. Requested horizons retain their own markers instead of borrowing another period's PF.
+
+Position-snapshot quantity changes no longer invent realized PnL from the current mark. Their bookkeeping echoes explicitly mark price/PnL unknown. Actual execution history remains necessary to establish realized economics. This change does not complete an exchange-fill reconciliation adapter or bind abstract research IDs to venue executions; end-stage acceptance stays unavailable until such provenance exists.
+
+Verification on the final source: 119 integrity tests, 61 stable regressions, 34 bot/entry/stage tests, four runtime stage/connection/partial tests, strategy and Last-N feature checks, execution-offline checks, TypeScript and the production-format development build pass. The DCA stable fixture explicitly uses a position old enough for the production live-feed hold rule; no hold gate was disabled. The unbounded legacy `vst.test.ts` inventory did not produce a completion record during this continuation and is not counted as a full pass. Local browser execution is unavailable because Chromium cannot create its socket in this environment; no visual QA pass is claimed.
+
+No exchange order, account setting, service or deployment changed. New forward post-Base PF, passed/evaluated counts and live execution PF are unavailable. Existing x02 losses and the open 12-symbol lifecycle/forward acceptance remain outstanding in the all-project report.

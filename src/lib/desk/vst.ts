@@ -630,6 +630,12 @@ function configSampleKey(rel: ConfigIdentity) {
     rel.tpAtr, rel.slOfTp, rel.trailPct, rel.calc, !!rel.microRange, !!rel.minimalRange, !!rel.shortRange,
     rel.modelRtCost, rel.minSlDistancePct, ...(rel.microRange ? [rel.microMinSlDistancePct,rel.microMinTrailDistancePct] : [])]);
 }
+/** Only a complete recorded identity may bind modeled and settled contexts. */
+export function completeConfigSampleKey(rel: ConfigIdentity): string | null {
+  if (!hasConfigProvenance(rel)) return null;
+  if (rel.microRange && ![rel.microMinSlDistancePct, rel.microMinTrailDistancePct].every(Number.isFinite)) return null;
+  return configSampleKey(rel);
+}
 function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
   if (rel.connId != null && row.connId !== rel.connId) return false;
   if (rel.calc != null && row.calc !== rel.calc) return false;
@@ -4768,6 +4774,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       : protectLevels(px, o.side, o.slDist, o.tpDist, rawR, true, o.modelRtCost ?? modeledPositionCost(e, o.symbol), o.minSlDistancePct ?? e.minSlDistancePct);
     pos = {
       id: nextId(e, "p"),
+      strategyId: o.strategyId,
       protectionKey: geometryKey(o),
       modelRtCost: o.modelRtCost ?? modeledPositionCost(e, o.symbol),
       minSlDistancePct: o.minSlDistancePct ?? normalizeMinSlDistancePct(e.minSlDistancePct),
@@ -5151,6 +5158,7 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
     id: nextId(e, "c"),
     connId: p.connId,
     symbol: p.symbol,
+    strategyId: p.strategyId,
     side: p.side,
     pnl,
     ratio,
@@ -5257,6 +5265,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     id: p.id,
     connId: p.connId,
     symbol: p.symbol,
+    strategyId: p.strategyId,
     side: p.side,
     pnl,
     ratio,
@@ -5888,14 +5897,15 @@ export function syncLivePartials(
           remaining: Math.max(0, pos.plannedQty - pos.qty),
           planned: pos.plannedQty,
           liveEcho: true,
+          pnlKnown: false,
+          priceKnown: false,
         });
       } else {
         const take = Math.abs(dQty);
-        const signed = pos.side === "long" ? 1 : -1;
-        const rawPnl = Number.isFinite(px) && px > 0 && pos.avgEntry > 0 ? (px - pos.avgEntry) * signed * take - actualPositionFeeEstimate(e, pos.symbol, pos.avgEntry, px, take) : 0;
-        const pnl = bookRealized(e, rawPnl, "partial");
+        // A smaller position snapshot proves a quantity change, not its fill
+        // price, fee or realized PnL. Those economics arrive through owned
+        // order/income reconciliation and must never be inferred from the mark.
         pos.qty = qty;
-        pos.realized += pnl;
         e.fills.unshift({
           id: nextId(e, "f"),
           orderId: pos.id,
@@ -5904,12 +5914,14 @@ export function syncLivePartials(
           side: pos.side,
           qty: take,
           px,
-          pnl: Number.isFinite(pnl) ? pnl : 0,
+          pnl: 0,
           kind: "partial",
           tick: e.tick,
           remaining: pos.qty,
           planned: pos.plannedQty,
           liveEcho: true,
+          pnlKnown: false,
+          priceKnown: false,
         });
       }
       if (e.fills.length > VST_FILL_KEEP) e.fills.length = VST_FILL_KEEP;
