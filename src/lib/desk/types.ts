@@ -1271,6 +1271,8 @@ export interface LastNEvalRow {
 }
 
 export interface LaneEvalTrack {
+  /** Exact connection, side, configuration and economic policy; absent for abstract source models. */
+  executionKey?: string;
   laneId: string;
   strategyId: string;
   symbol: string;
@@ -1316,6 +1318,7 @@ export interface StageEvalBundle {
   laneTracks: LaneEvalTrack[];
   liveNs: LastNEvalRow[];
   endPfAvg: number;
+  endEvidence?: "settled-identity" | "unavailable";
   effective: number;
   valid: number;
   endOk: boolean;

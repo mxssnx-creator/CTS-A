@@ -39,7 +39,7 @@ import {
   profitFactor,
   strategiesForKinds,
 } from "./engine.ts";
-import { adjustActiveBlocks, simulateHours } from "./vst.ts";
+import { adjustActiveBlocks, completeConfigSampleKey, simulateHours } from "./vst.ts";
 
 export const HIST_HOURS = [2, 4, 8, 16, 32] as const;
 export const DAYS_HOURS = 72;
@@ -299,7 +299,9 @@ export function overlayLiveTracks(
   const byLane = new Map<string, ClosedTrade[]>();
   for (const c of closed) {
     if (!c.strategyId || !c.tactic || !c.kind || c.validExec !== true || c.protect || c.examFlat) continue;
-    const key = JSON.stringify([c.symbol, c.strategyId, c.tactic, c.kind]);
+    const executionKey = completeConfigSampleKey(c);
+    if (!executionKey) continue;
+    const key = JSON.stringify([c.strategyId, executionKey]);
     const arr = byLane.get(key);
     if (arr) arr.push(c);
     else byLane.set(key, [c]);
@@ -307,7 +309,8 @@ export function overlayLiveTracks(
   return tracks.map((t) => {
     const laneNs = t.ns.map((row) => row.n);
     const need = Math.max(1, ...laneNs);
-    const xs = byLane.get(JSON.stringify([t.symbol, t.strategyId, t.tactic, t.kind]));
+    if (!t.executionKey) return t;
+    const xs = byLane.get(JSON.stringify([t.strategyId, t.executionKey]));
     if (!xs || xs.length < need) return t;
     const ns = laneNs.map((n) => {
       const row = pfClosed(xs, n);
@@ -338,13 +341,13 @@ export function stageMarkers(
     return {
       id: isEnd ? "end" : index === 0 ? "pre" : "mid",
       hours: hour,
-      pf: isEnd && end.samples ? end.pf : mark?.pf ?? 0,
+      pf: isEnd ? end.pf : mark?.pf ?? 0,
       wr: mark?.wr ?? 0,
       net: mark?.net ?? 0,
       mdd: mark?.mdd ?? 0,
       trades: mark?.trades ?? 0,
       ok: isEnd ? end.samples > 0 && end.pf >= end.minPf && Boolean(mark?.ok) : Boolean(mark?.ok),
-      recorded: Boolean(mark),
+      recorded: Boolean(mark) && (!isEnd || end.samples > 0),
       effective: isEnd ? end.effective : 0,
       valid: isEnd ? end.valid : 0,
       pfAvg: isEnd ? end.pf : undefined,
@@ -382,7 +385,7 @@ export function evaluateStages(opts?: {
   const blockAdjust = adjustActiveBlocks(engine, cfg, tactic, block, rangeType, { endStage: true });
   const marks = report.marks ?? [];
 
-  const settled = engine.closed.filter((row) => row.validExec === true && !row.protect && !row.examFlat);
+  const settled = engine.closed.filter((row) => row.connId === engine.activeConnId && row.validExec === true && !row.protect && !row.examFlat);
   const laneTracks = overlayLiveTracks(trackLaneEvals(th, kinds, lastNs), settled, th.minPf);
   const effectiveTracks = laneTracks.filter((t) => t.evidence === "settled-identity" && t.effective);
   const valid = laneTracks.filter((t) => t.evidence === "settled-identity" && t.ns.some((r) => r.ok)).length;
@@ -484,6 +487,7 @@ export function evaluateStages(opts?: {
     laneTracks,
     liveNs,
     endPfAvg,
+    endEvidence: endRows.length ? "settled-identity" : "unavailable",
     effective: effectiveTracks.length,
     valid,
     endOk,

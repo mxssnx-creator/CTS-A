@@ -79,7 +79,7 @@ function seedLong(e: ReturnType<typeof engine>, drop: number, range: "atr" | "vo
     controllingRange: range,
     rangeSpacing: q.atr || entry * 0.01,
     status: "open" as const,
-    openedTick: 0,
+    openedTick: -100, // the live-feed path requires an observed 80-tick hold before adds
     tactic: "trailing" as const,
     indication: "ema" as const,
     playbook: "short",

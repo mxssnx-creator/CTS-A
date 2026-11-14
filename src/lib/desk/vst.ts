@@ -630,6 +630,12 @@ function configSampleKey(rel: ConfigIdentity) {
     rel.tpAtr, rel.slOfTp, rel.trailPct, rel.calc, !!rel.microRange, !!rel.minimalRange, !!rel.shortRange,
     rel.modelRtCost, rel.minSlDistancePct, ...(rel.microRange ? [rel.microMinSlDistancePct,rel.microMinTrailDistancePct] : [])]);
 }
+/** Only a complete recorded identity may bind modeled and settled contexts. */
+export function completeConfigSampleKey(rel: ConfigIdentity): string | null {
+  if (!hasConfigProvenance(rel)) return null;
+  if (rel.microRange && ![rel.microMinSlDistancePct, rel.microMinTrailDistancePct].every(Number.isFinite)) return null;
+  return configSampleKey(rel);
+}
 function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
   if (rel.connId != null && row.connId !== rel.connId) return false;
   if (rel.calc != null && row.calc !== rel.calc) return false;

@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { liveLastNEvals, overlayLiveTracks, stageMarkers } from "./validate.ts";
+import { completeConfigSampleKey } from "./vst.ts";
 import type { ClosedTrade, HorizonMark, LaneEvalTrack } from "./types.ts";
 
 const close = (id: string, pnl: number, ratio: number | undefined, extra: Partial<ClosedTrade> = {}): ClosedTrade => ({
   id, connId: "bingx-vst-02", symbol: "BTCUSDT", side: "long", pnl, ratio, qty: 1, entry: 100,
+  indication:"ema",rangeType:"atr",playbook:"axis",calc:"base",tpAtr:.6,slOfTp:.5,trailPct:0,
+  modelRtCost:.001,minSlDistancePct:.1,microRange:false,minimalRange:false,shortRange:false,
   exit: 100, reason: pnl > 0 ? "tp" : "sl", tick: 10, r: 0, tactic: "axis", kind: "normal", validExec: true, ...extra,
 });
 
 const track = (strategyId: string, tactic: "axis" | "trailing"): LaneEvalTrack => ({
+  executionKey: completeConfigSampleKey(close("identity",1,.01,{tactic}))!,
   laneId: `${strategyId}:BTCUSDT:${tactic}`, strategyId, symbol: "BTCUSDT", tactic, kind: "normal",
   ns: [{ n: 2, pf: 2, wr: 1, net: 1, trades: 2, ok: true }], evidence: "source-model", effective: true, lastAt: 0,
 });
@@ -52,3 +56,27 @@ test("stage markers retain requested horizons and never substitute another perio
   assert.equal(result[3]!.ok, true);
 });
 
+
+test("account, side, range and economic siblings cannot supply an exact execution window",()=>{
+  const source=[track("alpha","axis")];
+  const own=[close("a",1,.01,{strategyId:"alpha"}),close("b",1,.01,{strategyId:"alpha"})];
+  for(const patch of [{connId:"other-account"},{side:"short" as const},{rangeType:"linear" as const},{slOfTp:.75},{modelRtCost:.002},{minSlDistancePct:.3},{calc:undefined}])
+    assert.deepEqual(overlayLiveTracks(source,own.map(x=>({...x,...patch})),1),source,JSON.stringify(patch));
+  const unbound=[{...source[0],executionKey:undefined}];
+  assert.deepEqual(overlayLiveTracks(unbound,own,1),unbound,"abstract model lanes have no settled provenance");
+  assert.equal(overlayLiveTracks(source,own,1)[0].evidence,"settled-identity");
+});
+test("an end stage without an owned window cannot borrow its historical marker's PF",()=>{
+ const mark={hours:4,trades:10,pf:4,wr:1,net:1,mdd:0,equity:10,slExits:0,tpExits:10,ok:true,score:1};
+ const result=stageMarkers([4],[mark],{samples:0,pf:0,minPf:1.1,effective:0,valid:0})[0];
+ assert.equal(result.recorded,false);assert.equal(result.ok,false);assert.equal(result.pf,0);
+});
+
+test("Micro execution identity requires both captured distance floors", () => {
+  const row = close("micro", 1, .01, { microRange: true });
+  assert.equal(completeConfigSampleKey(row), null);
+  const captured = { ...row, microMinSlDistancePct: .1, microMinTrailDistancePct: .05 };
+  assert.equal(typeof completeConfigSampleKey(captured), "string");
+  assert.equal(completeConfigSampleKey({ ...captured, microMinTrailDistancePct: NaN }), null);
+  assert.notEqual(completeConfigSampleKey(captured), completeConfigSampleKey({ ...captured, microMinTrailDistancePct: .1 }));
+});

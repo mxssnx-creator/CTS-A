@@ -1673,7 +1673,7 @@ export const useDesk = create<DeskStore>((set, get) => ({
     const next = { ...bundle, mirrored };
     e.lastMsg = next.endOk
       ? `Stage-eval ${next.hours.join("/")}h · end PF ${next.endPfAvg.toFixed(2)} · ${next.effective} effective · ${mirrored ? "mirrored" : "held"}`
-      : `Stage-eval · end PF ${next.endPfAvg.toFixed(2)} · wait`;
+      : `Stage-eval · end PF ${next.endEvidence === "settled-identity" ? next.endPfAvg.toFixed(2) : "unavailable"} · wait`;
     set({
       stageEval: next,
       vst: snapshotVst(e),
