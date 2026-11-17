@@ -252,6 +252,17 @@ export type LastNDecision = {
   disableHits: LastNWindowHit[];
 };
 
+/** Policies replace the parent configuration; inspect the one actually selected. */
+export function selectedDisjointBlocks(cfg: LastNProgressConfig, decision: LastNDecision): boolean {
+  if (cfg.policies?.length) return Boolean(cfg.policies.find(p => p.id === decision.selectedPolicy)?.blocks);
+  return Boolean(cfg.blocks);
+}
+
+export function hasDisjointBlocks(cfg: LastNProgressConfig): boolean {
+  if (cfg.policies?.length) return cfg.policies.some(p => Boolean(p.blocks));
+  return Boolean(cfg.blocks);
+}
+
 function hitsOf(pre: LastNPrefix, ns: readonly number[]): LastNWindowHit[] {
   return ns.map((n) => lastNHitFromPrefix(pre, n));
 }
@@ -276,9 +287,10 @@ export function decideLastNFromPrefix(
   if(cfg.blocks){
     const v=evaluateBlocks(blockPrefix(pre.values??[],blockRequired(cfg.blocks)),cfg.blocks,Math.max(1.000001,minPf,basePf));
     const hit=(w:BlockResult):LastNWindowHit=>({n:w.requested,samples:w.count,pf:w.pf===Infinity?99:w.pf??0,avg:w.count?w.net/w.count:0,net:w.net,ok:w.state==="qualified"});
-    const pass=v.state==="qualified";
+    const negative=negativeLastNDecision(pre.values ?? [], cfg.negativeFilter);
+    const pass=v.state==="qualified" && negative.pass;
     // Signed blocks are conjunctive evidence on this exact lane; they never multiply its volume.
-    return {pass,independent:pass,combined:pass,majority:pass,stack:1,evalHits:[hit(v.long)],validHits:[hit(v.short)],disableHits:[hit(v.minimal)]};
+    return {pass,independent:pass,combined:pass,majority:pass,stack:1,evalHits:[hit(v.long)],validHits:[hit(v.short)],disableHits:[hit(v.minimal)],negative};
   }
   const evalHits = hitsOf(pre, cfg.evalNs);
   const validHits = hitsOf(pre, cfg.validNs);
@@ -471,12 +483,12 @@ export function scoreLastNGroup(
   basePf: number,
 ): LastNGroupScore {
   const evalCount = evalWindowCount(cfg);
-  if (rows.length < evalCount && rows.length < 5) {
+  if (!hasDisjointBlocks(cfg) && rows.length < evalCount && rows.length < 5) {
     let net = 0;
     for (const r of rows) net += edgePnl(r);
     return { n: rows.length, pf: 0, net, ok: true, stack: 1 };
   }
-  if (rows.length < evalCount) {
+  if (!hasDisjointBlocks(cfg) && rows.length < evalCount) {
     const h = lastNHitFromPrefix(lastNPrefix(rows, 5), 5);
     const asked = Number(basePf);
     const pfFloor = asked > 0 ? Math.max(asked, BASE_STAGE_PF) : asked;
@@ -489,6 +501,12 @@ export function scoreLastNGroup(
     };
   }
   const d = decideLastN(rows, cfg, minPf, basePf);
+  if (selectedDisjointBlocks(cfg, d)) {
+    const long = d.evalHits[0];
+    // The short/minimal blocks can intentionally be negative. Their state is
+    // already part of d.pass; the reported PF and net belong to long alone.
+    return { n: long?.samples ?? 0, pf: long?.pf ?? 0, net: long?.net ?? 0, ok: d.pass, stack: d.pass ? d.stack : 1 };
+  }
   const hit = pickLastNScoreHit(d, minPf);
   const full = Boolean(hit && hit.samples >= hit.n);
   return {
@@ -532,8 +550,19 @@ export function scoreLastNModeTape(
   basePf: number,
   mode: LastNPassMode,
 ): LastNModeScore {
-  const st = tapeFold(rows);
   const d = decideLastN(rows, { ...cfg, mode }, minPf, basePf);
+  if (selectedDisjointBlocks(cfg, d)) {
+    const long = d.evalHits[0];
+    return {
+      pass: d.pass,
+      pf: long?.pf ?? 0,
+      n: long?.samples ?? 0,
+      net: long?.net ?? 0,
+      gatedPf: long?.pf ?? 0,
+      gatedN: long?.n ?? 0,
+    };
+  }
+  const st = tapeFold(rows);
   const validOk = d.validHits.filter((h) => h.samples >= h.n && validLastNGood(h, minPf));
   const validFull = d.validHits.filter((h) => h.samples >= h.n);
   const best = [...validOk].sort((a, b) => b.pf - a.pf || b.n - a.n)[0];
