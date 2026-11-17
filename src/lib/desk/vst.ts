@@ -4,7 +4,7 @@ import {publishPortedIndications} from "./engine.ts";
 import { strategyTogglesForRange } from "./strategy-processing.ts";
 import { prehistoryHours } from "./prehistory.ts";
 import { extendOwnSampleHistory, sampleRows, type SampleCoverage } from "./last-n-samples.ts";
-import { measuredEdgePnl } from "./last-n-progress.ts";
+import { hasDisjointBlocks, measuredEdgePnl, selectedDisjointBlocks } from "./last-n-progress.ts";
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
 import { DEFAULT_STEP_PF, stepPfFloor } from "./step-pf.ts";
 import { actualFillFee, feePolicy, resolveFeePolicy, roundTripFeeRate } from "./fee-policy.ts";
@@ -1205,6 +1205,7 @@ function lastNTapePass(e: VstEngine, rows: { pnl: number }[] | undefined, floor 
   // negative vetoes must reach their own decision, even on a short tape.
   if (rows.length < evalCount && !cfg.policies?.length && !cfg.negativeFilter && !cfg.blocks) return nearLastNPass(rows, 8, base);
   const d = decideLastN(rows, cfg, base, base);
+  if (selectedDisjointBlocks(cfg, d)) return d.pass;
   const validOk = d.validHits.some((h) => h.samples >= h.n && h.pf + 1e-9 >= base && h.net > 0);
   if (!validOk || !d.pass) return false;
   const evalFull = d.evalHits.filter((h) => h.samples >= h.n);
@@ -1363,7 +1364,8 @@ function comboLastNPass(
   const ln = lastNProgressOf(e);
   const d = decideLastN(rows, { ...ln, mode: "independent" }, minPf, basePf);
   if (!d.pass) return false;
-  const gated = d.validHits.filter((h) => h.samples >= h.n && h.pf + 1e-9 >= Math.max(GATED_MIN_PF, basePf, BASE_STAGE_PF) && h.net > 0);
+  const evidence = selectedDisjointBlocks(ln, d) ? d.evalHits : d.validHits;
+  const gated = evidence.filter((h) => h.samples >= h.n && h.pf + 1e-9 >= Math.max(GATED_MIN_PF, basePf, BASE_STAGE_PF) && h.net > 0);
   if (!gated.length) return false;
   const st = comboTapeStats(rows);
   if (st.pf >= PF_NO_LOSS - 1e-9 && st.net <= 1e-6) return false;
@@ -7358,8 +7360,12 @@ function independentPassingComboRows(
       if (seen.has(k) || !rows?.length) continue;
       seen.add(k);
       const d = decideLastN(rows, { ...ln, mode: "independent" }, minPf, basePf);
-      const gated = d.validHits.filter((h) => h.samples >= h.n && h.pf + 1e-9 >= GATED_MIN_PF && h.net > 0);
-      if (!(gated.length || internStartOk(e, rows))) continue;
+      if (selectedDisjointBlocks(ln, d)) {
+        if (!d.pass) continue;
+      } else {
+        const gated = d.validHits.filter((h) => h.samples >= h.n && h.pf + 1e-9 >= GATED_MIN_PF && h.net > 0);
+        if (!(gated.length || internStartOk(e, rows))) continue;
+      }
       out.push(...rows);
     }
   }
@@ -11920,6 +11926,11 @@ function laneExecProven(
   e: VstEngine,
   rel: Parameters<typeof lanePassExec>[1],
 ): boolean {
+  const cfg = lastNProgressOf(e);
+  if (hasDisjointBlocks(cfg)) {
+    const d = laneLastNDecision(e, rel);
+    if (selectedDisjointBlocks(cfg, d)) return d.pass;
+  }
   const coord = e.lastNCoord;
   if (coord) {
     const combo = coord.combos[relComboKey(rel, { tactic: e.lastTactic, range: e.lastRange })];
