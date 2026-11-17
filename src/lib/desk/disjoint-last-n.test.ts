@@ -61,3 +61,14 @@ test("an additional recent-loss veto is enforced for each signed policy",()=>{
  const inherited=sanitizeLastNProgress({...DEFAULT_LAST_N_PROGRESS,negativeFilter:veto,policies:[child]});
  assert.equal(decideLastN(rows,inherited,1.1,1.1).pass,false);
 });
+
+test("a legacy sibling cannot bypass explicit policies or their inherited veto",()=>{
+ const veto={windows:[1],mode:"any" as const,maxPf:1};
+ const legacy={...DEFAULT_LAST_N_PROGRESS,id:"legacy",role:"independent" as const,evalNs:[5],validNs:[5],disableNs:[1]};
+ const signed={...DEFAULT_LAST_N_PROGRESS,id:"signed",role:"independent" as const,blocks};
+ const cfg=sanitizeLastNProgress({...DEFAULT_LAST_N_PROGRESS,negativeFilter:veto,policies:[legacy,signed]});
+ const rows=[{pnl:-1},...Array(39).fill({pnl:2})];
+ assert.equal(decideLastN(rows,cfg,1.1,1.1).pass,false);
+ assert.equal(scoreLastNGroup(rows,cfg,1.1,1.1).ok,false);
+ assert.equal(scoreLastNGroup(rows.slice(0,3),cfg,1.1,1.1).ok,false);
+});
