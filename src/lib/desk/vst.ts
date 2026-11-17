@@ -8201,7 +8201,13 @@ function blockCountPositive(e: VstEngine, n: number, minPf: number) {
   return w.lastPf + 1e-9 >= floor;
 }
 
-function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minPf: number) {
+function blockPfOk(
+  lane: BlockLaneState,
+  count: number,
+  block: BlockConfig,
+  minPf: number,
+  volumeIncrement = clampBlockVol(block.volumeRatio) * Math.max(1, count),
+) {
   if ((lane.pauseRemaining[count] || 0) > 0) {
     return false;
   }
@@ -8211,9 +8217,7 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
   if (ring.some((x) => typeof x !== "number" || !Number.isFinite(x))) return false;
   if (ring.length < need) return true;
   const pf = blockRingPf(ring);
-  const vr = clampBlockVol(block.volumeRatio);
-  const inc = vr * Math.max(1, count);
-  const floor = Math.max(minPf, blockMinimumProfitFactor(minPf, block.pfRatio || 1.25, inc) || minPf);
+  const floor = Math.max(minPf, blockMinimumProfitFactor(minPf, block.pfRatio || 1.25, volumeIncrement) || minPf);
   if (pf + 1e-9 < floor) {
     if (block.keepAdjusted) {
       lane.heldFactor[count] = 1;
@@ -8509,12 +8513,10 @@ export function adjustActiveBlocks(
           if (adds + plannedCount() >= addCap || modeAdds >= counts.length * (1 + scopes.length)) break;
           if (!(move > 0)) break;
           if (next < minM || next > maxM) continue;
-          if (block.windows !== false && !blockCountPositive(e, next, minPf)) {
-            /* relation still gated by book window; overall scopes use their own */
-          }
           if (next < Math.max(1, Math.round(block.minActiveLevel || 1))) continue;
           const vrModeRel = mode === "shared" ? vrShared : vrRel;
-          const relCap = lane.baseQty * (mode === "additive" ? Math.min(next * vrModeRel, extraCap) : blockMaxAdditionalRatio(next, vrModeRel, maxMul, mode));
+          const expansion = Math.min(next * vrModeRel, extraCap);
+          const relCap = lane.baseQty * expansion;
           if (
             tacticOn &&
             blockVolumeModes(block).includes(mode) &&
@@ -8523,7 +8525,7 @@ export function adjustActiveBlocks(
             !liveRelLevels.has(next) &&
             lane.pending !== next &&
             relQty + 1e-12 < relCap &&
-            blockPfOk(lane, next, block, minPf) &&
+            blockPfOk(lane, next, block, minPf, expansion) &&
             (block.windows === false || blockCountPositive(e, next, minPf))
           ) {
             // Independent N step only. Winning-rel extra is applied once after all N=1–6.

@@ -190,6 +190,19 @@ test("Overall mode is available independently of the per-set Block mode", () => 
   assert.ok(!e.queue.some((o) => o.note.startsWith("Block additive") || o.note.startsWith("Overall Block shared")));
 });
 
+test("parallel Set Block qualifies each mode with its own capped expansion", () => {
+  const { e, parent, block } = fixture();
+  const modes = { ...block, overall: false, minRelPf: 1.1, sharedVolumeRatio: 1.5, volumeRatio: .4 };
+  e.positions = [parent("volume-proof", 1)];
+  adjustActiveBlocks(e, cfg, "trailing", { ...modes, stack: false }, "atr");
+  for (const lane of Object.values(e.blockLanes)) {
+    lane.pfRing[1] = [.0115, .0115, .0115, .0115, -.01, -.01, -.01, -.01];
+  }
+  adjustActiveBlocks(e, cfg, "trailing", modes, "atr");
+  assert.ok(e.queue.some((o) => o.note.startsWith("Block additive")));
+  assert.ok(!e.queue.some((o) => o.note.startsWith("Block shared")));
+});
+
 test("a parent close cancels its own additions and preserves a sibling's working Block order", () => {
   const { e, parent } = fixture(); e.tick = 100;
   const first = parent("closed:parent", 1), second = parent("held:parent", 2);
