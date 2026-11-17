@@ -708,7 +708,7 @@ export function lastNSampleCoverage(e: VstEngine): SampleCoverage {
     current.set(key,own);
   }
   for (const [key, rows] of configTapeMem.get(e) ?? []) {
-    const own=rows.filter(row=>row.connId === e.activeConnId && !row.examFlat);
+    const own=rows.filter(row=>row.connId === e.activeConnId && !row.examFlat && deskTapeRow(e,row));
     if (own.length) {
       identities.set(key,own[0]);
       const present=current.get(key);
@@ -760,10 +760,10 @@ function snapshotConfigPreTape(e: VstEngine) {
   e.frozenBaseSamples=rows;
   configPreMem.set(e,rows);
 }
-function filterConfigRows(rows: ConfigTapeRow[], rel: ConfigIdentity, limit: number) {
+function filterConfigRows(rows: ConfigTapeRow[], rel: ConfigIdentity, limit: number, accept?: (row: ConfigTapeRow) => boolean) {
   const out: ConfigTapeRow[] = [];
   for (const c of rows) {
-    if (c.examFlat) continue;
+    if (c.examFlat || (accept && !accept(c))) continue;
     if (!configDetailsMatch(c, rel)) continue;
     if (rel.symbol && c.symbol !== rel.symbol) continue;
     if (rel.side && c.side !== rel.side) continue;
@@ -772,12 +772,21 @@ function filterConfigRows(rows: ConfigTapeRow[], rel: ConfigIdentity, limit: num
     if (rel.rangeType && c.rangeType !== rel.rangeType) continue;
     if (rel.playbook && c.playbook !== rel.playbook) continue;
     if (rel.kind && (c.kind ?? "") !== rel.kind) continue;
-    if (rel.tpAtr != null && (c.tpAtr == null || Math.abs(c.tpAtr - rel.tpAtr) > 1e-6)) continue;
-    if (rel.slOfTp != null && (c.slOfTp == null || Math.abs(c.slOfTp - rel.slOfTp) > 1e-6)) continue;
+    if (rel.tpAtr != null && c.tpAtr !== rel.tpAtr) continue;
+    if (rel.slOfTp != null && c.slOfTp !== rel.slOfTp) continue;
     out.push(c);
     if (out.length >= limit) break;
   }
   return out;
+}
+
+/** Read the current own tape before applying the cap. A forced boundary
+ * flatten or a modeled close cannot fill a settled execution window. */
+function currentConfigRows(e: VstEngine, identity: ConfigIdentity, need: number) {
+  const eligible = (row: ConfigTapeRow) => deskTapeRow(e, row);
+  const current = filterConfigRows(e.closed, identity, need, eligible);
+  const retained = filterConfigRows(historyRows(e, identity), identity, need, eligible);
+  return extendOwnSampleHistory(current, retained, need);
 }
 
 /** Close the base exam: score every set, drop what did not validate, keep the best tapes for live. */
@@ -7219,11 +7228,8 @@ function validatedSet(
   const base = configStepFloor(e, baseStageFloor(e), rel);
   const ident = { ...rel, connId: e.activeConnId };
   const need = lastNMaxOf(lastNProgressOf(e));
-  const exact = filterConfigRows(laneClosed(e, ident, need) as ConfigTapeRow[], ident, need);
-  const frozen = filterConfigRows(frozenConfigRows(e), ident, need);
-  const hist = historyRows(e, ident);
-  const own = extendOwnSampleHistory(exact,hist);
-  const tape = own.length ? own : frozen;
+  const own = currentConfigRows(e, ident, need);
+  const tape = own.length ? own : filterConfigRows(frozenConfigRows(e), ident, need);
   if (lastNTapePass(e, tape, base)) return true;
   // An exact execution context cannot borrow a broader range or sibling configuration's wins.
   if (rel.symbol || rel.side) return false;
@@ -11883,7 +11889,8 @@ export function laneLastNDecision(
   const cached = bag.map.get(key);
   if (cached) return cached;
   const need = lastNMaxOf(cfg);
-  const rows = laneClosed(e, rel, need);
+  const identity = {...rel,connId:e.activeConnId};
+  const rows = hasConfigProvenance(identity) ? currentConfigRows(e,identity,need) : laneClosed(e,rel,need);
   const d = decideLastN(rows, cfg, minPf, basePf);
   bag.map.set(key, d);
   return d;
