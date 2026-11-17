@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
 import { adjustActiveBlocks, blockPfOk, initVstEngine, tickVst } from "./vst.ts";
-import type { LivePosition, LiveOrder } from "./types.ts";
+import { sanitizeDeskSettings } from "./settings-sync.ts";
+import type { BlockLaneState, LivePosition, LiveOrder } from "./types.ts";
 
 const cfg = { ...DEFAULT_TACTIC_CONFIG, maxHoldTicks: 1000 };
 
@@ -14,16 +15,32 @@ test("Block qualification reads do not consume a pause without a settled parent"
   assert.equal(lane.pauseRemaining[1], 2);
 });
 
-test("Block partials preserve the parent lane and count one notional-weighted result after restart", () => {
+test("Set Block evaluation and pause windows retain explicit preferences", () => {
+  const defaults = sanitizeDeskSettings(null).blockConfig;
+  assert.deepEqual([defaults.setBlockLastN, defaults.setBlockPauseLastN], [8, 12]);
+  const loaded = sanitizeDeskSettings({ blockConfig: { ...defaults, setBlockLastN: 2, setBlockPauseLastN: 90 } }).blockConfig;
+  assert.deepEqual([loaded.setBlockLastN, loaded.setBlockPauseLastN], [3, 75]);
+  const lane: BlockLaneState = { symbol: "BTCUSDT", side: "long", baseQty: 1, baseEntry: 100, confirmedAdd: 0,
+    satisfied: {}, pfRing: { 1: [.1, .1, .1, .1, .1, -.1, -.1, -.1], 2: [.1, .1, .1] },
+    parentPf: [], active: true, pauseRemaining: {}, heldFactor: {} };
+  assert.equal(blockPfOk(lane, 1, defaults, 1.01), true);
+  assert.equal(blockPfOk(lane, 1, loaded, 1.01), false);
+  assert.equal(blockPfOk(lane, 2, loaded, 1.01), true);
+});
+
+test("a Block peel preserves the parent and settles only the filled count after restart", () => {
   let { e, parent, block } = fixture();
-  const p = parent("split-parent", 3);
-  Object.assign(p, { blockQty: 1, blockAvg: 100, blockTick: 1, blockLevel: 1,
-    sl: 98, slDist: 2, tp: 104, tpDist: 4 });
-  p.legs = [{ orderId: "base:split-parent", qty: 2, px: 100 }, { orderId: "add", qty: 1, px: 100 }];
+  const p = parent("split-parent", 2);
+  Object.assign(p, { sl: 98, slDist: 2, tp: 104, tpDist: 4 });
   e.tick = 100; e.positions = [p];
   block = { ...block, stack: false, keepAdjusted: true }; e.blockCfg = block;
   adjustActiveBlocks(e, cfg, "trailing", block, "atr");
-  for (const lane of Object.values(e.blockLanes)) { lane.satisfied[1] = true; lane.pauseRemaining[1] = 2; }
+  e.queue = [];
+  e.orders = [blockOrder(p, "Block additive", 3)];
+  tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true });
+  assert.ok((p.blockQty ?? 0) > 0);
+  for (const lane of Object.values(e.blockLanes)) lane.pauseRemaining[1] = 2;
+  e.tick += 1;
   Object.assign(e.quotes.BTCUSDT, { px: 99.5, lo: 99.5, hi: 99.5, open: 99.5 });
   tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
   assert.equal(e.positions.length, 1);
@@ -45,10 +62,44 @@ test("Block partials preserve the parent lane and count one notional-weighted re
     assert.equal(lane.active, false);
     assert.equal(lane.parentPf.length, 1);
     assert.ok(Math.abs(lane.parentPf[0]! - expected) < 1e-12);
-    assert.equal(lane.pfRing[1].length, 1);
     assert.equal(lane.pauseRemaining[1], 1, "one complete parent consumes one pause step");
   }
+  const byMode = Object.entries(e.blockLanes);
+  const additive = byMode.find(([key]) => key.endsWith(":additive"))![1];
+  const shared = byMode.find(([key]) => key.endsWith(":shared"))![1];
+  assert.deepEqual(Object.keys(additive.pfRing), ["3"]);
+  assert.ok(Math.abs(additive.pfRing[3][0]! - partial.ratio!) < 1e-12);
+  assert.deepEqual(shared.pfRing, {});
 });
+
+test("Overall, Relate volume, pending and legacy pooled data cannot teach Set Block", () => {
+  const { e, parent, block } = fixture();
+  const p = parent("count-evidence", 2);
+  e.tick = 100;
+  e.positions = [p];
+  adjustActiveBlocks(e, cfg, "trailing", block, "atr");
+  for (const lane of Object.values(e.blockLanes)) {
+    lane.countFills = undefined;
+    lane.pfRing = { 1: [.1] };
+    lane.pending = 2;
+  }
+  e.queue = [];
+  e.orders = [blockOrder(p, "Overall Block shared", 4), blockOrder(p, "Block extra additive", 5)];
+  tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true });
+  assert.ok((p.blockQty ?? 0) > 0, "excluded orders actually filled");
+  Object.assign(e.quotes.BTCUSDT, { px: 85, lo: 85, hi: 85, open: 85 });
+  tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+  assert.equal(e.positions.length, 0);
+  for (const lane of Object.values(e.blockLanes)) assert.deepEqual(lane.pfRing, {});
+});
+
+function blockOrder(p: LivePosition, tag: string, level: number): LiveOrder {
+  return { id: `${p.id}:${level}`, connId: p.connId, symbol: p.symbol, side: p.side,
+    type: "market", qty: .1, filled: 0, remaining: .1, price: 100, status: "open",
+    rangeType: "atr", level, sl: p.sl, tp: p.tp, slDist: p.slDist, tpDist: p.tpDist,
+    batchId: `${p.id}:book:${level}`, parentPositionId: p.id, note: `${tag} #${level}`,
+    indication: p.indication, tactic: p.tactic, kind: "block", playbook: "block", validExec: true };
+}
 function fixture() {
   const e = initVstEngine(cfg, { warmup: 0, symbolCount: 3, arm: false, equity: 10000 });
   e.queue = []; e.orders = []; e.positions = []; e.fills = [];

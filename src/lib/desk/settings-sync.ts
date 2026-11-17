@@ -48,6 +48,7 @@ import {
   SHORT_WINNER,
   clampLiveShortProtect,
   clampBlockVol,
+  clampSetBlockSamples,
   clampSharedVol,
   clampOverallVol,
   clampMaxVolumeMul,
@@ -357,6 +358,8 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         keepAdjusted: asBool((b as { keepAdjusted?: boolean }).keepAdjusted, d.blockConfig.keepAdjusted ?? true),
         stack: asBool((b as { stack?: boolean }).stack, d.blockConfig.stack ?? true),
         windows: asBool((b as { windows?: boolean }).windows, d.blockConfig.windows ?? true),
+        setBlockLastN: clampSetBlockSamples(asNum(b.setBlockLastN, d.blockConfig.setBlockLastN ?? 8), 8),
+        setBlockPauseLastN: clampSetBlockSamples(asNum(b.setBlockPauseLastN, d.blockConfig.setBlockPauseLastN ?? 12), 12),
         volumeMode: b.volumeMode === "additive" || b.volumeMode === "parallel" || b.volumeMode === "shared" ? b.volumeMode : d.blockConfig.volumeMode,
         overallMode:
           (b as { overallMode?: string }).overallMode === "additive" ||

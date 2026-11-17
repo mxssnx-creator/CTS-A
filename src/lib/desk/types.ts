@@ -353,6 +353,10 @@ export interface BlockConfig {
   stack: boolean;
   /** New type: last-N pos windows 1–16; a losing window adjusts the next N. */
   windows: boolean;
+  /** Settled outcomes of this Set, volume mode and count used to qualify an add. */
+  setBlockLastN?: number;
+  /** Settled outcomes of this Set, volume mode and count used to trigger a pause. */
+  setBlockPauseLastN?: number;
   /** additive: each count adds ratio×base. shared: old split/cap. parallel: both independent. */
   volumeMode?: "additive" | "shared" | "parallel";
   /** Overall Block volume strat. Live default shared. */
@@ -1576,6 +1580,8 @@ export interface BlockLaneState {
   baseEntry: number;
   confirmedAdd: number;
   satisfied: Record<number, boolean>;
+  /** Actual per-count fills and their settled slices in this lane's owned parent. */
+  countFills?: Record<number, { qty: number; notional: number; pnl: number | null; settledNotional: number }>;
   pfRing: Record<number, (number | null)[]>;
   parentPf: (number | null)[];
   /** Own closed slices, accumulated until the complete parent settles; survives JSON restart. */

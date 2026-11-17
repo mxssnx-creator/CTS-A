@@ -1116,6 +1116,8 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   keepAdjusted: true,
   stack: true,
   windows: true,
+  setBlockLastN: 8,
+  setBlockPauseLastN: 12,
   volumeMode: "parallel",
   overallMode: "parallel",
   sides: "both",
@@ -1135,6 +1137,10 @@ export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   hourCoord: true,
   lastNProgress: { ...DEFAULT_LAST_N_PROGRESS, evalNs: [...DEFAULT_LAST_N_PROGRESS.evalNs], validNs: [...DEFAULT_LAST_N_PROGRESS.validNs], disableNs: [...DEFAULT_LAST_N_PROGRESS.disableNs] },
 };
+
+export function clampSetBlockSamples(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value) ? Math.max(3, Math.min(75, Math.round(value))) : fallback;
+}
 
 /** Additive: each count uses `ratio`. Shared (old): extra/n when n>2. */
 export function sharedBlockVolumeRatio(ratio: number, liveCount = 1, extraCap = 1, mode: "additive" | "shared" = "shared") {
