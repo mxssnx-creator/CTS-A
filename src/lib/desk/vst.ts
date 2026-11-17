@@ -108,6 +108,7 @@ import {
   BUSY_HOUR_WEAK_PROTECT,
   HIGH_TRADE_PAY_INDICATIONS,
   clampBlockVol,
+  clampSetBlockSamples,
   DEFAULT_OVERALL_BLOCK_VOLUME_RATIO,
   clampSharedVol,
   clampOverallVol,
@@ -4832,7 +4833,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     qty: take,
     px
   });
-  recordBlockFill(e, o, take, pos);
+  recordBlockFill(e, o, take, px, pos);
   // validExec is sticky at open. Intern never promotes into live; intern never demotes live.
   if (isBlockOrder(o)) {
     const prevBq = Math.max(0, pos.blockQty || 0);
@@ -5190,7 +5191,7 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   };
   e.closed.unshift(row);
   noteTickClose(e, row);
-  if (countsOnBlockTape(e, p.validExec === true)) recordBlockClose(e, p, ratio, false, bq * bpx);
+  if (countsOnBlockTape(e, p.validExec === true)) recordBlockClose(e, p, ratio, exit, false, bq * bpx);
   if (bank && ratio > 0) queueWinAgain(e, p);
 }
 
@@ -5316,7 +5317,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     noteShortComboClose(e, { connId: p.connId, id: p.id, tpAtr: p.tpAtr, slOfTp: p.slOfTp, pnl: ratio * (1 - sh), validExec: gatedClose, indication: p.indication, tactic: p.tactic ?? e.lastTactic });
   }
   if (!botBook && countsOnBlockTape(e, gatedClose)) {
-    recordBlockClose(e, p, ratio);
+    recordBlockClose(e, p, ratio, exit);
     noteBlockPosClose(e, p.symbol, p.side, ratio, e.blockCfg, {
       indication: p.indication,
       kind: p.kind,
@@ -7840,6 +7841,7 @@ function emptyBlockLane(symbol: string, side: Side, baseQty: number, baseEntry: 
     baseEntry: Math.max(0, baseEntry),
     confirmedAdd: 0,
     satisfied: {},
+    countFills: {},
     pfRing: {},
     parentPf: [],
     active: true,
@@ -7850,6 +7852,9 @@ function emptyBlockLane(symbol: string, side: Side, baseQty: number, baseEntry: 
 
 function isBlockOrder(o: LiveOrder) {
   return o.parentPositionId !== undefined || /Block/i.test(o.note || "");
+}
+function isBlockRelationExtra(o: LiveOrder) {
+  return /^Block extra\b/i.test(o.note || "");
 }
 function blockParent(e: VstEngine, o: LiveOrder): LivePosition | undefined {
   const matches = e.positions.filter((p) => p.qty > 0 && blockTargets(o, p));
@@ -7990,7 +7995,7 @@ function collectBlockOrders(e: VstEngine, conn: string) {
 
 function syncBlockParents(e: VstEngine, conn: string, block?: BlockConfig) {
   e.blockLanes = e.blockLanes ?? {};
-  const live = new Set<string>();
+  const activeParents = new Set(e.positions.filter((p) => p.qty > 0).map((p) => p.id));
   const modes = liveVolumeModes(block ?? e.blockCfg);
   for (const p of e.positions) {
     if (p.connId !== conn || p.qty <= 0) continue;
@@ -7998,15 +8003,15 @@ function syncBlockParents(e: VstEngine, conn: string, block?: BlockConfig) {
     const first = originalParentQty(p);
     for (const mode of modes) {
       const k = blockLaneKey(p, mode);
-      live.add(k);
       let lane = e.blockLanes[k];
       if (!lane) {
         lane = emptyBlockLane(p.symbol, p.side, first, p.avgEntry);
         lane.parentPositionId = p.id;
         e.blockLanes[k] = lane;
       }
+      blockCountFills(lane);
       // Ambiguous duplicate episodes may not share live pending/satisfied state.
-      if (lane.parentPositionId !== p.id && lane.active && e.positions.some((x) => x.id === lane.parentPositionId && x.connId === conn && x.qty > 0)) continue;
+      if (lane.parentPositionId && lane.parentPositionId !== p.id && lane.active && activeParents.has(lane.parentPositionId)) continue;
       if (!lane.active || lane.baseQty <= 0 || lane.parentPositionId !== p.id) {
         lane.active = true;
         lane.parentPositionId = p.id;
@@ -8014,6 +8019,7 @@ function syncBlockParents(e: VstEngine, conn: string, block?: BlockConfig) {
         lane.baseEntry = p.avgEntry;
         lane.confirmedAdd = 0;
         lane.satisfied = {};
+        lane.countFills = {};
         lane.pending = undefined;
         lane.settledPnl = 0;
         lane.settledNotional = 0;
@@ -8025,22 +8031,35 @@ function syncBlockParents(e: VstEngine, conn: string, block?: BlockConfig) {
       lane.baseQty = Math.max(lane.baseQty, first);
     }
   }
-  for (const k of Object.keys(e.blockLanes)) {
-    if (!live.has(k)) e.blockLanes[k].active = false;
+  for (const lane of Object.values(e.blockLanes)) {
+    if (!lane.parentPositionId || !activeParents.has(lane.parentPositionId)) lane.active = false;
   }
 }
 
-function recordBlockFill(e: VstEngine, o: LiveOrder, take: number, p: LivePosition) {
+function blockCountFills(lane: BlockLaneState) {
+  // Previous snapshots mixed parent results among counts and volume modes.
+  if (!lane.countFills) {
+    lane.countFills = {};
+    lane.pfRing = {};
+  }
+  return lane.countFills;
+}
+
+function recordBlockFill(e: VstEngine, o: LiveOrder, take: number, px: number, p: LivePosition) {
   if (!isBlockOrder(o)) return;
-  if (isOverallBlockOrder(o)) return;
+  if (isOverallBlockOrder(o) || isBlockRelationExtra(o)) return;
   e.blockLanes = e.blockLanes ?? {};
-  const k = blockLaneKey(p, blockModeOf(o));
+  const mode = blockModeOf(o);
+  const k = blockLaneKey(p, mode);
   const lane = e.blockLanes[k];
   if (!lane || lane.parentPositionId !== p.id) return;
   lane.confirmedAdd += take;
-  const n = Math.max(1, o.level || lane.pending || 1);
+  const n = o.level;
+  if (!Number.isInteger(n) || n < 1 || n > 6) return;
+  const fill = (blockCountFills(lane)[n] ??= { qty: 0, notional: 0, pnl: 0, settledNotional: 0 });
+  fill.qty += take;
+  fill.notional += take * px;
   const cfg = e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
-  const mode = blockModeOf(o);
   const vr = mode === "shared" ? clampSharedVol(cfg.sharedVolumeRatio) : clampBlockVol(cfg.volumeRatio);
   const maxMul = clampMaxVolumeMul(cfg.maxVolumeMultiplier ?? DEFAULT_MAX_VOLUME_MULTIPLIER);
   const extraCap = Math.max(0, maxMul - 1);
@@ -8056,64 +8075,66 @@ function recordBlockFill(e: VstEngine, o: LiveOrder, take: number, p: LivePositi
   }
 }
 
-function recordBlockClose(e: VstEngine, p: LivePosition, ratio: number, final = true, notional = p.qty * p.avgEntry) {
-  const modes = liveVolumeModes(e.blockCfg);
-  const keep = (e.blockCfg ?? DEFAULT_BLOCK_CONFIG).keepAdjusted === true;
-  for (const mode of modes) {
-  const k = blockLaneKey(p, mode);
-  const lane = e.blockLanes?.[k];
-  if (!lane || !lane.active || lane.parentPositionId !== p.id) continue;
-  const slicePnl = ratio * notional;
-  if (!Number.isFinite(ratio) || !Number.isFinite(notional) || !(notional > 0) || !Number.isFinite(slicePnl)) {
-    lane.settledUnknown = true;
-  } else {
-    lane.settledPnl = (lane.settledPnl ?? 0) + slicePnl;
-    lane.settledNotional = (lane.settledNotional ?? 0) + notional;
-    if (!Number.isFinite(lane.settledPnl) || !Number.isFinite(lane.settledNotional)) {
+function recordBlockClose(e: VstEngine, p: LivePosition, ratio: number, exit: number, final = true, notional = p.qty * p.avgEntry) {
+  const block = e.blockCfg ?? DEFAULT_BLOCK_CONFIG;
+  const keep = block.keepAdjusted === true;
+  const need = clampSetBlockSamples(block.setBlockPauseLastN, 12);
+  for (const mode of ["shared", "additive"] as const) {
+    const k = blockLaneKey(p, mode);
+    const lane = e.blockLanes?.[k];
+    if (!lane || !lane.active || lane.parentPositionId !== p.id) continue;
+    const countFills = blockCountFills(lane);
+    for (const fill of Object.values(countFills)) {
+      if (!(fill.qty > 0 && fill.notional > 0)) continue;
+      const pnl = closePnl(p.side === "long" ? 1 : -1, fill.notional / fill.qty, exit, fill.qty,
+        p.modelRtCost ?? modeledPositionCost(e, p.symbol));
+      fill.pnl = fill.pnl !== null && Number.isFinite(fill.pnl + pnl) ? fill.pnl + pnl : null;
+      fill.settledNotional += fill.notional;
+      fill.qty = 0;
+      fill.notional = 0;
+    }
+    const slicePnl = ratio * notional;
+    if (!Number.isFinite(ratio) || !Number.isFinite(notional) || !(notional > 0) || !Number.isFinite(slicePnl)) {
       lane.settledUnknown = true;
-      lane.settledPnl = 0; lane.settledNotional = 0;
+    } else {
+      lane.settledPnl = (lane.settledPnl ?? 0) + slicePnl;
+      lane.settledNotional = (lane.settledNotional ?? 0) + notional;
+      if (!Number.isFinite(lane.settledPnl) || !Number.isFinite(lane.settledNotional)) {
+        lane.settledUnknown = true;
+        lane.settledPnl = 0; lane.settledNotional = 0;
+      }
     }
-  }
-  // Peeling only the overlay does not end the parent, advance Last-N or consume a pause.
-  if (!final) continue;
-  const frac = lane.settledUnknown || !(lane.settledNotional! > 0)
-    ? null : lane.settledPnl! / lane.settledNotional!;
-  for (const count of Object.keys(lane.pauseRemaining)) {
-    const n = Number(count);
-    lane.pauseRemaining[n] = Math.max(0, (lane.pauseRemaining[n] || 0) - 1);
-  }
-  const hitNs = new Set<number>();
-  for (const [key, ok] of Object.entries(lane.satisfied ?? {})) {
-    if (ok) {
-      const n = Math.max(1, Math.min(6, Number(key) || 0));
-      if (n >= 1) hitNs.add(n);
+    // Peeling only the overlay does not end the parent, advance Last-N or consume a pause.
+    if (!final) continue;
+    const frac = lane.settledUnknown || !(lane.settledNotional! > 0)
+      ? null : lane.settledPnl! / lane.settledNotional!;
+    for (const count of Object.keys(lane.pauseRemaining)) {
+      const n = Number(count);
+      lane.pauseRemaining[n] = Math.max(0, (lane.pauseRemaining[n] || 0) - 1);
     }
-  }
-  const lvl = Math.max(0, p.blockLevel || 0);
-  if (lvl >= 1) {
-    for (let n = 1; n <= Math.min(6, lvl); n++) hitNs.add(n);
-  }
-  if (!hitNs.size) hitNs.add(Math.max(1, lane.pending || 1));
-  const need = Math.max(5, Math.min(75, 12));
-  for (const n of hitNs) {
-    (lane.pfRing[n] ??= []).push(frac);
-    if (lane.pfRing[n]!.length > 75) lane.pfRing[n] = lane.pfRing[n]!.slice(-75);
-    const ring = (lane.pfRing[n] ?? []).slice(-need);
-    if (ring.length >= need) {
-      const pf = blockRingPf(ring);
-      if (pf < 1.05 && !keep) lane.pauseRemaining[n] = Math.max(lane.pauseRemaining[n] || 0, n);
+    for (const [key, fill] of Object.entries(countFills)) {
+      if (!(fill.settledNotional > 0)) continue;
+      const n = Number(key);
+      const net = fill.pnl === null ? null : fill.pnl / fill.settledNotional;
+      (lane.pfRing[n] ??= []).push(net !== null && Number.isFinite(net) ? net : null);
+      if (lane.pfRing[n]!.length > 75) lane.pfRing[n] = lane.pfRing[n]!.slice(-75);
+      const ring = (lane.pfRing[n] ?? []).slice(-need);
+      if (ring.length >= need) {
+        const pf = blockRingPf(ring);
+        if (pf < 1.05 && !keep) lane.pauseRemaining[n] = Math.max(lane.pauseRemaining[n] || 0, n);
+      }
     }
-  }
-  lane.parentPf.push(frac);
-  if (lane.parentPf.length > 75) lane.parentPf = lane.parentPf.slice(-75);
-  lane.active = false;
-  lane.baseQty = 0;
-  lane.confirmedAdd = 0;
-  lane.pending = undefined;
-  lane.satisfied = {};
-  lane.settledPnl = 0;
-  lane.settledNotional = 0;
-  lane.settledUnknown = false;
+    lane.parentPf.push(frac);
+    if (lane.parentPf.length > 75) lane.parentPf = lane.parentPf.slice(-75);
+    lane.active = false;
+    lane.baseQty = 0;
+    lane.confirmedAdd = 0;
+    lane.pending = undefined;
+    lane.satisfied = {};
+    lane.countFills = {};
+    lane.settledPnl = 0;
+    lane.settledNotional = 0;
+    lane.settledUnknown = false;
   }
 }
 
@@ -8185,7 +8206,7 @@ function blockPfOk(lane: BlockLaneState, count: number, block: BlockConfig, minP
     return false;
   }
   if (minPf <= 0) return true;
-  const need = Math.max(5, Math.min(24, 8));
+  const need = clampSetBlockSamples(block.setBlockLastN, 8);
   const ring = (lane.pfRing[count] ?? []).slice(-need);
   if (ring.some((x) => typeof x !== "number" || !Number.isFinite(x))) return false;
   if (ring.length < need) return true;
@@ -8434,7 +8455,7 @@ export function adjustActiveBlocks(
             o.status !== "rejected" &&
             blockModeOf(o) === mode,
         );
-        const liveRelLevels = new Set(liveBlock.filter((o) => !isOverallBlockOrder(o)).map((o) => Math.max(1, o.level || 1)));
+        const liveRelLevels = new Set(liveBlock.filter((o) => !isOverallBlockOrder(o) && !isBlockRelationExtra(o)).map((o) => Math.max(1, o.level || 1)));
         const scopes = overallVolumeModes(block).includes(mode) ? overallScopes(block) : [];
         const liveOvLevels = emptyOvLevels();
         const ovQty = emptyOvQty();

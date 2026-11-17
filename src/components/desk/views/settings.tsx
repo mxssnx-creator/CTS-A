@@ -2184,6 +2184,26 @@ export function SettingsView() {
               ariaLabel="Block volume ratio"
             />
             <RangeKnob
+              label="Set Block evaluation Last-N"
+              value={blockCfg.setBlockLastN ?? 8}
+              min={3}
+              max={75}
+              step={1}
+              format={(n) => String(n)}
+              onChange={(n) => setBlockCfg({ setBlockLastN: n })}
+              ariaLabel="Set Block evaluation Last-N"
+            />
+            <RangeKnob
+              label="Set Block pause Last-N"
+              value={blockCfg.setBlockPauseLastN ?? 12}
+              min={3}
+              max={75}
+              step={1}
+              format={(n) => String(n)}
+              onChange={(n) => setBlockCfg({ setBlockPauseLastN: n })}
+              ariaLabel="Set Block pause Last-N"
+            />
+            <RangeKnob
               label="Shared Block vol"
               value={blockCfg.sharedVolumeRatio ?? DEFAULT_SHARED_BLOCK_VOLUME_RATIO}
               min={BLOCK_SHARED_VOLUME_MIN}
