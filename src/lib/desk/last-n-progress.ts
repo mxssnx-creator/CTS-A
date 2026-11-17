@@ -483,12 +483,13 @@ export function scoreLastNGroup(
   basePf: number,
 ): LastNGroupScore {
   const evalCount = evalWindowCount(cfg);
-  if (!hasDisjointBlocks(cfg) && rows.length < evalCount && rows.length < 5) {
+  const strictPolicy = Boolean(cfg.blocks || cfg.policies?.length || cfg.negativeFilter);
+  if (!strictPolicy && rows.length < evalCount && rows.length < 5) {
     let net = 0;
     for (const r of rows) net += edgePnl(r);
     return { n: rows.length, pf: 0, net, ok: true, stack: 1 };
   }
-  if (!hasDisjointBlocks(cfg) && rows.length < evalCount) {
+  if (!strictPolicy && rows.length < evalCount) {
     const h = lastNHitFromPrefix(lastNPrefix(rows, 5), 5);
     const asked = Number(basePf);
     const pfFloor = asked > 0 ? Math.max(asked, BASE_STAGE_PF) : asked;
@@ -513,7 +514,7 @@ export function scoreLastNGroup(
     n: hit?.samples ?? rows.length,
     pf: hit?.pf ?? 0,
     net: hit?.net ?? 0,
-    ok: d.pass || (full && (hit!.pf + 1e-9 >= gatedFloorPf(minPf)) && (hit!.net + 1e-12 >= 0) && hit!.samples >= 4),
+    ok: d.pass || (!strictPolicy && full && (hit!.pf + 1e-9 >= gatedFloorPf(minPf)) && (hit!.net + 1e-12 >= 0) && hit!.samples >= 4),
     stack: d.pass ? d.stack : 1,
   };
 }
