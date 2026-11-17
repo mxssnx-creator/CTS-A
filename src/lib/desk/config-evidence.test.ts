@@ -54,6 +54,24 @@ test("last-N decision cache is independent for each calculation and fee policy",
   assert.deepEqual(laneLastNDecision(e, own), ownResult);
 });
 
+test("completed config windows exclude Base boundary flattens before selecting last N", () => {
+  const e=fixture();
+  e.lastNProgress={evalNs:[8],validNs:[8],disableNs:[8],mode:"independent",parallelStack:false,parallelVolRatio:1};
+  const settled=e.closed.slice(0,8);
+  e.closed=[...settled.map((row,i)=>({...row,id:`x:flat-${i}`,tick:e.tick,pnl:-1,ratio:-.01,examFlat:true})),...settled];
+  assert.equal(laneLastNDecision(e,own).pass,true);
+  assert.equal(liveShouldExecute(e,own),true);
+  assert.equal(lastNSampleCoverage(e).stages!.currentOwn[0].usable,1);
+  assert.equal(liveShouldExecute(e,{...own,tpAtr:own.tpAtr+1e-7}),false);
+});
+
+test("a close from an almost equal TP cannot qualify a different frozen configuration", () => {
+  const e=fixture();e.liveTape=false;e.preEvalDone=false;finishBaseEval(e);
+  e.closed=[];e.liveTape=true;
+  assert.equal(liveShouldExecute(e,own),true);
+  assert.equal(liveShouldExecute(e,{...own,tpAtr:own.tpAtr+1e-7}),false);
+});
+
 test("another desk connection cannot supply live or frozen qualification evidence", () => {
   const e = fixture();
   e.closed.forEach((c) => { c.connId = "bingx-vst-01"; });
