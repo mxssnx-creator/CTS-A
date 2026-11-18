@@ -2618,8 +2618,8 @@ function occupiedSymbols(e: VstEngine, connId?: string): Set<string> {
   for (const o of e.queue) if (on(o.connId) && !isBotPlay(o.playbook)) s.add(o.symbol);
   return s;
 }
-function laneBusyKey(row: { symbol: string; side: string; indication?: string; tpAtr?: number; slOfTp?: number; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; calc?: string; controllingRange?: string; rangeType?: string } & TrailingPolicyIdentity): string {
-  const combo = row.tpAtr != null && row.slOfTp != null ? exactProtectionCombo(row) : "x";
+function laneBusyKey(row: { symbol: string; side: string; indication?: string; tpAtr?: number; slOfTp?: number; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; calc?: string; controllingRange?: string; rangeType?: string; priceStopPct?: number; priceTrailPct?: number } & TrailingPolicyIdentity): string {
+  const combo = row.priceStopPct != null || (row.tpAtr != null && row.slOfTp != null) ? exactProtectionCombo(row) : "x";
   const range = row.controllingRange || row.rangeType || "";
   return `${row.symbol}:${row.side}:${row.indication || ""}:${row.tactic || ""}:${combo}:${row.calc || "base"}:${range}${trailingPolicyKey(row)}`;
 }
@@ -3671,14 +3671,16 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         const hourBusy = livePace && hourTapeBusy(e);
         const trailBase = snapTrailPct(cfg.trailingPct);
         for (const prot of grid) {
+          const protection = prot as null | { tpAtr?: number; slOfTp?: number; slAtr?: number; tpRatio?: number;
+            priceStopPct?: number; priceTrailPct?: number; trailingDistance?: TrailingDistance };
           if (fresh >= freshCap || qn >= qStop) break;
-          const trailingDistance: TrailingDistance | undefined = prot?.trailingDistance ?? configuredTrailingDistance;
+          const trailingDistance: TrailingDistance | undefined = protection?.trailingDistance ?? configuredTrailingDistance;
           const comboKey = prot ? exactProtectionCombo({ ...prot, microRange: cfg.microRange, minimalRange: cfg.minimalRange, shortRange: short }) : "";
-          const relOk = Boolean(short && prot && performingLive(e) && (internRelProven(e, { indication: ind, tactic: tac, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp }) || relExamPass(e, { indication: ind, tactic: tac, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp })));
-          const comboOk = !short || !prot || internAll || internSlot || internKeep || shortComboProven(e, prot.tpAtr, prot.slOfTp) || relOk;
+          const relOk = Boolean(short && prot && performingLive(e) && (internRelProven(e, { indication: ind, tactic: tac, tpAtr: prot.tpAtr!, slOfTp: prot.slOfTp! }) || relExamPass(e, { indication: ind, tactic: tac, tpAtr: prot.tpAtr!, slOfTp: prot.slOfTp! })));
+          const comboOk = !short || !prot || internAll || internSlot || internKeep || shortComboProven(e, prot.tpAtr!, prot.slOfTp!) || relOk;
           const comboExec = internHere
             ? false
-            : afterBase ? false : !gatedExec || liveShouldExecute(e, prot ? { ...execRel, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp } : execRel);
+            : afterBase ? false : !gatedExec || liveShouldExecute(e, prot ? { ...execRel, tpAtr: prot.tpAtr!, slOfTp: prot.slOfTp! } : execRel);
           if (gatedExec && short && prot && !internHere && !(e.shortComboOnly && paperMode(e))) {
             if (!comboOk && !afterBase) continue;
             if (!comboExec && !internKeep && !(keepInd && !afterBase) && !afterBase) continue;
@@ -3690,9 +3692,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             tac === "dca" &&
             examRelReady(e) &&
             prot &&
-            !relExamPass(e, { indication: ind, tactic: "dca", tpAtr: prot.tpAtr, slOfTp: prot.slOfTp }) &&
-            !shortComboProven(e, prot.tpAtr, prot.slOfTp) &&
-            !validatedSet(e, { indication: ind, tactic: "dca", playbook: book, kind, rangeType: range, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp })
+            !relExamPass(e, { indication: ind, tactic: "dca", tpAtr: prot.tpAtr!, slOfTp: prot.slOfTp! }) &&
+            !shortComboProven(e, prot.tpAtr!, prot.slOfTp!) &&
+            !validatedSet(e, { indication: ind, tactic: "dca", playbook: book, kind, rangeType: range, tpAtr: prot.tpAtr!, slOfTp: prot.slOfTp! })
           )
             continue;
           // Mixed intern indication PF must not skip a proven independent short combo.
@@ -3796,9 +3798,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               ? q.axis - (hi.levels[0] || hi.spacing)
               : q.axis + (hi.levels[0] || hi.spacing);
           const axisLv = axisInd && !short ? axisProtect(pxHint > 0 ? pxHint : q.px, side, q, hi.spacing, cfg, hi.rangeType, modeledPositionCost(e, s.id)) : null;
-          const slAtrUse = prot?.slAtr ?? cfg.slAtr ?? SL_ATR_MULT;
+          const slAtrUse = protection?.slAtr ?? cfg.slAtr ?? SL_ATR_MULT;
           const tpRatioUse = short
-            ? Math.max(0.3, prot?.tpRatio ?? cfg.tpRatio ?? TP_SL_RATIO)
+            ? Math.max(0.3, protection?.tpRatio ?? cfg.tpRatio ?? TP_SL_RATIO)
             : snapTpRatio(cfg.tpRatio ?? TP_SL_RATIO);
           const slBase = slDist(q.atr, hi.spacing, slAtrUse, short, q.px);
           const sl0 = axisLv ? axisLv.slDist : slBase * protMul.slMul;
@@ -3838,7 +3840,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           hi.levels.slice(0, Math.max(1, depth)).forEach((offset, li) => {
             if (fresh >= freshCap || qn >= qStop) return;
             if ((symLoad.get(s.id) || 0) >= symCap) return;
-            const trailPct = prot?.priceTrailPct ??
+            const trailPct = protection?.priceTrailPct ??
               (ind === "trend" || ind === "break"
                 ? trendBreakTrailPct((leg.range === "geometric" ? 1 : leg.range === "fibonacci" ? 2 : 0) + li)
                 : trailBase);
@@ -3864,14 +3866,14 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             const baseLv = mini
               ? { sl: mini.sl, tp: mini.tp, slDist: mini.slDist, tpDist: mini.tpDist }
               : lv0;
-            const lv = prot?.priceStopPct != null
-              ? absoluteProtection(side, px, prot.priceStopPct, baseLv.tpDist)
+            const lv = protection?.priceStopPct != null
+              ? absoluteProtection(side, px, protection.priceStopPct, baseLv.tpDist)
               : baseLv;
             const miniTp = microOn ? snapMicroTpPct(prot?.tpAtr ?? cfg.tpAtr ?? .2) : minimalOn ? snapMinimalTpCost(prot?.tpAtr ?? cfg.tpAtr ?? MINIMAL_WINNER.tpCost) : prot?.tpAtr;
             const miniSl = microOn ? snapSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? .5) : minimalOn ? snapMinimalSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? MINIMAL_WINNER.slOfTp) : prot?.slOfTp;
             const legKey = laneBusyKey({ ...execRel, calc: leg.kind, rangeType: hi.rangeType,
               tpAtr: miniTp, slOfTp: miniSl, microRange: microOn, minimalRange: minimalOn, shortRange: short,
-              trailPct, trailingDistance, priceStopPct: prot?.priceStopPct, priceTrailPct: prot?.priceTrailPct });
+              trailPct, trailingDistance, priceStopPct: protection?.priceStopPct, priceTrailPct: protection?.priceTrailPct });
             if (busyLegs.has(legKey)) return;
             let entryValid = legOk;
             let relateMultiplier = 1;
@@ -3879,7 +3881,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             // or snapped distance. Admission must use the actual order identity.
             if (afterBase && !internHere) {
               const entryRel = { ...execRel, connId, rangeType: hi.rangeType, price: px, tpDist: lv.tpDist, slDist: lv.slDist,
-                tpAtr: miniTp, slOfTp: miniSl, trailPct, trailingDistance, priceStopPct: prot?.priceStopPct, priceTrailPct: prot?.priceTrailPct, calc: leg.kind,
+                tpAtr: miniTp, slOfTp: miniSl, trailPct, trailingDistance, priceStopPct: protection?.priceStopPct, priceTrailPct: protection?.priceTrailPct, calc: leg.kind,
                 microRange: microOn, minimalRange: minimalOn, shortRange: short,
                 modelRtCost: modeledPositionCost(e, s.id), minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct),
                 ...(microOn ? {microMinSlDistancePct:e.microMinSlDistancePct,microMinTrailDistancePct:e.microMinTrailDistancePct} : {}) } as const;
@@ -3936,8 +3938,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               slOfTp: miniSl,
               trailPct,
               trailingDistance,
-              priceStopPct: prot?.priceStopPct,
-              priceTrailPct: prot?.priceTrailPct,
+              priceStopPct: protection?.priceStopPct,
+              priceTrailPct: protection?.priceTrailPct,
               minimalRange: minimalOn,
               microRange: microOn,
               shortRange: short,
@@ -3972,8 +3974,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 slOfTp: miniSl,
                 trailPct,
                 trailingDistance,
-                priceStopPct: prot?.priceStopPct,
-                priceTrailPct: prot?.priceTrailPct,
+                priceStopPct: protection?.priceStopPct,
+                priceTrailPct: protection?.priceTrailPct,
                 minimalRange: minimalOn,
                 microRange: microOn,
                 calc: leg.kind,
@@ -4013,8 +4015,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                   slOfTp: miniSl,
                   trailPct,
                   trailingDistance,
-                  priceStopPct: prot?.priceStopPct,
-                  priceTrailPct: prot?.priceTrailPct,
+                  priceStopPct: protection?.priceStopPct,
+                  priceTrailPct: protection?.priceTrailPct,
                 };
                 pairBook.set(pk, row);
               }

@@ -280,7 +280,7 @@ test("absolute stop and fixed or dynamic trailing grids remain independent setti
 
   const legacy = sanitizeDeskSettings({ tacticConfig: DEFAULT_TACTIC_CONFIG } as never);
   assert.equal(legacy.tacticConfig.priceDistanceGrid?.enabled, false);
-  assert.equal(priceDistanceVariants(legacy.tacticConfig, "normal").length, 0);
+  assert.equal(priceDistanceVariants(legacy.tacticConfig, "axis").length, 0);
 
   const configured = sanitizeDeskSettings({ tacticConfig: { ...DEFAULT_TACTIC_CONFIG,
     priceDistanceGrid: { enabled: true, stopPcts: STOP_DISTANCE_PCTS, trailPcts: TRAIL_DISTANCE_PCTS },
@@ -288,7 +288,7 @@ test("absolute stop and fixed or dynamic trailing grids remain independent setti
   assert.deepEqual(configured.tacticConfig.priceDistanceGrid,
     { enabled: true, stopPcts: STOP_DISTANCE_PCTS, trailPcts: TRAIL_DISTANCE_PCTS });
 
-  const ordinary = priceDistanceVariants(configured.tacticConfig, "normal");
+  const ordinary = priceDistanceVariants(configured.tacticConfig, "axis");
   const trailing = priceDistanceVariants(configured.tacticConfig, "trailing");
   assert.equal(ordinary.length, 21);
   assert.equal(trailing.length, 21 * 25 * 2);
@@ -297,7 +297,7 @@ test("absolute stop and fixed or dynamic trailing grids remain independent setti
 
   const engine = initVstEngine(configured.tacticConfig, { arm: false, warmup: 0, symbolCount: 4 });
   engine.completeSim = true;
-  assert.deepEqual(lowRangeProtectGrid(engine, configured.tacticConfig, "normal"), ordinary);
+  assert.deepEqual(lowRangeProtectGrid(engine, configured.tacticConfig, "axis"), ordinary);
   assert.deepEqual(lowRangeProtectGrid(engine, configured.tacticConfig, "trailing"), trailing);
 
   const identity = {
