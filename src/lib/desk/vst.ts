@@ -9562,6 +9562,13 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       const examFills = engine.ledger.ordersFilled;
       const examEq = engine.stats.equity;
       const blk = opts?.block ?? engine.blockCfg ?? DEFAULT_BLOCK_CONFIG;
+      // Everything still working came from the exam. Keep only settled evidence
+      // when finishBaseEval cancels the warmup orders and flattens its positions.
+      for (const order of engine.queue) order.validExec = false;
+      for (const order of engine.orders) {
+        if (order.status === "queued" || order.status === "open" || order.status === "partial") order.validExec = false;
+      }
+      for (const position of engine.positions) position.validExec = false;
       finishBaseEval(engine, blk);
       prehistorySampleCoverage = lastNSampleCoverage(engine);
       internStage = {

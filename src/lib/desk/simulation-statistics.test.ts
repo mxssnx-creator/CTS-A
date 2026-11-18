@@ -13,7 +13,8 @@ for (const block of [false, true]) test(`scored execution statistics reconcile w
     equity: 1000, rangeType: "atr", marks: [24], block: { ...DEFAULT_BLOCK_CONFIG, ...MINIMAL_BLOCK },
     strategyToggles: { normal: true, trailing: true, axis: true, block, dca: false } });
   const rows = engine.closed.filter(row => row.tick > 24 * 60 && !row.playbook?.startsWith("bot:"));
-  assert.ok(rows.length > 0);
+  assert.ok(engine.frozenBaseSamples?.length, "the exam must supply Base samples to the proof gate");
+  assert.ok(rows.every(row => row.tick - (row.holdTicks ?? 0) > 24 * 60), "only new positions can settle after Base");
   assert.ok(engine.closed.length > rows.length, "fixture must contain excluded prehistory");
   assert.ok(engine.closed.length < 600, "oracle must retain the whole scored tape");
   const gp = rows.reduce((sum, row) => sum + Math.max(0, row.ratio!), 0);
@@ -54,5 +55,10 @@ test("a cold replay reports execution PF even when no selected subset qualifies"
   const gp = rows.reduce((s, row) => s + Math.max(0, row.ratio!), 0);
   const gl = rows.reduce((s, row) => s + Math.max(0, -row.ratio!), 0);
   close(report.pf, profitFactor(gp, gl), "cold execution PF");
+  close(report.returnProfit, gp, "cold return profit");
+  close(report.returnLoss, gl, "cold return loss");
+  assert.equal(report.settledSlices, rows.length);
+  assert.equal(report.bySymbol.reduce((n, row) => n + row.trades, 0), rows.length);
+  assert.equal(report.byKind.reduce((n, row) => n + row.n, 0), rows.length);
   close(report.net, report.equity - report.startEquity, "cold marked net");
 });
