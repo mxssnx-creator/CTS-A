@@ -254,7 +254,13 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     },
     tacticConfig: (() => {
       const minSlDistancePct = normalizeMinSlDistancePct(cfg.minSlDistancePct);
-      const sourceSettings={microMinSlDistancePct:Math.max(0,Math.min(10,asNum(cfg.microMinSlDistancePct,.1))),microMinTrailDistancePct:Math.max(0,Math.min(10,asNum(cfg.microMinTrailDistancePct,.05))),...(cfg.indicationSourceIds===undefined?{}:{indicationSourceIds:indicationSourceIds(cfg.indicationSourceIds)}),...(cfg.relationalVolumeRatios===undefined?{}:{relationalVolumeRatios:relationalVolumeSettings(cfg.relationalVolumeRatios,true)})};
+      const sourceSettings = {
+        microMinSlDistancePct: Math.max(0, Math.min(10, asNum(cfg.microMinSlDistancePct, .1))),
+        microMinTrailDistancePct: Math.max(0, Math.min(10, asNum(cfg.microMinTrailDistancePct, .05))),
+        ...(cfg.indicationSourceIds === undefined ? {} : { indicationSourceIds: indicationSourceIds(cfg.indicationSourceIds) }),
+        ...(cfg.relationalVolumeRatios === undefined ? {} : { relationalVolumeRatios: relationalVolumeSettings(cfg.relationalVolumeRatios, true) }),
+        ...(cfg.trailingDistance === "fixed" ? { trailingDistance: "fixed" as const } : {}),
+      };
       const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;
       if (cfg.microRange === true || asBool(cfg.minimalRange, false) || cfgUsesMinimalRange(cfg)) {
         const micro = cfg.microRange === true;
