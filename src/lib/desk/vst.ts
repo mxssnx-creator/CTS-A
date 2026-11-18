@@ -3,6 +3,7 @@ import {indicationSourceIds,isPortedIndication,refreshPortedIndications} from ".
 import {publishPortedIndications} from "./engine.ts";
 import { strategyTogglesForRange } from "./strategy-processing.ts";
 import { prehistoryHours } from "./prehistory.ts";
+import { relateAllocation, relateConfig } from "./relate.ts";
 import { extendOwnSampleHistory, sampleRows, type SampleCoverage } from "./last-n-samples.ts";
 import { measuredEdgePnl } from "./last-n-progress.ts";
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
@@ -602,6 +603,8 @@ export type ConfigTapeRow = ConfigIdentity & {
   id?: string;
   tick?: number;
   pnl: number;
+  ratio?: number;
+  validExec?: boolean;
   /** Flattened at the Base boundary. Not a strategy outcome. */
   examFlat?: boolean;
 };
@@ -653,7 +656,7 @@ function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
   return true;
 }
 function configTapeRow(c: ConfigTapeRow): ConfigTapeRow {
-  return { id:c.id, tick:c.tick, pnl: measuredEdgePnl(c), connId: c.connId, symbol: c.symbol, side: c.side,
+  return { id:c.id, tick:c.tick, pnl: measuredEdgePnl(c), ratio: c.ratio, validExec: c.validExec, connId: c.connId, symbol: c.symbol, side: c.side,
     indication: c.indication, tactic: c.tactic, rangeType: c.rangeType, playbook: c.playbook, kind: c.kind,
     tpAtr: c.tpAtr, slOfTp: c.slOfTp, trailPct: c.trailPct, trailingDistance: c.trailingDistance, calc: c.calc,
     microRange: c.microRange, minimalRange: c.minimalRange, shortRange: c.shortRange,
@@ -3315,6 +3318,19 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   // Arming is synchronous and closes no positions. Reuse a verdict only within
   // this call, keyed by the complete configuration; the next call re-evaluates it.
   const entryVerdicts = new Map<string, boolean>();
+  const relate = relateConfig(cfg.relate);
+  const relateRows = new Map<string, ConfigTapeRow[]>();
+  const relateMultipliers = new Map<string, number>();
+  const eligibleRelate = (row: ConfigTapeRow) => row.validExec === true && !row.examFlat &&
+    typeof row.tick === "number" && row.tick < e.tick && row.connId === connId && Boolean(row.id) && deskTapeRow(e, row);
+  if (relate.enabled && (e.preEvalDone || e.liveTape)) for (const row of e.closed) {
+    if (!eligibleRelate(row)) continue;
+    const key = completeConfigSampleKey(row);
+    if (!key) continue;
+    let own = relateRows.get(key);
+    if (!own) relateRows.set(key, own = []);
+    if (own.length < relate.lastN) own.push(row);
+  }
   keepCatalogLanes(e, connId);
   thinCrowdedLanes(e, connId);
   const qMax = maxQueue(e);
@@ -3783,7 +3799,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             const px = side === "long" ? anchor - nearOff : anchor + nearOff;
             if (px <= 0) return;
             const baseQty = notional / px * laneVolumeFactor(cfg.relationalVolumeRatios,{symbol:s.id,indication:ind,tactic:tac,playbook:book,microRange:cfg.microRange,minimalRange:cfgUsesMinimalRange(cfg),shortRange:short,rangeType:leg.range});
-            const qty = axisInd ? baseQty * axisPartial : baseQty;
+            const unscaledQty = axisInd ? baseQty * axisPartial : baseQty;
             const lv0 = !short && (axisInd || book === "dca")
               ? axisProtect(px, side, q, hi.spacing, cfg, hi.rangeType, modeledPositionCost(e, s.id))
               : protectLevels(px, side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true, modeledPositionCost(e, s.id), e.minSlDistancePct);
@@ -3800,6 +3816,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             const miniTp = microOn ? snapMicroTpPct(prot?.tpAtr ?? cfg.tpAtr ?? .2) : minimalOn ? snapMinimalTpCost(prot?.tpAtr ?? cfg.tpAtr ?? MINIMAL_WINNER.tpCost) : prot?.tpAtr;
             const miniSl = microOn ? snapSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? .5) : minimalOn ? snapMinimalSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? MINIMAL_WINNER.slOfTp) : prot?.slOfTp;
             let entryValid = legOk;
+            let relateMultiplier = 1;
             // The coarse selection above does not yet know the final calc/trail
             // or snapped distance. Admission must use the actual order identity.
             if (afterBase && !internHere) {
@@ -3817,8 +3834,23 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               }
               entryValid = verdict;
               if (!entryValid) return;
+              if (relate.enabled && !axisInd && book !== "dca") {
+                const key = completeConfigSampleKey(entryRel);
+                if (key) {
+                  const decisionKey = JSON.stringify([key, lv.slDist / lv.tpDist]);
+                  let multiplier = relateMultipliers.get(decisionKey);
+                  if (multiplier === undefined) {
+                    const own = extendOwnSampleHistory(relateRows.get(key) ?? [], historyRows(e, entryRel).filter(eligibleRelate), relate.lastN);
+                    multiplier = relateAllocation(own.map(row => row.ratio), lv.slDist, lv.tpDist, relate);
+                    relateMultipliers.set(decisionKey, multiplier);
+                  }
+                  relateMultiplier = multiplier;
+                }
+              }
             }
+            const qty = unscaledQty * relateMultiplier;
             queueOrder(e, {
+              ...(relateMultiplier > 1 ? { relateMultiplier } : {}),
               id: nextId(e, "q"),
               connId,
               symbol: s.id,
@@ -3846,8 +3878,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               slOfTp: miniSl,
               trailPct,
               trailingDistance,
-              minimalRange: minimalOn || undefined,
-              microRange: microOn || undefined,
+              minimalRange: minimalOn,
+              microRange: microOn,
               shortRange: short,
               calc: leg.kind,
             });
@@ -3880,8 +3912,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 slOfTp: miniSl,
                 trailPct,
                 trailingDistance,
-                minimalRange: minimalOn || undefined,
-                microRange: microOn || undefined,
+                minimalRange: minimalOn,
+                microRange: microOn,
                 calc: leg.kind,
               });
               qn += 1;
@@ -4796,6 +4828,7 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       : protectLevels(px, o.side, o.slDist, o.tpDist, rawR, true, o.modelRtCost ?? modeledPositionCost(e, o.symbol), o.minSlDistancePct ?? e.minSlDistancePct);
     pos = {
       id: nextId(e, "p"),
+      ...(o.relateMultiplier !== undefined ? { relateMultiplier: o.relateMultiplier } : {}),
       strategyId: o.strategyId,
       protectionKey: geometryKey(o),
       modelRtCost: o.modelRtCost ?? modeledPositionCost(e, o.symbol),

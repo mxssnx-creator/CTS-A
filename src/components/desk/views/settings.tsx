@@ -2,6 +2,7 @@ import {BlockPolicyFields} from "../../../../shared/cts-lastn/fields";
 import {VolumeRatioSliders} from "../../../../shared/cts-volume/sliders.tsx";
 import {PORTED_CATALOG,DEFAULT_TACTIC_SOURCES,DEFAULT_INVERSE_SOURCES} from "../../../../shared/cts-indications/catalog.ts";
 import { DEFAULT_LOW_RANGE_SOURCES, LOW_RANGE_CATALOG } from "../../../../shared/cts-indications/low-range-catalog.ts";
+import { relateConfig, type RelateConfig } from "@/lib/desk/relate.ts";
 import { STRATEGY_PROCESSING_RANGES } from "@/lib/desk/strategy-processing";
 import { DEFAULT_PREHISTORY_HOURS, MAX_PREHISTORY_HOURS } from "../../../lib/desk/prehistory";
 import { useMemo, useState } from "react";
@@ -276,6 +277,8 @@ export function SettingsView() {
   const cost = useDesk((s) => s.costStep);
   const cfg = useDesk((s) => s.tacticConfig);
   const setCfg = useDesk((s) => s.setTacticConfig);
+  const relate = relateConfig(cfg.relate);
+  const setRelate = (patch: Partial<RelateConfig>) => setCfg({ relate: relateConfig({ ...relate, ...patch }) });
   const [sourceSelectionError, setSourceSelectionError] = useState(false);
   const selectSources = (lowRange: boolean, ids: string[]) => {
     const next = [...(cfg.indicationSourceIds ?? []).filter(id => id.startsWith("low-range-") !== lowRange), ...ids];
@@ -1051,6 +1054,29 @@ export function SettingsView() {
       <div id="pf-coords" className="scroll-mt-24">
         <PfCoordPanel />
       </div>
+      <Panel title="Relate">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={relate.enabled} onChange={event => setRelate({ enabled: event.target.checked })} />
+          Increase allocation on qualified post-Base Sets
+        </label>
+        {relate.enabled && <>
+          <p className="mt-2 text-xs text-muted">Each Set uses its own earlier signed closes. A stop above half the target keeps base size.</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            {([
+              ["steps", "Winning steps", 2, 15, 1],
+              ["ratio", "Increase per step", .2, 6, .2],
+              ["lastN", "Recent closes", 60, 250, 1],
+              ["minTrades", "Minimum closes", 60, relate.lastN, 1],
+              ["minPF", "Minimum return PF", 1.01, 10, .01],
+              ["maxMultiplier", "Maximum allocation multiple", 1, 8, .1],
+            ] as const).map(([key, label, min, max, step]) => <label key={key} className="grid gap-1 text-xs">
+              {label}<input className="rounded border bg-bg p-2" type="number" min={min} max={max} step={step}
+                defaultValue={relate[key]} key={String(relate[key])}
+                onBlur={event => { if (Number.isFinite(event.target.valueAsNumber)) setRelate({ [key]: event.target.valueAsNumber }); }} />
+            </label>)}
+          </div>
+        </>}
+      </Panel>
 
       <div id="trailing" className="scroll-mt-24">
         <Panel title="Trailing">
