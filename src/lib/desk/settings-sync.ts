@@ -1,5 +1,6 @@
 import {relationalVolumeSettings} from "../../../shared/cts-volume/ratios.ts";
 import {indicationSourceIds} from "./ported-indications.ts";
+import { relateConfig } from "./relate.ts";
 import { createServerFn } from "@tanstack/react-start";
 import { normalizeMinSlDistancePct } from "./protection-policy.ts";
 import {
@@ -260,6 +261,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
         ...(cfg.indicationSourceIds === undefined ? {} : { indicationSourceIds: indicationSourceIds(cfg.indicationSourceIds) }),
         ...(cfg.relationalVolumeRatios === undefined ? {} : { relationalVolumeRatios: relationalVolumeSettings(cfg.relationalVolumeRatios, true) }),
         ...(cfg.trailingDistance === "fixed" ? { trailingDistance: "fixed" as const } : {}),
+        ...(cfg.relate === undefined ? {} : { relate: relateConfig(cfg.relate) }),
       };
       const hasPair = cfg.tpAtr != null || cfg.slOfTp != null;
       if (cfg.microRange === true || asBool(cfg.minimalRange, false) || cfgUsesMinimalRange(cfg)) {

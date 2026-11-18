@@ -549,6 +549,7 @@ export interface FeedStatus {
 
 export interface TacticConfig {
   indicationSourceIds?: string[];
+  relate?: import("./relate.ts").RelateConfig;
   trailingDistance?: TrailingDistance;
   relationalVolumeRatios?: import("../../../shared/cts-volume/ratios.ts").RelationalVolumeRatios;
   /** Net initial stop distance in price percent, added to modeled round-trip costs. */
@@ -782,6 +783,7 @@ export interface VstQuote {
 }
 
 export interface LiveOrder {
+  relateMultiplier?: number;
   /** Exact research/source strategy when the entry provenance is known. */
   strategyId?: string;
   /** Exact position receiving an additional-strategy fill; never inferred from a sibling's geometry. */
@@ -826,6 +828,7 @@ export interface LiveOrder {
 }
 
 export interface LivePosition {
+  relateMultiplier?: number;
   /** Exact research/source strategy when the entry provenance is known. */
   strategyId?: string;
   shortRange?: boolean;
