@@ -31,16 +31,44 @@ export type PriceDistanceVariant = {
   tpAtr?: number; slOfTp?: number; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean;
 };
 
+const VARIANT_CACHE_LIMIT = 8;
+const variantCache = new Map<string, PriceDistanceVariant[]>();
+
 export function priceDistanceVariants(cfg: TacticConfig, tactic: TacticKind): PriceDistanceVariant[] {
   const grid = sanitizePriceDistanceGrid(cfg.priceDistanceGrid);
   if (!grid.enabled) return [];
   const base = { tpAtr: cfg.tpAtr, slOfTp: cfg.slOfTp, microRange: cfg.microRange === true,
     minimalRange: cfg.minimalRange === true, shortRange: cfg.shortRange === true };
-  if (tactic !== "trailing" && tactic !== "hybrid") return grid.stopPcts.map(priceStopPct => ({ ...base, priceStopPct }));
-  return grid.stopPcts.flatMap(priceStopPct => grid.trailPcts.flatMap(priceTrailPct => [
-    { ...base, priceStopPct, priceTrailPct },
-    { ...base, priceStopPct, priceTrailPct, trailingDistance: "fixed" as const },
-  ]));
+  const trailing = tactic === "trailing" || tactic === "hybrid";
+  const key = JSON.stringify([trailing, base.tpAtr, base.slOfTp, base.microRange, base.minimalRange, base.shortRange,
+    grid.stopPcts, trailing ? grid.trailPcts : []]);
+  const cached = variantCache.get(key);
+  if (cached) {
+    variantCache.delete(key);
+    variantCache.set(key, cached);
+    return cached;
+  }
+  const variants = trailing
+    ? grid.stopPcts.flatMap(priceStopPct => grid.trailPcts.flatMap(priceTrailPct => [
+        { ...base, priceStopPct, priceTrailPct },
+        { ...base, priceStopPct, priceTrailPct, trailingDistance: "fixed" as const },
+      ]))
+    : grid.stopPcts.map(priceStopPct => ({ ...base, priceStopPct }));
+  variantCache.set(key, variants);
+  while (variantCache.size > VARIANT_CACHE_LIMIT) variantCache.delete(variantCache.keys().next().value!);
+  return variants;
+}
+
+export function priceDistanceBatch<T>(variants: readonly T[], tick: number, parentKey: string, batchSize = 64): readonly T[] {
+  const size = Math.max(1, Math.floor(batchSize));
+  if (variants.length <= size) return variants;
+  let seed = 2166136261;
+  for (let i = 0; i < parentKey.length; i++) {
+    seed ^= parentKey.charCodeAt(i);
+    seed = Math.imul(seed, 16777619);
+  }
+  const start = ((seed >>> 0) + Math.max(0, Math.floor(tick)) * size) % variants.length;
+  return Array.from({ length: size }, (_, index) => variants[(start + index) % variants.length]!);
 }
 
 export function absoluteProtection(side: Side, entry: number, stopPct: number, targetDistance: number) {

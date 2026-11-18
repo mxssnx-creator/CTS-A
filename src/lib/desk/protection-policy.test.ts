@@ -268,7 +268,7 @@ test("Micro and Minimal trailing positions use their captured gap on both quote 
 
 
 test("absolute stop and fixed or dynamic trailing grids remain independent settings and evidence", async () => {
-  const { STOP_DISTANCE_PCTS, TRAIL_DISTANCE_PCTS, priceDistanceVariants } = await import("./price-distance-grid.ts");
+  const { STOP_DISTANCE_PCTS, TRAIL_DISTANCE_PCTS, priceDistanceBatch, priceDistanceVariants } = await import("./price-distance-grid.ts");
   const { DEFAULT_TACTIC_CONFIG } = await import("./engine.ts");
   const { completeConfigSampleKey, initVstEngine, lowRangeProtectGrid } = await import("./vst.ts");
   const { sanitizeDeskSettings } = await import("./settings-sync.ts");
@@ -292,8 +292,16 @@ test("absolute stop and fixed or dynamic trailing grids remain independent setti
   const trailing = priceDistanceVariants(configured.tacticConfig, "trailing");
   assert.equal(ordinary.length, 21);
   assert.equal(trailing.length, 21 * 25 * 2);
+  assert.equal(priceDistanceVariants(configured.tacticConfig, "trailing"), trailing, "repeat materialization reuses one bounded catalog");
   assert.equal(new Set([...ordinary, ...trailing].map(row =>
     JSON.stringify([row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic"]))).size, 21 * (1 + 25 * 2));
+  const covered = new Set<string>();
+  for (let tick = 0; tick < Math.ceil(trailing.length / 64); tick++) {
+    const batch = priceDistanceBatch(trailing, tick, "BTCUSDT:long:low-range-breakout:trailing");
+    assert.ok(batch.length <= 64);
+    for (const row of batch) covered.add(JSON.stringify([row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic"]));
+  }
+  assert.equal(covered.size, trailing.length, "bounded tick batches cover every independent child");
 
   const engine = initVstEngine(configured.tacticConfig, { arm: false, warmup: 0, symbolCount: 4 });
   engine.completeSim = true;

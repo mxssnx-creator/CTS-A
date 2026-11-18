@@ -7,7 +7,7 @@ import { relateAllocation, relateConfig } from "./relate.ts";
 import { extendOwnSampleHistory, sampleRows, type SampleCoverage } from "./last-n-samples.ts";
 import { hasDisjointBlocks, measuredEdgePnl, selectedDisjointBlocks } from "./last-n-progress.ts";
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
-import { absoluteProtection, priceDistanceVariants, priceTrailStop } from "./price-distance-grid.ts";
+import { absoluteProtection, priceDistanceBatch, priceDistanceVariants, priceTrailStop } from "./price-distance-grid.ts";
 import { DEFAULT_STEP_PF, stepPfFloor } from "./step-pf.ts";
 import { actualFillFee, feePolicy, resolveFeePolicy, roundTripFeeRate } from "./fee-policy.ts";
 import type {
@@ -3667,7 +3667,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             ? shortProtectGrid(e, cfg)
             : [null];
         const lowGrid = short ? [] : lowRangeProtectGrid(e, cfg, tac);
-        const grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : lowGrid.length ? lowGrid : [null];
+        const boundedLowGrid = lowGrid.length
+          ? priceDistanceBatch(lowGrid, e.tick, JSON.stringify([s.id, side, ind, tac, book, kind, range]))
+          : lowGrid;
+        const grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : boundedLowGrid.length ? boundedLowGrid : [null];
         const hourBusy = livePace && hourTapeBusy(e);
         const trailBase = snapTrailPct(cfg.trailingPct);
         for (const prot of grid) {
