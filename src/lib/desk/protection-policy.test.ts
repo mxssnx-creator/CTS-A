@@ -326,6 +326,9 @@ test("absolute trail gaps use the selected fixed or dynamic price basis", async 
 
 test("full native price grid reports bounded active materialization cost", async () => {
   const { performance } = await import("node:perf_hooks");
+  const { sanitizeDeskSettings } = await import("./settings-sync.ts");
+  const { DEFAULT_TACTIC_CONFIG } = await import("./engine.ts");
+  const { STOP_DISTANCE_PCTS, TRAIL_DISTANCE_PCTS, priceDistanceVariants } = await import("./price-distance-grid.ts");
   const configured = sanitizeDeskSettings({ tacticConfig: { ...DEFAULT_TACTIC_CONFIG,
     priceDistanceGrid: { enabled: true, stopPcts: STOP_DISTANCE_PCTS, trailPcts: TRAIL_DISTANCE_PCTS },
   } } as never);
