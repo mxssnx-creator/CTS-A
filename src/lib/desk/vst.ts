@@ -5770,7 +5770,12 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       p.sl = tightened;
       p.slDist = Math.abs(p.sl - p.avgEntry);
     }
-    const miniTrail = minimalPos ? minimalTrailPct(p.tpAtr || cfg.tpAtr || 0, p.slOfTp || cfg.slOfTp || 0) : null;
+    // A filled trailing strategy owns its gap. Older positions and other tactics can use the Minimal preset.
+    const savedTrail = p.tactic === "trailing" && typeof p.trailPct === "number" &&
+      Number.isFinite(p.trailPct) && p.trailPct > 0 ? p.trailPct : null;
+    const miniTrail = minimalPos
+      ? savedTrail ?? minimalTrailPct(p.tpAtr || cfg.tpAtr || 0, p.slOfTp || cfg.slOfTp || 0)
+      : null;
     if (opts?.liveTape || e.liveTape) {
       if (trailingOverlayOn(e, p) && !botBook && (!minimalPos || miniTrail != null)) {
         const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
