@@ -296,9 +296,9 @@ test("absolute stop and fixed or dynamic trailing grids remain independent setti
   assert.equal(new Set([...ordinary, ...trailing].map(row =>
     JSON.stringify([row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic"]))).size, 21 * (1 + 25 * 2));
   const covered = new Set<string>();
-  for (let tick = 0; tick < Math.ceil(trailing.length / 64); tick++) {
+  for (let tick = 0; tick < Math.ceil(trailing.length / 16); tick++) {
     const batch = priceDistanceBatch(trailing, tick, "BTCUSDT:long:low-range-breakout:trailing");
-    assert.ok(batch.length <= 64);
+    assert.ok(batch.length <= 16);
     for (const row of batch) covered.add(JSON.stringify([row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic"]));
   }
   assert.equal(covered.size, trailing.length, "bounded tick batches cover every independent child");

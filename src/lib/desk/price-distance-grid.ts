@@ -59,7 +59,7 @@ export function priceDistanceVariants(cfg: TacticConfig, tactic: TacticKind): Pr
   return variants;
 }
 
-export function priceDistanceBatch<T>(variants: readonly T[], tick: number, parentKey: string, batchSize = 64): readonly T[] {
+export function priceDistanceBatch<T>(variants: readonly T[], tick: number, parentKey: string, batchSize = 16): readonly T[] {
   const size = Math.max(1, Math.floor(batchSize));
   if (variants.length <= size) return variants;
   let seed = 2166136261;
