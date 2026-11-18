@@ -23,6 +23,7 @@ export interface CalcDiff {
   note: string;
 }
 export type TacticKind = "trailing" | "dca" | "axis" | "hybrid";
+export type TrailingDistance = "dynamic" | "fixed";
 export type RangeType = "linear" | "geometric" | "atr" | "volume" | "fibonacci";
 export type StrategyKind = "normal" | "trend" | "mean" | "breakout" | "volume" | "hybrid" | "active" | "block" | "short";
 
@@ -59,7 +60,7 @@ export interface PfCoordHits {
   again: number;
   scratch: number;
 }
-export type IndicationId = `tactic-${string}` | `inverse-${string}`
+export type IndicationId = `tactic-${string}` | `inverse-${string}` | `low-range-${string}`
   | "trend"
   | "break"
   | "active"
@@ -548,6 +549,7 @@ export interface FeedStatus {
 
 export interface TacticConfig {
   indicationSourceIds?: string[];
+  trailingDistance?: TrailingDistance;
   relationalVolumeRatios?: import("../../../shared/cts-volume/ratios.ts").RelationalVolumeRatios;
   /** Net initial stop distance in price percent, added to modeled round-trip costs. */
   minSlDistancePct?: number;
@@ -816,6 +818,7 @@ export interface LiveOrder {
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
+  trailingDistance?: TrailingDistance;
   minimalRange?: boolean;
   /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
   microRange?: boolean;
@@ -868,6 +871,8 @@ export interface LivePosition {
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
+  trailingDistance?: TrailingDistance;
+  fixedTrailReference?: { entry: number; target: number };
   minimalRange?: boolean;
   /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
   microRange?: boolean;
@@ -943,6 +948,7 @@ export interface ClosedTrade {
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
+  trailingDistance?: TrailingDistance;
   minimalRange?: boolean;
   /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
   microRange?: boolean;

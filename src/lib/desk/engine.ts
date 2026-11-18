@@ -268,6 +268,7 @@ export function trailStopFromPeak(input: {
   /** Minimal range: trailPct is 1–2.6 and is not snapped onto the short 1.5 pin. */
   minimalRange?: boolean;
   microMinTrailDistancePct?: number;
+  fixedReference?: { entry: number; target: number };
 }): number {
   const { side, entry, peak, tp, sl, trailPct } = input;
   if (!(entry > 0) || !(peak > 0) || !(tp > 0)) return sl;
@@ -279,15 +280,19 @@ export function trailStopFromPeak(input: {
   const short = !minimal && input.shortRange === true;
   const wide = !minimal && Number(trailPct) >= TREND_BREAK_TRAIL_PCTS[0];
   const armAt = minimal ? 0.5 : short ? (wide ? 0.7 : 0.78) : 0.55;
-  if (peakProfit < tpDist * armAt) return sl;
+  const basis = input.fixedReference;
+  const basisEntry = basis?.entry ?? entry;
+  const basisTargetDistance = basis ? Math.abs(basis.target - basisEntry) : tpDist;
+  const basisProfit = signed * (peak - basisEntry);
+  if (!(basisTargetDistance > 0) || basisProfit < basisTargetDistance * armAt) return sl;
   const pct = minimal ? Math.min(2.6, Math.max(1, Number(trailPct) || 1.5)) : Number(trailPct);
   const give = minimal
     ? Math.min(0.72, Math.max(0.22, 0.34 + (pct - 1) * 0.22))
-    : trailGiveback(peakProfit / tpDist, trailPct);
+    : trailGiveback(basis ? armAt : peakProfit / tpDist, trailPct);
   const used = minimal ? give : wide ? give : Math.min(give, short ? 0.5 : give);
   const minFrac = minimal ? 0.1 : short ? (wide ? 0.22 : 0.16) : 0.45;
-  const microGap = Math.max(0, Number(input.microMinTrailDistancePct) || 0) * entry / 100;
-  const gap = Math.max(peakProfit * used, tpDist * minFrac, microGap);
+  const microGap = Math.max(0, Number(input.microMinTrailDistancePct) || 0) * basisEntry / 100;
+  const gap = Math.max((basis ? basisTargetDistance * armAt : peakProfit) * used, basisTargetDistance * minFrac, microGap);
   let next = peak - signed * gap;
   if (side === "long") {
     next = Math.max(next, sl);
@@ -2290,6 +2295,7 @@ export interface IndicationHit {
 export interface IndicationSummary {
   [id: `tactic-${string}`]: number;
   [id: `inverse-${string}`]: number;
+  [id: `low-range-${string}`]: number;
   trend: number;
   break: number;
   active: number;

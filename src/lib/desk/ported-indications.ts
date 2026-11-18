@@ -1,11 +1,15 @@
 import {portedStates,entryOnsets} from "../../../shared/cts-indications/index.ts";
 import {PORTED_CATALOG} from "../../../shared/cts-indications/catalog.ts";
+import { LOW_RANGE_IDS } from "../../../shared/cts-indications/low-range-catalog.ts";
 import type {IndicationId,VstEngine,VstQuote} from "./types.ts";
 
-const known=new Set<string>(PORTED_CATALOG.map(s=>s.id));
+const known=new Set<string>([...PORTED_CATALOG.map(s=>s.id), ...LOW_RANGE_IDS]);
+export function isPortedIndication(id: string): boolean {
+ return known.has(id);
+}
 export function indicationSourceIds(raw:unknown):IndicationId[]{
  if(raw===undefined)return [];
- if(!Array.isArray(raw)||raw.length>128||raw.some(id=>typeof id!=="string"||!known.has(id)))throw new Error("Choose at most 128 known Tactic / Inverse source configurations");
+ if(!Array.isArray(raw)||raw.length>128||raw.some(id=>typeof id!=="string"||!known.has(id)))throw new Error("Choose at most 128 known imported indication sources");
  return [...new Set(raw)] as IndicationId[];
 }
 const memo=new WeakMap<VstQuote,{key:string;directions:Record<string,number>}>();

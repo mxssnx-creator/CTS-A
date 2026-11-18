@@ -1,5 +1,5 @@
 import {laneVolumeFactor,additionalLaneVolumeFactor} from "./volume-policy.ts";
-import {indicationSourceIds,refreshPortedIndications} from "./ported-indications.ts";
+import {indicationSourceIds,isPortedIndication,refreshPortedIndications} from "./ported-indications.ts";
 import {publishPortedIndications} from "./engine.ts";
 import { strategyTogglesForRange } from "./strategy-processing.ts";
 import { prehistoryHours } from "./prehistory.ts";
@@ -30,6 +30,7 @@ import type {
   SymbolTape,
   TacticConfig,
   TacticKind,
+  TrailingDistance,
   VstBatch,
   VstEngine,
   VstLedger,
@@ -587,6 +588,7 @@ export type ConfigIdentity = {
   tpAtr?: number;
   slOfTp?: number;
   trailPct?: number;
+  trailingDistance?: TrailingDistance;
   calc?: string;
   microRange?: boolean;
   minimalRange?: boolean;
@@ -629,7 +631,8 @@ const rangeComboMem = new WeakMap<VstEngine, Map<string, ConfigTapeRow[]>>();
 function configSampleKey(rel: ConfigIdentity) {
   return JSON.stringify([rel.connId, rel.symbol, rel.side, rel.indication, rel.tactic, rel.rangeType, rel.playbook, rel.kind,
     rel.tpAtr, rel.slOfTp, rel.trailPct, rel.calc, !!rel.microRange, !!rel.minimalRange, !!rel.shortRange,
-    rel.modelRtCost, rel.minSlDistancePct, ...(rel.microRange ? [rel.microMinSlDistancePct,rel.microMinTrailDistancePct] : [])]);
+    rel.modelRtCost, rel.minSlDistancePct, ...(rel.microRange ? [rel.microMinSlDistancePct,rel.microMinTrailDistancePct] : []),
+    ...(rel.trailingDistance === "fixed" ? ["fixed-distance"] : [])]);
 }
 /** Only a complete recorded identity may bind modeled and settled contexts. */
 export function completeConfigSampleKey(rel: ConfigIdentity): string | null {
@@ -640,6 +643,7 @@ export function completeConfigSampleKey(rel: ConfigIdentity): string | null {
 function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
   if (rel.connId != null && row.connId !== rel.connId) return false;
   if (rel.calc != null && row.calc !== rel.calc) return false;
+  if ((row.trailingDistance === "fixed") !== (rel.trailingDistance === "fixed")) return false;
   for (const key of ["trailPct", "modelRtCost", "minSlDistancePct", "microMinSlDistancePct", "microMinTrailDistancePct"] as const) {
     if (rel[key] != null && (!Number.isFinite(rel[key]) || row[key] !== rel[key])) return false;
   }
@@ -651,7 +655,7 @@ function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
 function configTapeRow(c: ConfigTapeRow): ConfigTapeRow {
   return { id:c.id, tick:c.tick, pnl: measuredEdgePnl(c), connId: c.connId, symbol: c.symbol, side: c.side,
     indication: c.indication, tactic: c.tactic, rangeType: c.rangeType, playbook: c.playbook, kind: c.kind,
-    tpAtr: c.tpAtr, slOfTp: c.slOfTp, trailPct: c.trailPct, calc: c.calc,
+    tpAtr: c.tpAtr, slOfTp: c.slOfTp, trailPct: c.trailPct, trailingDistance: c.trailingDistance, calc: c.calc,
     microRange: c.microRange, minimalRange: c.minimalRange, shortRange: c.shortRange,
     modelRtCost: c.modelRtCost, minSlDistancePct: c.minSlDistancePct, microMinSlDistancePct: c.microMinSlDistancePct, microMinTrailDistancePct: c.microMinTrailDistancePct, examFlat: c.examFlat };
 }
@@ -922,6 +926,7 @@ function queueWinAgain(e: VstEngine, p: LivePosition) {
     tpAtr: p.tpAtr,
     slOfTp: p.slOfTp,
     trailPct: p.trailPct,
+    trailingDistance: p.trailingDistance,
     calc: p.calc ?? "base",
   });
   countPlaced(e);
@@ -3455,9 +3460,12 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       tpAtr?: number;
       slOfTp?: number;
       trailPct?: number;
+      trailingDistance?: TrailingDistance;
     }>();
+    const trailingDistance: TrailingDistance | undefined = cfg.trailingDistance === "fixed" ? "fixed" : undefined;
     for (const ind of inds) {
-      const exactSource=ind.startsWith("tactic-")||ind.startsWith("inverse-");
+      if (ind.startsWith("low-range-") && !cfg.microRange && !cfgUsesMinimalRange(cfg) && !cfgUsesShortRange(cfg)) continue;
+      const exactSource = isPortedIndication(ind);
       const sourceSide=exactSource?stable02EntrySide(q,ind):null;
       if(exactSource&&!sourceSide)continue;
       if (fresh >= freshCap) break;
@@ -3796,10 +3804,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             // or snapped distance. Admission must use the actual order identity.
             if (afterBase && !internHere) {
               const entryRel = { ...execRel, connId, rangeType: hi.rangeType, price: px, tpDist: lv.tpDist, slDist: lv.slDist,
-                tpAtr: miniTp, slOfTp: miniSl, trailPct, calc: leg.kind,
+                tpAtr: miniTp, slOfTp: miniSl, trailPct, trailingDistance, calc: leg.kind,
                 microRange: microOn, minimalRange: minimalOn, shortRange: short,
                 modelRtCost: modeledPositionCost(e, s.id), minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct),
-                ...(microOn ? {microMinSlDistancePct:e.microMinSlDistancePct,microMinTrailDistancePct:e.microMinTrailDistancePct} : {}) };
+                ...(microOn ? {microMinSlDistancePct:e.microMinSlDistancePct,microMinTrailDistancePct:e.microMinTrailDistancePct} : {}) } as const;
               registerSampleContext(e, entryRel);
               const proofKey = JSON.stringify([configSampleKey(entryRel), configStepFloor(e, baseStageFloor(e), entryRel)]);
               let verdict = entryVerdicts.get(proofKey);
@@ -3837,6 +3845,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               tpAtr: miniTp,
               slOfTp: miniSl,
               trailPct,
+              trailingDistance,
               minimalRange: minimalOn || undefined,
               microRange: microOn || undefined,
               shortRange: short,
@@ -3870,6 +3879,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 tpAtr: miniTp,
                 slOfTp: miniSl,
                 trailPct,
+                trailingDistance,
                 minimalRange: minimalOn || undefined,
                 microRange: microOn || undefined,
                 calc: leg.kind,
@@ -3908,6 +3918,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                   tpAtr: miniTp,
                   slOfTp: miniSl,
                   trailPct,
+                  trailingDistance,
                 };
                 pairBook.set(pk, row);
               }
@@ -3958,6 +3969,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           tpAtr: row.tpAtr,
           slOfTp: row.slOfTp,
           trailPct: row.trailPct,
+          trailingDistance: row.trailingDistance,
           calc: "base",
         });
         qn += 1;
@@ -4817,6 +4829,8 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       tpAtr: o.tpAtr,
       slOfTp: o.slOfTp,
       trailPct: o.trailPct,
+      trailingDistance: o.trailingDistance,
+      ...(o.trailingDistance === "fixed" ? { fixedTrailReference: { entry: px, target: lv.tp } } : {}),
       minimalRange: o.minimalRange,
       microRange: o.microRange,
       shortRange: o.shortRange,
@@ -5190,6 +5204,7 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
     tpAtr: p.tpAtr,
     slOfTp: p.slOfTp,
     trailPct: p.trailPct,
+    trailingDistance: p.trailingDistance,
     minimalRange: p.minimalRange,
     microRange: p.microRange,
     shortRange: p.shortRange,
@@ -5300,6 +5315,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
     tpAtr: p.tpAtr,
     slOfTp: p.slOfTp,
     trailPct: p.trailPct,
+    trailingDistance: p.trailingDistance,
     minimalRange: p.minimalRange,
     microRange: p.microRange,
     shortRange: p.shortRange,
@@ -5489,6 +5505,7 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
     tpAtr: p.tpAtr,
     slOfTp: p.slOfTp,
     trailPct: p.trailPct,
+    trailingDistance: p.trailingDistance,
     calc: p.calc ?? "base",
   });
   countPlaced(e);
@@ -5661,7 +5678,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
         ? (p.side === "long" ? Math.max(p.peakPx, favNow) : Math.min(p.peakPx, favNow))
         : favNow;
     }
-    const tightened = minimalPos ? null : stable02ExitSl(p.side, p.avgEntry, p.peakPx || q.px, p.sl, e.tick - p.openedTick);
+    const tightened = minimalPos || p.trailingDistance === "fixed" ? null : stable02ExitSl(p.side, p.avgEntry, p.peakPx || q.px, p.sl, e.tick - p.openedTick);
     if (tightened != null && (p.side === "long" ? tightened < q.px : tightened > q.px)) {
       p.sl = tightened;
       p.slDist = Math.abs(p.sl - p.avgEntry);
@@ -5680,6 +5697,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
           tp: p.tp,
           sl: p.sl,
           trailPct: miniTrail ?? p.trailPct ?? cfg.trailingPct,
+          fixedReference: p.fixedTrailReference,
           microMinTrailDistancePct: p.microRange ? p.microMinTrailDistancePct : undefined,
           shortRange: !minimalPos && (cfgUsesShortRange(cfg) || p.playbook === "short"),
           minimalRange: Boolean(minimalPos && miniTrail != null),
@@ -5732,6 +5750,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
         tp: p.tp,
         sl: p.sl,
         trailPct: miniTrail ?? p.trailPct ?? cfg.trailingPct,
+        fixedReference: p.fixedTrailReference,
         microMinTrailDistancePct: p.microRange ? p.microMinTrailDistancePct : undefined,
         shortRange: !minimalPos && (cfgUsesShortRange(cfg) || p.playbook === "short"),
         minimalRange: Boolean(minimalPos && miniTrail != null),
@@ -8644,6 +8663,7 @@ export function adjustActiveBlocks(
             tpAtr: p.tpAtr,
             slOfTp: p.slOfTp,
             trailPct: p.trailPct,
+            trailingDistance: p.trailingDistance,
             minimalRange: p.minimalRange,
             microRange: p.microRange,
             calc: p.calc ?? "base",
@@ -12081,8 +12101,8 @@ export function queueOrder(e: VstEngine, o: LiveOrder): void {
   e.queue.push(o);
 }
 
-function protectionPolicyKey(row: { modelRtCost?: number; minSlDistancePct?: number; microMinSlDistancePct?: number; microMinTrailDistancePct?: number }): string {
-  return `${row.modelRtCost ?? POSITION_RT_COST_PCT}:${normalizeMinSlDistancePct(row.minSlDistancePct)}:${row.microMinSlDistancePct ?? "legacy"}:${row.microMinTrailDistancePct ?? "legacy"}`;
+function protectionPolicyKey(row: { modelRtCost?: number; minSlDistancePct?: number; microMinSlDistancePct?: number; microMinTrailDistancePct?: number; trailingDistance?: TrailingDistance }): string {
+  return `${row.modelRtCost ?? POSITION_RT_COST_PCT}:${normalizeMinSlDistancePct(row.minSlDistancePct)}:${row.microMinSlDistancePct ?? "legacy"}:${row.microMinTrailDistancePct ?? "legacy"}${row.trailingDistance === "fixed" ? ":fixed-distance" : ""}`;
 }
 
 /** Identity does not snap Minimal cost multiples through the Short ATR grid. */

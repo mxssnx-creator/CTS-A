@@ -24,7 +24,7 @@ export function laneVolumeStrategy(lane: VolumeLane): string {
 export function laneVolumeFactor(policy: RelationalVolumeRatios | undefined, lane: VolumeLane, strategy = laneVolumeStrategy(lane)): number {
   const indication = lane.indication ?? "";
   return relationalVolumeFactor(policy, {
-    indicationType: indication.startsWith("inverse-") ? "inverse" : indication.startsWith("tactic-") ? "tactic" : indication,
+    indicationType: indication.startsWith("inverse-") ? "inverse" : indication.startsWith("tactic-") ? "tactic" : indication.startsWith("low-range-") ? "low-range" : indication,
     indication,
     strategy,
     range: [lane.microRange ? "micro" : lane.minimalRange ? "minimal" : lane.shortRange ? "short" : "normal", lane.rangeType ?? lane.controllingRange ?? "atr"],

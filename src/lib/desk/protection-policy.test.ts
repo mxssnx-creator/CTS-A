@@ -50,6 +50,45 @@ test("DCA leg counts and trigger settings survive save/reload in every range", a
     }
 });
 
+test("fixed trailing keeps its opening gap and its own exact qualification identity", async () => {
+  const { trailStopFromPeak, DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } = await import("./engine.ts");
+  const { completeConfigSampleKey, initVstEngine, tickVst } = await import("./vst.ts");
+  const { sanitizeDeskSettings } = await import("./settings-sync.ts");
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, trailingDistance: "fixed" as const };
+  const saved = sanitizeDeskSettings({ tacticConfig: cfg } as never);
+  assert.equal(sanitizeDeskSettings(JSON.parse(JSON.stringify(saved))).tacticConfig.trailingDistance, "fixed");
+  for (const side of ["long", "short"] as const) {
+    const sign = side === "long" ? 1 : -1;
+    const base = { side, entry: 100, tp: 100+sign*8, sl: 100-sign*3, trailPct: 1.5, minimalRange: true };
+    const fixedReference = { entry: 100, target: base.tp };
+    const early = 100+sign*4.6, late = 100+sign*6;
+    const gap = (peak: number, stop: number) => sign*(peak-stop);
+    const startGap = gap(early, trailStopFromPeak({ ...base, peak: early, fixedReference }));
+    const laterGap = gap(late, trailStopFromPeak({ ...base, peak: late, fixedReference, entry: 100+sign*.1 }));
+    assert.ok(Math.abs(laterGap - startGap) < 1e-10);
+    assert.ok(Math.abs(gap(late, trailStopFromPeak({ ...base, peak: late })) - startGap) > .1);
+    const engine = initVstEngine(cfg, {arm:false,warmup:0,symbolCount:4});
+    engine.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal:true, trailing:true };
+    engine.queue = [];
+    engine.orders = [];
+    engine.positions = [];
+    const symbol = Object.keys(engine.quotes)[0], price = engine.quotes[symbol].px;
+    const identity = { connId: engine.activeConnId, symbol, side, indication:"trend" as const, tactic:"trailing" as const,
+      rangeType:"atr" as const, playbook:"normal", kind:"normal" as const, tpAtr:.5, slOfTp:1, trailPct:1.5, calc:"base" as const,
+      microRange:false, minimalRange:false, shortRange:false, modelRtCost:.0011, minSlDistancePct:.1 };
+    assert.ok(completeConfigSampleKey(identity));
+    assert.notEqual(completeConfigSampleKey(identity), completeConfigSampleKey({ ...identity, trailingDistance:"fixed" }));
+    engine.orders.push({ ...identity, trailingDistance:"fixed", id:"own-fixed", type:"market", qty:.01, filled:0,
+      remaining:.01, price, status:"open", level:1, sl:price*(1-sign*.03), tp:price*(1+sign*.08),
+      slDist:price*.03,tpDist:price*.08, batchId:"",note:"fixed entry",validExec:true });
+    tickVst(engine, cfg, "trailing", {bookOnly:true,skipWalk:true});
+    const p = engine.positions.find(row => row.legs.some(leg => leg.orderId === "own-fixed"));
+    assert.ok(p);
+    assert.deepEqual(p.fixedTrailReference, {entry:p.avgEntry, target:p.tp});
+    assert.equal(p.trailingDistance, "fixed");
+  }
+});
+
 test("Micro has twenty independent cells and actual modeled fills preserve lowest targets", async () => {
   const { allMicroCombos, microControlPrices, cfgUsesShortRange, DEFAULT_TACTIC_CONFIG } = await import("./engine.ts");
   const { initVstEngine, tickVst, exactProtectionCombo } = await import("./vst.ts");

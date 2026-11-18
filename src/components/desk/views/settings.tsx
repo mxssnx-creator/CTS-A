@@ -1,6 +1,7 @@
 import {BlockPolicyFields} from "../../../../shared/cts-lastn/fields";
 import {VolumeRatioSliders} from "../../../../shared/cts-volume/sliders.tsx";
 import {PORTED_CATALOG,DEFAULT_TACTIC_SOURCES,DEFAULT_INVERSE_SOURCES} from "../../../../shared/cts-indications/catalog.ts";
+import { DEFAULT_LOW_RANGE_SOURCES, LOW_RANGE_CATALOG } from "../../../../shared/cts-indications/low-range-catalog.ts";
 import { STRATEGY_PROCESSING_RANGES } from "@/lib/desk/strategy-processing";
 import { DEFAULT_PREHISTORY_HOURS, MAX_PREHISTORY_HOURS } from "../../../lib/desk/prehistory";
 import { useMemo, useState } from "react";
@@ -275,6 +276,12 @@ export function SettingsView() {
   const cost = useDesk((s) => s.costStep);
   const cfg = useDesk((s) => s.tacticConfig);
   const setCfg = useDesk((s) => s.setTacticConfig);
+  const [sourceSelectionError, setSourceSelectionError] = useState(false);
+  const selectSources = (lowRange: boolean, ids: string[]) => {
+    const next = [...(cfg.indicationSourceIds ?? []).filter(id => id.startsWith("low-range-") !== lowRange), ...ids];
+    setSourceSelectionError(next.length > 128);
+    if (next.length <= 128) setCfg({ indicationSourceIds: next });
+  };
   const applyLive = useDesk((s) => s.applyLiveConfig);
   const th = useDesk((s) => s.thresholds);
   const setTh = useDesk((s) => s.setThresholds);
@@ -1024,11 +1031,22 @@ export function SettingsView() {
         </Panel>
       </div>
 
-      <Panel title="Relational volume · Indications"><VolumeRatioSliders overall value={cfg.relationalVolumeRatios} onChange={v=>setCfg({relationalVolumeRatios:v})} buckets={{indicationTypes:['trend','break','active','direction','move','rsi','bollinger','sar','macd','ema','tactic','inverse'],indications:cfg.indicationSourceIds??[]}}/></Panel>
+      <Panel title="Relational volume · Indications"><VolumeRatioSliders overall value={cfg.relationalVolumeRatios} onChange={v=>setCfg({relationalVolumeRatios:v})} buckets={{indicationTypes:['trend','break','active','direction','move','rsi','bollinger','sar','macd','ema','tactic','inverse','low-range'],indications:cfg.indicationSourceIds??[]}}/></Panel>
       <Panel title="Relational volume · Strategies / Ranges"><VolumeRatioSliders value={cfg.relationalVolumeRatios} onChange={v=>setCfg({relationalVolumeRatios:v})} buckets={{strategies:['normal','trailing','axis','block','dca'],ranges:['normal','micro','minimal','short','linear','geometric','atr','volume','fibonacci']}}/></Panel>
       <Panel title="Tactic & Inverse indications"><p className="mb-3 text-sm text-muted">Independent CTS-A-O sources: DCA decline / recovery levels and Inverse before entry. Every source keeps its own configuration, costs, Last-N and execution proof. Closed OHLCV is required.</p>
-        <button type="button" className={chip} onClick={()=>setCfg({indicationSourceIds:[...DEFAULT_TACTIC_SOURCES,...DEFAULT_INVERSE_SOURCES]})}>Prepare Tactic + Inverse sources</button>
-        <label className="mt-3 block text-xs">Independent source configurations<select multiple size={8} className="mt-2 w-full rounded border bg-bg p-2" aria-label="Tactic and Inverse source configurations" value={cfg.indicationSourceIds??[]} onChange={e=>setCfg({indicationSourceIds:Array.from(e.target.selectedOptions,o=>o.value)})}>{PORTED_CATALOG.map(s=><option key={s.id} value={s.id}>{s.label} · {s.id}</option>)}</select></label>
+        <button type="button" className={chip} onClick={() => selectSources(false, [...DEFAULT_TACTIC_SOURCES, ...DEFAULT_INVERSE_SOURCES])}>Prepare Tactic + Inverse sources</button>
+        <label className="mt-3 block text-xs">Independent source configurations<select multiple size={8} className="mt-2 w-full rounded border bg-bg p-2" aria-label="Tactic and Inverse source configurations" value={cfg.indicationSourceIds??[]} onChange={event => selectSources(false, Array.from(event.target.selectedOptions, option => option.value))}>{PORTED_CATALOG.map(s=><option key={s.id} value={s.id}>{s.label} · {s.id}</option>)}</select></label>
+      </Panel>
+      <Panel title="Low-Range indications">
+        <p className="mb-3 text-sm text-muted">Closed one-minute setups for the Micro, Minimal and Short coordinations. Each source uses its own direction and configuration history. Up to 128 imported sources can be enabled across these two panels.</p>
+        <button type="button" className={chip} onClick={() => selectSources(true, DEFAULT_LOW_RANGE_SOURCES)}>Prepare Low-Range sources</button>
+        <label className="mt-3 block text-xs">Low-Range sources
+          <select multiple size={7} className="mt-2 w-full rounded border bg-bg p-2" value={cfg.indicationSourceIds ?? []}
+            onChange={event => selectSources(true, Array.from(event.target.selectedOptions, option => option.value))}>
+            {LOW_RANGE_CATALOG.map(source => <option key={source.id} value={source.id}>{source.label}</option>)}
+          </select>
+        </label>
+        {sourceSelectionError && <p role="alert" className="mt-2 text-xs text-red-500">Choose 128 imported sources or fewer.</p>}
       </Panel>
       <div id="pf-coords" className="scroll-mt-24">
         <PfCoordPanel />
@@ -1050,6 +1068,14 @@ export function SettingsView() {
             </button>
           </div>
           <div className={`grid gap-4 sm:grid-cols-2 ${strategyToggles.trailing ? "" : "opacity-50"}`}>
+            <label className="grid items-center gap-2 text-sm">
+              Trailing distance
+              <select className="rounded border bg-bg p-2" value={cfg.trailingDistance ?? "dynamic"}
+                onChange={event => setCfg({ trailingDistance: event.target.value === "fixed" ? "fixed" : "dynamic" })}>
+                <option value="dynamic">Dynamic peak giveback</option>
+                <option value="fixed">Fixed distance from entry setup</option>
+              </select>
+            </label>
             <RangeKnob
               label="Trailing (peak giveback)"
               value={cfg.trailingPct}
