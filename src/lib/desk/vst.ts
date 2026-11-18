@@ -5713,7 +5713,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       p.slDist = stop.slDist;
       p.tpDist = stop.tpDist;
     }
-    if (e.tick === p.openedTick || e.tick - p.openedTick < Math.max(1, opts?.minHold ?? 1)) {
+    if (e.tick <= p.openedTick) {
       keep.push(p);
       continue;
     }
@@ -5736,26 +5736,31 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       closePosition(e, p, carriedSlHit ? stopFill : p.tp, carriedSlHit ? "sl" : "tp");
       continue;
     }
-    if (!botBook && (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca === true && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
-    if (!shortPos && !minimalPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
-    if (!botBook) peelBlockOverlay(e, p, q);
-    if (!botBook && pfCoordOn(e, "bankWin") && p.avgEntry > 0 && p.validExec === true) {
-      const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo > 0 ? q.lo : q.px, q.px);
-      p.peakPx = p.peakPx && p.peakPx > 0
-        ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
-        : fav;
-      const peak = p.peakPx;
-      const mfe = p.side === "long" ? (peak - p.avgEntry) / p.avgEntry : (p.avgEntry - peak) / p.avgEntry;
-      const now = p.side === "long" ? (q.px - p.avgEntry) / p.avgEntry : (p.avgEntry - q.px) / p.avgEntry;
-      const cost = p.modelRtCost ?? modeledPositionCost(e, p.symbol);
-      if (mfe >= cost + 0.0025 && now >= cost + 0.0008 && now + 1e-9 < mfe * 0.62) {
-        const lock = p.side === "long" ? p.avgEntry * (1 + cost + 0.00025) : p.avgEntry * (1 - cost - 0.00025);
-        const before = p.sl;
-        if (p.side === "long" && lock > p.sl && lock < q.px) p.sl = lock;
-        if (p.side === "short" && lock < p.sl && lock > q.px) p.sl = lock;
-        if (p.sl !== before) {
-          p.slDist = Math.abs(p.sl - p.avgEntry);
-          notePfCoord(e, "bank");
+    // A carried bracket and a ratcheting trail protect every new quote. Additions and discretionary exits
+    // retain the strategy's minimum hold.
+    const strategyDue = e.tick - p.openedTick >= Math.max(1, opts?.minHold ?? 1);
+    if (strategyDue) {
+      if (!botBook && (e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES).dca === true && (cfg.dcaCount ?? 0) > 1) handleDca(e, p, cfg);
+      if (!shortPos && !minimalPos && (ownTactic === "axis" || p.playbook === "axis" || ownTactic === "hybrid")) handleAxis(e, p, cfg);
+      if (!botBook) peelBlockOverlay(e, p, q);
+      if (!botBook && pfCoordOn(e, "bankWin") && p.avgEntry > 0 && p.validExec === true) {
+        const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo > 0 ? q.lo : q.px, q.px);
+        p.peakPx = p.peakPx && p.peakPx > 0
+          ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
+          : fav;
+        const peak = p.peakPx;
+        const mfe = p.side === "long" ? (peak - p.avgEntry) / p.avgEntry : (p.avgEntry - peak) / p.avgEntry;
+        const now = p.side === "long" ? (q.px - p.avgEntry) / p.avgEntry : (p.avgEntry - q.px) / p.avgEntry;
+        const cost = p.modelRtCost ?? modeledPositionCost(e, p.symbol);
+        if (mfe >= cost + 0.0025 && now >= cost + 0.0008 && now + 1e-9 < mfe * 0.62) {
+          const lock = p.side === "long" ? p.avgEntry * (1 + cost + 0.00025) : p.avgEntry * (1 - cost - 0.00025);
+          const before = p.sl;
+          if (p.side === "long" && lock > p.sl && lock < q.px) p.sl = lock;
+          if (p.side === "short" && lock < p.sl && lock > q.px) p.sl = lock;
+          if (p.sl !== before) {
+            p.slDist = Math.abs(p.sl - p.avgEntry);
+            notePfCoord(e, "bank");
+          }
         }
       }
     }
@@ -5765,7 +5770,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
         ? (p.side === "long" ? Math.max(p.peakPx, favNow) : Math.min(p.peakPx, favNow))
         : favNow;
     }
-    const tightened = minimalPos || p.trailingDistance === "fixed" ? null : stable02ExitSl(p.side, p.avgEntry, p.peakPx || q.px, p.sl, e.tick - p.openedTick);
+    const tightened = !strategyDue || minimalPos || p.trailingDistance === "fixed" ? null : stable02ExitSl(p.side, p.avgEntry, p.peakPx || q.px, p.sl, e.tick - p.openedTick);
     if (tightened != null && (p.side === "long" ? tightened < q.px : tightened > q.px)) {
       p.sl = tightened;
       p.slDist = Math.abs(p.sl - p.avgEntry);
@@ -5776,7 +5781,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
     const miniTrail = minimalPos
       ? savedTrail ?? minimalTrailPct(p.tpAtr || cfg.tpAtr || 0, p.slOfTp || cfg.slOfTp || 0)
       : null;
-    if (opts?.liveTape || e.liveTape) {
+    if (!strategyDue || opts?.liveTape || e.liveTape) {
       if (trailingOverlayOn(e, p) && !botBook && (!minimalPos || miniTrail != null)) {
         const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
         p.peakPx = p.peakPx && p.peakPx > 0
