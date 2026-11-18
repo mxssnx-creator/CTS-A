@@ -117,6 +117,32 @@ test("Micro has twenty independent cells and actual modeled fills preserve lowes
   }
 });
 
+test("equal TP and SL with different trailing gaps keep independent filled positions", async () => {
+  const { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } = await import("./engine.ts");
+  const { initVstEngine, tickVst } = await import("./vst.ts");
+  for (const side of ["long", "short"] as const) {
+    const sign = side === "long" ? 1 : -1;
+    const e = initVstEngine(DEFAULT_TACTIC_CONFIG, { arm: false, warmup: 0, symbolCount: 4 });
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true };
+    e.queue = [];
+    e.orders = [];
+    e.positions = [];
+    const symbol = Object.keys(e.quotes)[0], price = e.quotes[symbol].px;
+    for (const [id, trailPct, trailingDistance] of [["near", 1.2, undefined], ["far", 2.6, undefined], ["fixed", 1.2, "fixed"]] as const) {
+      e.orders.push({ connId: e.activeConnId, symbol, side, indication: "trend", tactic: "trailing",
+        rangeType: "atr", playbook: "normal", kind: "normal", tpAtr: .5, slOfTp: 1, calc: "base",
+        microRange: false, minimalRange: false, shortRange: false, modelRtCost: .0011, minSlDistancePct: .1,
+        id, trailPct, trailingDistance, type: "market", qty: .01, filled: 0, remaining: .01, price, status: "open", level: 1,
+        sl: price * (1 - sign * .03), tp: price * (1 + sign * .08), slDist: price * .03, tpDist: price * .08,
+        batchId: "", note: "trailing gap test", validExec: true });
+    }
+    tickVst(e, DEFAULT_TACTIC_CONFIG, "trailing", { bookOnly: true, skipWalk: true });
+    assert.equal(e.positions.length, 3);
+    assert.deepEqual(e.positions.map(p => [p.legs.map(leg => leg.orderId), p.trailPct, p.trailingDistance]),
+      [[["near"], 1.2, undefined], [["far"], 2.6, undefined], [["fixed"], 1.2, "fixed"]]);
+  }
+});
+
 
 test("Minimal and Short position identities keep every TP, ratio and range independent", async () => {
   const { exactProtectionCombo, initVstEngine, queueOrder } = await import("./vst.ts");
