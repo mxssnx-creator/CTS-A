@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { finishBaseEval, initVstEngine, laneClosed, laneLastNDecision, liveShouldExecute, lastNSampleCoverage, registerSampleContext, configStepFloor, tickVst } from "./vst.ts";
+import { finishBaseEval, initVstEngine, laneClosed, laneLastNDecision, lanePassExec, liveShouldExecute, lastNSampleCoverage, registerSampleContext, configStepFloor, tickVst } from "./vst.ts";
 
 const own = { symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const,
   tactic: "trailing" as const, rangeType: "atr" as const, kind: "block" as const, playbook: "block",
@@ -44,6 +44,28 @@ test("frozen Base evidence retains range, calculation and economic identity", ()
   assert.equal(liveShouldExecute(e, own), true);
   assert.equal(liveShouldExecute(e, { ...own, microRange: false, minimalRange: true }), false);
   assert.equal(liveShouldExecute(e, { ...own, modelRtCost: .00176 }), false);
+});
+
+test("a validated signed 20/10/3 configuration reaches its own execution lane", () => {
+  const e=fixture();
+  e.lastNProgress={evalNs:[20],validNs:[10],disableNs:[3],mode:"independent",parallelStack:false,parallelVolRatio:1,
+    blocks:{long:20,short:10,minimal:3,shortPolarity:"negative",minimalPolarity:"negative"}};
+  e.closed=Array.from({length:33},(_,i)=>({...e.closed[0],id:`x:signed-${i}`,tick:99-i,
+    pnl:i<13?-1:i%2? -1:2,ratio:i<13?-.01:i%2? -.01:.02}));
+  assert.equal(laneLastNDecision(e,own).pass,true);
+  assert.equal(lanePassExec(e,own),true);
+  assert.equal(liveShouldExecute(e,own),true);
+  assert.equal(lanePassExec(e,{...own,calc:"rng"}),false,"a sibling configuration has no evidence");
+  const changed=fixture();changed.lastNProgress=e.lastNProgress;changed.closed=e.closed.slice(1);
+  assert.equal(lanePassExec(changed,own),false,"32 samples cannot satisfy 20/10/3");
+  const wrong=fixture();wrong.lastNProgress=e.lastNProgress;
+  wrong.closed=e.closed.map((row,i)=>i>=3&&i<13?{...row,pnl:1,ratio:.01}:row);
+  assert.equal(lanePassExec(wrong,own),false,"a positive short block does not pass a negative short policy");
+  const vetoed=fixture();vetoed.lastNProgress={...e.lastNProgress,negativeFilter:{windows:[1],mode:"any",maxPf:1}};vetoed.closed=e.closed;
+  assert.equal(liveShouldExecute(vetoed,own),false,"a separate recent-loss veto cannot be bypassed by signed blocks");
+  e.liveTape=false;e.preEvalDone=false;finishBaseEval(e);e.closed=[];e.liveTape=true;
+  assert.equal(liveShouldExecute(e,own),true,"the own signed Base evidence survives the stage boundary");
+  assert.equal(liveShouldExecute(JSON.parse(JSON.stringify(e)),own),true,"the signed evidence survives restart");
 });
 
 test("last-N decision cache is independent for each calculation and fee policy", () => {
