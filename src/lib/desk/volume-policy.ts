@@ -23,11 +23,16 @@ export function laneVolumeStrategy(lane: VolumeLane): string {
 /** New independent notional: the actual family, tier and geometry each match once. */
 export function laneVolumeFactor(policy: RelationalVolumeRatios | undefined, lane: VolumeLane, strategy = laneVolumeStrategy(lane)): number {
   const indication = lane.indication ?? "";
+  const lowRange = indication.startsWith("low-range-");
   return relationalVolumeFactor(policy, {
-    indicationType: indication.startsWith("inverse-") ? "inverse" : indication.startsWith("tactic-") ? "tactic" : indication.startsWith("low-range-") ? "low-range" : indication,
+    indicationType: indication.startsWith("inverse-") ? "inverse" : indication.startsWith("tactic-") ? "tactic" : lowRange ? "low-range" : indication,
     indication,
     strategy,
-    range: [lane.microRange ? "micro" : lane.minimalRange ? "minimal" : lane.shortRange ? "short" : "normal", lane.rangeType ?? lane.controllingRange ?? "atr"],
+    range: [
+      lane.microRange ? "micro" : lane.minimalRange ? "minimal" : lane.shortRange ? "short" : "normal",
+      ...(lowRange ? ["low-range"] : []),
+      lane.rangeType ?? lane.controllingRange ?? "atr",
+    ],
     symbol: lane.symbol,
   });
 }

@@ -1,6 +1,8 @@
 import type { RangeType, StrategyToggles } from "./types.ts";
 
-export const STRATEGY_PROCESSING_RANGES = ["normal", "micro", "minimal", "short", "linear", "geometric", "atr", "volume", "fibonacci"] as const;
+export const TRADE_COORDINATIONS = ["normal", "micro", "minimal", "short", "low-range"] as const;
+export const STRATEGY_PROCESSING_RANGES = [...TRADE_COORDINATIONS, "linear", "geometric", "atr", "volume", "fibonacci"] as const;
+type TradeCoordination = typeof TRADE_COORDINATIONS[number];
 export type StrategyProcessingRange = typeof STRATEGY_PROCESSING_RANGES[number];
 export type StrategyRangeSwitches = Partial<Record<StrategyProcessingRange, { normal?: boolean; trailing?: boolean }>>;
 
@@ -19,8 +21,13 @@ export function sanitizeStrategyRangeSwitches(raw: unknown): StrategyRangeSwitch
 }
 
 /** A range cannot override a disabled overall master; additional strategy switches are independent. */
-export function strategyTogglesForRange(toggles: StrategyToggles, coordination: "normal" | "micro" | "minimal" | "short", range?: RangeType): StrategyToggles {
-  const own = toggles.ranges?.[coordination], relation = range ? toggles.ranges?.[range] : undefined;
-  return { ...toggles, normal: toggles.normal && own?.normal !== false && relation?.normal !== false,
-    trailing: toggles.trailing && own?.trailing !== false && relation?.trailing !== false };
+export function strategyTogglesForRange(toggles: StrategyToggles, coordination: TradeCoordination, range?: RangeType, narrowTier?: TradeCoordination): StrategyToggles {
+  const own = toggles.ranges?.[coordination];
+  const inherited = narrowTier ? toggles.ranges?.[narrowTier] : undefined;
+  const relation = range ? toggles.ranges?.[range] : undefined;
+  return {
+    ...toggles,
+    normal: toggles.normal && (own?.normal ?? inherited?.normal) !== false && relation?.normal !== false,
+    trailing: toggles.trailing && (own?.trailing ?? inherited?.trailing) !== false && relation?.trailing !== false,
+  };
 }

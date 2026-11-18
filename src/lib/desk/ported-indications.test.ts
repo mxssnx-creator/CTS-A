@@ -1,6 +1,9 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import {parseClosedIndicationBars,fetchClosedIndicationBars} from './closed-indication-feed.ts';import {indicationSourceIds,refreshPortedIndications} from './ported-indications.ts';import {initVstEngine} from './vst.ts';import {DEFAULT_TACTIC_CONFIG} from './engine.ts';import {stable02EntrySide,stable02ProcessSide} from './stable02.ts';
+import {test} from 'node:test';import assert from 'node:assert/strict';import {parseClosedIndicationBars,fetchClosedIndicationBars} from './closed-indication-feed.ts';import {indicationSourceIds,refreshPortedIndications} from './ported-indications.ts';import {stable02EntrySide,stable02ProcessSide} from './stable02.ts';
 import {waveBars} from '../../../shared/cts-indications/fixtures.ts';
 import {entryOnsets,portedStates} from '../../../shared/cts-indications/index.ts';
+import { armUniverse, finishBaseEval, initVstEngine, liveShouldExecute } from "./vst.ts";
+import { DEFAULT_STRATEGY_TOGGLES, DEFAULT_TACTIC_CONFIG } from "./engine.ts";
+import type { TacticConfig } from "./types.ts";
 const start=1700000040000;
 test('live candle parser preserves real timestamps and volume, rejects corrupt data and never fills gaps or admits an unfinished candle',()=>{
  const rows=[{time:start,open:'100',high:'101',low:'99',close:'100.5',volume:'8'},[start+120000,100.5,102,100,101,12],[start+180000,101,103,100,102,7]];
@@ -29,4 +32,34 @@ test('Low-Range trades the original completed-candle onset and expires with the 
  assert.equal(stable02EntrySide(q,id), onsets[i] > 0 ? "long" : "short");
  refreshPortedIndications(e, [id], bars[i].timestamp+5*60_000);
  assert.equal(stable02EntrySide(q,id), null);
+});
+
+test("a Low-Range source carries its own coordination switch from discovery to qualified entries", () => {
+ const id = "low-range-6-edge-turn-standalone";
+ const cfg: TacticConfig = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, microRange: false, minimalRange: false,
+   tpAtr: .6, slOfTp: .4, indicationSourceIds: [id] };
+ const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
+ e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: false, dca: false, block: false,
+   ranges: { short: { trailing: false }, "low-range": { normal: true, trailing: true } } };
+ const q = Object.values(e.quotes)[0];
+ const bars = waveBars(320);
+ const onsets = entryOnsets(portedStates("BTC-USDT", 1, bars, [id]).states[id]);
+ const i = onsets.reduce((last, signal, index) => signal ? index : last, -1);
+ assert.ok(i > 0);
+ q.closedBars = bars.slice(0, i + 1);
+ refreshPortedIndications(e, [id], bars[i].timestamp + 60_000);
+ armUniverse(e, cfg, "trailing", "atr");
+ const seed = [...e.orders, ...e.queue].find(order => order.indication === id && order.tactic === "trailing");
+ assert.ok(seed, "the enabled Low-Range source gets its own trailing candidate");
+ e.tick = 100;
+ e.closed = Array.from({ length: 60 }, (_, j) => ({ ...seed, id: `low-range-${j}`, tick: 99 - j,
+   pnl: 1, ratio: .01, r: 1, entry: seed.price, exit: seed.price * (seed.side === "long" ? 1.012 : .988),
+   reason: "tp" as const, validExec: false }));
+ e.queue = []; e.orders = []; e.positions = [];
+ finishBaseEval(e);
+ e.liveTape = true;
+ assert.equal(liveShouldExecute(e, seed), true);
+ assert.equal(liveShouldExecute(e, { ...seed, indication: "trend" }), false);
+ e.strategyToggles.ranges!["low-range"]!.trailing = false;
+ assert.equal(liveShouldExecute(e, seed), false);
 });
