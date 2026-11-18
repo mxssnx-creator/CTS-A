@@ -2607,15 +2607,15 @@ function occupiedSymbols(e: VstEngine, connId?: string): Set<string> {
   for (const o of e.queue) if (on(o.connId) && !isBotPlay(o.playbook)) s.add(o.symbol);
   return s;
 }
-function laneBusyKey(row: { symbol: string; side: string; indication?: string; tactic?: string; tpAtr?: number; slOfTp?: number; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; calc?: string; controllingRange?: string; rangeType?: string }): string {
+function laneBusyKey(row: { symbol: string; side: string; indication?: string; tpAtr?: number; slOfTp?: number; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; calc?: string; controllingRange?: string; rangeType?: string } & TrailingPolicyIdentity): string {
   const combo = row.tpAtr != null && row.slOfTp != null ? exactProtectionCombo(row) : "x";
   const range = row.controllingRange || row.rangeType || "";
-  return `${row.symbol}:${row.side}:${row.indication || ""}:${row.tactic || ""}:${combo}:${row.calc || "base"}:${range}`;
+  return `${row.symbol}:${row.side}:${row.indication || ""}:${row.tactic || ""}:${combo}:${row.calc || "base"}:${range}${trailingPolicyKey(row)}`;
 }
 function occupiedLegs(e: VstEngine, connId?: string): Set<string> {
   const s = new Set<string>();
   const on = (id: string) => (connId ? id === connId : isDeskConn(id));
-  const mark = (row: { connId: string; symbol: string; side: string; playbook?: string; indication?: string; tactic?: string; tpAtr?: number; slOfTp?: number; calc?: string; controllingRange?: string; rangeType?: string }) => {
+  const mark = (row: Parameters<typeof laneBusyKey>[0] & { connId: string; playbook?: string }) => {
     if (!on(row.connId) || isBotPlay(row.playbook)) return;
     s.add(laneBusyKey(row));
   };
@@ -3764,10 +3764,6 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             // economics here would let sibling outcomes veto the exact cell.
             legOk = false;
           } else legOk = laneValid;
-          const legKey = laneBusyKey({ ...execRel, calc: leg.kind, rangeType: leg.range,
-            tpAtr: prot?.tpAtr, slOfTp: prot?.slOfTp, microRange: cfg.microRange,
-            minimalRange: cfg.minimalRange, shortRange: short });
-          if (busyLegs.has(legKey)) continue;
           const hi0 = pickRange(q, cfg, leg.range);
           const scale = leg.spaceMul > 0 && leg.spaceMul !== 1 ? leg.spaceMul : 1;
           const hi = scale === 1 ? { ...hi0, rangeType: leg.range } : { ...hi0, rangeType: leg.range, spacing: hi0.spacing * scale, levels: hi0.levels.map((lv) => lv * scale) };
@@ -3822,6 +3818,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             : axisInd
               ? Math.min(Math.max(2, cfg.axisLevels), hi.levels.length, axisPartial >= 2 ? 2 : 5)
               : hi.levels.length;
+          const addedLegs = new Set<string>();
           hi.levels.slice(0, Math.max(1, depth)).forEach((offset, li) => {
             if (fresh >= freshCap || qn >= qStop) return;
             if ((symLoad.get(s.id) || 0) >= symCap) return;
@@ -3853,6 +3850,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               : lv0;
             const miniTp = microOn ? snapMicroTpPct(prot?.tpAtr ?? cfg.tpAtr ?? .2) : minimalOn ? snapMinimalTpCost(prot?.tpAtr ?? cfg.tpAtr ?? MINIMAL_WINNER.tpCost) : prot?.tpAtr;
             const miniSl = microOn ? snapSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? .5) : minimalOn ? snapMinimalSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? MINIMAL_WINNER.slOfTp) : prot?.slOfTp;
+            const legKey = laneBusyKey({ ...execRel, calc: leg.kind, rangeType: hi.rangeType,
+              tpAtr: miniTp, slOfTp: miniSl, microRange: microOn, minimalRange: minimalOn, shortRange: short,
+              trailPct, trailingDistance });
+            if (busyLegs.has(legKey)) return;
             let entryValid = legOk;
             let relateMultiplier = 1;
             // The coarse selection above does not yet know the final calc/trail
@@ -3994,8 +3995,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               }
               row.inds.add(ind);
             }
+            addedLegs.add(legKey);
           });
-          busyLegs.add(legKey);
+          for (const key of addedLegs) busyLegs.add(key);
           }
           if (!complete && !comboKey) busy.add(s.id);
         }
@@ -4637,7 +4639,8 @@ export function playbookOf(e: VstEngine, o: LiveOrder): string {
   if (e.lastTactic === "axis" || /^axis\b/i.test(o.note || "")) return "axis";
   return "normal";
 }
-type ProtectionGeometry = { protectionKey?: string; price?: number; avgEntry?: number; slDist?: number; tpDist?: number };
+type TrailingPolicyIdentity = { tactic?: string; trailPct?: number; trailingDistance?: TrailingDistance };
+type ProtectionGeometry = { protectionKey?: string; price?: number; avgEntry?: number; slDist?: number; tpDist?: number } & TrailingPolicyIdentity;
 
 function geometryKey(row: ProtectionGeometry): string {
   if (row.protectionKey) return row.protectionKey;
@@ -12187,8 +12190,16 @@ export function queueOrder(e: VstEngine, o: LiveOrder): void {
   e.queue.push(o);
 }
 
-function protectionPolicyKey(row: { modelRtCost?: number; minSlDistancePct?: number; microMinSlDistancePct?: number; microMinTrailDistancePct?: number; trailingDistance?: TrailingDistance }): string {
-  return `${row.modelRtCost ?? POSITION_RT_COST_PCT}:${normalizeMinSlDistancePct(row.minSlDistancePct)}:${row.microMinSlDistancePct ?? "legacy"}:${row.microMinTrailDistancePct ?? "legacy"}${row.trailingDistance === "fixed" ? ":fixed-distance" : ""}`;
+function trailingPolicyKey(row: TrailingPolicyIdentity): string {
+  const fixed = row.trailingDistance === "fixed";
+  const basis = fixed ? ":fixed-distance" : "";
+  return fixed || row.tactic === "trailing" || row.tactic === "hybrid"
+    ? `${basis}:trail=${Number.isFinite(row.trailPct) ? row.trailPct : "legacy"}`
+    : basis;
+}
+
+function protectionPolicyKey(row: { modelRtCost?: number; minSlDistancePct?: number; microMinSlDistancePct?: number; microMinTrailDistancePct?: number } & TrailingPolicyIdentity): string {
+  return `${row.modelRtCost ?? POSITION_RT_COST_PCT}:${normalizeMinSlDistancePct(row.minSlDistancePct)}:${row.microMinSlDistancePct ?? "legacy"}:${row.microMinTrailDistancePct ?? "legacy"}${trailingPolicyKey(row)}`;
 }
 
 /** Identity does not snap Minimal cost multiples through the Short ATR grid. */
