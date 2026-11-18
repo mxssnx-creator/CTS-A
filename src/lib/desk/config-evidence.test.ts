@@ -235,3 +235,63 @@ test("a complete long signed window survives the Base checkpoint for its exact l
   assert.equal(liveShouldExecute(JSON.parse(JSON.stringify(e)),own),true);
   assert.equal(liveShouldExecute(e,{...own,modelRtCost:.00176}),false);
 });
+
+
+test("absolute stop and trailing cells keep independent live and frozen Base evidence", () => {
+  const e = fixture();
+  const exact = { ...own, priceStopPct: .2, priceTrailPct: .2, trailingDistance: "dynamic" as const };
+  e.closed = Array.from({ length: 60 }, (_, i) => ({ ...e.closed[0], ...exact, id: `x:absolute-${i}`, tick: 99 - i }));
+  assert.equal(liveShouldExecute(e, exact), true);
+  for (const sibling of [
+    { ...exact, priceStopPct: .3 },
+    { ...exact, priceTrailPct: .3 },
+    { ...exact, trailingDistance: "fixed" as const },
+  ]) {
+    assert.equal(laneClosed(e, sibling, 80).length, 0);
+    assert.equal(liveShouldExecute(e, sibling), false, "a price-grid sibling cannot inherit the selected cell");
+  }
+  e.liveTape = false; e.preEvalDone = false;
+  finishBaseEval(e); e.closed = []; e.liveTape = true;
+  const restored = JSON.parse(JSON.stringify(e));
+  assert.equal(liveShouldExecute(restored, exact), true, "the exact cell survives Base and restart");
+  assert.equal(liveShouldExecute(restored, { ...exact, priceTrailPct: .3 }), false);
+});
+
+
+test("native settlement retains absolute stop and trailing ownership", () => {
+  const e = fixture();
+  e.closed = [];
+  const q = e.quotes[own.symbol];
+  q.px = q.lo = q.hi = q.open = 99;
+  e.positions = [{
+    ...own,
+    priceStopPct: .2,
+    priceTrailPct: .2,
+    trailingDistance: "fixed",
+    id: "native-absolute",
+    connId: e.activeConnId,
+    qty: 1,
+    plannedQty: 1,
+    avgEntry: 100,
+    mark: 100,
+    sl: 99.8,
+    tp: 102,
+    slDist: .2,
+    tpDist: 2,
+    realized: 0,
+    unrealized: 0,
+    legs: [{ orderId: "native-fill", qty: 1, px: 100 }],
+    controllingRange: "atr",
+    rangeSpacing: .2,
+    status: "open",
+    openedTick: 1,
+    validExec: false,
+  }] as never;
+  tickVst(e, DEFAULT_TACTIC_CONFIG, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+  assert.equal(e.positions.length, 0);
+  assert.deepEqual(
+    { stop: e.closed[0]?.priceStopPct, gap: e.closed[0]?.priceTrailPct, mode: e.closed[0]?.trailingDistance },
+    { stop: .2, gap: .2, mode: "fixed" },
+  );
+  assert.equal(laneClosed(e, { ...own, priceStopPct: .3, priceTrailPct: .2, trailingDistance: "fixed" }, 80).length, 0);
+});
