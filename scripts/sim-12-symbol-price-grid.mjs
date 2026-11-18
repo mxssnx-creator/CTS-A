@@ -40,7 +40,7 @@ const { report, engine } = simulateHours(validationHours, cfg, "trailing", {
 const elapsedMs = performance.now() - started;
 const heapAfter = process.memoryUsage().heapUsed;
 const retained = engine.closed.filter(row => !row.examFlat);
-const executed = retained.filter(row => row.validExec === true);
+const candidates = retained.filter(row => row.validExec === true);
 const exact = retained.filter(row => row.priceStopPct != null);
 const distinct = new Set(retained.map(row =>
   `${row.symbol}:${row.side}:${row.tick - Math.max(0, Number(row.holdTicks) || 0)}`));
@@ -57,7 +57,7 @@ const pfOf = rows => {
 };
 const failures = [...(report.issues ?? [])];
 if (report.pf < 1) failures.push("validation_after_cost_pf_below_one");
-if (!executed.length) failures.push("no_post_selection_executions");
+if (!(report.trades > 0)) failures.push("no_post_selection_executions");
 const missingLineage = exact.filter(row => row.priceTrailPct == null).length;
 if (missingLineage) failures.push(`missing_exact_lineage:${missingLineage}`);
 const evidence = {
@@ -69,14 +69,18 @@ const evidence = {
   requestedCatalog: { stops: STOP_DISTANCE_PCTS.length, gaps: TRAIL_DISTANCE_PCTS.length, trailingModes: 2, trailingCells: STOP_DISTANCE_PCTS.length * TRAIL_DISTANCE_PCTS.length * 2 },
   modeledCosts: { costStep: 3, roundTripRates: costs },
   results: {
-    modeledSettlements: report.settledSlices ?? report.trades,
-    retainedSettlements: retained.length,
-    exactSettlements: exact.length,
-    executedSettlements: executed.length,
-    distinctSymbolSideEntryTime: distinct.size,
-    afterCostPf: report.pf,
-    retainedAfterCostPf: pfOf(retained),
-    executedAfterCostPf: pfOf(executed),
+    selectionSettlements: report.pre?.trades ?? null,
+    modeledValidationSettlements: report.settledSlices ?? report.trades,
+    retainedCombinedSettlements: retained.length,
+    exactCombinedSettlements: exact.length,
+    candidateRows: candidates.length,
+    fixedCandidateRows: candidates.filter(row => row.trailingDistance === "fixed").length,
+    dynamicCandidateRows: candidates.filter(row => row.trailingDistance !== "fixed").length,
+    executedValidationSettlements: report.trades,
+    distinctCombinedSymbolSideEntryTime: distinct.size,
+    validationAfterCostPf: report.pf,
+    retainedCombinedAfterCostPf: pfOf(retained),
+    candidateAfterCostPf: pfOf(candidates),
     net: report.net,
     drawdown: report.mdd,
     ordersPlaced: report.ordersPlaced,
@@ -111,9 +115,9 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>CTS-A exac
 <table><tbody>
 <tr><th>After-cost PF</th><td class="${report.pf >= 1 ? "ok" : "bad"}">${report.pf.toFixed(4)}</td></tr>
 <tr><th>Drawdown</th><td>${(report.mdd * 100).toFixed(3)}%</td></tr>
-<tr><th>Modeled settlements</th><td>${evidence.results.modeledSettlements}</td></tr>
-<tr><th>Executed settlements</th><td>${executed.length}</td></tr>
-<tr><th>Distinct symbol/side/entry time</th><td>${distinct.size}</td></tr>
+<tr><th>Modeled validation settlements</th><td>${evidence.results.modeledValidationSettlements}</td></tr>
+<tr><th>Executed validation settlements</th><td>${report.trades}</td></tr>
+<tr><th>Distinct combined symbol/side/entry time</th><td>${evidence.results.distinctCombinedSymbolSideEntryTime}</td></tr>
 <tr><th>Orders placed / filled</th><td>${report.ordersPlaced} / ${report.ordersFilled}</td></tr>
 <tr><th>Elapsed / heap delta</th><td>${elapsedMs.toFixed(1)} ms / ${evidence.performance.heapDeltaBytes} bytes</td></tr>
 </tbody></table>
