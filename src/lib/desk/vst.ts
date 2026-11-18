@@ -3668,7 +3668,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             : [null];
         const lowGrid = short ? [] : lowRangeProtectGrid(e, cfg, tac);
         const boundedLowGrid = lowGrid.length
-          ? priceDistanceBatch(lowGrid, e.tick, JSON.stringify([s.id, side, ind, tac, book, kind, range]))
+          ? priceDistanceBatch<(typeof lowGrid)[number]>(lowGrid, e.tick, JSON.stringify([s.id, side, ind, tac, book, kind, range]))
           : lowGrid;
         const grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : boundedLowGrid.length ? boundedLowGrid : [null];
         const hourBusy = livePace && hourTapeBusy(e);
