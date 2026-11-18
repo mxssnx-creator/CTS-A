@@ -265,3 +265,60 @@ test("Micro and Minimal trailing positions use their captured gap on both quote 
     }
   }
 });
+
+
+test("absolute stop and fixed or dynamic trailing grids remain independent settings and evidence", async () => {
+  const { STOP_DISTANCE_PCTS, TRAIL_DISTANCE_PCTS, priceDistanceVariants } = await import("./price-distance-grid.ts");
+  const { DEFAULT_TACTIC_CONFIG } = await import("./engine.ts");
+  const { completeConfigSampleKey, initVstEngine, lowRangeProtectGrid } = await import("./vst.ts");
+  const { sanitizeDeskSettings } = await import("./settings-sync.ts");
+
+  assert.equal(STOP_DISTANCE_PCTS.length, 21);
+  assert.equal(TRAIL_DISTANCE_PCTS.length, 25);
+  assert.deepEqual(STOP_DISTANCE_PCTS, Array.from({ length: 21 }, (_, i) => (i + 2) / 10));
+  assert.deepEqual(TRAIL_DISTANCE_PCTS, Array.from({ length: 25 }, (_, i) => (i + 2) / 10));
+
+  const legacy = sanitizeDeskSettings({ tacticConfig: DEFAULT_TACTIC_CONFIG } as never);
+  assert.equal(legacy.tacticConfig.priceDistanceGrid?.enabled, false);
+  assert.equal(priceDistanceVariants(legacy.tacticConfig, "normal").length, 0);
+
+  const configured = sanitizeDeskSettings({ tacticConfig: { ...DEFAULT_TACTIC_CONFIG,
+    priceDistanceGrid: { enabled: true, stopPcts: STOP_DISTANCE_PCTS, trailPcts: TRAIL_DISTANCE_PCTS },
+  } } as never);
+  assert.deepEqual(configured.tacticConfig.priceDistanceGrid,
+    { enabled: true, stopPcts: STOP_DISTANCE_PCTS, trailPcts: TRAIL_DISTANCE_PCTS });
+
+  const ordinary = priceDistanceVariants(configured.tacticConfig, "normal");
+  const trailing = priceDistanceVariants(configured.tacticConfig, "trailing");
+  assert.equal(ordinary.length, 21);
+  assert.equal(trailing.length, 21 * 25 * 2);
+  assert.equal(new Set([...ordinary, ...trailing].map(row =>
+    JSON.stringify([row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic"]))).size, 21 * (1 + 25 * 2));
+
+  const engine = initVstEngine(configured.tacticConfig, { arm: false, warmup: 0, symbolCount: 4 });
+  engine.completeSim = true;
+  assert.deepEqual(lowRangeProtectGrid(engine, configured.tacticConfig, "normal"), ordinary);
+  assert.deepEqual(lowRangeProtectGrid(engine, configured.tacticConfig, "trailing"), trailing);
+
+  const identity = {
+    connId: "bingx-x02", symbol: "BTCUSDT", side: "long" as const, indication: "low-range-breakout",
+    tactic: "trailing", rangeType: "atr", playbook: "normal", kind: "normal", calc: "base",
+    tpAtr: .3, slOfTp: 1, trailPct: 1.5, microRange: true, minimalRange: false, shortRange: false,
+    modelRtCost: .0011, minSlDistancePct: .1, microMinSlDistancePct: .1, microMinTrailDistancePct: .05,
+  };
+  const keys = trailing.map(row => completeConfigSampleKey({ ...identity, ...row }));
+  assert.ok(keys.every(Boolean));
+  assert.equal(new Set(keys).size, trailing.length);
+  assert.throws(() => sanitizeDeskSettings({ tacticConfig: { ...DEFAULT_TACTIC_CONFIG,
+    priceDistanceGrid: { enabled: true, stopPcts: [.21], trailPcts: [.2] },
+  } } as never), /0.1 percentage-point/);
+});
+
+test("absolute trail gaps use the selected fixed or dynamic price basis", async () => {
+  const { absoluteProtection, priceTrailStop } = await import("./price-distance-grid.ts");
+  const fixed = priceTrailStop("long", 100, 110, 90, 2, "fixed");
+  const dynamic = priceTrailStop("long", 100, 110, 90, 2, "dynamic");
+  assert.equal(fixed, 108);
+  assert.equal(dynamic, 107.8);
+  assert.deepEqual(absoluteProtection("short", 100, .7, 4), { sl: 100.7, slDist: .7, tp: 96, tpDist: 4 });
+});
