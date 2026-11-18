@@ -222,3 +222,16 @@ test("native pooled truncation cannot discard an intact own Last-200 ring at Bas
   e.closed=[{...e.closed[0],id:"new-unmatched-loss",tick:e.tick+1,pnl:-3,ratio:-.03}];
   assert.equal(lastNSampleCoverage(e).rows[0].usable,1,"the new own tape cannot be replaced by its older ring");
 });
+
+test("a complete long signed window survives the Base checkpoint for its exact lane", () => {
+  const e=fixture(); e.liveTape=false; e.preEvalDone=false;
+  e.lastNProgress={evalNs:[20],validNs:[10],disableNs:[3],mode:"independent",parallelStack:false,parallelVolRatio:1,
+    blocks:{long:205,short:10,minimal:3,shortPolarity:"negative",minimalPolarity:"negative"}};
+  e.closed=Array.from({length:218},(_,i)=>({...e.closed[0],id:`x:long-owned-${i}`,tick:999-i,
+    pnl:i<13?-1:i%3?-1:4,ratio:i<13?-.01:i%3?-.01:.04}));
+  assert.equal(laneLastNDecision(e,own).pass,true);
+  finishBaseEval(e); e.closed=[];e.liveTape=true;
+  assert.equal(liveShouldExecute(e,own),true);
+  assert.equal(liveShouldExecute(JSON.parse(JSON.stringify(e)),own),true);
+  assert.equal(liveShouldExecute(e,{...own,modelRtCost:.00176}),false);
+});
