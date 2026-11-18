@@ -6,8 +6,8 @@ import { DEFAULT_TACTIC_CONFIG } from "../src/lib/desk/engine.ts";
 import { STOP_DISTANCE_PCTS, TRAIL_DISTANCE_PCTS } from "../src/lib/desk/price-distance-grid.ts";
 import { simulateHours } from "../src/lib/desk/vst.ts";
 
-const selectionHours = 12;
-const validationHours = 12;
+const selectionHours = 6;
+const validationHours = 6;
 const symbols = 12;
 const cfg = {
   ...DEFAULT_TACTIC_CONFIG,
@@ -107,7 +107,7 @@ const esc = value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>CTS-A exact price grid replay</title>
 <style>body{font:14px/1.45 system-ui;margin:28px;background:#0b1220;color:#dbeafe}table{border-collapse:collapse}th,td{padding:7px 12px;border-bottom:1px solid #334155;text-align:right}th:first-child,td:first-child{text-align:left}.bad{color:#fca5a5}.ok{color:#86efac}pre{white-space:pre-wrap}</style></head><body>
 <h1>CTS-A · native 21-stop × 25-gap held-out replay</h1>
-<p>Offline paper only. Hours 0–12 select; hours 12–24 validate without re-selection. Cost step 3 is captured on every settlement.</p>
+<p>Offline paper only. Hours 0–${selectionHours} select; hours ${selectionHours}–${selectionHours + validationHours} validate without re-selection. Cost step 3 is captured on every settlement.</p>
 <table><tbody>
 <tr><th>After-cost PF</th><td class="${report.pf >= 1 ? "ok" : "bad"}">${report.pf.toFixed(4)}</td></tr>
 <tr><th>Drawdown</th><td>${(report.mdd * 100).toFixed(3)}%</td></tr>
