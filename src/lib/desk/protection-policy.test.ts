@@ -217,3 +217,40 @@ test("native Micro and Minimal grids arm every cell without rearming an occupied
     for(const [lane,count] of kept)assert.equal(e.queue.filter(r=>key(r)===lane).length,count,"occupied lane must not be duplicated");
   }
 });
+
+test("Micro and Minimal trailing positions use their captured gap on both quote paths", async () => {
+  const { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES, trailStopFromPeak } = await import("./engine.ts");
+  const { initVstEngine, tickVst } = await import("./vst.ts");
+  for (const micro of [false, true]) for (const side of ["long", "short"] as const) for (const liveTape of [false, true]) {
+    const e = initVstEngine(DEFAULT_TACTIC_CONFIG, { arm: false, warmup: 0, symbolCount: 4 });
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true };
+    e.queue = [];
+    e.orders = [];
+    e.positions = [];
+    const symbol = Object.keys(e.quotes)[0], q = e.quotes[symbol], price = q.px;
+    const sign = side === "long" ? 1 : -1;
+    for (const [id, trailPct, trailingDistance] of [
+      ["tight", 1.2, undefined], ["wide", 2.6, undefined], ["fixed", 2.6, "fixed"],
+    ] as const) {
+      e.orders.push({ connId: e.activeConnId, id, symbol, side, indication: "trend", tactic: "trailing",
+        rangeType: "atr", playbook: "normal", kind: "normal", calc: "base", tpAtr: micro ? .3 : 3,
+        slOfTp: micro ? 1 : 1.25, trailPct, trailingDistance, microRange: micro, minimalRange: !micro,
+        shortRange: false, modelRtCost: .0011, minSlDistancePct: .1, microMinTrailDistancePct: .01,
+        type: "market", qty: .01, filled: 0, remaining: .01, price, status: "open", level: 1,
+        sl: price * (1 - sign * .03), tp: price * (1 + sign * .08), slDist: price * .03, tpDist: price * .08,
+        batchId: "", note: "owned trailing gap", validExec: true });
+    }
+    tickVst(e, DEFAULT_TACTIC_CONFIG, "trailing", { bookOnly: true, skipWalk: true });
+    assert.equal(e.positions.length, 3);
+    const first = e.positions[0], entry = first.avgEntry, peak = entry + .75 * (first.tp - entry);
+    const expected = e.positions.map(p => trailStopFromPeak({ side, entry: p.avgEntry, peak, tp: p.tp,
+      sl: p.sl, trailPct: p.trailPct!, minimalRange: true, fixedReference: p.fixedTrailReference,
+      microMinTrailDistancePct: micro ? p.microMinTrailDistancePct : undefined }));
+    assert.equal(new Set(expected).size, 3, "the chosen peak distinguishes all three captured gaps");
+    Object.assign(q, { open: entry, px: peak, hi: Math.max(entry, peak), lo: Math.min(entry, peak) });
+    e.liveTape = liveTape;
+    e.tick++;
+    tickVst(e, DEFAULT_TACTIC_CONFIG, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+    assert.deepEqual(e.positions.map(p => p.sl), expected, `micro=${micro}, side=${side}, liveTape=${liveTape}`);
+  }
+});
