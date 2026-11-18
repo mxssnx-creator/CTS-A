@@ -248,9 +248,20 @@ test("Micro and Minimal trailing positions use their captured gap on both quote 
       microMinTrailDistancePct: micro ? p.microMinTrailDistancePct : undefined }));
     assert.equal(new Set(expected).size, 3, "the chosen peak distinguishes all three captured gaps");
     Object.assign(q, { open: entry, px: peak, hi: Math.max(entry, peak), lo: Math.min(entry, peak) });
-    e.liveTape = liveTape;
-    e.tick++;
-    tickVst(e, DEFAULT_TACTIC_CONFIG, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+    if (liveTape) {
+      e.botMode = false;
+      tickVst(e, DEFAULT_TACTIC_CONFIG, "trailing", { skipWalk: true, skipMatch: true });
+    } else {
+      e.tick++;
+      tickVst(e, DEFAULT_TACTIC_CONFIG, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+    }
     assert.deepEqual(e.positions.map(p => p.sl), expected, `micro=${micro}, side=${side}, liveTape=${liveTape}`);
+    if (liveTape) {
+      const exit = entry - sign * .001 * entry;
+      Object.assign(q, { open: peak, px: exit, hi: Math.max(peak, exit), lo: Math.min(peak, exit) });
+      tickVst(e, DEFAULT_TACTIC_CONFIG, "trailing", { skipWalk: true, skipMatch: true });
+      assert.equal(e.positions.length, 0, "the next adverse quote crossed all three carried stops");
+      assert.equal(e.closed.filter(row => row.reason === "sl").length, 3);
+    }
   }
 });
