@@ -235,3 +235,24 @@ test("a complete long signed window survives the Base checkpoint for its exact l
   assert.equal(liveShouldExecute(JSON.parse(JSON.stringify(e)),own),true);
   assert.equal(liveShouldExecute(e,{...own,modelRtCost:.00176}),false);
 });
+
+
+test("absolute stop and trailing cells keep independent live and frozen Base evidence", () => {
+  const e = fixture();
+  const exact = { ...own, priceStopPct: .2, priceTrailPct: .2, trailingDistance: "dynamic" as const };
+  e.closed = Array.from({ length: 60 }, (_, i) => ({ ...e.closed[0], ...exact, id: `x:absolute-${i}`, tick: 99 - i }));
+  assert.equal(liveShouldExecute(e, exact), true);
+  for (const sibling of [
+    { ...exact, priceStopPct: .3 },
+    { ...exact, priceTrailPct: .3 },
+    { ...exact, trailingDistance: "fixed" as const },
+  ]) {
+    assert.equal(laneClosed(e, sibling, 80).length, 0);
+    assert.equal(liveShouldExecute(e, sibling), false, "a price-grid sibling cannot inherit the selected cell");
+  }
+  e.liveTape = false; e.preEvalDone = false;
+  finishBaseEval(e); e.closed = []; e.liveTape = true;
+  const restored = JSON.parse(JSON.stringify(e));
+  assert.equal(liveShouldExecute(restored, exact), true, "the exact cell survives Base and restart");
+  assert.equal(liveShouldExecute(restored, { ...exact, priceTrailPct: .3 }), false);
+});

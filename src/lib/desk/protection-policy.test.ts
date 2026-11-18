@@ -322,3 +322,23 @@ test("absolute trail gaps use the selected fixed or dynamic price basis", async 
   assert.equal(dynamic, 107.8);
   assert.deepEqual(absoluteProtection("short", 100, .7, 4), { sl: 100.7, slDist: .7, tp: 96, tpDist: 4 });
 });
+
+
+test("full native price grid reports bounded active materialization cost", async () => {
+  const { performance } = await import("node:perf_hooks");
+  const configured = sanitizeDeskSettings({ tacticConfig: { ...DEFAULT_TACTIC_CONFIG,
+    priceDistanceGrid: { enabled: true, stopPcts: STOP_DISTANCE_PCTS, trailPcts: TRAIL_DISTANCE_PCTS },
+  } } as never);
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
+  const variants = priceDistanceVariants(configured.tacticConfig, "trailing");
+  const keys = new Set(variants.map(row => JSON.stringify([
+    row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic",
+  ])));
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  const payloadBytes = Buffer.byteLength(JSON.stringify(variants));
+  assert.equal(variants.length, 1_050);
+  assert.equal(keys.size, 1_050);
+  console.info(`price-distance-grid benchmark variants=1050 elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${payloadBytes}`);
+});
