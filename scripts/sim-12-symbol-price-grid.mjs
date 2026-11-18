@@ -32,7 +32,7 @@ const { report, engine } = simulateHours(validationHours, cfg, "trailing", {
   rangeType: "atr",
   equity: 10,
   costStep: 3,
-  complete: true,
+  complete: false,
   prehours: selectionHours,
   orderType: "limit",
   strategyToggles: { normal: true, trailing: true, axis: false, block: false, dca: false },
