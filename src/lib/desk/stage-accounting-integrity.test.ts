@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { liveLastNEvals, overlayLiveTracks, stageMarkers } from "./validate.ts";
-import { completeConfigSampleKey } from "./vst.ts";
+import { DEFAULT_TACTIC_CONFIG } from "./engine.ts";
+import { completeConfigSampleKey, simulateHours, TICKS_PER_HOUR } from "./vst.ts";
 import type { ClosedTrade, HorizonMark, LaneEvalTrack } from "./types.ts";
 
 const close = (id: string, pnl: number, ratio: number | undefined, extra: Partial<ClosedTrade> = {}): ClosedTrade => ({
@@ -79,4 +80,17 @@ test("Micro execution identity requires both captured distance floors", () => {
   assert.equal(typeof completeConfigSampleKey(captured), "string");
   assert.equal(completeConfigSampleKey({ ...captured, microMinTrailDistancePct: NaN }), null);
   assert.notEqual(completeConfigSampleKey(captured), completeConfigSampleKey({ ...captured, microMinTrailDistancePct: .1 }));
+});
+
+test("a quick replay carries Base samples forward without carrying its open orders or positions", () => {
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, tpAtr: .6, slOfTp: 1, maxHoldTicks: 60 };
+  const { engine, report } = simulateHours(2, cfg, "trailing", {
+    symbolCount: 12, prehours: 2, complete: false, comboOnly: true, orderType: "market",
+  });
+  const boundary = 2 * TICKS_PER_HOUR;
+  assert.ok(engine.frozenBaseSamples?.length, "Base evidence must remain available");
+  const later = engine.closed.filter((row) => row.tick > boundary);
+  assert.equal(later.some((row) => row.tick - (row.holdTicks ?? 0) <= boundary), false);
+  assert.equal(engine.positions.some((position) => position.openedTick <= boundary), false);
+  assert.equal(report.settledSlices, later.length);
 });
