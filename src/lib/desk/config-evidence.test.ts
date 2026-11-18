@@ -256,3 +256,42 @@ test("absolute stop and trailing cells keep independent live and frozen Base evi
   assert.equal(liveShouldExecute(restored, exact), true, "the exact cell survives Base and restart");
   assert.equal(liveShouldExecute(restored, { ...exact, priceTrailPct: .3 }), false);
 });
+
+
+test("native settlement retains absolute stop and trailing ownership", () => {
+  const e = fixture();
+  e.closed = [];
+  const q = e.quotes[own.symbol];
+  q.px = q.lo = q.hi = q.open = 99;
+  e.positions = [{
+    ...own,
+    priceStopPct: .2,
+    priceTrailPct: .2,
+    trailingDistance: "fixed",
+    id: "native-absolute",
+    connId: e.activeConnId,
+    qty: 1,
+    plannedQty: 1,
+    avgEntry: 100,
+    mark: 100,
+    sl: 99.8,
+    tp: 102,
+    slDist: .2,
+    tpDist: 2,
+    realized: 0,
+    unrealized: 0,
+    legs: [{ orderId: "native-fill", qty: 1, px: 100 }],
+    controllingRange: "atr",
+    rangeSpacing: .2,
+    status: "open",
+    openedTick: 1,
+    validExec: false,
+  }] as never;
+  tickVst(e, DEFAULT_TACTIC_CONFIG, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+  assert.equal(e.positions.length, 0);
+  assert.deepEqual(
+    { stop: e.closed[0]?.priceStopPct, gap: e.closed[0]?.priceTrailPct, mode: e.closed[0]?.trailingDistance },
+    { stop: .2, gap: .2, mode: "fixed" },
+  );
+  assert.equal(laneClosed(e, { ...own, priceStopPct: .3, priceTrailPct: .2, trailingDistance: "fixed" }, 80).length, 0);
+});

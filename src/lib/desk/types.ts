@@ -958,6 +958,8 @@ export interface ClosedTrade {
   slOfTp?: number;
   trailPct?: number;
   trailingDistance?: TrailingDistance;
+  priceStopPct?: number;
+  priceTrailPct?: number;
   minimalRange?: boolean;
   /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
   microRange?: boolean;
