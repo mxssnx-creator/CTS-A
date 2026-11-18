@@ -557,6 +557,8 @@ export interface TacticConfig {
   microMinSlDistancePct?: number;
   microMinTrailDistancePct?: number;
   stepPf?: import("./step-pf.ts").StepPfRules;
+  /** Disabled for migrated desks. Every enabled absolute cell owns its own evidence. */
+  priceDistanceGrid?: import("./price-distance-grid.ts").PriceDistanceGridConfig;
   fees?: Partial<FeePolicy>;
   trailingPct: number;
   dcaCount: number;
@@ -821,6 +823,8 @@ export interface LiveOrder {
   slOfTp?: number;
   trailPct?: number;
   trailingDistance?: TrailingDistance;
+  priceStopPct?: number;
+  priceTrailPct?: number;
   minimalRange?: boolean;
   /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
   microRange?: boolean;
@@ -875,6 +879,8 @@ export interface LivePosition {
   slOfTp?: number;
   trailPct?: number;
   trailingDistance?: TrailingDistance;
+  priceStopPct?: number;
+  priceTrailPct?: number;
   fixedTrailReference?: { entry: number; target: number };
   minimalRange?: boolean;
   /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */

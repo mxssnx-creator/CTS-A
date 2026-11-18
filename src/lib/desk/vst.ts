@@ -7,6 +7,7 @@ import { relateAllocation, relateConfig } from "./relate.ts";
 import { extendOwnSampleHistory, sampleRows, type SampleCoverage } from "./last-n-samples.ts";
 import { hasDisjointBlocks, measuredEdgePnl, selectedDisjointBlocks } from "./last-n-progress.ts";
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
+import { absoluteProtection, priceDistanceVariants, priceTrailStop } from "./price-distance-grid.ts";
 import { DEFAULT_STEP_PF, stepPfFloor } from "./step-pf.ts";
 import { actualFillFee, feePolicy, resolveFeePolicy, roundTripFeeRate } from "./fee-policy.ts";
 import type {
@@ -590,6 +591,8 @@ export type ConfigIdentity = {
   slOfTp?: number;
   trailPct?: number;
   trailingDistance?: TrailingDistance;
+  priceStopPct?: number;
+  priceTrailPct?: number;
   calc?: string;
   microRange?: boolean;
   minimalRange?: boolean;
@@ -635,7 +638,7 @@ function configSampleKey(rel: ConfigIdentity) {
   return JSON.stringify([rel.connId, rel.symbol, rel.side, rel.indication, rel.tactic, rel.rangeType, rel.playbook, rel.kind,
     rel.tpAtr, rel.slOfTp, rel.trailPct, rel.calc, !!rel.microRange, !!rel.minimalRange, !!rel.shortRange,
     rel.modelRtCost, rel.minSlDistancePct, ...(rel.microRange ? [rel.microMinSlDistancePct,rel.microMinTrailDistancePct] : []),
-    ...(rel.trailingDistance === "fixed" ? ["fixed-distance"] : [])]);
+    rel.priceStopPct, rel.priceTrailPct, ...(rel.trailingDistance === "fixed" ? ["fixed-distance"] : [])]);
 }
 /** Only a complete recorded identity may bind modeled and settled contexts. */
 export function completeConfigSampleKey(rel: ConfigIdentity): string | null {
@@ -647,7 +650,7 @@ function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
   if (rel.connId != null && row.connId !== rel.connId) return false;
   if (rel.calc != null && row.calc !== rel.calc) return false;
   if ((row.trailingDistance === "fixed") !== (rel.trailingDistance === "fixed")) return false;
-  for (const key of ["trailPct", "modelRtCost", "minSlDistancePct", "microMinSlDistancePct", "microMinTrailDistancePct"] as const) {
+  for (const key of ["trailPct", "priceStopPct", "priceTrailPct", "modelRtCost", "minSlDistancePct", "microMinSlDistancePct", "microMinTrailDistancePct"] as const) {
     if (rel[key] != null && (!Number.isFinite(rel[key]) || row[key] !== rel[key])) return false;
   }
   for (const key of ["microRange", "minimalRange", "shortRange"] as const) {
@@ -658,7 +661,8 @@ function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
 function configTapeRow(c: ConfigTapeRow): ConfigTapeRow {
   return { id:c.id, tick:c.tick, pnl: measuredEdgePnl(c), ratio: c.ratio, validExec: c.validExec, connId: c.connId, symbol: c.symbol, side: c.side,
     indication: c.indication, tactic: c.tactic, rangeType: c.rangeType, playbook: c.playbook, kind: c.kind,
-    tpAtr: c.tpAtr, slOfTp: c.slOfTp, trailPct: c.trailPct, trailingDistance: c.trailingDistance, calc: c.calc,
+    tpAtr: c.tpAtr, slOfTp: c.slOfTp, trailPct: c.trailPct, trailingDistance: c.trailingDistance,
+    priceStopPct: c.priceStopPct, priceTrailPct: c.priceTrailPct, calc: c.calc,
     microRange: c.microRange, minimalRange: c.minimalRange, shortRange: c.shortRange,
     modelRtCost: c.modelRtCost, minSlDistancePct: c.minSlDistancePct, microMinSlDistancePct: c.microMinSlDistancePct, microMinTrailDistancePct: c.microMinTrailDistancePct, examFlat: c.examFlat };
 }
@@ -3201,7 +3205,9 @@ export function shortProtectGrid(e: VstEngine, cfg: TacticConfig) {
 }
 
 /** Every enabled low-range cell gets its own geometry; an isolated study keeps its selected cell. */
-export function lowRangeProtectGrid(e: VstEngine, cfg: TacticConfig) {
+export function lowRangeProtectGrid(e: VstEngine, cfg: TacticConfig, tactic: TacticKind = e.lastTactic) {
+  const exactPrices = priceDistanceVariants(cfg, tactic);
+  if (exactPrices.length) return exactPrices;
   if (cfg.microRange === true) {
     const all = allMicroCombos();
     return e.completeSim && !e.shortComboOnly ? all : all.filter(c =>
@@ -3510,8 +3516,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       slOfTp?: number;
       trailPct?: number;
       trailingDistance?: TrailingDistance;
+      priceStopPct?: number;
+      priceTrailPct?: number;
     }>();
-    const trailingDistance: TrailingDistance | undefined = cfg.trailingDistance === "fixed" ? "fixed" : undefined;
+    const configuredTrailingDistance: TrailingDistance | undefined = cfg.trailingDistance === "fixed" ? "fixed" : undefined;
     const rangeContext = {
       rangeType: rangeType ?? e.lastRange,
       microRange: cfg.microRange,
@@ -3658,12 +3666,13 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           : short
             ? shortProtectGrid(e, cfg)
             : [null];
-        const lowGrid = short ? [] : lowRangeProtectGrid(e, cfg);
+        const lowGrid = short ? [] : lowRangeProtectGrid(e, cfg, tac);
         const grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : lowGrid.length ? lowGrid : [null];
         const hourBusy = livePace && hourTapeBusy(e);
         const trailBase = snapTrailPct(cfg.trailingPct);
         for (const prot of grid) {
           if (fresh >= freshCap || qn >= qStop) break;
+          const trailingDistance: TrailingDistance | undefined = prot?.trailingDistance ?? configuredTrailingDistance;
           const comboKey = prot ? exactProtectionCombo({ ...prot, microRange: cfg.microRange, minimalRange: cfg.minimalRange, shortRange: short }) : "";
           const relOk = Boolean(short && prot && performingLive(e) && (internRelProven(e, { indication: ind, tactic: tac, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp }) || relExamPass(e, { indication: ind, tactic: tac, tpAtr: prot.tpAtr, slOfTp: prot.slOfTp })));
           const comboOk = !short || !prot || internAll || internSlot || internKeep || shortComboProven(e, prot.tpAtr, prot.slOfTp) || relOk;
@@ -3829,10 +3838,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           hi.levels.slice(0, Math.max(1, depth)).forEach((offset, li) => {
             if (fresh >= freshCap || qn >= qStop) return;
             if ((symLoad.get(s.id) || 0) >= symCap) return;
-            const trailPct =
-              ind === "trend" || ind === "break"
+            const trailPct = prot?.priceTrailPct ??
+              (ind === "trend" || ind === "break"
                 ? trendBreakTrailPct((leg.range === "geometric" ? 1 : leg.range === "fibonacci" ? 2 : 0) + li)
-                : trailBase;
+                : trailBase);
             const nearBook = livePace || internAll0;
             const nearOff = nearBook
               ? Math.min(offset, atr * (leg.kind === "base" && li > 0 ? 0.24 : leg.near))
@@ -3852,14 +3861,17 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               : minimalOn
               ? minimalControlPrices(side, px, prot?.tpAtr ?? cfg.tpAtr ?? MINIMAL_WINNER.tpCost, prot?.slOfTp ?? cfg.slOfTp ?? MINIMAL_WINNER.slOfTp, modeledPositionCost(e, s.id), e.minSlDistancePct)
               : null;
-            const lv = mini
+            const baseLv = mini
               ? { sl: mini.sl, tp: mini.tp, slDist: mini.slDist, tpDist: mini.tpDist }
               : lv0;
+            const lv = prot?.priceStopPct != null
+              ? absoluteProtection(side, px, prot.priceStopPct, baseLv.tpDist)
+              : baseLv;
             const miniTp = microOn ? snapMicroTpPct(prot?.tpAtr ?? cfg.tpAtr ?? .2) : minimalOn ? snapMinimalTpCost(prot?.tpAtr ?? cfg.tpAtr ?? MINIMAL_WINNER.tpCost) : prot?.tpAtr;
             const miniSl = microOn ? snapSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? .5) : minimalOn ? snapMinimalSlOfTp(prot?.slOfTp ?? cfg.slOfTp ?? MINIMAL_WINNER.slOfTp) : prot?.slOfTp;
             const legKey = laneBusyKey({ ...execRel, calc: leg.kind, rangeType: hi.rangeType,
               tpAtr: miniTp, slOfTp: miniSl, microRange: microOn, minimalRange: minimalOn, shortRange: short,
-              trailPct, trailingDistance });
+              trailPct, trailingDistance, priceStopPct: prot?.priceStopPct, priceTrailPct: prot?.priceTrailPct });
             if (busyLegs.has(legKey)) return;
             let entryValid = legOk;
             let relateMultiplier = 1;
@@ -3867,7 +3879,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             // or snapped distance. Admission must use the actual order identity.
             if (afterBase && !internHere) {
               const entryRel = { ...execRel, connId, rangeType: hi.rangeType, price: px, tpDist: lv.tpDist, slDist: lv.slDist,
-                tpAtr: miniTp, slOfTp: miniSl, trailPct, trailingDistance, calc: leg.kind,
+                tpAtr: miniTp, slOfTp: miniSl, trailPct, trailingDistance, priceStopPct: prot?.priceStopPct, priceTrailPct: prot?.priceTrailPct, calc: leg.kind,
                 microRange: microOn, minimalRange: minimalOn, shortRange: short,
                 modelRtCost: modeledPositionCost(e, s.id), minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct),
                 ...(microOn ? {microMinSlDistancePct:e.microMinSlDistancePct,microMinTrailDistancePct:e.microMinTrailDistancePct} : {}) } as const;
@@ -3924,6 +3936,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               slOfTp: miniSl,
               trailPct,
               trailingDistance,
+              priceStopPct: prot?.priceStopPct,
+              priceTrailPct: prot?.priceTrailPct,
               minimalRange: minimalOn,
               microRange: microOn,
               shortRange: short,
@@ -3958,6 +3972,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 slOfTp: miniSl,
                 trailPct,
                 trailingDistance,
+                priceStopPct: prot?.priceStopPct,
+                priceTrailPct: prot?.priceTrailPct,
                 minimalRange: minimalOn,
                 microRange: microOn,
                 calc: leg.kind,
@@ -3997,6 +4013,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                   slOfTp: miniSl,
                   trailPct,
                   trailingDistance,
+                  priceStopPct: prot?.priceStopPct,
+                  priceTrailPct: prot?.priceTrailPct,
                 };
                 pairBook.set(pk, row);
               }
@@ -4049,6 +4067,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           slOfTp: row.slOfTp,
           trailPct: row.trailPct,
           trailingDistance: row.trailingDistance,
+          priceStopPct: row.priceStopPct,
+          priceTrailPct: row.priceTrailPct,
           calc: "base",
         });
         qn += 1;
@@ -4875,11 +4895,12 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       return;
     }
     const rawR = o.slDist > 1e-12 ? o.tpDist / o.slDist : 1;
-    const lv = o.microRange
+    const baseLv = o.microRange
       ? microControlPrices(o.side, px, o.tpAtr, o.slOfTp, o.modelRtCost ?? modeledPositionCost(e, o.symbol), o.minSlDistancePct ?? e.minSlDistancePct, o.microMinSlDistancePct)
       : o.minimalRange
       ? minimalControlPrices(o.side, px, o.tpAtr ?? MINIMAL_WINNER.tpCost, o.slOfTp ?? MINIMAL_WINNER.slOfTp, o.modelRtCost ?? modeledPositionCost(e, o.symbol), o.minSlDistancePct ?? e.minSlDistancePct)
       : protectLevels(px, o.side, o.slDist, o.tpDist, rawR, true, o.modelRtCost ?? modeledPositionCost(e, o.symbol), o.minSlDistancePct ?? e.minSlDistancePct);
+    const lv = o.priceStopPct != null ? absoluteProtection(o.side, px, o.priceStopPct, baseLv.tpDist) : baseLv;
     pos = {
       id: nextId(e, "p"),
       ...(o.relateMultiplier !== undefined ? { relateMultiplier: o.relateMultiplier } : {}),
@@ -4917,6 +4938,8 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
       slOfTp: o.slOfTp,
       trailPct: o.trailPct,
       trailingDistance: o.trailingDistance,
+      priceStopPct: o.priceStopPct,
+      priceTrailPct: o.priceTrailPct,
       ...(o.trailingDistance === "fixed" ? { fixedTrailReference: { entry: px, target: lv.tp } } : {}),
       minimalRange: o.minimalRange,
       microRange: o.microRange,
@@ -5787,7 +5810,9 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
         p.peakPx = p.peakPx && p.peakPx > 0
           ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
           : fav;
-        const next = trailStopFromPeak({
+        const next = p.priceTrailPct != null
+        ? priceTrailStop(p.side, p.avgEntry, p.peakPx, p.sl, p.priceTrailPct, p.trailingDistance === "fixed" ? "fixed" : "dynamic")
+        : trailStopFromPeak({
           side: p.side,
           entry: p.avgEntry,
           peak: p.peakPx,
@@ -5840,7 +5865,9 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       p.peakPx = p.peakPx && p.peakPx > 0
         ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
         : fav;
-      const next = trailStopFromPeak({
+      const next = p.priceTrailPct != null
+        ? priceTrailStop(p.side, p.avgEntry, p.peakPx, p.sl, p.priceTrailPct, p.trailingDistance === "fixed" ? "fixed" : "dynamic")
+        : trailStopFromPeak({
         side: p.side,
         entry: p.avgEntry,
         peak: p.peakPx,
@@ -12227,6 +12254,8 @@ function protectionPolicyKey(row: { modelRtCost?: number; minSlDistancePct?: num
 }
 
 /** Identity does not snap Minimal cost multiples through the Short ATR grid. */
-export function exactProtectionCombo(row: { tpAtr?: number; slOfTp?: number; minimalRange?: boolean; microRange?: boolean; shortRange?: boolean }): string {
-  return JSON.stringify([row.microRange === true ? "micro" : row.minimalRange === true ? "minimal" : row.shortRange === true ? "short" : "normal", row.tpAtr, row.slOfTp]);
+export function exactProtectionCombo(row: { tpAtr?: number; slOfTp?: number; minimalRange?: boolean; microRange?: boolean; shortRange?: boolean;
+  priceStopPct?: number; priceTrailPct?: number; trailingDistance?: TrailingDistance }): string {
+  return JSON.stringify([row.microRange === true ? "micro" : row.minimalRange === true ? "minimal" : row.shortRange === true ? "short" : "normal",
+    row.tpAtr, row.slOfTp, row.priceStopPct, row.priceTrailPct, row.trailingDistance === "fixed" ? "fixed" : "dynamic"]);
 }
