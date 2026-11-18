@@ -667,10 +667,16 @@ function rangeComboKey(rel: { rangeType?: string; tpAtr?: number; slOfTp?: numbe
   const sl = rel.slOfTp == null ? "" : String(Math.round(rel.slOfTp * 1000) / 1000);
   return `${rel.rangeType || ""}|${tp}|${sl}`;
 }
-function pushTapeRing(map: Map<string, ConfigTapeRow[]>, key: string, row: ConfigTapeRow) {
+function configRetention(e: VstEngine) {
+  // Ordinary windows go to 200; a signed policy needs the sum of its disjoint blocks.
+  const raw = e.lastNProgress ?? e.blockCfg?.lastNProgress;
+  if (!raw?.blocks && !raw?.policies?.some(policy => policy.blocks)) return 200;
+  return Math.max(200, lastNMaxOf(lastNProgressOf(e)));
+}
+function pushTapeRing(map: Map<string, ConfigTapeRow[]>, key: string, row: ConfigTapeRow, capacity: number) {
   const ring = map.get(key) ?? [];
   ring.unshift(row);
-  if (ring.length > 200) ring.length = 200;
+  if (ring.length > capacity) ring.length = capacity;
   map.set(key, ring);
 }
 function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id?: string }) {
@@ -683,14 +689,15 @@ function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id
     bag = new Map();
     configTapeMem.set(e, bag);
   }
-  pushTapeRing(bag, key, row);
+  const capacity = configRetention(e);
+  pushTapeRing(bag, key, row, capacity);
   if (row.rangeType && row.tpAtr != null && row.slOfTp != null) {
     let ranges = rangeComboMem.get(e);
     if (!ranges) {
       ranges = new Map();
       rangeComboMem.set(e, ranges);
     }
-    pushTapeRing(ranges, rangeComboKey(row), row);
+    pushTapeRing(ranges, rangeComboKey(row), row, capacity);
   }
 }
 function historyRows(e: VstEngine, rel: ConfigIdentity) {
@@ -702,6 +709,7 @@ function historyRows(e: VstEngine, rel: ConfigIdentity) {
 /** Own configured candidates survive empty, rejected and cancelled order lifecycles.
  * Keep actual Base/current tape stages distinct from the configured window names. */
 export function lastNSampleCoverage(e: VstEngine): SampleCoverage {
+  const capacity = configRetention(e);
   type Tape = Array<{id?:string;tick?:number;pnl?:number;ratio?:number}>;
   const current = new Map<string, Tape | null>();
   const identities = new Map<string, ConfigIdentity>();
@@ -711,7 +719,7 @@ export function lastNSampleCoverage(e: VstEngine): SampleCoverage {
     identities.set(key,row);
     if (!hasConfigProvenance(row)) { current.set(key,null); continue; }
     const own=current.get(key) ?? [];
-    if (own.length < 200) own.push(row);
+    if (own.length < capacity) own.push(row);
     current.set(key,own);
   }
   for (const [key, rows] of configTapeMem.get(e) ?? []) {
@@ -720,7 +728,7 @@ export function lastNSampleCoverage(e: VstEngine): SampleCoverage {
       identities.set(key,own[0]);
       const present=current.get(key);
       if (!current.has(key)) current.set(key,hasConfigProvenance(own[0]) ? own : null);
-      else if (present) current.set(key,extendOwnSampleHistory(present,own));
+      else if (present) current.set(key,extendOwnSampleHistory(present,own,capacity));
     }
   }
   const frozen = new Map<string, Tape | null>();
@@ -730,7 +738,7 @@ export function lastNSampleCoverage(e: VstEngine): SampleCoverage {
     identities.set(key,row);
     if (!hasConfigProvenance(row)) { frozen.set(key,null); continue; }
     const own=frozen.get(key) ?? [];
-    if (own.length < 200) own.push(row);
+    if (own.length < capacity) own.push(row);
     frozen.set(key,own);
   }
   for (const row of [...Object.values(e.configuredSampleContexts ?? {}),...e.positions,...e.orders,...e.queue]) {
@@ -750,18 +758,17 @@ export function lastNSampleCoverage(e: VstEngine): SampleCoverage {
       frozenBase:configPreMem.has(e) || e.frozenBaseSamples !== undefined ? sampleRows(frozen.values(),cfg) : null}};
 }
 function snapshotConfigPreTape(e: VstEngine) {
-  // Retain up to the supported Last-200 per exact cohort, not 2,400 mixed rows
-  // that truncate quiet symbols/configs when the active book gets larger.
+  const capacity = configRetention(e);
   const grouped = new Map<string, ConfigTapeRow[]>();
   for (const c of e.closed) {
     if (!deskTapeRow(e,c) || ("examFlat" in c && c.examFlat)) continue;
     const row=configTapeRow(c), key=configSampleKey(row), own=grouped.get(key) ?? [];
-    if (own.length < 200) own.push(row);
+    if (own.length < capacity) own.push(row);
     grouped.set(key,own);
   }
   for (const [key,rows] of configTapeMem.get(e) ?? []) {
     const retained=rows.filter(row=>!row.examFlat).map(configTapeRow);
-    grouped.set(key,extendOwnSampleHistory(grouped.get(key) ?? [],retained));
+    grouped.set(key,extendOwnSampleHistory(grouped.get(key) ?? [],retained,capacity));
   }
   const rows=[...grouped.values()].flat();
   e.frozenBaseSamples=rows;
