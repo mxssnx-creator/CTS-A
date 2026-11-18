@@ -14,3 +14,10 @@ test("independent strategy families match tier and geometry once, including stan
   assert.equal(laneVolumeFactor(undefined, lane), 1);
   assert.equal(laneVolumeFactor(policy, { ...lane, microRange: false, shortRange: true }), 0.5);
 });
+
+test("only a Low-Range source receives its strategy coordination volume weight", () => {
+  const policy = { ...DEFAULT_RELATIONAL_VOLUME, indicationTypes: { "low-range": 2 }, ranges: { "low-range": 3, short: 0.5 } };
+  const lane = { shortRange: true, rangeType: "atr", tactic: "trailing" };
+  assert.equal(laneVolumeFactor(policy, { ...lane, indication: "low-range-6-edge-turn-standalone" }), 3);
+  assert.equal(laneVolumeFactor(policy, { ...lane, indication: "trend" }), 0.5);
+});

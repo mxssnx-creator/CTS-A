@@ -1022,7 +1022,34 @@ export function SettingsView() {
           </div>
           <div className="mt-4 space-y-2" aria-label="Strategy processing per Coordination and Range">
             <p className="text-xs text-subtle">Coordination / Range · Normal off keeps calculations for Axis, Block and DCA. Plain Trailing also requires Normal. Both overall and range switches must be on.</p>
-            {STRATEGY_PROCESSING_RANGES.map(range=><div key={range} className="flex flex-wrap items-center gap-3"><span className="w-28 text-xs capitalize">{range}</span>{(["normal","trailing"] as const).map(key=><label key={key} className="flex items-center gap-2 text-xs"><input type="checkbox" aria-label={`${range} ${key} processing`} checked={strategyToggles.ranges?.[range]?.[key] !== false} onChange={e=>setStrategyToggles({ranges:{...strategyToggles.ranges,[range]:{...strategyToggles.ranges?.[range],[key]:e.target.checked}}})} />{key}</label>)}</div>)}
+            {STRATEGY_PROCESSING_RANGES.map((range) => (
+              <div key={range} className="flex flex-wrap items-center gap-3">
+                <span className="w-28 text-xs capitalize">{range === "low-range" ? "Low-Range" : range}</span>
+                {(["normal", "trailing"] as const).map((key) => {
+                  const configured = strategyToggles.ranges?.[range]?.[key];
+                  const setProcessing = (enabled: boolean | undefined) => setStrategyToggles({
+                    ranges: { ...strategyToggles.ranges, [range]: { ...strategyToggles.ranges?.[range], [key]: enabled } },
+                  });
+                  return (
+                    <label key={key} className="flex items-center gap-2 text-xs capitalize">
+                      {range === "low-range" ? (
+                        <select aria-label={`Low-Range ${key} processing`} className="rounded border bg-background px-1 py-0.5"
+                          value={configured === undefined ? "inherit" : configured ? "on" : "off"}
+                          onChange={(event) => setProcessing(event.target.value === "inherit" ? undefined : event.target.value === "on")}>
+                          <option value="inherit">Inherit tier</option>
+                          <option value="on">On</option>
+                          <option value="off">Off</option>
+                        </select>
+                      ) : (
+                        <input type="checkbox" aria-label={`${range} ${key} processing`} checked={configured !== false}
+                          onChange={(event) => setProcessing(event.target.checked)} />
+                      )}
+                      {key}
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
           </div>
           <p className="mt-2 text-xs text-subtle">
             Live: {strategyToggles.normal ? "Normal lanes" : "no general lanes"}
@@ -1035,7 +1062,7 @@ export function SettingsView() {
       </div>
 
       <Panel title="Relational volume · Indications"><VolumeRatioSliders overall value={cfg.relationalVolumeRatios} onChange={v=>setCfg({relationalVolumeRatios:v})} buckets={{indicationTypes:['trend','break','active','direction','move','rsi','bollinger','sar','macd','ema','tactic','inverse','low-range'],indications:cfg.indicationSourceIds??[]}}/></Panel>
-      <Panel title="Relational volume · Strategies / Ranges"><VolumeRatioSliders value={cfg.relationalVolumeRatios} onChange={v=>setCfg({relationalVolumeRatios:v})} buckets={{strategies:['normal','trailing','axis','block','dca'],ranges:['normal','micro','minimal','short','linear','geometric','atr','volume','fibonacci']}}/></Panel>
+      <Panel title="Relational volume · Strategies / Ranges"><VolumeRatioSliders value={cfg.relationalVolumeRatios} onChange={v=>setCfg({relationalVolumeRatios:v})} buckets={{strategies:['normal','trailing','axis','block','dca'],ranges:[...STRATEGY_PROCESSING_RANGES]}}/></Panel>
       <Panel title="Tactic & Inverse indications"><p className="mb-3 text-sm text-muted">Independent CTS-A-O sources: DCA decline / recovery levels and Inverse before entry. Every source keeps its own configuration, costs, Last-N and execution proof. Closed OHLCV is required.</p>
         <button type="button" className={chip} onClick={() => selectSources(false, [...DEFAULT_TACTIC_SOURCES, ...DEFAULT_INVERSE_SOURCES])}>Prepare Tactic + Inverse sources</button>
         <label className="mt-3 block text-xs">Independent source configurations<select multiple size={8} className="mt-2 w-full rounded border bg-bg p-2" aria-label="Tactic and Inverse source configurations" value={cfg.indicationSourceIds??[]} onChange={event => selectSources(false, Array.from(event.target.selectedOptions, option => option.value))}>{PORTED_CATALOG.map(s=><option key={s.id} value={s.id}>{s.label} · {s.id}</option>)}</select></label>

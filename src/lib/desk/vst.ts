@@ -2488,6 +2488,7 @@ export function initVstEngine(cfg: TacticConfig = DEFAULT_CFG, opts: { warmup?: 
   const engine: VstEngine = {
     minSlDistancePct: normalizeMinSlDistancePct(cfg.minSlDistancePct),
     microMinSlDistancePct: cfg.microMinSlDistancePct, microMinTrailDistancePct: cfg.microMinTrailDistancePct,
+    indicationSourceIds: indicationSourceIds(cfg.indicationSourceIds),
     fees: feePolicy(cfg.fees),
     stepPf: { ...DEFAULT_STEP_PF, ...cfg.stepPf },
     quotes: mkQuotes(),
@@ -2855,8 +2856,17 @@ export function intervalAllowsEntry(_e: VstEngine, _minutes = INTERVAL_MINUTES):
   return true;
 }
 
-export function pickLiveTactic(e: VstEngine, ind: IndicationId, fallback: TacticKind): TacticKind {
-  const tog = e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
+type StrategyProcessingContext = {
+  indication?: string;
+  rangeType?: RangeType;
+  controllingRange?: RangeType;
+  microRange?: boolean;
+  minimalRange?: boolean;
+  shortRange?: boolean;
+};
+
+export function pickLiveTactic(e: VstEngine, ind: IndicationId, fallback: TacticKind, context?: StrategyProcessingContext): TacticKind {
+  const tog = context ? strategyProcessingFor(e, context) : e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES;
   const hinted = tacticForIndication(ind, { axis: tog.axis !== false, trailing: tog.trailing !== false });
   const preferred = e.indTacticBest?.[ind];
   const allow = (t: TacticKind | undefined): t is TacticKind => {
@@ -2874,8 +2884,8 @@ export function pickLiveTactic(e: VstEngine, ind: IndicationId, fallback: Tactic
 }
 
 /** Every enabled tactic — no skip of trailing/axis/hybrid. DCA only if toggle on. A switch that is off stays off, including during the eval. */
-export function enabledLiveTactics(e: VstEngine): TacticKind[] {
-  const tog = strategyProcessingFor(e);
+export function enabledLiveTactics(e: VstEngine, context?: StrategyProcessingContext): TacticKind[] {
+  const tog = strategyProcessingFor(e, context);
   const intern = internAllPhase(e);
   const out: TacticKind[] = [];
   if (tog.trailing !== false && (intern || tog.normal !== false || tog.block)) out.push("trailing");
@@ -2885,15 +2895,18 @@ export function enabledLiveTactics(e: VstEngine): TacticKind[] {
   return out;
 }
 
-export function strategyProcessingFor(e: VstEngine, rel?: { rangeType?: RangeType; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean }) {
+export function strategyProcessingFor(e: VstEngine, rel?: StrategyProcessingContext) {
   const micro = rel?.microRange ?? e.microRange;
   const minimal = rel?.minimalRange ?? e.minimalRange;
   const short = rel?.shortRange ?? e.shortRange;
+  const tier = micro ? "micro" : minimal ? "minimal" : short ? "short" : "normal";
+  const lowRange = rel?.indication?.startsWith("low-range-");
+  const geometry = rel?.rangeType ?? rel?.controllingRange ?? e.lastRange;
   return strategyTogglesForRange(e.strategyToggles ?? DEFAULT_STRATEGY_TOGGLES,
-    micro ? "micro" : minimal ? "minimal" : short ? "short" : "normal", rel?.rangeType ?? e.lastRange);
+    lowRange ? "low-range" : tier, geometry, lowRange ? tier : undefined);
 }
 
-function trailingOverlayOn(e: VstEngine, rel?: { rangeType?: RangeType; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean }): boolean {
+function trailingOverlayOn(e: VstEngine, rel: StrategyProcessingContext): boolean {
   return strategyProcessingFor(e, rel).trailing;
 }
 
@@ -2947,7 +2960,7 @@ export function rankIndications(e: VstEngine, pack: Parameters<typeof indication
 }
 
 /** All enabled tactics, best validated PF first after the base exam. */
-export function rankTactics(e: VstEngine, preferred: TacticKind): TacticKind[] {
+export function rankTactics(e: VstEngine, preferred: TacticKind, context?: StrategyProcessingContext): TacticKind[] {
   const after = Boolean(e.preEvalDone && !internAllPhase(e));
   const score = (t: TacticKind) => {
     const ev = e.progressEval?.tactics?.[t];
@@ -2957,7 +2970,7 @@ export function rankTactics(e: VstEngine, preferred: TacticKind): TacticKind[] {
     }
     return (t === preferred ? 80 : 0) + (ev && ev.n >= 3 ? ev.pf : 1) + liveTacticScore(e, t);
   };
-  return enabledLiveTactics(e).slice().sort((a, b) => score(b) - score(a));
+  return enabledLiveTactics(e, context).slice().sort((a, b) => score(b) - score(a));
 }
 
 const TICKS_PER_LOSING_HOUR = 60;
@@ -3386,6 +3399,14 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   const openTape = completeOpenTape(e);
   const livePace = openTape || performingLive(e);
   const gated0 = Boolean(e.preEvalDone || e.liveTape);
+  const sourceOnsets = new Map<string, ReadonlySet<IndicationId>>();
+  const sourceIds = e.indicationSourceIds ?? [];
+  if (sourceIds.length) for (const { id } of universe) {
+    const directions = e.quotes[id]?.portedDirections;
+    if (!directions) continue;
+    const active = sourceIds.filter(source => directions[source] === 1 || directions[source] === -1);
+    if (active.length) sourceOnsets.set(id, new Set(active));
+  }
   const liveCap = clampLiveSymbolCap(Number(e.liveSymbolCap) || (e.liveTape ? VST_LIVE_SYMBOLS : e.symbolCount), e.symbolCount);
   // After pre: spare symbols keep intern-all scoring (future config changes). Live never shares those legs.
   // Open tape (prehours:0 screenshot): every symbol is live — intern-slot starved later hours to n=0.
@@ -3401,7 +3422,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       : !internAll0 && (Boolean(e.liveTape) || (complete && gated0))
       ? Math.max(64, Math.min(Math.floor(qMax * 0.25), 2000))
       : 0;
-  universe.forEach((s, rank) => {
+  const armSymbol = (s: VstSymbol, rank: number) => {
     const q = e.quotes[s.id];
     if (!q || !(q.px > 0)) return;
     const beyondLive =
@@ -3442,7 +3463,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     // Axis-only books still require a stretch. Parallel books must not drop trailing/DCA because the seed tactic is axis.
     const axisOnly = !allLanes && e.lastTactic === "axis";
     if (axisOnly && (disp < 0.35 || disp > 2.6)) return;
-    const inds = spinList(allLanes ? rankIndications(e, pack, liveInd) : [liveInd], e.tick, rank);
+    const onsets = sourceOnsets.get(s.id);
+    const inds = spinList(allLanes ? rankIndications(e, pack, liveInd)
+      : onsets ? [...new Set([liveInd, ...onsets])] : [liveInd], e.tick, rank);
     if (e.completeSim && paperMode(e) && allLanes) {
       const have = new Set<string>();
       for (const o of e.queue) if (o.symbol === s.id && o.indication) have.add(o.indication);
@@ -3452,6 +3475,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       }
       inds.sort((a, b) => Number(have.has(a)) - Number(have.has(b)));
     }
+    if (!gated0 && onsets) inds.sort((a, b) => Number(onsets.has(b)) - Number(onsets.has(a)));
     let fresh = 0;
     const freshCap = e.completeSim && paperMode(e) ? 1e9 : e.queue.length > 400 ? 16 : 1e9;
     let trySides = axisOnly ? [meanSide] : symbolSideSet(s.id, mode, direction(q));
@@ -3479,8 +3503,15 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       trailingDistance?: TrailingDistance;
     }>();
     const trailingDistance: TrailingDistance | undefined = cfg.trailingDistance === "fixed" ? "fixed" : undefined;
+    const rangeContext = {
+      rangeType: rangeType ?? e.lastRange,
+      microRange: cfg.microRange,
+      minimalRange: cfgUsesMinimalRange(cfg),
+      shortRange: cfgUsesShortRange(cfg),
+    };
     for (const ind of inds) {
-      if (ind.startsWith("low-range-") && !cfg.microRange && !cfgUsesMinimalRange(cfg) && !cfgUsesShortRange(cfg)) continue;
+      const lowRange = ind.startsWith("low-range-");
+      if (lowRange && !rangeContext.microRange && !rangeContext.minimalRange && !rangeContext.shortRange) continue;
       const exactSource = isPortedIndication(ind);
       const sourceSide=exactSource?stable02EntrySide(q,ind):null;
       if(exactSource&&!sourceSide)continue;
@@ -3505,10 +3536,15 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       }
       const added = stable02EntrySide(q, ind);
       if (added && !sides.includes(added) && mode !== "long" && mode !== "short") sides = [...sides, added];
-      const tacs = spinList(allLanes ? rankTactics(e, pickLiveTactic(e, ind, e.lastTactic)) : [e.lastTactic], e.tick, rank);
+      const ownProcessing = lowRange ? { ...rangeContext, indication: ind } : undefined;
+      const tacs = spinList(allLanes
+        ? rankTactics(e, pickLiveTactic(e, ind, e.lastTactic, ownProcessing), ownProcessing)
+        : [e.lastTactic], e.tick, rank);
+      const strategyProcessing = strategyProcessingFor(e, ownProcessing ?? rangeContext);
       const liveFactor = stable02Factor(q);
       for (const tac of tacs) {
       if (fresh >= freshCap) break;
+      if (lowRange && tac === "trailing" && !strategyProcessing.trailing) continue;
       const processed = livePace || e.liveTape ? stable02ProcessSide(q, ind, tac) : undefined;
       if (processed === null && tac === "axis") continue;
       const symTacCap = shareOn && (tac === "trailing" || tac === "hybrid") ? Math.max(8, shortRestCap(e, shareCap)) : shareCap;
@@ -3540,7 +3576,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         }
       }
       const axisInd = tac === "axis";
-      const normalOff = !strategyProcessingFor(e, {rangeType: rangeType ?? e.lastRange,microRange:cfg.microRange,minimalRange:cfgUsesMinimalRange(cfg),shortRange:cfgUsesShortRange(cfg)}).normal;
+      const normalOff = !strategyProcessing.normal;
       const book = tac === "dca"
         ? "dca"
         : tac === "axis"
@@ -4010,7 +4046,13 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         notePfCoord(e, "pair");
       }
     }
-  });
+  };
+  // Closed-candle onsets expire before a later discovery pass can recover them.
+  // Prioritize their discovery while retaining the original volume rank and gates.
+  if (!gated0 && sourceOnsets.size) {
+    universe.forEach((s, rank) => { if (sourceOnsets.has(s.id)) armSymbol(s, rank); });
+    universe.forEach((s, rank) => { if (!sourceOnsets.has(s.id)) armSymbol(s, rank); });
+  } else universe.forEach(armSymbol);
   e.lastMsg = `Queued ${qn} ladder orders on ${connId} · ${universe.length} symbols${complete ? " · complete inds" : " best-first"} · ${e.orderType}`;
 }
 function ladderOrderType(orderType: OrderTypeId, level: number): OrderTypeId {
@@ -5771,7 +5813,7 @@ function managePositions(e: VstEngine, tactic: TacticKind, cfg: TacticConfig, op
       else p.sl = Math.min(p.sl, p.avgEntry);
       p.slDist = Math.abs(p.sl - p.avgEntry);
     }
-    if (!botBook && trailingOverlayOn(e) && (!minimalPos || miniTrail != null)) {
+    if (!botBook && trailingOverlayOn(e, p) && (!minimalPos || miniTrail != null)) {
       const fav = p.side === "long" ? Math.max(q.hi, q.px) : Math.min(q.lo, q.px);
       p.peakPx = p.peakPx && p.peakPx > 0
         ? (p.side === "long" ? Math.max(p.peakPx, fav) : Math.min(p.peakPx, fav))
