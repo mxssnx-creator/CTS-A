@@ -22,6 +22,13 @@ jobs:
       - run: npm run test:lastn-blocks
       - run: node --experimental-strip-types --test src/lib/desk/project-order-identity.test.ts
       - run: node --experimental-strip-types --test src/lib/desk/disjoint-last-n.test.ts
+      - run: node --experimental-strip-types scripts/sim-12-symbol-price-grid.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cts-a-price-grid-replay-${{ github.sha }}
+          path: artifacts/cts-a-price-grid-replay.*
+          if-no-files-found: error
       - run: npm run build:dev
       - run: node --test scripts/trailing-control-policy.test.mjs
       - run: npm run test:execution-offline
