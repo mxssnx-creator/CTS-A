@@ -221,7 +221,7 @@ test("the next native discovery batch cannot hide a qualified frozen child in va
 test("Low-Range cost cells keep fixed and dynamic native siblings independent", () => {
   const cost = .00176;
   const protects = lowRangeGridProtects({
-    enabled: true, step: .002, steps: [2], slRatios: [.2, .3], trailRatios: [0, .5], maxHoldMin: 60,
+    enabled: true, step: .002, steps: [2], slRatios: [.25, .3], trailRatios: [0, .5], maxHoldMin: 60,
   }, cost, 5, .1);
   assert.ok(protects.length >= 2);
   assert.ok(protects.every(cell => cell.lowRangeOnly === true && cell.maxHoldMin === 60 && cell.hold === 12));
