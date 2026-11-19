@@ -71,6 +71,22 @@ export function priceDistanceBatch<T>(variants: readonly T[], tick: number, pare
   return Array.from({ length: size }, (_, index) => variants[(start + index) % variants.length]!);
 }
 
+/** Advance a serializable cursor only after one parent's current cohort has
+ * received an own sample window. This keeps the 16-child work bound without
+ * scattering one-off outcomes across the complete native catalog. */
+export function priceDistanceParentBatch<T>(
+  variants: readonly T[],
+  progress: Record<string, number>,
+  parentKey: string,
+  batchSize = 16,
+  samplesPerChild = 1,
+): readonly T[] {
+  const sample = Math.max(0, Math.floor(Number(progress[parentKey]) || 0));
+  progress[parentKey] = sample + 1;
+  const window = Math.max(1, Math.floor(samplesPerChild));
+  return priceDistanceBatch(variants, Math.floor(sample / window), parentKey, batchSize);
+}
+
 export function absoluteProtection(side: Side, entry: number, stopPct: number, targetDistance: number) {
   if (!(entry > 0) || !(targetDistance > 0) || !STOP_DISTANCE_PCTS.includes(stopPct)) throw new RangeError("Invalid absolute protection geometry.");
   const slDist = entry * stopPct / 100, sign = side === "long" ? 1 : -1;
