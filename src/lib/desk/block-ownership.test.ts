@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_INTERVAL_STRATEGY, DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { adjustActiveBlocks, blockPfOk, blockRelationKeys, completeConfigSampleKey, evalBlockRelations, initVstEngine, tickVst, winningRelVolume } from "./vst.ts";
+import { adjustActiveBlocks, armUniverse, blockPfOk, blockRelationKeys, completeConfigSampleKey, evalBlockRelations, finishBaseEval, initVstEngine, liveShouldExecute, tickVst, winningRelVolume } from "./vst.ts";
 import { sanitizeDeskSettings } from "./settings-sync.ts";
 import type { BlockLaneState, LivePosition, LiveOrder } from "./types.ts";
 
@@ -410,4 +410,91 @@ test("Block current-interval relation scoring excludes selection-only and reject
   assert.equal(winningRelVolume(e, contaminated), 0,
     "selection-only and rejected wins cannot rescue a losing held-out exact cell");
   assert.ok(winningRelVolume(e, clean) > 0, "a profitable held-out sibling remains eligible");
+});
+
+
+test("a validated Axis parent marks its derived Block child executable", () => {
+  const exactCfg = {
+    ...DEFAULT_TACTIC_CONFIG,
+    shortRange: true,
+    tpAtr: .6,
+    slOfTp: .5,
+  };
+  const e = initVstEngine(exactCfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
+  e.strategyToggles = {
+    ...DEFAULT_STRATEGY_TOGGLES,
+    normal: true,
+    trailing: false,
+    axis: true,
+    block: true,
+    dca: false,
+  };
+
+  armUniverse(e, exactCfg, "axis", "atr");
+  const first = [...e.orders, ...e.queue].find(order =>
+    order.tactic === "axis" &&
+    order.playbook === "axis");
+  assert.ok(first, "the Axis parent must be discovered before Base");
+
+  e.tick = 100;
+  e.closed = Array.from({ length: 60 }, (_, i) => ({
+    ...first,
+    id: `axis-exact-${i}`,
+    pnl: 1,
+    ratio: .01,
+    entry: first.price,
+    exit: first.price * (first.side === "long" ? 1.012 : .988),
+    reason: "tp" as const,
+    tick: 99 - i,
+    r: 1,
+    validExec: false,
+  }));
+  e.queue = [];
+  e.orders = [];
+  e.positions = [];
+  finishBaseEval(e);
+  e.closed = [];
+
+  armUniverse(e, exactCfg, "axis", "atr");
+  const after = [...e.orders, ...e.queue];
+  const parent = after.find(order =>
+    order.tactic === "axis" &&
+    order.playbook === "axis" &&
+    order.calc === first.calc &&
+    order.symbol === first.symbol &&
+    order.side === first.side &&
+    order.indication === first.indication &&
+    order.tpAtr === first.tpAtr &&
+    order.slOfTp === first.slOfTp);
+  assert.ok(parent?.validExec, "the Axis parent passed its own frozen Base evidence");
+
+  const child = after.find(order =>
+    order.tactic === "axis" &&
+    order.playbook === "block" &&
+    order.kind === "block" &&
+    order.calc === parent.calc &&
+    order.symbol === parent.symbol &&
+    order.side === parent.side &&
+    order.indication === parent.indication &&
+    order.tpAtr === parent.tpAtr &&
+    order.slOfTp === parent.slOfTp);
+  assert.ok(child, "the eligible exact parent must create its Block child");
+  assert.equal(child.validExec, true, "the child inherits the parent’s own exact verdict, not the coarse pre-geometry placeholder");
+  assert.ok(completeConfigSampleKey(child), "the child keeps the complete configuration evidence identity");
+  assert.equal(liveShouldExecute(e, child), false, "the parent tape cannot bypass the child’s independent gate");
+  e.closed = Array.from({ length: 60 }, (_, i) => ({
+    ...child,
+    id: `axis-block-child-${i}`,
+    pnl: 1,
+    ratio: .01,
+    entry: child.price,
+    exit: child.price * (child.side === "long" ? 1.012 : .988),
+    reason: "tp" as const,
+    tick: 99 - i,
+    r: 1,
+    validExec: true,
+  }));
+  assert.equal(liveShouldExecute(e, child), true, "the child passes only after its own held-out tape qualifies");
+  assert.equal(liveShouldExecute(e, { ...child, slOfTp: (child.slOfTp ?? .5) + .25 }), false,
+    "an unevaluated sibling child cannot borrow the winner’s evidence");
 });
