@@ -7,7 +7,7 @@ import { relateAllocation, relateConfig } from "./relate.ts";
 import { extendOwnSampleHistory, sampleRows, type SampleCoverage } from "./last-n-samples.ts";
 import { hasDisjointBlocks, measuredEdgePnl, selectedDisjointBlocks } from "./last-n-progress.ts";
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
-import { absoluteProtection, priceDistanceBatch, priceDistanceVariants, priceTrailStop } from "./price-distance-grid.ts";
+import { absoluteProtection, priceDistanceParentBatch, priceDistanceVariants, priceTrailStop } from "./price-distance-grid.ts";
 import { DEFAULT_STEP_PF, stepPfFloor } from "./step-pf.ts";
 import { actualFillFee, feePolicy, resolveFeePolicy, roundTripFeeRate } from "./fee-policy.ts";
 import type {
@@ -3670,8 +3670,17 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         // for every range, including Short. Legacy Short ATR/ratio rows remain the
         // fallback when that setting is disabled.
         const nativeGrid = cfg.priceDistanceGrid?.enabled === true ? lowRangeProtectGrid(e, cfg, tac) : [];
+        const nativeParentKey = JSON.stringify([s.id, side, ind, tac, book, kind, range,
+          cfg.tpAtr, cfg.slOfTp, !!cfg.microRange, !!cfg.minimalRange, !!cfg.shortRange, cfg.priceDistanceGrid]);
+        const progressCfg = lastNProgressOf(e);
+        const progressPolicies = progressCfg.policies?.length ? progressCfg.policies : [progressCfg];
+        const baseWindows = progressPolicies.flatMap(policy => policy.evalNs)
+          .filter(value => Number.isFinite(value) && value > 0);
+        const ownBaseSamples = baseWindows.length ? Math.min(...baseWindows) : 1;
+        const parentSamples = e.priceDistanceParentSamples ?? (e.priceDistanceParentSamples = {});
         const boundedNativeGrid = nativeGrid.length
-          ? priceDistanceBatch<(typeof nativeGrid)[number]>(nativeGrid, e.tick, JSON.stringify([s.id, side, ind, tac, book, kind, range]))
+          ? priceDistanceParentBatch<(typeof nativeGrid)[number]>(
+            nativeGrid, parentSamples, nativeParentKey, 16, ownBaseSamples)
           : nativeGrid;
         const lowGrid = short || boundedNativeGrid.length ? [] : lowRangeProtectGrid(e, cfg, tac);
         const grid = boundedNativeGrid.length
