@@ -9,12 +9,14 @@ import { simulateHours } from "../src/lib/desk/vst.ts";
 const selectionHours = 6;
 const validationHours = 6;
 const symbols = 12;
+const rangeMode = process.argv.includes("--short") ? "short" : "micro";
+const artifactStem = rangeMode === "short" ? "cts-a-short-price-grid-replay" : "cts-a-price-grid-replay";
 const cfg = {
   ...DEFAULT_TACTIC_CONFIG,
-  microRange: true,
+  microRange: rangeMode === "micro",
   minimalRange: false,
-  shortRange: false,
-  tpAtr: .3,
+  shortRange: rangeMode === "short",
+  tpAtr: rangeMode === "short" ? .6 : .3,
   slOfTp: 1,
   maxHoldTicks: 12,
   maxHoldBars: 3,
@@ -63,6 +65,7 @@ if (missingLineage) failures.push(`missing_exact_lineage:${missingLineage}`);
 const evidence = {
   revision: process.env.GITHUB_SHA ?? "local",
   mode: "offline-paper-replay",
+  rangeMode,
   selectionPeriod: { startHour: 0, endHourExclusive: selectionHours, purpose: "selection-only prehistory" },
   validationPeriod: { startHour: selectionHours, endHourExclusive: selectionHours + validationHours, purpose: "held-out validation" },
   symbols,
@@ -106,11 +109,11 @@ assert.equal(report.nanCount, 0);
 assert.equal(report.negativePx, 0);
 
 mkdirSync("artifacts", { recursive: true });
-writeFileSync("artifacts/cts-a-price-grid-replay.json", JSON.stringify({ ...evidence, hourly: report.hourly ?? [] }, null, 2));
+writeFileSync(`artifacts/${artifactStem}.json`, JSON.stringify({ ...evidence, hourly: report.hourly ?? [] }, null, 2));
 const esc = value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>CTS-A exact price grid replay</title>
 <style>body{font:14px/1.45 system-ui;margin:28px;background:#0b1220;color:#dbeafe}table{border-collapse:collapse}th,td{padding:7px 12px;border-bottom:1px solid #334155;text-align:right}th:first-child,td:first-child{text-align:left}.bad{color:#fca5a5}.ok{color:#86efac}pre{white-space:pre-wrap}</style></head><body>
-<h1>CTS-A · native 21-stop × 25-gap held-out replay</h1>
+<h1>CTS-A · ${rangeMode === "short" ? "Short" : "Micro"} native 21-stop × 25-gap held-out replay</h1>
 <p>Offline paper only. Hours 0–${selectionHours} select; hours ${selectionHours}–${selectionHours + validationHours} validate without re-selection. Cost step 3 is captured on every settlement.</p>
 <table><tbody>
 <tr><th>After-cost PF</th><td class="${report.pf >= 1 ? "ok" : "bad"}">${report.pf.toFixed(4)}</td></tr>
@@ -124,5 +127,5 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>CTS-A exac
 <h2>Failure cases</h2><pre>${esc(failures.length ? failures.join("\n") : "none")}</pre>
 <h2>Recorded evidence</h2><pre>${esc(JSON.stringify(evidence, null, 2))}</pre>
 </body></html>`;
-writeFileSync("artifacts/cts-a-price-grid-replay.html", html);
-console.log("CTS_A_PRICE_GRID_REPLAY " + JSON.stringify(evidence));
+writeFileSync(`artifacts/${artifactStem}.html`, html);
+console.log((rangeMode === "short" ? "CTS_A_SHORT_PRICE_GRID_REPLAY " : "CTS_A_PRICE_GRID_REPLAY ") + JSON.stringify(evidence));
