@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { armUniverse, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, noteBlockPosClose, skipLiveSymbol } from "./vst.ts";
+import { armUniverse, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, noteBlockPosClose, skipLiveSymbol, tickVst } from "./vst.ts";
 
 test("audit accepts the own cost-plus-stop floor but rejects an unjustified wider stop",()=>{
   for (const side of ["long","short"] as const) {
@@ -14,6 +14,54 @@ test("audit accepts the own cost-plus-stop floor but rejects an unjustified wide
     assert.equal(auditEngine(e).ratioViolations,1);
   }
 });
+
+test("audit uses the native absolute stop instead of a legacy TP ratio", () => {
+  for (const side of ["long", "short"] as const) {
+    const sign = side === "long" ? 1 : -1;
+    const e = initVstEngine(DEFAULT_TACTIC_CONFIG, { arm: false, warmup: 0, symbolCount: 3 });
+    e.positions = [{ id: "native", symbol: "BTCUSDT", side, avgEntry: 100, qty: 1, unrealized: 0,
+      sl: 100 - sign * .8, tp: 100 + sign * .3, slOfTp: .25, priceStopPct: .8,
+      modelRtCost: .00176, minSlDistancePct: .1 } as never];
+    assert.equal(auditEngine(e).ratioViolations, 0, "the configured 0.8% absolute stop is valid");
+    Object.assign(e.positions[0], { avgEntry: 100 + sign * .4, qty: 2, blockQty: 1, blockAvg: 100 + sign * .8 });
+    assert.equal(auditEngine(e).ratioViolations, 0, "Block keeps the parent's original protection entry");
+    e.positions[0].sl = 100 - sign * .85;
+    assert.equal(auditEngine(e).ratioViolations, 1, "a wider stop is still flagged");
+  }
+});
+
+for (const side of ["long", "short"] as const) for (const trailingDistance of ["fixed", "dynamic"] as const) {
+  test(`${side} ${trailingDistance} native stop stays at its own distance through later partial fills`, () => {
+    const cfg = { ...DEFAULT_TACTIC_CONFIG, microRange: true, tpAtr: .3, slOfTp: .25 };
+    const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 3, orderType: "limit" });
+    e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, axis: false, block: false, dca: false };
+    const q = e.quotes.BTCUSDT;
+    const price = q.px;
+    const sign = side === "long" ? 1 : -1;
+    Object.assign(q, { open: price, lo: price * .9995, hi: price * 1.0005, vol: .004 });
+    e.orders.push({ id: "native-partial", connId: e.activeConnId, symbol: "BTCUSDT", side, type: "limit",
+      qty: 1, filled: 0, remaining: 1, price, status: "open", rangeType: "atr", level: 1,
+      sl: price * (1 - sign * .002), tp: price * (1 + sign * .003), slDist: price * .002,
+      tpDist: price * .003, batchId: "native-partial", note: "absolute stop partial fill", tactic: "trailing",
+      validExec: true, microRange: true, tpAtr: .3, slOfTp: .25, priceStopPct: .2,
+      priceTrailPct: .6, trailingDistance, modelRtCost: .00176, minSlDistancePct: .1 });
+    for (let fills = 1; fills <= 3; fills++) {
+      const expectedStopPct = fills === 3 ? .12 : .2;
+      if (fills === 3) {
+        const p = e.positions[0];
+        p.slDist = p.avgEntry * expectedStopPct / 100;
+        p.sl = p.avgEntry - sign * p.slDist;
+      }
+      tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true, freezeIds: new Set(["BTCUSDT"]) });
+      assert.equal(e.positions.length, 1);
+      const p = e.positions[0];
+      assert.equal(p.legs.length, fills, "the second fill remains in the owning position");
+      assert.equal(p.trailingDistance, trailingDistance);
+      assert.ok(Math.abs(100 * Math.abs(p.sl - p.avgEntry) / p.avgEntry - expectedStopPct) < 1e-9,
+        `fill ${fills} respects ${expectedStopPct}%, got ${100 * p.slDist / p.avgEntry}%`);
+    }
+  });
+}
 
 for (const range of ["micro", "minimal", "short"] as const) {
   test(`${range}: complete paper admission uses the same exact evidence as the execution gate`, () => {
