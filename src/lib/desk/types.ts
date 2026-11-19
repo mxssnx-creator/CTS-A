@@ -1528,6 +1528,8 @@ export interface VstEngine {
   progressEval?: ProgressEval;
   /** Registered exact candidates, including denied/cancelled candidates with zero closes. */
   configuredSampleContexts?: Record<string, import("./vst.ts").ConfigIdentity>;
+  /** Serializable occurrence cursor for each exact native parent; child cohorts retain own Last-N history across restart. */
+  priceDistanceParentSamples?: Record<string, number>;
   /** Up to Last-200 per own Base cohort; survives a serialized engine restart. */
   frozenBaseSamples?: import("./vst.ts").ConfigTapeRow[];
   /** Coordinated active last-N / types / combos. Not the settings grid. */
