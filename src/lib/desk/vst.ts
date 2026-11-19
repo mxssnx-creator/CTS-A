@@ -7183,7 +7183,7 @@ const MAJOR_REL = new Set(["sym", "leg", "ind", "kind", "tac", "rng", "side", "b
 const MINOR_REL = new Set(["cfg", "sub", "combo"]);
 
 function closedMatchesRelKey(
-  c: { indication?: string; kind?: string; tactic?: string; rangeType?: string; side?: string; playbook?: string; symbol?: string; tpAtr?: number; slOfTp?: number },
+  c: ConfigIdentity,
   key: string,
 ): boolean {
   const i = key.indexOf(":");
@@ -7197,6 +7197,10 @@ function closedMatchesRelKey(
   if (prefix === "side") return (c.side ?? "") === val;
   if (prefix === "book") return (c.playbook ?? "") === val;
   if (prefix === "sym") return (c.symbol ?? "") === val;
+  if (prefix === "cfg") {
+    if (!c.symbol || !c.side) return false;
+    return blockRelationKeys(c as Parameters<typeof blockRelationKeys>[0]).includes(key);
+  }
   if (prefix === "prot") {
     if (c.tpAtr == null || c.slOfTp == null) return false;
     const want = val.includes("x") ? val.replace("x", ":") : val;
