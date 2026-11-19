@@ -22,8 +22,8 @@ jobs:
       - run: npm run test:lastn-blocks
       - run: node --experimental-strip-types --test src/lib/desk/project-order-identity.test.ts
       - run: node --experimental-strip-types --test src/lib/desk/disjoint-last-n.test.ts
-      - run: node --experimental-strip-types scripts/sim-12-symbol-price-grid.mjs
-      - run: node --experimental-strip-types scripts/sim-12-symbol-price-grid.mjs --short
+      - run: node --experimental-strip-types scripts/sim-12-symbol-price-grid.mjs --selection-hours=120 --validation-hours=24
+      - run: node --experimental-strip-types scripts/sim-12-symbol-price-grid.mjs --short --selection-hours=120 --validation-hours=24
       - uses: actions/upload-artifact@v4
         if: always()
         with:
