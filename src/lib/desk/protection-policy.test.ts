@@ -322,6 +322,34 @@ test("absolute stop and fixed or dynamic trailing grids remain independent setti
   } } as never), /0.1 percentage-point/);
 });
 
+test("PF pair coordination creates a child for every exact native trailing parent", async () => {
+  const { performance } = await import("node:perf_hooks");
+  const { DEFAULT_STRATEGY_TOGGLES, DEFAULT_TACTIC_CONFIG } = await import("./engine.ts");
+  const { armUniverse, completeConfigSampleKey, initVstEngine } = await import("./vst.ts");
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true,
+    priceDistanceGrid: { enabled: true, stopPcts: [.2, .3], trailPcts: [.2] } };
+  const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
+  e.openCompleteTape = true;
+  e.pfCoords = { hourKeep: false, bankWin: false, pairAdd: true, laneCool: false, winAgain: false };
+  e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: false, dca: false, block: false };
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
+  armUniverse(e, cfg, "trailing", "atr");
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  const symbol = e.queue.find(order => order.tactic === "trailing" && order.note.startsWith("pf-pair"))?.symbol;
+  assert.ok(symbol, "two indications must create a trailing coordination");
+  const pairs = e.queue.filter(order => order.symbol === symbol && order.tactic === "trailing" && order.note.startsWith("pf-pair"));
+  const cells = new Set(pairs.map(order => JSON.stringify([
+    order.priceStopPct, order.priceTrailPct, order.trailingDistance ?? "dynamic",
+  ])));
+  assert.equal(cells.size, 4, "both stops and fixed/dynamic trailing need separate coordinated children");
+  const keys = pairs.map(order => completeConfigSampleKey(order));
+  assert.ok(keys.every(Boolean), "every coordinated child needs complete own evidence");
+  assert.equal(new Set(keys).size, pairs.length, "each exact coordinated child must evaluate independently");
+  console.info(`pair-coordination benchmark children=${pairs.length} cells=${cells.size} elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(pairs))}`);
+});
+
 test("absolute trail gaps use the selected fixed or dynamic price basis", async () => {
   const { absoluteProtection, priceTrailStop } = await import("./price-distance-grid.ts");
   const fixed = priceTrailStop("long", 100, 110, 90, 2, "fixed");
