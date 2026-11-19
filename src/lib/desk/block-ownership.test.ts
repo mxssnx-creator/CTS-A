@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { adjustActiveBlocks, blockPfOk, blockRelationKeys, completeConfigSampleKey, initVstEngine, tickVst } from "./vst.ts";
+import { DEFAULT_BLOCK_CONFIG, DEFAULT_INTERVAL_STRATEGY, DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
+import { adjustActiveBlocks, blockPfOk, blockRelationKeys, completeConfigSampleKey, evalBlockRelations, initVstEngine, tickVst, winningRelVolume } from "./vst.ts";
 import { sanitizeDeskSettings } from "./settings-sync.ts";
 import type { BlockLaneState, LivePosition, LiveOrder } from "./types.ts";
 
@@ -329,4 +329,40 @@ test("Block relation config keys isolate every native stop-gap and trailing-mode
   assert.notEqual(cfg(.2, .2, "fixed"), cfg(.3, .2, "fixed"), "21 stop cells need own relation evaluations");
   assert.notEqual(cfg(.2, .2, "fixed"), cfg(.2, .3, "fixed"), "25 gap cells need own relation evaluations");
   assert.notEqual(cfg(.2, .2, "fixed"), cfg(.2, .2), "fixed and dynamic trailing cannot pool evidence");
+});
+
+
+test("exact Block relation winners are independently re-evaluated on the current interval", () => {
+  const { e, block } = fixture();
+  e.tick = 100;
+  e.intervalStrategy = { ...DEFAULT_INTERVAL_STRATEGY, scaleVol: false, relationHaircut: .4, relationKeepPf: .85 };
+  const exact = (priceStopPct: number) => ({
+    symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, kind: "short",
+    tactic: "trailing" as const, rangeType: "atr" as const, playbook: "short",
+    tpAtr: .6, slOfTp: .4, trailPct: .2, trailingDistance: "fixed" as const,
+    priceStopPct, priceTrailPct: .2, calc: "base", microRange: false,
+    minimalRange: false, shortRange: true, modelRtCost: .00176, minSlDistancePct: .3,
+  });
+  const losing = exact(.2), winning = exact(.3);
+  const cfgKey = (rel: ReturnType<typeof exact>) =>
+    blockRelationKeys(rel).find(key => key.startsWith("cfg:"))!;
+  const window = { n: 3, ring: [], closed: 3, pauseLeft: 0, lastNet: .03,
+    lastAvg: .01, lastPf: 2, windows: 1, lossWindows: 0, adjusted: 0,
+    losers: [], batchNets: [.03] };
+  e.blockRelWindows = {
+    [cfgKey(losing)]: { 3: { ...window } },
+    [cfgKey(winning)]: { 3: { ...window } },
+  } as typeof e.blockRelWindows;
+  e.closed = [
+    ...[1, 2, 3].map((n) => ({ ...losing, id: `loss-${n}`, connId: e.activeConnId,
+      pnl: -.01, ratio: -.01, qty: 1, entry: 100, exit: 99, reason: "sl" as const,
+      tick: 90 + n, at: 90 + n, r: -.01, validExec: true })),
+    ...[1, 2, 3].map((n) => ({ ...winning, id: `win-${n}`, connId: e.activeConnId,
+      pnl: .01, ratio: .01, qty: 1, entry: 100, exit: 101, reason: "tp" as const,
+      tick: 90 + n, at: 90 + n, r: .01, validExec: true })),
+  ] as typeof e.closed;
+
+  evalBlockRelations(e, { ...block, relAdditive: true, minRelPf: 1.1, evalLastNs: [3], relVolumeRatio: .4 });
+  assert.equal(winningRelVolume(e, losing), 0, "a recently losing exact cell cannot retain its stale winner");
+  assert.ok(winningRelVolume(e, winning) > 0, "the independently profitable sibling remains eligible");
 });
