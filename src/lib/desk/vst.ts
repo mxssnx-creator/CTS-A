@@ -616,6 +616,31 @@ const frozenNativeIndex = new WeakMap<ConfigTapeRow[], Map<string, ConfigTapeRow
 function frozenConfigRows(e: VstEngine): ConfigTapeRow[] {
   return configPreMem.get(e) ?? e.frozenBaseSamples ?? [];
 }
+
+const frozenNativeCandidates = new WeakMap<ConfigTapeRow[], Map<string, Set<string>>>();
+function nativeCandidateOwner(rel: ConfigIdentity) {
+  return JSON.stringify([rel.connId, rel.symbol, rel.side, rel.indication, rel.tactic, rel.playbook, rel.kind]);
+}
+function nativeGeometryKey(rel: Pick<ConfigIdentity, "priceStopPct" | "priceTrailPct" | "trailingDistance">) {
+  return JSON.stringify([rel.priceStopPct, rel.priceTrailPct, rel.trailingDistance === "fixed"]);
+}
+function frozenNativeCandidatesFor(e: VstEngine) {
+  const rows = frozenConfigRows(e);
+  if (!rows.length) return new Map<string, Set<string>>();
+  let parents = frozenNativeCandidates.get(rows);
+  if (!parents) {
+    parents = new Map();
+    for (const row of rows) {
+      if (row.examFlat || !Number.isFinite(row.priceStopPct) || !completeConfigSampleKey(row)) continue;
+      const owner = nativeCandidateOwner(row);
+      let shapes = parents.get(owner);
+      if (!shapes) parents.set(owner, shapes = new Set());
+      shapes.add(nativeGeometryKey(row));
+    }
+    frozenNativeCandidates.set(rows, parents);
+  }
+  return parents;
+}
 function hasConfigProvenance(rel: ConfigIdentity): boolean {
   return [rel.connId, rel.symbol, rel.side, rel.indication, rel.tactic, rel.rangeType, rel.playbook, rel.kind, rel.calc]
     .every(value => typeof value === "string" && value.length > 0) &&
@@ -3441,6 +3466,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   const livePace = openTape || performingLive(e);
   const gated0 = Boolean(e.preEvalDone || e.liveTape);
   const nativePaper = !complete && paperMode(e) && cfg.priceDistanceGrid?.enabled === true;
+  const frozenCandidates = gated0 && paperMode(e) && cfg.priceDistanceGrid?.enabled === true && e.frozenBaseSamples !== undefined
+    ? frozenNativeCandidatesFor(e) : undefined;
   const sourceOnsets = new Map<string, ReadonlySet<IndicationId>>();
   const sourceIds = e.indicationSourceIds ?? [];
   if (sourceIds.length) for (const { id } of universe) {
@@ -3677,7 +3704,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
         if (plainNormal && (e.liveTape || (!internHere && !internKeep))) continue;
         if (!afterBase && !internKeep && !internHere && !validExec && !keepInd && !shortLane) continue;
         const short = shortLane;
-        const evalGrid = internHere && short
+        // The native catalog takes precedence over the legacy ratio grid.
+        const nativeGrid = cfg.priceDistanceGrid?.enabled === true ? priceDistanceVariants(cfg, tac) : [];
+        const evalGrid = nativeGrid.length ? [] : internHere && short
           ? (internAll
             ? (() => {
               const all = allShortTpSlCombos().filter((c) => cfgUsesShortRange({ ...cfg, ...c, shortRange: true }));
@@ -3695,24 +3724,27 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           : short
             ? shortProtectGrid(e, cfg)
             : [null];
-        // An explicitly enabled absolute-price catalog owns the protection geometry
-        // for every range, including Short. Legacy Short ATR/ratio rows remain the
-        // fallback when that setting is disabled.
-        const nativeGrid = cfg.priceDistanceGrid?.enabled === true ? lowRangeProtectGrid(e, cfg, tac) : [];
-        const nativeParentKey = JSON.stringify([s.id, side, ind, tac, book, kind, range,
-          cfg.tpAtr, cfg.slOfTp, !!cfg.microRange, !!cfg.minimalRange, !!cfg.shortRange, cfg.priceDistanceGrid]);
-        const progressCfg = lastNProgressOf(e);
-        const progressPolicies = progressCfg.policies?.length ? progressCfg.policies : [progressCfg];
-        const baseWindows = progressPolicies.flatMap(policy => policy.evalNs)
-          .filter(value => Number.isFinite(value) && value > 0);
-        const ownBaseSamples = baseWindows.length ? Math.min(...baseWindows) : 1;
-        const parentSamples = e.priceDistanceParentSamples ?? (e.priceDistanceParentSamples = {});
-        const boundedNativeGrid = nativeGrid.length
-          ? priceDistanceParentBatch<(typeof nativeGrid)[number]>(
-            nativeGrid, parentSamples, nativeParentKey, 16, ownBaseSamples)
-          : nativeGrid;
-        const lowGrid = short || boundedNativeGrid.length ? [] : lowRangeProtectGrid(e, cfg, tac);
-        const grid = boundedNativeGrid.length
+        let boundedNativeGrid: readonly (typeof nativeGrid)[number][] = nativeGrid;
+        if (nativeGrid.length) {
+          const parentKey = JSON.stringify([s.id, side, ind, tac, book, kind, range,
+            cfg.tpAtr, cfg.slOfTp, !!cfg.microRange, !!cfg.minimalRange, !!cfg.shortRange, cfg.priceDistanceGrid]);
+          if (afterBase && frozenCandidates) {
+            // This lookup only enumerates candidates. The complete range, calculation,
+            // cost and protection identity must still pass the entry gate below.
+            const shapes = frozenCandidates.get(nativeCandidateOwner({ ...execRel, connId }));
+            const candidates = shapes ? nativeGrid.filter(cell => shapes.has(nativeGeometryKey(cell))) : [];
+            boundedNativeGrid = candidates.length <= 16 ? candidates
+              : priceDistanceParentBatch(candidates, e.priceDistanceValidationBatches ??= {}, parentKey);
+          } else {
+            const progressCfg = lastNProgressOf(e);
+            const policies = progressCfg.policies?.length ? progressCfg.policies : [progressCfg];
+            const baseWindows = policies.flatMap(policy => policy.evalNs);
+            const parentSamples = e.priceDistanceParentSamples ??= {};
+            boundedNativeGrid = priceDistanceParentBatch(nativeGrid, parentSamples, parentKey, 16, Math.min(...baseWindows));
+          }
+        }
+        const lowGrid = short || nativeGrid.length ? [] : lowRangeProtectGrid(e, cfg, tac);
+        const grid = nativeGrid.length
           ? boundedNativeGrid
           : short
             ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec)

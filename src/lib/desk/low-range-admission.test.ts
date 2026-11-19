@@ -83,11 +83,11 @@ test("short coordination materializes the enabled native stop/trail catalog", ()
   ]), "every Short parent must expose each enabled fixed/dynamic child geometry");
 });
 
-function nativeMicroFixture() {
+function nativeMicroFixture(priceDistanceGrid = { enabled: true, stopPcts: [.2, .3], trailPcts: [.2, .3] }) {
   const cfg = {
     ...DEFAULT_TACTIC_CONFIG,
     microRange: true, minimalRange: false, shortRange: false, tpAtr: .3, slOfTp: 1,
-    priceDistanceGrid: { enabled: true, stopPcts: [.2, .3], trailPcts: [.2, .3] },
+    priceDistanceGrid,
   };
   const e = initVstEngine(cfg, { arm: false, symbolCount: 4 });
   e.lastTactic = "trailing";
@@ -143,4 +143,27 @@ test("a qualified native Micro cell can enter paper validation beside an unquali
     "native validation must reach the qualified own cell");
   assert.ok(armed.every(o => liveShouldExecute(e, o)), "the sibling must still pass its exact gate");
   assert.ok(armed.every(o => o.priceStopPct !== .3), "no losing sibling is admitted");
+});
+
+test("the next native discovery batch cannot hide a qualified frozen child in validation", () => {
+  const { cfg, e, seed } = nativeMicroFixture({ enabled: true, stopPcts: [.2, .3, .4, .5], trailPcts: [.2, .3, .4, .5, .6] });
+  e.closed = Array.from({ length: 20 }, (_, index) => ({
+    ...seed, id: `proof-before-rotation-${index}`, tick: 99 - index, pnl: 1, ratio: .01,
+    entry: seed.price, exit: seed.price * (seed.side === "long" ? 1.012 : .988), r: 1, reason: "tp" as const,
+  }));
+  for (const key of Object.keys(e.priceDistanceParentSamples!)) e.priceDistanceParentSamples![key] = 15;
+  finishBaseEval(e);
+  assert.equal(liveShouldExecute(e, seed), true, "selection already qualified this exact cell");
+  armUniverse(e, cfg, "trailing", "atr");
+  const armed = e.queue.filter(o => o.symbol === seed.symbol && o.validExec);
+  assert.ok(armed.some(o => o.priceStopPct === seed.priceStopPct && o.priceTrailPct === seed.priceTrailPct &&
+    o.trailingDistance === seed.trailingDistance), "validation must revisit the frozen child independent of the Base cursor");
+  assert.ok(armed.every(o => liveShouldExecute(e, o)), "every armed cell must still prove its exact identity");
+  const restored: typeof e = JSON.parse(JSON.stringify(e));
+  restored.queue = [];
+  restored.orders = [];
+  restored.closed = [];
+  armUniverse(restored, cfg, "trailing", "atr");
+  assert.deepEqual(restored.queue.map(o => o.protectionKey), e.queue.map(o => o.protectionKey),
+    "the held-out candidates still come from the same frozen tape after restart");
 });
