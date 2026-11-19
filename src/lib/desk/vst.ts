@@ -5472,6 +5472,18 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
       slAtr: p.slDist / Math.max(e.quotes[p.symbol]?.atr || 1e-9, 1e-9),
       tpAtr: p.tpAtr,
       slOfTp: p.slOfTp,
+      trailPct: p.trailPct,
+      trailingDistance: p.trailingDistance,
+      priceStopPct: p.priceStopPct,
+      priceTrailPct: p.priceTrailPct,
+      calc: p.calc,
+      microRange: p.microRange,
+      minimalRange: p.minimalRange,
+      shortRange: p.shortRange,
+      modelRtCost: p.modelRtCost,
+      minSlDistancePct: p.minSlDistancePct,
+      microMinSlDistancePct: p.microMinSlDistancePct,
+      microMinTrailDistancePct: p.microMinTrailDistancePct,
     });
   }
   if (!botBook && !opts?.skipComboTape) noteConfigSample(e, closedRow);
@@ -6412,25 +6424,31 @@ function tickBlockWindow(w: BlockPosWindow, symbol: string, side: Side, pnl: num
   return w;
 }
 
-export function blockRelationKeys(rel: {
+export function blockRelationKeys(rel: ConfigIdentity & {
   symbol: string;
   side: Side;
   indication?: IndicationId;
-  kind?: string;
   tactic?: TacticKind;
   rangeType?: RangeType;
-  playbook?: string;
   indicationCfg?: string;
-  tpAtr?: number;
-  slOfTp?: number;
   slAtr?: number;
   tpRatio?: number;
 }): string[] {
   const keys = [`sym:${rel.symbol}`, `side:${rel.side}`, `leg:${rel.symbol}:${rel.side}`];
   if (rel.indication) keys.push(`ind:${rel.indication}`);
   if (rel.indicationCfg) keys.push(`cfg:${rel.indicationCfg}`);
-  else if (rel.indication && rel.tactic && rel.rangeType && rel.tpAtr != null && rel.slOfTp != null)
-    keys.push(`cfg:${JSON.stringify([rel.indication, rel.kind, rel.tactic, rel.rangeType, rel.playbook, rel.tpAtr, rel.slOfTp])}`);
+  else if (rel.indication && rel.tactic && rel.rangeType && rel.tpAtr != null && rel.slOfTp != null) {
+    const legacy = [rel.indication, rel.kind, rel.tactic, rel.rangeType, rel.playbook, rel.tpAtr, rel.slOfTp];
+    const exact =
+      [rel.trailPct, rel.modelRtCost, rel.minSlDistancePct, rel.priceStopPct, rel.priceTrailPct].every(Number.isFinite) &&
+      [rel.microRange, rel.minimalRange, rel.shortRange].every((value) => typeof value === "boolean") &&
+      typeof rel.calc === "string" && rel.calc.length > 0 &&
+      (!rel.microRange || [rel.microMinSlDistancePct, rel.microMinTrailDistancePct].every(Number.isFinite));
+    keys.push(`cfg:${JSON.stringify(exact ? ["exact-v1", ...legacy, rel.trailPct, rel.calc,
+      rel.microRange, rel.minimalRange, rel.shortRange, rel.modelRtCost, rel.minSlDistancePct,
+      ...(rel.microRange ? [rel.microMinSlDistancePct, rel.microMinTrailDistancePct] : []),
+      rel.priceStopPct, rel.priceTrailPct, ...(rel.trailingDistance === "fixed" ? ["fixed-distance"] : [])] : legacy)}`);
+  }
   if (rel.kind) keys.push(`kind:${rel.kind}`);
   if (rel.playbook) keys.push(`book:${rel.playbook}`);
   if (rel.tactic) keys.push(`tac:${rel.tactic}`);
@@ -6455,18 +6473,7 @@ export function noteBlockPosClose(
   side: Side,
   pnl: number,
   block: BlockConfig = DEFAULT_BLOCK_CONFIG,
-  rel?: {
-    indication?: IndicationId;
-  kind?: string;
-    tactic?: TacticKind;
-    rangeType?: RangeType;
-    playbook?: string;
-    indicationCfg?: string;
-    tpAtr?: number;
-    slOfTp?: number;
-    slAtr?: number;
-    tpRatio?: number;
-  },
+  rel?: Omit<Parameters<typeof blockRelationKeys>[0], "symbol" | "side">,
 ) {
   e.blockWindows = e.blockWindows ?? {};
   e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
@@ -8647,6 +8654,18 @@ export function adjustActiveBlocks(
                 rangeType: p.controllingRange ?? rangeType,
                 playbook: p.playbook,
                 tpAtr: p.tpAtr, slOfTp: p.slOfTp,
+                trailPct: p.trailPct,
+                trailingDistance: p.trailingDistance,
+                priceStopPct: p.priceStopPct,
+                priceTrailPct: p.priceTrailPct,
+                calc: p.calc,
+                microRange: p.microRange,
+                minimalRange: p.minimalRange,
+                shortRange: p.shortRange,
+                modelRtCost: p.modelRtCost,
+                minSlDistancePct: p.minSlDistancePct,
+                microMinSlDistancePct: p.microMinSlDistancePct,
+                microMinTrailDistancePct: p.microMinTrailDistancePct,
               });
         const extraOnce = Math.max(0, relVol) * lane.baseQty;
         const relPlannedAt = () => plannedRel.length;
@@ -11977,20 +11996,7 @@ export function positionsAsTrades(pos: Position[]): import("./types.ts").Trade[]
 
 export function matchingWinningRels(
   e: VstEngine,
-  rel: {
-    symbol: string;
-    side: Side;
-    indication?: IndicationId;
-    kind?: string;
-    tactic?: TacticKind;
-    rangeType?: RangeType;
-    playbook?: string;
-    indicationCfg?: string;
-    tpAtr?: number;
-    slOfTp?: number;
-    slAtr?: number;
-    tpRatio?: number;
-  },
+  rel: Parameters<typeof blockRelationKeys>[0],
 ) {
   const best = e.blockRelBest ?? {};
   if (!Object.keys(best).length) return [];

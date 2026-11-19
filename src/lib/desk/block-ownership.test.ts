@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { adjustActiveBlocks, blockPfOk, completeConfigSampleKey, initVstEngine, tickVst } from "./vst.ts";
+import { adjustActiveBlocks, blockPfOk, blockRelationKeys, completeConfigSampleKey, initVstEngine, tickVst } from "./vst.ts";
 import { sanitizeDeskSettings } from "./settings-sync.ts";
 import type { BlockLaneState, LivePosition, LiveOrder } from "./types.ts";
 
@@ -313,4 +313,20 @@ test("Block children retain each exact price-grid parent and its frozen economic
     e.queue.map(order => completeConfigSampleKey(order)),
     "restart preserves every Block child identity",
   );
+});
+
+
+test("Block relation config keys isolate every native stop-gap and trailing-mode cell", () => {
+  const base = { symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const,
+    kind: "short", tactic: "trailing" as const, rangeType: "atr" as const,
+    playbook: "short", tpAtr: .6, slOfTp: .4, trailPct: .2,
+    microRange: false, minimalRange: false, shortRange: true,
+    modelRtCost: .00176, minSlDistancePct: .3, calc: "base" as const };
+  const cfg = (priceStopPct: number, priceTrailPct: number, trailingDistance?: "fixed") =>
+    blockRelationKeys({ ...base, priceStopPct, priceTrailPct, trailingDistance } as Parameters<typeof blockRelationKeys>[0])
+      .find(key => key.startsWith("cfg:"));
+
+  assert.notEqual(cfg(.2, .2, "fixed"), cfg(.3, .2, "fixed"), "21 stop cells need own relation evaluations");
+  assert.notEqual(cfg(.2, .2, "fixed"), cfg(.2, .3, "fixed"), "25 gap cells need own relation evaluations");
+  assert.notEqual(cfg(.2, .2, "fixed"), cfg(.2, .2), "fixed and dynamic trailing cannot pool evidence");
 });
