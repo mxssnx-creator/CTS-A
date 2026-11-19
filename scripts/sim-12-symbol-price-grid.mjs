@@ -93,6 +93,10 @@ const evidence = {
     slExits: report.slExits,
     tpExits: report.tpExits,
   },
+  lastNSampleCoverage: {
+    selectionBoundary: report.prehistorySampleCoverage ?? null,
+    heldOutEnd: report.sampleCoverage ?? null,
+  },
   performance: {
     elapsedMs: Number(elapsedMs.toFixed(3)),
     heapBeforeBytes: heapBefore,
