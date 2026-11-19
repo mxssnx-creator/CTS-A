@@ -212,6 +212,7 @@ const SHORT_COMBO_TAPE_CAP = 80;
 function paperMode(e: VstEngine) {
   return !e.liveTape;
 }
+const syntheticPaperReplays = new WeakSet<VstEngine>();
 /** Engine size is not Block extra and not tape VF. */
 export function engineSizeFactor(_e?: VstEngine) {
   return 1;
@@ -7136,7 +7137,8 @@ export function refreshSymbolHourEval(
   const hours = Math.max(4, Math.round(opts?.hours ?? e.blockCfg?.symbolEvalHours ?? SYMBOL_EVAL_HOURS));
   const minPf = opts?.minPf ?? (e.shortRange ? minPfFor(e, "short") : minPfFor(e, "overall"));
   const minN = Math.max(3, Math.round(opts?.minN ?? 6));
-  const nowHour = (opts?.now ?? new Date()).getUTCHours();
+  const nowHour = opts?.now?.getUTCHours() ??
+    (syntheticPaperReplays.has(e) ? sitHour({ tick: e.tick }) : new Date().getUTCHours());
   const rows = windowHours(e.closed.filter((c) => isDeskConn(c.connId)), e.tick, hours);
   const bySym = new Map<string, typeof rows>();
   for (const c of rows) {
@@ -9509,6 +9511,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     comboOnly,
     arm: false,
   });
+  if (nativeReplay) syntheticPaperReplays.add(engine);
   Object.assign(engine, structuredClone(Object.fromEntries(
     Object.entries(opts?.policy ?? {}).filter(([, value]) => value !== undefined),
   )));
