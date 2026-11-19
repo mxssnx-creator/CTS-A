@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { adjustActiveBlocks, blockPfOk, initVstEngine, tickVst } from "./vst.ts";
+import { adjustActiveBlocks, blockPfOk, completeConfigSampleKey, initVstEngine, tickVst } from "./vst.ts";
 import { sanitizeDeskSettings } from "./settings-sync.ts";
 import type { BlockLaneState, LivePosition, LiveOrder } from "./types.ts";
 
@@ -276,4 +276,39 @@ test("an explicit symbol-side conflict cancels every owned group on the losing s
   adjustActiveBlocks(e, cfg, "trailing", { ...block, stack: false, flattenConflict: true, sides: "long" }, "atr");
   assert.equal(e.queue.length, 2);
   assert.ok(e.queue.every((o) => o.parentPositionId === short.id));
+});
+
+
+test("Block children retain each exact price-grid parent and its frozen economics", () => {
+  const { e, parent, block } = fixture();
+  const first = parent("grid-first", 1), second = parent("grid-second", 1);
+  Object.assign(first, { tpAtr: .6, slOfTp: .4, priceStopPct: .2, priceTrailPct: .2,
+    trailingDistance: "fixed", shortRange: true, modelRtCost: .00176, minSlDistancePct: .3 });
+  Object.assign(second, { tpAtr: .6, slOfTp: .4, priceStopPct: .3, priceTrailPct: .3,
+    trailingDistance: undefined, shortRange: true, modelRtCost: .00176, minSlDistancePct: .3 });
+  e.positions = [first, second];
+  adjustActiveBlocks(e, cfg, "trailing", block, "atr");
+
+  const children = e.positions.map(p => e.queue.filter(order => order.parentPositionId === p.id));
+  assert.ok(children.every(orders => orders.length === 4));
+  for (const [index, orders] of children.entries()) {
+    const p = e.positions[index];
+    assert.ok(orders.every(order => completeConfigSampleKey(order)));
+    for (const order of orders) assert.deepEqual({
+      stop: order.priceStopPct, gap: order.priceTrailPct, mode: order.trailingDistance,
+      short: order.shortRange, cost: order.modelRtCost, minStop: order.minSlDistancePct,
+    }, {
+      stop: p.priceStopPct, gap: p.priceTrailPct, mode: p.trailingDistance,
+      short: p.shortRange, cost: p.modelRtCost, minStop: p.minSlDistancePct,
+    });
+  }
+  assert.notEqual(completeConfigSampleKey(children[0][0]), completeConfigSampleKey(children[1][0]),
+    "different exact price cells cannot share Block evaluation identity");
+
+  const restored = JSON.parse(JSON.stringify(e));
+  assert.deepEqual(
+    restored.queue.map((order: LiveOrder) => completeConfigSampleKey(order)),
+    e.queue.map(order => completeConfigSampleKey(order)),
+    "restart preserves every Block child identity",
+  );
 });
