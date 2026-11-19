@@ -3666,11 +3666,19 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           : short
             ? shortProtectGrid(e, cfg)
             : [null];
-        const lowGrid = short ? [] : lowRangeProtectGrid(e, cfg, tac);
-        const boundedLowGrid = lowGrid.length && cfg.priceDistanceGrid?.enabled === true
-          ? priceDistanceBatch<(typeof lowGrid)[number]>(lowGrid, e.tick, JSON.stringify([s.id, side, ind, tac, book, kind, range]))
-          : lowGrid;
-        const grid = short ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec) : boundedLowGrid.length ? boundedLowGrid : [null];
+        // An explicitly enabled absolute-price catalog owns the protection geometry
+        // for every range, including Short. Legacy Short ATR/ratio rows remain the
+        // fallback when that setting is disabled.
+        const nativeGrid = cfg.priceDistanceGrid?.enabled === true ? lowRangeProtectGrid(e, cfg, tac) : [];
+        const boundedNativeGrid = nativeGrid.length
+          ? priceDistanceBatch<(typeof nativeGrid)[number]>(nativeGrid, e.tick, JSON.stringify([s.id, side, ind, tac, book, kind, range]))
+          : nativeGrid;
+        const lowGrid = short || boundedNativeGrid.length ? [] : lowRangeProtectGrid(e, cfg, tac);
+        const grid = boundedNativeGrid.length
+          ? boundedNativeGrid
+          : short
+            ? sliceShortGrid(e, evalGrid as ReturnType<typeof shortProtectGrid>, rank, s.id, side, internSlot || internKeep || !gatedExec)
+            : lowGrid.length ? lowGrid : [null];
         const hourBusy = livePace && hourTapeBusy(e);
         const trailBase = snapTrailPct(cfg.trailingPct);
         for (const prot of grid) {
