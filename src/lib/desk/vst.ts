@@ -6473,18 +6473,7 @@ export function noteBlockPosClose(
   side: Side,
   pnl: number,
   block: BlockConfig = DEFAULT_BLOCK_CONFIG,
-  rel?: {
-    indication?: IndicationId;
-  kind?: string;
-    tactic?: TacticKind;
-    rangeType?: RangeType;
-    playbook?: string;
-    indicationCfg?: string;
-    tpAtr?: number;
-    slOfTp?: number;
-    slAtr?: number;
-    tpRatio?: number;
-  },
+  rel?: Omit<Parameters<typeof blockRelationKeys>[0], "symbol" | "side">,
 ) {
   e.blockWindows = e.blockWindows ?? {};
   e.blockWindowsBySymbol = e.blockWindowsBySymbol ?? {};
