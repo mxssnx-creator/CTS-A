@@ -2685,6 +2685,12 @@ function laneBusyKey(row: { symbol: string; side: string; indication?: string; t
   const range = row.controllingRange || row.rangeType || "";
   return `${row.symbol}:${row.side}:${row.indication || ""}:${row.tactic || ""}:${combo}:${row.calc || "base"}:${range}${trailingPolicyKey(row)}`;
 }
+/** Pair coordination groups indications, but never different configuration parents. */
+function pairCoordinationKey(row: ConfigIdentity & { symbol: string; side: Side }): string {
+  return JSON.stringify([row.connId ?? "", row.symbol, row.side, row.tactic, row.rangeType, row.playbook, row.kind,
+    row.calc ?? "base", exactProtectionCombo(row), row.trailPct, row.modelRtCost, row.minSlDistancePct,
+    ...(row.microRange ? [row.microMinSlDistancePct, row.microMinTrailDistancePct] : [])]);
+}
 function occupiedLegs(e: VstEngine, connId?: string): Set<string> {
   const s = new Set<string>();
   const on = (id: string) => (connId ? id === connId : isDeskConn(id));
@@ -3577,6 +3583,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     if (!dual && !complete && e.blockCfg?.windows !== false && symbolBlockPaused(e, s.id, winN)) return;
     const pairBook = new Map<string, {
       inds: Set<string>;
+      connId: string;
+      symbol: string;
+      side: Side;
       px: number;
       qty: number;
       sl: number;
@@ -3596,6 +3605,14 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       priceStopPct?: number;
       priceTrailPct?: number;
       maxHoldTicks?: number;
+      calc?: LiveOrder["calc"];
+      microRange?: boolean;
+      minimalRange?: boolean;
+      shortRange?: boolean;
+      modelRtCost?: number;
+      minSlDistancePct?: number;
+      microMinSlDistancePct?: number;
+      microMinTrailDistancePct?: number;
     }>();
     const configuredTrailingDistance: TrailingDistance | undefined = cfg.trailingDistance === "fixed" ? "fixed" : undefined;
     const rangeContext = {
@@ -4111,11 +4128,19 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             symTac.set(`${s.id}:${tac}`, (symTac.get(`${s.id}:${tac}`) || 0) + 1);
             countPlaced(e);
             if (li === 0 && pfCoordOn(e, "pairAdd") && livePace) {
-              const pk = `${s.id}:${side}`;
+              const pairIdentity = { ...execRel, connId, calc: leg.kind, tpAtr: miniTp, slOfTp: miniSl, trailPct,
+                trailingDistance, priceStopPct: protection?.priceStopPct, priceTrailPct: protection?.priceTrailPct,
+                maxHoldTicks: protection?.maxHoldTicks, microRange: microOn, minimalRange: minimalOn, shortRange: short,
+                modelRtCost: modeledPositionCost(e, s.id), minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct),
+                ...(microOn ? { microMinSlDistancePct: e.microMinSlDistancePct, microMinTrailDistancePct: e.microMinTrailDistancePct } : {}) };
+              const pk = pairCoordinationKey(pairIdentity);
               let row = pairBook.get(pk);
               if (!row) {
                 row = {
                   inds: new Set(),
+                  connId,
+                  symbol: s.id,
+                  side,
                   px,
                   qty,
                   sl: lv.sl,
@@ -4135,6 +4160,14 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                   priceStopPct: protection?.priceStopPct,
                   priceTrailPct: protection?.priceTrailPct,
                   maxHoldTicks: protection?.maxHoldTicks,
+                  calc: leg.kind,
+                  microRange: microOn,
+                  minimalRange: minimalOn,
+                  shortRange: short,
+                  modelRtCost: pairIdentity.modelRtCost,
+                  minSlDistancePct: pairIdentity.minSlDistancePct,
+                  microMinSlDistancePct: pairIdentity.microMinSlDistancePct,
+                  microMinTrailDistancePct: pairIdentity.microMinTrailDistancePct,
                 };
                 pairBook.set(pk, row);
               }
@@ -4152,10 +4185,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     if (pfCoordOn(e, "pairAdd") && livePace) {
       for (const [pk, row] of pairBook) {
         if (row.inds.size < 2 || qn >= qStop) continue;
-        const sep = pk.lastIndexOf(":");
-        const sym = pk.slice(0, sep);
-        const side = pk.slice(sep + 1) as Side;
-        if (e.queue.some((o) => o.connId === connId && o.symbol === sym && o.side === side && o.note.includes("pf-pair"))) continue;
+        const sym = row.symbol;
+        const side = row.side;
+        if (e.queue.some((o) => o.connId === connId && o.note.includes("pf-pair") && pairCoordinationKey(o) === pk)) continue;
         const px = row.px;
         if (!(px > 0)) continue;
         const qty = row.qty;
@@ -4190,7 +4222,14 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           priceStopPct: row.priceStopPct,
           priceTrailPct: row.priceTrailPct,
           maxHoldTicks: row.maxHoldTicks,
-          calc: "base",
+          calc: row.calc,
+          microRange: row.microRange,
+          minimalRange: row.minimalRange,
+          shortRange: row.shortRange,
+          modelRtCost: row.modelRtCost,
+          minSlDistancePct: row.minSlDistancePct,
+          microMinSlDistancePct: row.microMinSlDistancePct,
+          microMinTrailDistancePct: row.microMinTrailDistancePct,
         });
         qn += 1;
         noteLoad(sym);
