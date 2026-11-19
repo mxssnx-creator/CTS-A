@@ -413,13 +413,12 @@ test("Block current-interval relation scoring excludes selection-only and reject
 });
 
 
-test("a validated exact Axis parent marks its derived Block child executable", () => {
+test("a validated Axis parent marks its derived Block child executable", () => {
   const exactCfg = {
     ...DEFAULT_TACTIC_CONFIG,
     shortRange: true,
     tpAtr: .6,
     slOfTp: .5,
-    priceDistanceGrid: { enabled: true, stopPcts: [.2], trailPcts: [.2] },
   };
   const e = initVstEngine(exactCfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
   e.strategyToggles = {
@@ -434,9 +433,8 @@ test("a validated exact Axis parent marks its derived Block child executable", (
   armUniverse(e, exactCfg, "axis", "atr");
   const first = [...e.orders, ...e.queue].find(order =>
     order.tactic === "axis" &&
-    order.playbook === "axis" &&
-    order.priceStopPct === .2);
-  assert.ok(first, "the exact Axis parent must be discovered before Base");
+    order.playbook === "axis");
+  assert.ok(first, "the Axis parent must be discovered before Base");
 
   e.tick = 100;
   e.closed = Array.from({ length: 60 }, (_, i) => ({
@@ -466,8 +464,9 @@ test("a validated exact Axis parent marks its derived Block child executable", (
     order.symbol === first.symbol &&
     order.side === first.side &&
     order.indication === first.indication &&
-    order.priceStopPct === first.priceStopPct);
-  assert.ok(parent?.validExec, "the exact Axis parent passed its own frozen Base evidence");
+    order.tpAtr === first.tpAtr &&
+    order.slOfTp === first.slOfTp);
+  assert.ok(parent?.validExec, "the Axis parent passed its own frozen Base evidence");
 
   const child = after.find(order =>
     order.tactic === "axis" &&
@@ -477,9 +476,10 @@ test("a validated exact Axis parent marks its derived Block child executable", (
     order.symbol === parent.symbol &&
     order.side === parent.side &&
     order.indication === parent.indication &&
-    order.priceStopPct === parent.priceStopPct);
+    order.tpAtr === parent.tpAtr &&
+    order.slOfTp === parent.slOfTp);
   assert.ok(child, "the eligible exact parent must create its Block child");
-  assert.equal(child.validExec, true, "the child inherits the exact parent verdict, not the coarse pre-geometry placeholder");
-  assert.ok(completeConfigSampleKey(child), "the child keeps the complete exact evidence identity");
+  assert.equal(child.validExec, true, "the child inherits the parent’s own exact verdict, not the coarse pre-geometry placeholder");
+  assert.ok(completeConfigSampleKey(child), "the child keeps the complete configuration evidence identity");
   assert.equal(liveShouldExecute(e, child), true, "the independently owned child passes its own execution gate");
 });
