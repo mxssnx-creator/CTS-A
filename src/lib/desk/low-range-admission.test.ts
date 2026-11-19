@@ -52,3 +52,33 @@ for (const range of ["micro", "minimal", "short"] as const) {
       "live admission preserves the complete geometry/economic identity");
   });
 }
+
+
+test("short coordination materializes the enabled native stop/trail catalog", () => {
+  const cfg = {
+    ...DEFAULT_TACTIC_CONFIG,
+    shortRange: true,
+    tpAtr: .6,
+    slOfTp: .5,
+    priceDistanceGrid: { enabled: true, stopPcts: [.2, .3], trailPcts: [.2, .3] },
+  };
+  const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
+  e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: false, trailing: true, axis: false, dca: false, block: false };
+  armUniverse(e, cfg, "trailing", "atr");
+  const rows = [...e.orders, ...e.queue].filter(order => order.shortRange === true && order.tactic === "trailing");
+  assert.ok(rows.length > 0, "Short discovery must create trailing children");
+  assert.ok(rows.every(order => order.priceStopPct != null && order.priceTrailPct != null),
+    "Short discovery fell back to the legacy ATR/ratio grid");
+  const geometries = new Set(rows.map(order =>
+    JSON.stringify([order.priceStopPct, order.priceTrailPct, order.trailingDistance ?? "dynamic"])));
+  assert.deepEqual(geometries, new Set([
+    JSON.stringify([.2, .2, "dynamic"]),
+    JSON.stringify([.2, .2, "fixed"]),
+    JSON.stringify([.2, .3, "dynamic"]),
+    JSON.stringify([.2, .3, "fixed"]),
+    JSON.stringify([.3, .2, "dynamic"]),
+    JSON.stringify([.3, .2, "fixed"]),
+    JSON.stringify([.3, .3, "dynamic"]),
+    JSON.stringify([.3, .3, "fixed"]),
+  ]), "every Short parent must expose each enabled fixed/dynamic child geometry");
+});
