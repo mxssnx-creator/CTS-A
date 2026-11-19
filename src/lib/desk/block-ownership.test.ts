@@ -481,5 +481,20 @@ test("a validated Axis parent marks its derived Block child executable", () => {
   assert.ok(child, "the eligible exact parent must create its Block child");
   assert.equal(child.validExec, true, "the child inherits the parent’s own exact verdict, not the coarse pre-geometry placeholder");
   assert.ok(completeConfigSampleKey(child), "the child keeps the complete configuration evidence identity");
-  assert.equal(liveShouldExecute(e, child), true, "the independently owned child passes its own execution gate");
+  assert.equal(liveShouldExecute(e, child), false, "the parent tape cannot bypass the child’s independent gate");
+  e.closed = Array.from({ length: 60 }, (_, i) => ({
+    ...child,
+    id: `axis-block-child-${i}`,
+    pnl: 1,
+    ratio: .01,
+    entry: child.price,
+    exit: child.price * (child.side === "long" ? 1.012 : .988),
+    reason: "tp" as const,
+    tick: 99 - i,
+    r: 1,
+    validExec: true,
+  }));
+  assert.equal(liveShouldExecute(e, child), true, "the child passes only after its own held-out tape qualifies");
+  assert.equal(liveShouldExecute(e, { ...child, slOfTp: (child.slOfTp ?? .5) + .25 }), false,
+    "an unevaluated sibling child cannot borrow the winner’s evidence");
 });
