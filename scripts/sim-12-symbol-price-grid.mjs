@@ -42,17 +42,22 @@ const cfg = {
 };
 
 const distinctEntry = row => `${row.symbol}:${row.side}:${row.tick - Math.max(0, Number(row.holdTicks) || 0)}`;
+const paperEquity = 10;
 const phases = Object.fromEntries(["selection", "validation"].map(phase => [phase, {
   settlements: 0, admitted: 0, fixed: 0, dynamic: 0, entries: new Set(), grossProfit: 0,
   grossLoss: 0, returnProfit: 0, returnLoss: 0, admittedProfit: 0, admittedLoss: 0,
   modeledCost: 0, mismatches: 0, rates: new Set(),
+}]));
+const trailingModes = Object.fromEntries(["fixed", "dynamic"].map(mode => [mode, {
+  settlements: 0, entries: new Set(), gain: 0, loss: 0, cost: 0,
+  equity: paperEquity, peak: paperEquity, drawdown: 0,
 }]));
 const heapBefore = process.memoryUsage().heapUsed;
 const started = performance.now();
 const { report, engine } = simulateHours(validationHours, cfg, "trailing", {
   symbolCount: symbols,
   rangeType: "atr",
-  equity: 10,
+  equity: paperEquity,
   costStep: 3,
   complete: false,
   prehours: selectionHours,
@@ -68,10 +73,6 @@ const { report, engine } = simulateHours(validationHours, cfg, "trailing", {
     }
     if (row.ratio > 0) stats.returnProfit += row.ratio;
     else stats.returnLoss -= row.ratio;
-    if (row.priceTrailPct != null) {
-      if (row.trailingDistance === "fixed") stats.fixed++;
-      else stats.dynamic++;
-    }
     stats.entries.add(distinctEntry(row));
     const gross = (row.side === "long" ? 1 : -1) * (row.exit - row.entry);
     const perUnitCost = (row.entry + row.exit) / 2 * row.modelRtCost;
@@ -85,6 +86,21 @@ const { report, engine } = simulateHours(validationHours, cfg, "trailing", {
     else stats.grossLoss -= grossReturn;
     stats.modeledCost += perUnitCost * row.qty;
     if (Number.isFinite(row.modelRtCost)) stats.rates.add(row.modelRtCost.toFixed(8));
+    if (row.priceTrailPct != null) {
+      const mode = row.trailingDistance === "fixed" ? "fixed" : "dynamic";
+      stats[mode]++;
+      if (phase === "validation" && row.validExec === true) {
+        const totals = trailingModes[mode];
+        totals.settlements++;
+        totals.entries.add(distinctEntry(row));
+        totals.gain += Math.max(0, row.ratio);
+        totals.loss += Math.max(0, -row.ratio);
+        totals.cost += perUnitCost * row.qty;
+        totals.equity += row.pnl;
+        totals.peak = Math.max(totals.peak, totals.equity);
+        totals.drawdown = Math.max(totals.drawdown, (totals.peak - totals.equity) / totals.peak);
+      }
+    }
   },
 });
 const elapsedMs = performance.now() - started;
@@ -126,6 +142,13 @@ const evidence = {
   modeledCosts: { costStep: 3, basis: "taker/taker with fee-relative slippage",
     roundTripRates: [...new Set([...phases.selection.rates, ...phases.validation.rates])].sort(),
     settlementReconciliation: Object.fromEntries(Object.entries(phases).map(([phase, stats]) => [phase, summarizePhase(stats)])) },
+  admittedValidationByTrailingMode: Object.fromEntries(Object.entries(trailingModes).map(([mode, totals]) => [mode, {
+    settlements: totals.settlements,
+    distinctSymbolSideEntryTime: totals.entries.size,
+    afterCostPf: totals.settlements ? profitFactor(totals.gain, totals.loss) : null,
+    cost: totals.cost,
+    closedCashDrawdown: totals.drawdown,
+  }])),
   maximumHold: { ticks: cfg.maxHoldTicks, bars: cfg.maxHoldBars },
   results: {
     selectionSettlements: phases.selection.settlements,
@@ -195,6 +218,11 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>CTS-A exac
 <tr><th>Orders placed / filled</th><td>${report.ordersPlaced} / ${report.ordersFilled}</td></tr>
 <tr><th>Elapsed / heap delta</th><td>${elapsedMs.toFixed(1)} ms / ${evidence.performance.heapDeltaBytes} bytes</td></tr>
 </tbody></table>
+<h2>Validation by trailing mode</h2>
+<table><thead><tr><th>Mode</th><th>Settlements</th><th>Distinct entries</th><th>After-cost PF</th><th>Closed-cash drawdown</th></tr></thead>
+<tbody>${Object.entries(evidence.admittedValidationByTrailingMode).map(([mode, totals]) => `
+<tr><th>${mode}</th><td>${totals.settlements}</td><td>${totals.distinctSymbolSideEntryTime}</td>
+<td>${totals.afterCostPf?.toFixed(4) ?? "—"}</td><td>${(totals.closedCashDrawdown * 100).toFixed(3)}%</td></tr>`).join("")}</tbody></table>
 <h2>Failure cases</h2><pre>${esc(failures.length ? failures.join("\n") : "none")}</pre>
 <h2>Recorded evidence</h2><pre>${esc(JSON.stringify(evidence, null, 2))}</pre>
 </body></html>`;

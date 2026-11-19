@@ -65,3 +65,20 @@ test("native paper evaluation produces the same evidence under a slow host clock
   assert.ok((fast.selection ?? 0) > 0, "the fixture must exercise native discovery");
   assert.deepEqual(replay(500), fast, "offline sample eligibility must depend on modeled time, not host latency");
 });
+
+test("native paper symbol-hour scoring uses the replay hour across host hours", (t) => {
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, microRange: true, tpAtr: .3, slOfTp: 1,
+    priceDistanceGrid: { enabled: true, stopPcts: [.2, .3], trailPcts: [.2, .3] } };
+  const replay = () => {
+    const { report, engine } = simulateHours(1, cfg, "trailing", { symbolCount: 4, prehours: 2,
+      strategyToggles: { normal: true, trailing: true, axis: false, block: false, dca: false } });
+    return { hour: engine.hourCoord?.hour, selection: report.pre?.trades,
+      settled: report.settledSlices, pf: report.pf };
+  };
+  t.mock.timers.enable({ apis: ["Date"], now: Date.UTC(2026, 10, 19, 8) });
+  const morning = replay();
+  t.mock.timers.setTime(Date.UTC(2026, 10, 19, 20));
+  assert.deepEqual(replay(), morning);
+  assert.ok((morning.selection ?? 0) > 0);
+  assert.equal(morning.hour, 3);
+});
