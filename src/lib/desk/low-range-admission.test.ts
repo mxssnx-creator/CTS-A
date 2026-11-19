@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { armUniverse, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, noteBlockPosClose, skipLiveSymbol, tickVst } from "./vst.ts";
+import { armUniverse, completeConfigSampleKey, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, noteBlockPosClose, skipLiveSymbol, tickVst } from "./vst.ts";\nimport { lowRangeGridProtects } from "../../../shared/cts-indications/origin/indications/low-range.ts";
 
 test("audit accepts the own cost-plus-stop floor but rejects an unjustified wider stop",()=>{
   for (const side of ["long","short"] as const) {
@@ -214,4 +214,32 @@ test("the next native discovery batch cannot hide a qualified frozen child in va
   armUniverse(restored, cfg, "trailing", "atr");
   assert.deepEqual(restored.queue.map(o => o.protectionKey), e.queue.map(o => o.protectionKey),
     "the held-out candidates still come from the same frozen tape after restart");
+});
+
+
+test("Low-Range cost cells keep fixed and dynamic native siblings independent", () => {
+  const cost = .00176;
+  const protects = lowRangeGridProtects({
+    enabled: true, step: .002, steps: [2], slRatios: [.2, .3], trailRatios: [0, .5], maxHoldMin: 60,
+  }, cost, 5, .1);
+  assert.ok(protects.length >= 2);
+  assert.ok(protects.every(cell => cell.lowRangeOnly === true && cell.maxHoldMin === 60 && cell.hold === 12));
+  assert.ok(protects.every(cell => cell.tp === .00576 && cell.sl >= .00276));
+  assert.ok(protects.some(cell => cell.trail === 0));
+  assert.ok(protects.some(cell => cell.trail === .00576));
+
+  const identity = {
+    connId: "bingx-x02", symbol: "BTCUSDT", side: "long" as const, indication: "low-range-1-edge-turn-standalone",
+    tactic: "trailing", rangeType: "atr", playbook: "normal", kind: "normal", calc: "base",
+    tpAtr: .576, slOfTp: .2, trailPct: .576, microRange: false, minimalRange: false, shortRange: true,
+    modelRtCost: cost, minSlDistancePct: .1, priceStopPct: .2, priceTrailPct: .3,
+  };
+  const keys = [
+    completeConfigSampleKey({ ...identity, trailingDistance: "fixed" }),
+    completeConfigSampleKey({ ...identity, trailingDistance: "dynamic" }),
+    completeConfigSampleKey({ ...identity, priceStopPct: .3, trailingDistance: "dynamic" }),
+    completeConfigSampleKey({ ...identity, priceTrailPct: .4, trailingDistance: "dynamic" }),
+  ];
+  assert.ok(keys.every(Boolean));
+  assert.equal(new Set(keys).size, 4);
 });
