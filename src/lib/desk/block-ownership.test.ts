@@ -362,7 +362,9 @@ test("exact Block relation winners are independently re-evaluated on the current
       tick: 90 + n, at: 90 + n, r: .01, validExec: true })),
   ] as typeof e.closed;
 
-  evalBlockRelations(e, { ...block, relAdditive: true, minRelPf: 1.1, evalLastNs: [3], relVolumeRatio: .4 });
+  const relationBlock = { ...block, relAdditive: true, minRelPf: 1.1, evalLastNs: [3], relVolumeRatio: .4 };
+  e.blockCfg = relationBlock;
+  evalBlockRelations(e, relationBlock);
   assert.equal(winningRelVolume(e, losing), 0, "a recently losing exact cell cannot retain its stale winner");
   assert.ok(winningRelVolume(e, winning) > 0, "the independently profitable sibling remains eligible");
 });
