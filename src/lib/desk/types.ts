@@ -559,6 +559,8 @@ export interface TacticConfig {
   stepPf?: import("./step-pf.ts").StepPfRules;
   /** Disabled for migrated desks. Every enabled absolute cell owns its own evidence. */
   priceDistanceGrid?: import("./price-distance-grid.ts").PriceDistanceGridConfig;
+  /** Opt-in cost-aware Low-Range protection cells. Saved desks remain disabled by default. */
+  lowRange?: import("../../../shared/cts-indications/origin/domain/types.ts").LowRangeGrid;
   fees?: Partial<FeePolicy>;
   trailingPct: number;
   dcaCount: number;
@@ -825,6 +827,8 @@ export interface LiveOrder {
   trailingDistance?: TrailingDistance;
   priceStopPct?: number;
   priceTrailPct?: number;
+  /** Cell-owned time exit; absent rows retain the configured engine hold. */
+  maxHoldTicks?: number;
   minimalRange?: boolean;
   /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
   microRange?: boolean;
@@ -881,6 +885,7 @@ export interface LivePosition {
   trailingDistance?: TrailingDistance;
   priceStopPct?: number;
   priceTrailPct?: number;
+  maxHoldTicks?: number;
   fixedTrailReference?: { entry: number; target: number };
   minimalRange?: boolean;
   /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
@@ -960,6 +965,7 @@ export interface ClosedTrade {
   trailingDistance?: TrailingDistance;
   priceStopPct?: number;
   priceTrailPct?: number;
+  maxHoldTicks?: number;
   minimalRange?: boolean;
   /** Micro TP is an absolute price percent (0.2 or 0.3), independent of ATR/cost lanes. */
   microRange?: boolean;

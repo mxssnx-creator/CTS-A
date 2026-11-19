@@ -2,6 +2,7 @@ import { sanitizeStrategyRangeSwitches } from "./strategy-processing.ts";
 import { DEFAULT_PREHISTORY_HOURS, prehistoryHours } from "./prehistory.ts";
 import { SL_TP_RATIOS, SL_TP_MIN, SL_TP_MAX, SL_TP_STEP, DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection } from "./protection-policy.ts";
 import { DEFAULT_PRICE_DISTANCE_GRID } from "./price-distance-grid.ts";
+import { DEFAULT_LOW_RANGE_GRID } from "../../../shared/cts-indications/origin/indications/low-range.ts";
 import { roundTripFeeRate } from "./fee-policy.ts";
 import { profitFactor } from "./profit-factor.ts";
 export { profitFactor, PF_NO_LOSS } from "./profit-factor.ts";
@@ -1076,6 +1077,8 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 export const DEFAULT_TACTIC_CONFIG: TacticConfig = {
   priceDistanceGrid: { ...DEFAULT_PRICE_DISTANCE_GRID,
     stopPcts: [...DEFAULT_PRICE_DISTANCE_GRID.stopPcts], trailPcts: [...DEFAULT_PRICE_DISTANCE_GRID.trailPcts] },
+  lowRange: { ...DEFAULT_LOW_RANGE_GRID, steps: [...DEFAULT_LOW_RANGE_GRID.steps],
+    slRatios: [...DEFAULT_LOW_RANGE_GRID.slRatios], trailRatios: [...DEFAULT_LOW_RANGE_GRID.trailRatios] },
   minSlDistancePct: DEFAULT_MIN_SL_DISTANCE_PCT,
   microMinSlDistancePct: .1, microMinTrailDistancePct: .05,
   trailingPct: 1.5,

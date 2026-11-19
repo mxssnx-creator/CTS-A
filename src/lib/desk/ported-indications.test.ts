@@ -1,7 +1,7 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {parseClosedIndicationBars,fetchClosedIndicationBars} from './closed-indication-feed.ts';import {indicationSourceIds,refreshPortedIndications} from './ported-indications.ts';import {stable02EntrySide,stable02ProcessSide} from './stable02.ts';
 import {waveBars} from '../../../shared/cts-indications/fixtures.ts';
 import {entryOnsets,portedStates} from '../../../shared/cts-indications/index.ts';
-import { armUniverse, finishBaseEval, initVstEngine, liveShouldExecute } from "./vst.ts";
+import { armUniverse, completeConfigSampleKey, finishBaseEval, initVstEngine, liveShouldExecute } from "./vst.ts";
 import { DEFAULT_STRATEGY_TOGGLES, DEFAULT_TACTIC_CONFIG } from "./engine.ts";
 import type { TacticConfig } from "./types.ts";
 const start=1700000040000;
@@ -62,4 +62,32 @@ test("a Low-Range source carries its own coordination switch from discovery to q
  assert.equal(liveShouldExecute(e, { ...seed, indication: "trend" }), false);
  e.strategyToggles.ranges!["low-range"]!.trailing = false;
  assert.equal(liveShouldExecute(e, seed), false);
+});
+
+test("Low-Range discovery creates every configured cost cell with independent fixed and dynamic evidence", () => {
+ const id = "low-range-6-edge-turn-standalone";
+ const cfg: TacticConfig = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, microRange: false, minimalRange: false,
+   indicationSourceIds: [id], lowRange: { enabled: true, step: .002, steps: [2], slRatios: [.25, .3],
+     trailRatios: [0, .5], maxHoldMin: 60 } };
+ const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
+ e.fees = { maker: .00088, taker: .00088, slippageFeeRatio: 0 };
+ e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: false, dca: false, block: false };
+ const q = Object.values(e.quotes)[0];
+ const bars = waveBars(320);
+ const onsets = entryOnsets(portedStates("BTC-USDT", 1, bars, [id]).states[id]);
+ const i = onsets.reduce((last, signal, index) => signal ? index : last, -1);
+ assert.ok(i > 0);
+ q.closedBars = bars.slice(0, i + 1);
+ refreshPortedIndications(e, [id], bars[i].timestamp + 60_000);
+ armUniverse(e, cfg, "trailing", "atr");
+ const rows = [...e.orders, ...e.queue].filter(order => order.indication === id && order.tactic === "trailing");
+ assert.ok(rows.length > 0);
+ assert.ok(rows.every(order => Math.abs(order.tpDist / order.price - .00576) < 1e-12));
+ assert.ok(rows.every(order => Math.abs(order.slDist / order.price - .00276) < 1e-12));
+ assert.ok(rows.every(order => order.maxHoldTicks === 12));
+ const cells = new Map(rows.map(order => [JSON.stringify([
+   order.tpAtr, order.slOfTp, order.trailPct, order.trailingDistance ?? "dynamic",
+ ]), completeConfigSampleKey(order)]));
+ assert.equal(cells.size, 3, "no-trail plus fixed and dynamic trailing are separate children");
+ assert.equal(new Set(cells.values()).size, 3, "each actual child owns a complete evaluation key");
 });

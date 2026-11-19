@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { armUniverse, completeConfigSampleKey, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, noteBlockPosClose, skipLiveSymbol, tickVst } from "./vst.ts";
-import { lowRangeGridProtects } from "../../../shared/cts-indications/origin/indications/low-range.ts";
+import { armUniverse, completeConfigSampleKey, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, lowRangeProtectGrid, noteBlockPosClose, skipLiveSymbol, tickVst } from "./vst.ts";
+import { DEFAULT_LOW_RANGE_GRID, lowRangeGridProtects } from "../../../shared/cts-indications/origin/indications/low-range.ts";
+import { sanitizeDeskSettings } from "./settings-sync.ts";
 
 test("audit accepts the own cost-plus-stop floor but rejects an unjustified wider stop",()=>{
   for (const side of ["long","short"] as const) {
@@ -243,4 +244,60 @@ test("Low-Range cost cells keep fixed and dynamic native siblings independent", 
   ];
   assert.ok(keys.every(Boolean));
   assert.equal(new Set(keys).size, 4);
+});
+
+test("the runtime materializes the configured cost-aware Low-Range cells", () => {
+  const cost = .00176;
+  const lowRange = {
+    ...DEFAULT_LOW_RANGE_GRID,
+    enabled: true,
+    step: .002,
+    steps: [2],
+    slRatios: [.25, .3],
+    trailRatios: [0, .5],
+    maxHoldMin: 60,
+  };
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, lowRange } as typeof DEFAULT_TACTIC_CONFIG & { lowRange: typeof lowRange };
+  const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4 });
+  e.fees = { maker: cost / 2, taker: cost / 2, slippageFeeRatio: 0 };
+  const expected = lowRangeGridProtects(lowRange, cost, 5, .1);
+  const actual = lowRangeProtectGrid(e, cfg, "trailing");
+  const expanded = expected.flatMap(cell => {
+    const base = { tpAtr: cell.tp * 100, slOfTp: cell.sl / cell.tp, trailPct: cell.trail * 100,
+      lowRangeOnly: true, maxHoldTicks: cell.hold };
+    return cell.trail > 0 ? [base, { ...base, trailingDistance: "fixed" }] : [base];
+  });
+  assert.deepEqual(actual, expanded, "the desk must not fall back to the legacy Short ratio grid");
+});
+
+test("Low-Range protection settings are opt-in and survive a saved-settings round trip", () => {
+  const defaults = sanitizeDeskSettings(null);
+  assert.equal(defaults.tacticConfig.lowRange?.enabled, false);
+  const selected = { ...defaults.tacticConfig.lowRange!, enabled: true, steps: [2, 4, 6],
+    slRatios: [.25, .5, 1], trailRatios: [0, .25, .5], maxHoldMin: 60 };
+  const saved = sanitizeDeskSettings({ tacticConfig: { ...defaults.tacticConfig, lowRange: selected } } as never);
+  assert.deepEqual(saved.tacticConfig.lowRange, selected);
+  assert.deepEqual(sanitizeDeskSettings(JSON.parse(JSON.stringify(saved))).tacticConfig.lowRange, selected);
+});
+
+test("the complete cost-aware Low-Range catalog has bounded active materialization", async () => {
+  const { performance } = await import("node:perf_hooks");
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true,
+    lowRange: { ...DEFAULT_LOW_RANGE_GRID, enabled: true } };
+  const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 1 });
+  e.fees = { maker: .00088, taker: .00088, slippageFeeRatio: 0 };
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
+  const cells = lowRangeProtectGrid(e, cfg, "trailing") as Array<{
+    tpAtr: number; slOfTp: number; trailPct: number; trailingDistance?: "fixed"; maxHoldTicks: number;
+  }>;
+  const identities = new Set(cells.map(cell => JSON.stringify([
+    cell.tpAtr, cell.slOfTp, cell.trailPct, cell.trailingDistance ?? "dynamic", cell.maxHoldTicks,
+  ])));
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  const payloadBytes = Buffer.byteLength(JSON.stringify(cells));
+  assert.equal(cells.length, 270);
+  assert.equal(identities.size, 270);
+  console.info(`low-range-grid benchmark variants=270 elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${payloadBytes}`);
 });

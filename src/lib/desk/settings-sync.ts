@@ -4,6 +4,7 @@ import { relateConfig } from "./relate.ts";
 import { createServerFn } from "@tanstack/react-start";
 import { normalizeMinSlDistancePct } from "./protection-policy.ts";
 import { sanitizePriceDistanceGrid } from "./price-distance-grid.ts";
+import { sanitizeLowRangeGrid } from "./low-range-grid.ts";
 import {
   DEFAULT_BLOCK_CONFIG,
   DEFAULT_ENABLED_KINDS,
@@ -258,6 +259,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       const minSlDistancePct = normalizeMinSlDistancePct(cfg.minSlDistancePct);
       const sourceSettings = {
         priceDistanceGrid: sanitizePriceDistanceGrid(cfg.priceDistanceGrid),
+        lowRange: sanitizeLowRangeGrid(cfg.lowRange),
         microMinSlDistancePct: Math.max(0, Math.min(10, asNum(cfg.microMinSlDistancePct, .1))),
         microMinTrailDistancePct: Math.max(0, Math.min(10, asNum(cfg.microMinTrailDistancePct, .05))),
         ...(cfg.indicationSourceIds === undefined ? {} : { indicationSourceIds: indicationSourceIds(cfg.indicationSourceIds) }),
