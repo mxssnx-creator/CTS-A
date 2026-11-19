@@ -282,10 +282,12 @@ test("an explicit symbol-side conflict cancels every owned group on the losing s
 test("Block children retain each exact price-grid parent and its frozen economics", () => {
   const { e, parent, block } = fixture();
   const first = parent("grid-first", 1), second = parent("grid-second", 1);
-  Object.assign(first, { tpAtr: .6, slOfTp: .4, priceStopPct: .2, priceTrailPct: .2,
-    trailingDistance: "fixed", shortRange: true, modelRtCost: .00176, minSlDistancePct: .3 });
-  Object.assign(second, { tpAtr: .6, slOfTp: .4, priceStopPct: .3, priceTrailPct: .3,
-    trailingDistance: undefined, shortRange: true, modelRtCost: .00176, minSlDistancePct: .3 });
+  Object.assign(first, { tpAtr: .6, slOfTp: .4, trailPct: .2, priceStopPct: .2, priceTrailPct: .2,
+    trailingDistance: "fixed", microRange: false, minimalRange: false, shortRange: true,
+    modelRtCost: .00176, minSlDistancePct: .3 });
+  Object.assign(second, { tpAtr: .6, slOfTp: .4, trailPct: .2, priceStopPct: .3, priceTrailPct: .3,
+    trailingDistance: undefined, microRange: false, minimalRange: false, shortRange: true,
+    modelRtCost: .00176, minSlDistancePct: .3 });
   e.positions = [first, second];
   adjustActiveBlocks(e, cfg, "trailing", block, "atr");
 
