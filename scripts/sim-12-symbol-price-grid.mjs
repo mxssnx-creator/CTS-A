@@ -6,8 +6,16 @@ import { DEFAULT_TACTIC_CONFIG } from "../src/lib/desk/engine.ts";
 import { STOP_DISTANCE_PCTS, TRAIL_DISTANCE_PCTS } from "../src/lib/desk/price-distance-grid.ts";
 import { simulateHours } from "../src/lib/desk/vst.ts";
 
-const selectionHours = 6;
-const validationHours = 6;
+const positiveIntArg = (name, fallback) => {
+  const prefix = `${name}=`;
+  const raw = process.argv.find(arg => arg.startsWith(prefix))?.slice(prefix.length);
+  if (raw == null) return fallback;
+  const value = Number(raw);
+  assert.ok(Number.isSafeInteger(value) && value > 0, `${name} must be a positive integer`);
+  return value;
+};
+const selectionHours = positiveIntArg("--selection-hours", 6);
+const validationHours = positiveIntArg("--validation-hours", 6);
 const symbols = 12;
 const rangeMode = process.argv.includes("--short") ? "short" : "micro";
 const artifactStem = rangeMode === "short" ? "cts-a-short-price-grid-replay" : "cts-a-price-grid-replay";
