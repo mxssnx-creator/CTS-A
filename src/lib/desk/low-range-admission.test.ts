@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { armUniverse, completeConfigSampleKey, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, noteBlockPosClose, skipLiveSymbol, tickVst } from "./vst.ts";\nimport { lowRangeGridProtects } from "../../../shared/cts-indications/origin/indications/low-range.ts";
+import { armUniverse, completeConfigSampleKey, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, noteBlockPosClose, skipLiveSymbol, tickVst } from "./vst.ts";
+import { lowRangeGridProtects } from "../../../shared/cts-indications/origin/indications/low-range.ts";
 
 test("audit accepts the own cost-plus-stop floor but rejects an unjustified wider stop",()=>{
   for (const side of ["long","short"] as const) {
