@@ -65,7 +65,7 @@ test("a Low-Range source carries its own coordination switch from discovery to q
 });
 
 test("Low-Range discovery creates every configured cost cell with independent fixed and dynamic evidence", () => {
- const id = "low-range-6-edge-turn-standalone";
+ const id = "low-range-1-failed-break-standalone";
  const cfg: TacticConfig = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, microRange: false, minimalRange: false,
    indicationSourceIds: [id], lowRange: { enabled: true, step: .002, steps: [2], slRatios: [.25, .3],
      trailRatios: [0, .5], maxHoldMin: 60 } };
@@ -73,14 +73,16 @@ test("Low-Range discovery creates every configured cost cell with independent fi
  e.fees = { maker: .00088, taker: .00088, slippageFeeRatio: 0 };
  e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: false, dca: false, block: false };
  const q = Object.values(e.quotes)[0];
- const bars = waveBars(320);
+ const bars = waveBars(500);
  const onsets = entryOnsets(portedStates("BTC-USDT", 1, bars, [id]).states[id]);
- const i = onsets.reduce((last, signal, index) => signal ? index : last, -1);
- assert.ok(i > 0);
+ const onsetIndices = Array.from(onsets).flatMap((signal, index) => signal ? [index] : []);
+ assert.ok(onsetIndices.length >= 2);
+ const i = onsetIndices.at(-2)!;
+ const laterI = onsetIndices.at(-1)!;
  q.closedBars = bars.slice(0, i + 1);
  refreshPortedIndications(e, [id], bars[i].timestamp + 60_000);
  armUniverse(e, cfg, "trailing", "atr");
- const rows = [...e.orders, ...e.queue].filter(order => order.indication === id && order.tactic === "trailing");
+ const rows = [...e.orders, ...e.queue].filter(order => order.symbol === q.id && order.indication === id && order.tactic === "trailing");
  assert.ok(rows.length > 0);
  assert.ok(rows.every(order => Math.abs(order.tpDist / order.price - .00576) < 1e-12));
  assert.ok(rows.every(order => Math.abs(order.slDist / order.price - .00276) < 1e-12));
@@ -90,4 +92,21 @@ test("Low-Range discovery creates every configured cost cell with independent fi
  ]), completeConfigSampleKey(order)]));
  assert.equal(cells.size, 3, "no-trail plus fixed and dynamic trailing are separate children");
  assert.equal(new Set(cells.values()).size, 3, "each actual child owns a complete evaluation key");
+ const firstKeys = new Set(rows.map(order => completeConfigSampleKey(order)));
+ assert.ok([...firstKeys].every(Boolean));
+
+ e.orders = e.orders.filter(order => order.symbol === q.id && order.indication === id && order.tactic === "trailing");
+ e.queue = e.queue.filter(order => order.symbol === q.id && order.indication === id && order.tactic === "trailing");
+ const laterCfg: TacticConfig = { ...cfg, lowRange: { ...cfg.lowRange!, maxHoldMin: 120 } };
+ q.closedBars = bars.slice(0, laterI + 1);
+ refreshPortedIndications(e, [id], bars[laterI].timestamp + 60_000);
+ assert.ok(stable02EntrySide(q, id), "the later completed-candle onset is independently discoverable");
+ armUniverse(e, laterCfg, "trailing", "atr");
+ const laterRows = [...e.orders, ...e.queue].filter(order => order.symbol === q.id && order.indication === id && order.tactic === "trailing");
+ assert.deepEqual(new Set(laterRows.map(order => order.maxHoldTicks)), new Set([12, 24]),
+   "an existing 60-minute cell cannot occupy the independently configured 120-minute lane");
+ const laterKeys = new Set(laterRows.map(order => completeConfigSampleKey(order)));
+ assert.equal(laterKeys.size, firstKeys.size * 2,
+   "every eligible previous hold-window child needs an independent later-window sibling");
+ assert.ok([...firstKeys].every(key => laterKeys.has(key)), "creating later siblings cannot replace parent evidence");
 });
