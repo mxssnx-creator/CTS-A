@@ -51,3 +51,34 @@ test("post-Base order sizes change only for the qualifying exact Set and exclude
   assert.ok(ordinary && !ordinary.relateMultiplier);
   assert.equal(raisedQty, 2 * ordinary.qty);
 });
+
+
+test("Relate keeps every native stop-gap and trailing-mode sibling on its own history", () => {
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, microRange: false, minimalRange: false,
+    tpAtr: .6, slOfTp: .4, relate: policy };
+  const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
+  e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: false, dca: false, block: false };
+  for (const q of Object.values(e.quotes)) q.atr = q.px * .05;
+  armUniverse(e, cfg, "trailing", "atr");
+  const seed = [...e.orders, ...e.queue].find(order => order.tactic === "trailing" && order.calc === "base" &&
+    order.slDist <= .5 * order.tpDist && completeConfigSampleKey(order));
+  assert.ok(seed);
+
+  const fixed = { ...seed, priceStopPct: .2, priceTrailPct: .3, trailingDistance: "fixed" as const };
+  const dynamic = { ...seed, priceStopPct: .2, priceTrailPct: .3, trailingDistance: "dynamic" as const };
+  const otherStop = { ...dynamic, priceStopPct: .3 };
+  const otherGap = { ...dynamic, priceTrailPct: .4 };
+  const siblings = [fixed, dynamic, otherStop, otherGap];
+  const keys = siblings.map(row => completeConfigSampleKey(row));
+  assert.ok(keys.every(Boolean));
+  assert.equal(new Set(keys).size, siblings.length);
+
+  const ownWins = Array.from({ length: 60 }, () => .01);
+  const histories = new Map([[keys[0]!, ownWins]]);
+  const multiplier = (row: (typeof siblings)[number]) =>
+    relateAllocation(histories.get(completeConfigSampleKey(row)!) ?? [], row.slDist, row.tpDist, policy);
+  assert.equal(multiplier(fixed), 2);
+  assert.equal(multiplier(dynamic), 1);
+  assert.equal(multiplier(otherStop), 1);
+  assert.equal(multiplier(otherGap), 1);
+});
