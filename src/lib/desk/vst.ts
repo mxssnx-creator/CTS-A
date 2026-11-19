@@ -7280,7 +7280,7 @@ export function evalBlockRelations(e: VstEngine, block: BlockConfig = DEFAULT_BL
   const paper = internAllPhase(e);
   const candidates = intern.bests.filter((c) => paper || c.pf >= minPf);
   const ivMin = e.tick - minutes;
-  const ivClosed = e.closed.filter((c) => isDeskConn(c.connId) && (c.tick || 0) >= ivMin);
+  const ivClosed = e.closed.filter((c) => isDeskConn(c.connId) && !c.examFlat && countsOnBlockTape(e, c.validExec) && (c.tick || 0) >= ivMin);
   const ivFor = (key: string) => {
     const rows = ivClosed.filter((c) => closedMatchesRelKey(c, key));
     return laneLastNStats(rows);
