@@ -7,7 +7,7 @@ import { relateAllocation, relateConfig } from "./relate.ts";
 import { extendOwnSampleHistory, sampleRows, type SampleCoverage } from "./last-n-samples.ts";
 import { hasDisjointBlocks, measuredEdgePnl, selectedDisjointBlocks } from "./last-n-progress.ts";
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
-import { absoluteProtection, priceDistanceParentBatch, priceDistanceVariants, priceTrailStop } from "./price-distance-grid.ts";
+import { absoluteProtection, priceDistanceParentBatch, priceDistanceVariants, priceTrailStop, STOP_DISTANCE_PCTS } from "./price-distance-grid.ts";
 import { DEFAULT_STEP_PF, stepPfFloor } from "./step-pf.ts";
 import { actualFillFee, feePolicy, resolveFeePolicy, roundTripFeeRate } from "./fee-policy.ts";
 import type {
@@ -4906,6 +4906,17 @@ function botFillCap(e: VstEngine, o: LiveOrder, px: number): number {
   return Math.max(0, cap - sideBookNotional(e, o.connId, o.symbol, o.side, px));
 }
 
+function nativeProtectionEntry(p: LivePosition): number {
+  const blockQty = p.blockQty ?? 0;
+  const blockAvg = p.blockAvg ?? 0;
+  const parentQty = p.qty - blockQty;
+  if (blockQty > 1e-12 && blockAvg > 0 && parentQty > 1e-8) {
+    const parentEntry = (p.avgEntry * p.qty - blockAvg * blockQty) / parentQty;
+    if (Number.isFinite(parentEntry) && parentEntry > 0) return parentEntry;
+  }
+  return p.avgEntry;
+}
+
 function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fill['kind'], buckets?: BookBuckets) {
   if (!ownedByDesk(o)) return;
   if (qty <= 0 || !Number.isFinite(qty) || !Number.isFinite(px) || px <= 0) return;
@@ -5068,8 +5079,18 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     if (pos.playbook !== "block" && pos.playbook !== "short" && !(performingLive(e) && (pos.playbook === "axis" || pos.tactic === "axis"))) pos.playbook = "dca";
     if (!pos.tactic) pos.tactic = "dca";
   }
-  if (!created) {
-    if (/^DCA/i.test(o.note || "")) {
+  // Block fills keep the parent's bracket. The add is peeled on its own risk.
+  if (!created && !isBlockOrder(o)) {
+    if (pos.priceStopPct != null) {
+      const entry = pos.avgEntry;
+      const long = pos.side === "long";
+      const tpKeep = Math.max(Number(o.tpDist) || Number(pos.tpDist) || 0, 1e-12);
+      const hard = absoluteProtection(pos.side, nativeProtectionEntry(pos), pos.priceStopPct, tpKeep);
+      pos.sl = pos.sl > 0 ? (long ? Math.max(pos.sl, hard.sl) : Math.min(pos.sl, hard.sl)) : hard.sl;
+      if (long ? !(pos.tp > entry) : !(pos.tp < entry)) pos.tp = entry + (long ? tpKeep : -tpKeep);
+      pos.slDist = Math.abs(pos.sl - entry);
+      pos.tpDist = Math.abs(pos.tp - entry);
+    } else if (/^DCA/i.test(o.note || "")) {
       const entry = pos.avgEntry;
       if (pos.side === "long") {
         if (!(pos.sl < entry)) pos.sl = entry - Math.max(Number(pos.slDist) || 0, 1e-12);
@@ -5090,8 +5111,6 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
         pos.slDist = next;
         pos.sl = pos.side === "long" ? entry - next : entry + next;
       }
-    } else if (isBlockOrder(o)) {
-      // Overlay keeps the parent's bracket. The add is peeled on its own risk.
     } else {
       const entry = pos.avgEntry;
       const floor = minimumStopDistance(entry, pos.modelRtCost ?? modeledPositionCost(e, pos.symbol), pos.minSlDistancePct);
@@ -9339,6 +9358,7 @@ export function syncConnections(conns: Connection[], e: VstEngine): Connection[]
 export function auditEngine(e: VstEngine) {
   const issues = [];
   let ratioViolations = 0;
+  let nativeStopViolations = 0;
   let negativePx = 0;
   let nanCount = 0;
   for (const q of Object.values(e.quotes)) {
@@ -9346,16 +9366,24 @@ export function auditEngine(e: VstEngine) {
     if (q.px <= 0 || q.lo <= 0) negativePx += 1;
   }
   for (const p of e.positions) {
-    const slD = Math.abs(p.sl - p.avgEntry);
-    const tpD = Math.abs(p.tp - p.avgEntry);
-    const trailed = p.side === "long" ? p.sl >= p.avgEntry : p.sl <= p.avgEntry;
-    const ratio = p.slOfTp != null && p.slOfTp > 0 ? Math.max(0.3, 1 / p.slOfTp) : snapTpRatio(e.tpRatio || TP_SL_RATIO);
-    // Axis/hybrid may pull TP in to 0.95× risk. That is not a wider stop.
     let minimum = 0;
     try { minimum = minimumStopDistance(p.avgEntry, p.modelRtCost ?? modeledPositionCost(e, p.symbol),
       p.minSlDistancePct ?? e.minSlDistancePct); } catch { nanCount++; }
-    const allow = Math.max(tpD / ratio / 0.95, minimum) + Math.max(1e-6, tpD * 1e-4);
-    if (!trailed && tpD > 0 && slD > allow) ratioViolations += 1;
+    if (p.priceStopPct != null) {
+      const entry = nativeProtectionEntry(p);
+      const risk = p.side === "long" ? entry - p.sl : p.sl - entry;
+      const allow = entry * p.priceStopPct / 100 + Math.max(1e-12, entry * 1e-8);
+      if (!STOP_DISTANCE_PCTS.includes(p.priceStopPct) || !(p.sl > 0) || !Number.isFinite(risk) || risk > allow)
+        nativeStopViolations++;
+    } else {
+      const slD = Math.abs(p.sl - p.avgEntry);
+      const tpD = Math.abs(p.tp - p.avgEntry);
+      const trailed = p.side === "long" ? p.sl >= p.avgEntry : p.sl <= p.avgEntry;
+      const ratio = p.slOfTp != null && p.slOfTp > 0 ? Math.max(0.3, 1 / p.slOfTp) : snapTpRatio(e.tpRatio || TP_SL_RATIO);
+      // Axis/hybrid may pull TP in to 0.95× risk.
+      const allow = Math.max(tpD / ratio / 0.95, minimum) + Math.max(1e-6, tpD * 1e-4);
+      if (!trailed && tpD > 0 && slD > allow) ratioViolations += 1;
+    }
     if (!Number.isFinite(p.avgEntry) || !Number.isFinite(p.unrealized)) nanCount += 1;
   }
   if (signalKeys(e).size > maxPositions(e)) issues.push("Signal cap exceeded");
@@ -9364,12 +9392,14 @@ export function auditEngine(e: VstEngine) {
   if (nanCount) issues.push(`${nanCount} NaN values`);
   if (negativePx) issues.push(`${negativePx} non-positive prices`);
   if (ratioViolations) issues.push(`${ratioViolations} SL/TP ratio violations`);
+  if (nativeStopViolations) issues.push(`${nativeStopViolations} absolute stop distance violations`);
   const counted = bookCounts(e);
   const accounted = counted.orders.queued + counted.orders.open + counted.orders.partial + counted.orders.filled + counted.orders.cancelled + counted.orders.rejected;
   if (counted.orders.placed !== accounted) issues.push(`Order count mismatch placed ${counted.orders.placed} vs ${accounted}`);
   if (counted.positions.slots !== counted.positions.long + counted.positions.short) issues.push("Position slot long/short mismatch");
   return {
-    ratioViolations,
+    ratioViolations: ratioViolations + nativeStopViolations,
+    nativeStopViolations,
     negativePx,
     nanCount,
     issues
