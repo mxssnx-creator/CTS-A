@@ -368,3 +368,46 @@ test("exact Block relation winners are independently re-evaluated on the current
   assert.equal(winningRelVolume(e, losing), 0, "a recently losing exact cell cannot retain its stale winner");
   assert.ok(winningRelVolume(e, winning) > 0, "the independently profitable sibling remains eligible");
 });
+
+
+test("Block current-interval relation scoring excludes selection-only and rejected exact rows", () => {
+  const { e, block } = fixture();
+  e.tick = 100;
+  e.preEvalDone = true;
+  e.intervalStrategy = { ...DEFAULT_INTERVAL_STRATEGY, scaleVol: false, relationHaircut: .4, relationKeepPf: .85 };
+  const exact = (priceStopPct: number) => ({
+    symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, kind: "short",
+    tactic: "trailing" as const, rangeType: "atr" as const, playbook: "short",
+    tpAtr: .6, slOfTp: .4, trailPct: .2, trailingDistance: "fixed" as const,
+    priceStopPct, priceTrailPct: .2, calc: "base", microRange: false,
+    minimalRange: false, shortRange: true, modelRtCost: .00176, minSlDistancePct: .3,
+  });
+  const contaminated = exact(.2), clean = exact(.3);
+  const cfgKey = (rel: ReturnType<typeof exact>) =>
+    blockRelationKeys(rel).find(key => key.startsWith("cfg:"))!;
+  const window = { n: 3, ring: [], closed: 3, pauseLeft: 0, lastNet: .03,
+    lastAvg: .01, lastPf: 2, windows: 1, lossWindows: 0, adjusted: 0,
+    losers: [], batchNets: [.03] };
+  e.blockRelWindows = {
+    [cfgKey(contaminated)]: { 3: { ...window } },
+    [cfgKey(clean)]: { 3: { ...window } },
+  } as typeof e.blockRelWindows;
+  const close = (rel: ReturnType<typeof exact>, id: string, tick: number, ratio: number,
+    validExec: boolean, examFlat = false) => ({ ...rel, id, connId: e.activeConnId,
+      pnl: ratio, ratio, qty: 1, entry: 100, exit: ratio > 0 ? 101 : 99,
+      reason: (ratio > 0 ? "tp" : "sl") as "tp" | "sl", tick, at: tick, r: ratio,
+      validExec, examFlat: examFlat || undefined });
+  e.closed = [
+    ...[91, 92, 93].map(tick => close(contaminated, `held-loss-${tick}`, tick, -.01, true)),
+    ...[94, 95, 96].map(tick => close(contaminated, `selection-win-${tick}`, tick, .1, true, true)),
+    ...[97, 98, 99].map(tick => close(contaminated, `rejected-win-${tick}`, tick, .1, false)),
+    ...[91, 92, 93].map(tick => close(clean, `held-win-${tick}`, tick, .01, true)),
+  ] as typeof e.closed;
+  const relationBlock = { ...block, relAdditive: true, minRelPf: 1.1, evalLastNs: [3], relVolumeRatio: .4 };
+  e.blockCfg = relationBlock;
+
+  evalBlockRelations(e, relationBlock);
+  assert.equal(winningRelVolume(e, contaminated), 0,
+    "selection-only and rejected wins cannot rescue a losing held-out exact cell");
+  assert.ok(winningRelVolume(e, clean) > 0, "a profitable held-out sibling remains eligible");
+});
