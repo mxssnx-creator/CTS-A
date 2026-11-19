@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
+import { priceDistanceParentBatch } from "./price-distance-grid.ts";
 import { finishBaseEval, initVstEngine, laneClosed, laneLastNDecision, lanePassExec, liveShouldExecute, lastNSampleCoverage, registerSampleContext, configStepFloor, tickVst } from "./vst.ts";
 
 const own = { symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const,
@@ -294,4 +295,32 @@ test("native settlement retains absolute stop and trailing ownership", () => {
     { stop: .2, gap: .2, mode: "fixed" },
   );
   assert.equal(laneClosed(e, { ...own, priceStopPct: .3, priceTrailPct: .2, trailingDistance: "fixed" }, 80).length, 0);
+});
+
+
+test("an exact native parent holds each child cohort for its own Base sample window", () => {
+  const variants = Array.from({ length: 1050 }, (_, index) => index);
+  const progress: Record<string, number> = {};
+  const first = priceDistanceParentBatch(variants, progress, "parent-a", 16, 15);
+  for (let sample = 1; sample < 15; sample++) {
+    assert.deepEqual(priceDistanceParentBatch(variants, progress, "parent-a", 16, 15), first,
+      "a parent must repeat the same exact children until each has an own Base-sized tape");
+  }
+  const second = priceDistanceParentBatch(variants, progress, "parent-a", 16, 15);
+  assert.notDeepEqual(second, first, "the parent advances only after its cohort owns 15 samples");
+  const other = priceDistanceParentBatch(variants, progress, "parent-b", 16, 15);
+  assert.notDeepEqual(other, first, "another parent owns an independent deterministic cohort cursor");
+  const restored = JSON.parse(JSON.stringify(progress));
+  assert.deepEqual(priceDistanceParentBatch(variants, restored, "parent-a", 16, 15), second,
+    "restart preserves the parent-owned cohort and does not reset it to an older lane");
+  const seen = new Map<number, number>();
+  const complete: Record<string, number> = {};
+  for (let sample = 0; sample < 66 * 15; sample++) {
+    for (const child of priceDistanceParentBatch(variants, complete, "complete-parent", 16, 15)) {
+      seen.set(child, (seen.get(child) ?? 0) + 1);
+    }
+  }
+  assert.equal(seen.size, variants.length, "every eligible child is eventually created by this parent");
+  assert.ok([...seen.values()].every(count => count >= 15),
+    "every child is independently evaluated for at least one Base-sized window");
 });
