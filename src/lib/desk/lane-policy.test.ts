@@ -85,3 +85,24 @@ it("statistics use the configured small window instead of an unrelated hardcoded
  assert.equal(score.pass,true);assert.equal(score.gatedN,3);assert.equal(score.gatedPf,4);
  assert.equal(scoreLastNModeTape([{pnl:.02},{pnl:.02}],cfg,1.1,1.1,"independent").pass,false);
 });
+
+
+it("native Last-N and Auto PF cannot borrow an absolute stop-gap or trailing-mode sibling", () => {
+ const e=engine();
+ e.lastNProgress={...DEFAULT_LAST_N_PROGRESS,evalNs:[15],validNs:[8],disableNs:[6],mode:"independent"};
+ e.minPf=1.1;e.basePf=1.1;e.stepPf={enabled:true,ratio:1.5,max:2};
+ const own={...rel,connId:e.activeConnId,calc:"base" as const,microRange:false,minimalRange:false,shortRange:true,
+  modelRtCost:.00176,minSlDistancePct:.1,priceStopPct:.2,priceTrailPct:.3,trailingDistance:"fixed" as const};
+ const rows=(mode:"fixed"|"dynamic",pnl:number)=>Array.from({length:16},(_,i)=>({
+  ...own,id:`${mode}-${i}`,trailingDistance:mode,pnl,ratio:pnl,tick:100-i,qty:1,entry:100,
+  exit:100*(1+pnl),r:pnl,reason:pnl<0?"sl":"tp",
+ } as ClosedTrade));
+ e.closed=[...rows("fixed",.02),...rows("dynamic",-.01)];
+ assert.equal(laneLastNDecision(e,own).pass,true,"the winning fixed-distance Set owns its Last-N and Auto PF proof");
+ assert.equal(laneLastNDecision(e,{...own,trailingDistance:"dynamic"}).pass,false,
+  "a losing dynamic sibling cannot borrow the fixed-distance proof");
+ assert.equal(laneLastNDecision(e,{...own,priceStopPct:.3}).pass,false,
+  "an unobserved absolute-stop sibling cannot borrow proof");
+ assert.equal(laneLastNDecision(e,{...own,priceTrailPct:.4}).pass,false,
+  "an unobserved trailing-gap sibling cannot borrow proof");
+});
