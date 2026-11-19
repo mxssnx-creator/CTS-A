@@ -48,3 +48,20 @@ test("no-prehistory simulations report discovery; configured economics apply to 
     assert.equal(row.modelRtCost, modeledPositionCost(engine, row.symbol));
   }
 });
+
+test("native paper evaluation produces the same evidence under a slow host clock", (t) => {
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, tpAtr: .6, slOfTp: 1,
+    priceDistanceGrid: { enabled: true, stopPcts: [.2, .3], trailPcts: [.2, .3] } };
+  const replay = (clockStep: number) => {
+    let clock = 1_760_000_000_000;
+    const wall = t.mock.method(Date, "now", () => clock += clockStep);
+    try {
+      const { report } = simulateHours(1, cfg, "trailing", { symbolCount: 4, prehours: 2,
+        rangeType: "atr", strategyToggles: { normal: true, trailing: true, block: false, axis: false, dca: false } });
+      return { selection: report.pre?.trades, base: report.prehistorySampleCoverage, trades: report.trades, pf: report.pf };
+    } finally { wall.mock.restore(); }
+  };
+  const fast = replay(0);
+  assert.ok((fast.selection ?? 0) > 0, "the fixture must exercise native discovery");
+  assert.deepEqual(replay(500), fast, "offline sample eligibility must depend on modeled time, not host latency");
+});

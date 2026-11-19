@@ -22,14 +22,17 @@ jobs:
       - run: npm run test:lastn-blocks
       - run: node --experimental-strip-types --test src/lib/desk/project-order-identity.test.ts
       - run: node --experimental-strip-types --test src/lib/desk/disjoint-last-n.test.ts
-      - run: node --experimental-strip-types scripts/sim-12-symbol-price-grid.mjs
-      - run: node --experimental-strip-types scripts/sim-12-symbol-price-grid.mjs --short
+      - run: node --experimental-strip-types --test src/lib/desk/fee-policy.test.ts src/lib/desk/fee-integration.test.ts
+      - run: node --require ./scripts/lib/offline-test-guard.cjs --experimental-strip-types scripts/sim-12-symbol-price-grid.mjs --selection-hours=6 --validation-hours=6
+      - run: node --require ./scripts/lib/offline-test-guard.cjs --experimental-strip-types scripts/sim-12-symbol-price-grid.mjs --minimal --selection-hours=6 --validation-hours=6
+      - run: node --require ./scripts/lib/offline-test-guard.cjs --experimental-strip-types scripts/sim-12-symbol-price-grid.mjs --short --selection-hours=6 --validation-hours=6
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: cts-a-price-grid-replays-${{ github.sha }}
           path: |
             artifacts/cts-a-price-grid-replay.*
+            artifacts/cts-a-minimal-price-grid-replay.*
             artifacts/cts-a-short-price-grid-replay.*
           if-no-files-found: error
       - run: npm run build:dev

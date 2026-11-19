@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { armUniverse, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine } from "./vst.ts";
+import { armUniverse, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, noteBlockPosClose, skipLiveSymbol } from "./vst.ts";
 
 test("audit accepts the own cost-plus-stop floor but rejects an unjustified wider stop",()=>{
   for (const side of ["long","short"] as const) {
@@ -81,4 +81,66 @@ test("short coordination materializes the enabled native stop/trail catalog", ()
     JSON.stringify([.3, .3, "dynamic"]),
     JSON.stringify([.3, .3, "fixed"]),
   ]), "every Short parent must expose each enabled fixed/dynamic child geometry");
+});
+
+function nativeMicroFixture() {
+  const cfg = {
+    ...DEFAULT_TACTIC_CONFIG,
+    microRange: true, minimalRange: false, shortRange: false, tpAtr: .3, slOfTp: 1,
+    priceDistanceGrid: { enabled: true, stopPcts: [.2, .3], trailPcts: [.2, .3] },
+  };
+  const e = initVstEngine(cfg, { arm: false, symbolCount: 4 });
+  e.lastTactic = "trailing";
+  e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: false, dca: false, block: false };
+  armUniverse(e, cfg, "trailing", "atr");
+  const seed = e.queue.find(o => o.priceStopPct === .2)!;
+  assert.ok(seed, "the native cell can open on an empty Base tape");
+  e.queue = [];
+  e.orders = [];
+  e.tick = 100;
+  return { cfg, e, seed };
+}
+
+test("a losing native Micro sibling cannot stop another cell from collecting Base samples", () => {
+  const { cfg, e, seed } = nativeMicroFixture();
+  e.closed = Array.from({ length: 15 }, (_, index) => ({
+    ...seed, id: `losing-sibling-${index}`, tick: 99 - index, priceStopPct: .3,
+    pnl: -1, ratio: -.01, entry: seed.price, exit: seed.price * .99, r: -1, reason: "sl" as const,
+  }));
+  assert.equal(skipLiveSymbol(e, seed.symbol), true, "the fixture trips the pooled symbol gate");
+  armUniverse(e, cfg, "trailing", "atr");
+  assert.ok(e.queue.some(o => o.symbol === seed.symbol && o.priceStopPct === .2),
+    "native Base discovery should collect the cell's own outcomes");
+  e.queue = [];
+  e.orders = [];
+  e.cooldown[`${e.activeConnId}:${seed.symbol}`] = e.tick + 3;
+  armUniverse(e, cfg, "trailing", "atr");
+  assert.ok(!e.queue.some(o => o.symbol === seed.symbol), "the configured symbol cooldown is still enforced");
+  assert.equal(e.cooldown[`${e.activeConnId}:${seed.symbol}`], e.tick + 3);
+  e.tick += 3;
+  const block = { ...e.blockCfg!, keepAdjusted: false };
+  for (let sample = 0; sample < 6; sample++) noteBlockPosClose(e, seed.symbol, seed.side, -1, block);
+  armUniverse(e, cfg, "trailing", "atr");
+  assert.ok(!e.queue.some(o => o.symbol === seed.symbol), "the symbol's active Block pause is still enforced");
+});
+
+test("a qualified native Micro cell can enter paper validation beside an unqualified sibling", () => {
+  const { cfg, e, seed } = nativeMicroFixture();
+  e.closed = Array.from({ length: 56 }, (_, index) => {
+    const sibling = index < 40;
+    const signed = seed.side === "long" ? 1 : -1;
+    return { ...seed, id: `base-${index}`, tick: 99 - index, priceStopPct: sibling ? .3 : .2,
+      pnl: sibling ? -1 : 1, ratio: sibling ? -.01 : .01, entry: seed.price,
+      exit: seed.price * (1 + signed * (sibling ? -.01 : .01)), r: sibling ? -1 : 1,
+      reason: sibling ? "sl" as const : "tp" as const };
+  });
+  finishBaseEval(e);
+  assert.equal(liveShouldExecute(e, seed), true, "the exact cell has acceptable after-cost proof");
+  assert.equal(skipLiveSymbol(e, seed.symbol), true, "the mixed symbol history is still losing");
+  armUniverse(e, cfg, "trailing", "atr");
+  const armed = e.queue.filter(o => o.symbol === seed.symbol && o.validExec);
+  assert.ok(armed.some(o => o.priceStopPct === .2 && o.priceTrailPct === seed.priceTrailPct),
+    "native validation must reach the qualified own cell");
+  assert.ok(armed.every(o => liveShouldExecute(e, o)), "the sibling must still pass its exact gate");
+  assert.ok(armed.every(o => o.priceStopPct !== .3), "no losing sibling is admitted");
 });

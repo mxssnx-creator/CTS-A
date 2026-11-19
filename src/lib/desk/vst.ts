@@ -612,6 +612,7 @@ export type ConfigTapeRow = ConfigIdentity & {
   examFlat?: boolean;
 };
 const configPreMem = new WeakMap<VstEngine, ConfigTapeRow[]>();
+const frozenNativeIndex = new WeakMap<ConfigTapeRow[], Map<string, ConfigTapeRow[]>>();
 function frozenConfigRows(e: VstEngine): ConfigTapeRow[] {
   return configPreMem.get(e) ?? e.frozenBaseSamples ?? [];
 }
@@ -777,6 +778,7 @@ function snapshotConfigPreTape(e: VstEngine) {
   const rows=[...grouped.values()].flat();
   e.frozenBaseSamples=rows;
   configPreMem.set(e,rows);
+  if (rows.some(row => row.priceTrailPct != null)) frozenNativeIndex.set(rows, grouped);
 }
 function filterConfigRows(rows: ConfigTapeRow[], rel: ConfigIdentity, limit: number, accept?: (row: ConfigTapeRow) => boolean) {
   const out: ConfigTapeRow[] = [];
@@ -796,6 +798,30 @@ function filterConfigRows(rows: ConfigTapeRow[], rel: ConfigIdentity, limit: num
     if (out.length >= limit) break;
   }
   return out;
+}
+
+function ownFrozenConfigRows(e: VstEngine, rel: ConfigIdentity, limit: number) {
+  const rows = frozenConfigRows(e);
+  if (!rows.length) return rows;
+  const key = Number.isFinite(rel.priceStopPct) && Number.isFinite(rel.priceTrailPct)
+    ? completeConfigSampleKey(rel) : null;
+  if (key == null) return filterConfigRows(rows, rel, limit);
+  let index = frozenNativeIndex.get(rows);
+  if (!index) {
+    // A restart restores the serialized tape. Rebuild its index on demand.
+    index = new Map();
+    for (const row of rows) {
+      if (row.examFlat) continue;
+      const rowKey = completeConfigSampleKey(row);
+      if (rowKey == null) continue;
+      const own = index.get(rowKey);
+      if (own) own.push(row);
+      else index.set(rowKey, [row]);
+    }
+    frozenNativeIndex.set(rows, index);
+  }
+  // Keep the lookup exact, and retain the same numeric matching rules as current tape.
+  return filterConfigRows(index.get(key) ?? [], rel, limit);
 }
 
 /** Read the current own tape before applying the cap. A forced boundary
@@ -3414,6 +3440,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   const openTape = completeOpenTape(e);
   const livePace = openTape || performingLive(e);
   const gated0 = Boolean(e.preEvalDone || e.liveTape);
+  const nativePaper = !complete && paperMode(e) && cfg.priceDistanceGrid?.enabled === true;
   const sourceOnsets = new Map<string, ReadonlySet<IndicationId>>();
   const sourceIds = e.indicationSourceIds ?? [];
   if (sourceIds.length) for (const { id } of universe) {
@@ -3450,7 +3477,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
     const qStop = !internSlot && internReserve ? qMax - internReserve : qMax;
     if (!openTape && (e.liveTape || (complete && gated0 && !internAll0)) && rank >= liveCap && !internSlot) return;
     if (!internSlot && internReserve && qn >= qMax - internReserve) return;
-    if (!internSlot && skipLiveSymbol(e, s.id, winN)) return;
+    // Native paper Base collects own evidence, and each validation cell
+    // passes its exact gate below. Symbol Block pauses still apply here.
+    if (!internSlot && (nativePaper ? symbolBlockPaused(e, s.id, winN) : skipLiveSymbol(e, s.id, winN))) return;
     if ((e.cooldown[cooldownKey(connId, s.id)] ?? 0) > e.tick) return;
     if ((symLoad.get(s.id) || 0) >= symCap) return;
     const mode = e.blockCfg?.sides ?? "both";
@@ -7409,7 +7438,7 @@ function validatedSet(
   const ident = { ...rel, connId: e.activeConnId };
   const need = lastNMaxOf(lastNProgressOf(e));
   const own = currentConfigRows(e, ident, need);
-  const tape = own.length ? own : filterConfigRows(frozenConfigRows(e), ident, need);
+  const tape = own.length ? own : ownFrozenConfigRows(e, ident, need);
   if (lastNTapePass(e, tape, base)) return true;
   // An exact execution context cannot borrow a broader range or sibling configuration's wins.
   if (rel.symbol || rel.side) return false;
@@ -8924,7 +8953,7 @@ function capBookCheap(e: VstEngine) {
   }
 }
 
-export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { indicationTime?:number; freezeIds?: Set<string>; skipWalk?: boolean; skipMatch?: boolean; bookOnly?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
+export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opts?: { indicationTime?:number; syntheticReplay?: boolean; freezeIds?: Set<string>; skipWalk?: boolean; skipMatch?: boolean; bookOnly?: boolean; rangeType?: RangeType; symbolCount?: number; orderType?: OrderTypeId; block?: BlockConfig; endStage?: boolean }) {
   ensureEngine(e);
   e.relationalVolumeRatios=cfg.relationalVolumeRatios;
   e.indicationSourceIds=indicationSourceIds(cfg.indicationSourceIds);
@@ -8972,7 +9001,7 @@ export function tickVst(e: VstEngine, cfg: TacticConfig, tactic: TacticKind, opt
   if (opts?.skipWalk) e.liveTape = true;
   const t0 = Date.now();
   const over = () => {
-    if (e.completeSim && paperMode(e)) return false;
+    if (paperMode(e) && (e.completeSim || opts?.syntheticReplay)) return false;
     const n = e.symbolCount || 0;
     const budget = e.liveTape ? Math.min(800, 280 + n * 4) : n >= 80 ? 400 : 140;
     return Date.now() - t0 > budget;
@@ -9387,7 +9416,9 @@ export type SimulationPolicy = Partial<Pick<VstEngine,
   "lastNProgress" | "shortProgress" | "intervalStrategy" | "minPf" | "basePf" | "blockPf" |
   "axisPf" | "shortPf" | "shortBasePf" | "shortAxisPf" | "shortBlockPf">>;
 
-export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { policy?: SimulationPolicy; symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; comboOnly?: boolean; prehours?: number; minPf?: number; basePf?: number; blockPf?: number; shortPf?: number; shortBasePf?: number; shortBlockPf?: number; pfCoords?: Partial<PfCoordToggles> | false; strategyToggles?: Partial<StrategyToggles>; skipIndications?: string[]; onHour?: (row: { h: number; eq: number; net: number; hourPf: number; pf: number; gatedN?: number; gatedPf?: number; trades?: number; mdd?: number; avgPos?: number; avgOrd?: number; pos?: number; orders?: number }) => void }) {
+export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, tactic: TacticKind = 'hybrid', opts?: { policy?: SimulationPolicy; symbolCount?: number; orderType?: OrderTypeId; rangeType?: RangeType; marks?: number[]; block?: BlockConfig; equity?: number; costStep?: number; complete?: boolean; comboOnly?: boolean; prehours?: number; minPf?: number; basePf?: number; blockPf?: number; shortPf?: number; shortBasePf?: number; shortBlockPf?: number; pfCoords?: Partial<PfCoordToggles> | false; strategyToggles?: Partial<StrategyToggles>; skipIndications?: string[];
+  onSettlement?: (row: Readonly<VstEngine["closed"][number]>, phase: "selection" | "validation") => void;
+  onHour?: (row: { h: number; eq: number; net: number; hourPf: number; pf: number; gatedN?: number; gatedPf?: number; trades?: number; mdd?: number; avgPos?: number; avgOrd?: number; pos?: number; orders?: number }) => void }) {
   const hadPair = cfg.tpAtr != null && cfg.slOfTp != null;
   const use = cfgUsesShortRange(cfg) ? snapShortTacticConfig(cfg) : cfg;
   const ticks = Math.max(1, Math.round(hours * TICKS_PER_HOUR));
@@ -9403,6 +9434,8 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
     : complete && hours >= 12 ? prehistoryHours(opts?.policy?.shortProgress?.evalHours) : 0;
   const preTicks = prehours * TICKS_PER_HOUR;
   const totalTicks = preTicks + ticks;
+  const nativeReplay = use.priceDistanceGrid?.enabled === true;
+  const syntheticStart = Date.UTC(2020, 0, 1);
   const engine = initVstEngine(use, {
     warmup: 0,
     symbolCount: opts?.symbolCount,
@@ -9652,6 +9685,7 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       symbolCount: opts?.symbolCount,
       orderType: opts?.orderType,
       block: opts?.block,
+      ...(nativeReplay ? { syntheticReplay: true, indicationTime: syntheticStart + (i + 1) * 60_000 } : {}),
     });
     if (preTicks > 0 && i + 1 === preTicks) {
       const examTrades = engine.ledger.trades;
@@ -9822,7 +9856,9 @@ export function simulateHours(hours: number, cfg: TacticConfig = DEFAULT_CFG, ta
       const added = engine.ledger.trades - seenClosed;
       if (fresh.length < added) missedCloses += added - fresh.length;
       for (const t of fresh) {
-        if (!inLive || !deskTapeRow(engine, t) || isBotPlay(t.playbook)) continue;
+        if (!deskTapeRow(engine, t) || isBotPlay(t.playbook)) continue;
+        if (!t.examFlat) opts?.onSettlement?.(t, inLive ? "validation" : "selection");
+        if (!inLive) continue;
         const edge = edgePnl(t);
         const sym = scoredSymbols.get(t.symbol) ?? { id: t.symbol, trades: 0, wins: 0, profit: 0, loss: 0, gp: 0, gl: 0, sl: 0, tp: 0 };
         scoredSymbols.set(t.symbol, sym);
