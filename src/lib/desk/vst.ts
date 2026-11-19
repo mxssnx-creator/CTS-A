@@ -12444,7 +12444,8 @@ function protectionPolicyKey(row: { modelRtCost?: number; minSlDistancePct?: num
 
 /** Identity does not snap Minimal cost multiples through the Short ATR grid. */
 export function exactProtectionCombo(row: { tpAtr?: number; slOfTp?: number; minimalRange?: boolean; microRange?: boolean; shortRange?: boolean;
-  priceStopPct?: number; priceTrailPct?: number; trailingDistance?: TrailingDistance }): string {
+  priceStopPct?: number; priceTrailPct?: number; trailingDistance?: TrailingDistance; maxHoldTicks?: number }): string {
   return JSON.stringify([row.microRange === true ? "micro" : row.minimalRange === true ? "minimal" : row.shortRange === true ? "short" : "normal",
-    row.tpAtr, row.slOfTp, row.priceStopPct, row.priceTrailPct, row.trailingDistance === "fixed" ? "fixed" : "dynamic"]);
+    row.tpAtr, row.slOfTp, row.priceStopPct, row.priceTrailPct, row.trailingDistance === "fixed" ? "fixed" : "dynamic",
+    ...(Number.isFinite(row.maxHoldTicks) ? ["hold-ticks", row.maxHoldTicks] : [])]);
 }

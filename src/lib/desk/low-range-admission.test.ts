@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
-import { armUniverse, completeConfigSampleKey, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, lowRangeProtectGrid, noteBlockPosClose, skipLiveSymbol, tickVst } from "./vst.ts";
+import { armUniverse, completeConfigSampleKey, exactProtectionCombo, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, lowRangeProtectGrid, noteBlockPosClose, skipLiveSymbol, tickVst } from "./vst.ts";
 import { DEFAULT_LOW_RANGE_GRID, lowRangeGridProtects } from "../../../shared/cts-indications/origin/indications/low-range.ts";
 import { sanitizeDeskSettings } from "./settings-sync.ts";
 
@@ -300,4 +300,25 @@ test("the complete cost-aware Low-Range catalog has bounded active materializati
   assert.equal(cells.length, 270);
   assert.equal(identities.size, 270);
   console.info(`low-range-grid benchmark variants=270 elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${payloadBytes}`);
+});
+
+test("independent Low-Range hold windows retain bounded geometry identity", async () => {
+  const { performance } = await import("node:perf_hooks");
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true,
+    lowRange: { ...DEFAULT_LOW_RANGE_GRID, enabled: true } };
+  const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 1 });
+  e.fees = { maker: .00088, taker: .00088, slippageFeeRatio: 0 };
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
+  type HoldCell = { tpAtr: number; slOfTp: number; trailPct: number; trailingDistance?: "fixed"; maxHoldTicks: number };
+  const cells = [60, 120].flatMap(maxHoldMin => lowRangeProtectGrid(e, {
+    ...cfg, lowRange: { ...cfg.lowRange, maxHoldMin },
+  }, "trailing") as HoldCell[]);
+  const identities = new Set(cells.map(cell => JSON.stringify([exactProtectionCombo(cell), cell.trailPct])));
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  const payloadBytes = Buffer.byteLength(JSON.stringify(cells));
+  assert.equal(cells.length, 540);
+  assert.equal(identities.size, 540);
+  console.info(`low-range-hold benchmark variants=540 elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${payloadBytes}`);
 });
