@@ -284,10 +284,10 @@ test("Block children retain each exact price-grid parent and its frozen economic
   const first = parent("grid-first", 1), second = parent("grid-second", 1);
   Object.assign(first, { tpAtr: .6, slOfTp: .4, trailPct: .2, priceStopPct: .2, priceTrailPct: .2,
     trailingDistance: "fixed", microRange: false, minimalRange: false, shortRange: true,
-    modelRtCost: .00176, minSlDistancePct: .3 });
+    modelRtCost: .00176, minSlDistancePct: .3, maxHoldTicks: 12 });
   Object.assign(second, { tpAtr: .6, slOfTp: .4, trailPct: .2, priceStopPct: .3, priceTrailPct: .3,
     trailingDistance: undefined, microRange: false, minimalRange: false, shortRange: true,
-    modelRtCost: .00176, minSlDistancePct: .3 });
+    modelRtCost: .00176, minSlDistancePct: .3, maxHoldTicks: 24 });
   e.positions = [first, second];
   adjustActiveBlocks(e, cfg, "trailing", block, "atr");
 
@@ -298,10 +298,10 @@ test("Block children retain each exact price-grid parent and its frozen economic
     assert.ok(orders.every(order => completeConfigSampleKey(order)));
     for (const order of orders) assert.deepEqual({
       stop: order.priceStopPct, gap: order.priceTrailPct, mode: order.trailingDistance,
-      short: order.shortRange, cost: order.modelRtCost, minStop: order.minSlDistancePct,
+      short: order.shortRange, cost: order.modelRtCost, minStop: order.minSlDistancePct, hold: order.maxHoldTicks,
     }, {
       stop: p.priceStopPct, gap: p.priceTrailPct, mode: p.trailingDistance,
-      short: p.shortRange, cost: p.modelRtCost, minStop: p.minSlDistancePct,
+      short: p.shortRange, cost: p.modelRtCost, minStop: p.minSlDistancePct, hold: p.maxHoldTicks,
     });
   }
   assert.notEqual(completeConfigSampleKey(children[0][0]), completeConfigSampleKey(children[1][0]),
@@ -328,6 +328,13 @@ test("Block relation config keys isolate every native stop-gap and trailing-mode
 
   assert.notEqual(cfg(.2, .2, "fixed"), cfg(.3, .2, "fixed"), "21 stop cells need own relation evaluations");
   assert.notEqual(cfg(.2, .2, "fixed"), cfg(.2, .3, "fixed"), "25 gap cells need own relation evaluations");
+  assert.notEqual(
+    blockRelationKeys({ ...base, priceStopPct: .2, priceTrailPct: .2, maxHoldTicks: 12 } as Parameters<typeof blockRelationKeys>[0])
+      .find(key => key.startsWith("cfg:")),
+    blockRelationKeys({ ...base, priceStopPct: .2, priceTrailPct: .2, maxHoldTicks: 24 } as Parameters<typeof blockRelationKeys>[0])
+      .find(key => key.startsWith("cfg:")),
+    "cell-owned hold windows need independent Block evaluation identities",
+  );
   assert.notEqual(cfg(.2, .2, "fixed"), cfg(.2, .2), "fixed and dynamic trailing cannot pool evidence");
 });
 

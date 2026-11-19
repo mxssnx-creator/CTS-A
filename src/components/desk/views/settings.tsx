@@ -2,6 +2,7 @@ import {BlockPolicyFields} from "../../../../shared/cts-lastn/fields";
 import {VolumeRatioSliders} from "../../../../shared/cts-volume/sliders.tsx";
 import {PORTED_CATALOG,DEFAULT_TACTIC_SOURCES,DEFAULT_INVERSE_SOURCES} from "../../../../shared/cts-indications/catalog.ts";
 import { DEFAULT_LOW_RANGE_SOURCES, LOW_RANGE_CATALOG } from "../../../../shared/cts-indications/low-range-catalog.ts";
+import { DEFAULT_LOW_RANGE_GRID } from "../../../../shared/cts-indications/origin/indications/low-range.ts";
 import { relateConfig, type RelateConfig } from "@/lib/desk/relate.ts";
 import { DEFAULT_PRICE_DISTANCE_GRID } from "@/lib/desk/price-distance-grid";
 import { STRATEGY_PROCESSING_RANGES } from "@/lib/desk/strategy-processing";
@@ -279,6 +280,7 @@ export function SettingsView() {
   const cfg = useDesk((s) => s.tacticConfig);
   const setCfg = useDesk((s) => s.setTacticConfig);
   const priceDistanceGrid = cfg.priceDistanceGrid ?? DEFAULT_PRICE_DISTANCE_GRID;
+  const lowRangeGrid = cfg.lowRange ?? DEFAULT_LOW_RANGE_GRID;
   const relate = relateConfig(cfg.relate);
   const setRelate = (patch: Partial<RelateConfig>) => setCfg({ relate: relateConfig({ ...relate, ...patch }) });
   const [sourceSelectionError, setSourceSelectionError] = useState(false);
@@ -1129,10 +1131,21 @@ export function SettingsView() {
             >
               Exact 0.1% grid {priceDistanceGrid.enabled ? "on" : "off"}
             </button>
+            <button
+              type="button"
+              aria-pressed={lowRangeGrid.enabled}
+              className={`${chip} ${lowRangeGrid.enabled ? chipOn : chipOff}`}
+              onClick={() => setCfg({ lowRange: { ...lowRangeGrid, enabled: !lowRangeGrid.enabled } })}
+            >
+              Cost-aware Low-Range {lowRangeGrid.enabled ? "on" : "off"}
+            </button>
           </div>
           <p className="mb-3 text-xs text-subtle">
             Native absolute-price coverage: {priceDistanceGrid.stopPcts.length} stops (0.2–2.2%) · {priceDistanceGrid.trailPcts.length} gaps
             (0.2–2.6%) · fixed and dynamic trailing are separate evaluation lanes. Existing saved desks remain off until enabled.
+          </p>
+          <p className="mb-3 text-xs text-subtle">
+            Low-Range cost cells: {lowRangeGrid.steps.length} target steps · {lowRangeGrid.slRatios.length} stop ratios · {lowRangeGrid.trailRatios.length} trailing ratios · fixed/dynamic trailing are independent. Existing saved desks remain off until enabled.
           </p>
           <div className={`grid gap-4 sm:grid-cols-2 ${strategyToggles.trailing ? "" : "opacity-50"}`}>
             <label className="grid items-center gap-2 text-sm">
