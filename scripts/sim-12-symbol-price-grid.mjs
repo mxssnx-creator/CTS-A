@@ -55,6 +55,7 @@ const exact = retained.filter(row => row.priceStopPct != null);
 const distinct = new Set(retained.map(row =>
   `${row.symbol}:${row.side}:${row.tick - Math.max(0, Number(row.holdTicks) || 0)}`));
 const costs = [...new Set(retained.map(row => row.modelRtCost).filter(Number.isFinite).map(row => Number(row).toFixed(8)))];
+const parentCursorValues = Object.values(engine.priceDistanceParentSamples ?? {}).map(Number).filter(Number.isFinite);
 const pfOf = rows => {
   let gp = 0, gl = 0;
   for (const row of rows) {
@@ -100,6 +101,8 @@ const evidence = {
     rateSkips: report.rateSkips,
     slExits: report.slExits,
     tpExits: report.tpExits,
+    nativeParentCursors: parentCursorValues.length,
+    nativeParentMaxOccurrences: parentCursorValues.length ? Math.max(...parentCursorValues) : 0,
   },
   lastNSampleCoverage: {
     selectionBoundary: report.prehistorySampleCoverage ?? null,
