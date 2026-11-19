@@ -75,7 +75,7 @@ test("Relate keeps every native stop-gap and trailing-mode sibling on its own hi
 
   const ownWins = Array.from({ length: 60 }, () => .01);
   const histories = new Map([[keys[0]!, ownWins]]);
-  const multiplier = (row: typeof fixed) =>
+  const multiplier = (row: (typeof siblings)[number]) =>
     relateAllocation(histories.get(completeConfigSampleKey(row)!) ?? [], row.slDist, row.tpDist, policy);
   assert.equal(multiplier(fixed), 2);
   assert.equal(multiplier(dynamic), 1);
