@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 import { test } from "node:test";
 import { closePnl, positionNetRatio, DEFAULT_TACTIC_CONFIG } from "./engine.ts";
-import { initVstEngine, tickVst } from "./vst.ts";
+import { completeConfigSampleKey, initVstEngine, tickVst } from "./vst.ts";
 import type { LivePosition } from "./types.ts";
 
 function fixture(side: "long" | "short", hourKeep: boolean) {
@@ -90,6 +91,41 @@ test("settlement preserves the original fee and stop policy for subsequent quali
   assert.equal(c.minSlDistancePct, .25);
   assert.equal(c.pnl, closePnl(1, c.entry, c.exit, c.qty, .0011));
   assert.equal(c.calc, "px"); assert.equal(c.microRange, true); assert.equal(c.trailPct, .2);
+});
+
+test("win-again coordination creates one independently owned child per exact native parent", () => {
+  const { e, p, q, cfg } = fixture("long", false);
+  e.pfCoords = { hourKeep: false, bankWin: false, pairAdd: false, laneCool: false, winAgain: true };
+  e.minSlDistancePct = .9;
+  e.fees = { maker: .002, taker: .003, slippageFeeRatio: .2 };
+  const parents: LivePosition[] = [
+    { ...p, id: "win-fixed", modelRtCost: .0011, minSlDistancePct: .2,
+      priceStopPct: .2, priceTrailPct: .2, trailPct: .2, trailingDistance: "fixed", calc: "px" },
+    { ...p, id: "win-dynamic", modelRtCost: .00176, minSlDistancePct: .1,
+      priceStopPct: .3, priceTrailPct: .2, trailPct: .2, trailingDistance: undefined, calc: "px" },
+  ];
+  for (const parent of parents) {
+    parent.kind = "normal";
+    parent.microRange = false; parent.minimalRange = false; parent.shortRange = true;
+    parent.maxHoldTicks = 12;
+    parent.tpAtr = .6; parent.slOfTp = .5;
+    parent.sl = 99; parent.slDist = 1; parent.tp = 101; parent.tpDist = 1;
+  }
+  e.positions = parents;
+  Object.assign(q, { open: 100, lo: 100, hi: 101.5, px: 101.5 });
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
+  tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  const children = e.queue.filter(order => order.note.includes("pf-again"));
+  assert.equal(children.length, 2, "each exact native winner owns a new coordinated child");
+  assert.equal(new Set(children.map(completeConfigSampleKey)).size, 2, "children keep independent evaluation keys");
+  assert.deepEqual(children.map(child => [child.priceStopPct, child.trailingDistance ?? "dynamic", child.modelRtCost, child.minSlDistancePct]), [
+    [.2, "fixed", .0011, .2],
+    [.3, "dynamic", .00176, .1],
+  ]);
+  console.info(`win-again ownership benchmark children=${children.length} elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(children))}`);
 });
 
 for (const side of ["long", "short"] as const) for (const liveTape of [false, true]) {

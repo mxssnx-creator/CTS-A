@@ -938,7 +938,10 @@ function queueWinAgain(e: VstEngine, p: LivePosition) {
     bag = { hour, n: {} };
     winAgainMem.set(e, bag);
   }
-  const k = `${p.symbol}:${p.side}:${p.indication || "x"}:${p.tactic || "x"}`;
+  const parentIdentity: ConfigIdentity = { ...p, rangeType: p.controllingRange };
+  const exactParentKey = completeConfigSampleKey(parentIdentity);
+  const legacyKey = `${p.symbol}:${p.side}:${p.indication || "x"}:${p.tactic || "x"}`;
+  const k = exactParentKey ? `cfg:${exactParentKey}` : `legacy:${legacyKey}`;
   if ((bag.n[k] ?? 0) >= 4) return;
   if (performingLive(e)) {
     const tac = String(p.tactic || "");
@@ -960,12 +963,16 @@ function queueWinAgain(e: VstEngine, p: LivePosition) {
     if ((tac === "dca" || play === "dca") && laneLiveCold(e, "dca")) return;
     if (play === "block" && laneLiveCold(e, "block")) return;
   }
-  if (e.queue.some((o) => o.symbol === p.symbol && o.side === p.side && o.indication === p.indication && o.note.includes("pf-again"))) return;
+  if (e.queue.some((o) => o.note.includes("pf-again") && (exactParentKey
+    ? completeConfigSampleKey(o) === exactParentKey
+    : o.symbol === p.symbol && o.side === p.side && o.indication === p.indication))) return;
   bag.n[k] = (bag.n[k] ?? 0) + 1;
   const px = q.px;
   const sl0 = p.slDist;
   const tp0 = p.tpDist;
-  const lv = protectLevels(px, p.side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true, modeledPositionCost(e, p.symbol), e.minSlDistancePct);
+  const parentCost = p.modelRtCost ?? modeledPositionCost(e, p.symbol);
+  const parentMinSl = p.minSlDistancePct ?? normalizeMinSlDistancePct(e.minSlDistancePct);
+  const lv = protectLevels(px, p.side, sl0, tp0, sl0 > 1e-12 ? tp0 / sl0 : 1, true, parentCost, parentMinSl);
   const unitQty = sizeUnit(e) / px;
   const baseLeg = p.legs[0]?.qty > 0 ? p.legs[0].qty : unitQty;
   const qty = Math.min(Math.max(baseLeg, 1e-8), (sizeUnit(e) * ENTRY_NOTIONAL_MUL) / px);
@@ -1004,6 +1011,10 @@ function queueWinAgain(e: VstEngine, p: LivePosition) {
     microRange: p.microRange,
     shortRange: p.shortRange,
     calc: p.calc ?? "base",
+    modelRtCost: parentCost,
+    minSlDistancePct: parentMinSl,
+    microMinSlDistancePct: p.microMinSlDistancePct,
+    microMinTrailDistancePct: p.microMinTrailDistancePct,
   });
   countPlaced(e);
   notePfCoord(e, "again");
