@@ -323,7 +323,7 @@ test("Block relation config keys isolate every native stop-gap and trailing-mode
     microRange: false, minimalRange: false, shortRange: true,
     modelRtCost: .00176, minSlDistancePct: .3, calc: "base" as const };
   const cfg = (priceStopPct: number, priceTrailPct: number, trailingDistance?: "fixed") =>
-    blockRelationKeys({ ...base, priceStopPct, priceTrailPct, trailingDistance })
+    blockRelationKeys({ ...base, priceStopPct, priceTrailPct, trailingDistance } as Parameters<typeof blockRelationKeys>[0])
       .find(key => key.startsWith("cfg:"));
 
   assert.notEqual(cfg(.2, .2, "fixed"), cfg(.3, .2, "fixed"), "21 stop cells need own relation evaluations");
