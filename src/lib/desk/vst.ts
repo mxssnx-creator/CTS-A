@@ -581,6 +581,7 @@ export function engageLiveBook(e: VstEngine) {
 
 
 export type ConfigIdentity = {
+  strategyId?: string;
   connId?: string;
   symbol?: string;
   side?: Side;
@@ -694,7 +695,7 @@ function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
   return true;
 }
 function configTapeRow(c: ConfigTapeRow): ConfigTapeRow {
-  return { id:c.id, tick:c.tick, pnl: measuredEdgePnl(c), ratio: c.ratio, validExec: c.validExec, connId: c.connId, symbol: c.symbol, side: c.side,
+  return { id:c.id, tick:c.tick, pnl: measuredEdgePnl(c), ratio: c.ratio, validExec: c.validExec, strategyId: c.strategyId, connId: c.connId, symbol: c.symbol, side: c.side,
     indication: c.indication, tactic: c.tactic, rangeType: c.rangeType, playbook: c.playbook, kind: c.kind,
     tpAtr: c.tpAtr, slOfTp: c.slOfTp, trailPct: c.trailPct, trailingDistance: c.trailingDistance,
     priceStopPct: c.priceStopPct, priceTrailPct: c.priceTrailPct, maxHoldTicks: c.maxHoldTicks, calc: c.calc,
@@ -989,6 +990,7 @@ function queueWinAgain(e: VstEngine, p: LivePosition) {
   const qty = Math.min(Math.max(baseLeg, 1e-8), (sizeUnit(e) * ENTRY_NOTIONAL_MUL) / px);
   queueOrder(e, {
     id: nextId(e, "q"),
+    strategyId: p.strategyId,
     connId: p.connId,
     symbol: p.symbol,
     side: p.side,
@@ -4888,11 +4890,12 @@ function geometryKey(row: ProtectionGeometry): string {
 }
 
 function sameProtectLane(
-  p: { modelRtCost?: number; minSlDistancePct?: number; indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; kind?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry,
-  o: { modelRtCost?: number; minSlDistancePct?: number; indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; kind?: string; note?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry,
+  p: { strategyId?: string; modelRtCost?: number; minSlDistancePct?: number; indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; kind?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry,
+  o: { strategyId?: string; modelRtCost?: number; minSlDistancePct?: number; indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; kind?: string; note?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry,
   complete: boolean,
 ) {
   if (protectionPolicyKey(p) !== protectionPolicyKey(o)) return false;
+  if ((p.strategyId || "") !== (o.strategyId || "")) return false;
   const botP = String(p.playbook || "");
   const botO = String(o.playbook || "");
   if (botP.startsWith("bot:") || botO.startsWith("bot:")) return botP !== "" && botP === botO;
@@ -4925,10 +4928,10 @@ type BookBuckets = {
   released: WeakSet<LiveOrder>;
 };
 
-function protectIdentity(row: { modelRtCost?: number; minSlDistancePct?: number; playbook?: string; kind?: string; indication?: string; calc?: string; tpAtr?: number; slOfTp?: number; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry, complete: boolean): string {
+function protectIdentity(row: { strategyId?: string; modelRtCost?: number; minSlDistancePct?: number; playbook?: string; kind?: string; indication?: string; calc?: string; tpAtr?: number; slOfTp?: number; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry, complete: boolean): string {
   const bot = String(row.playbook || "");
-  if (bot.startsWith("bot:")) return `bot:${bot}|${protectionPolicyKey(row)}`;
-  const head = protectionPolicyKey(row) + "|" + JSON.stringify([row.indication || "", row.calc || "base", laneTactic(row), laneRange(row),
+  if (bot.startsWith("bot:")) return `bot:${bot}:${row.strategyId || ""}|${protectionPolicyKey(row)}`;
+  const head = protectionPolicyKey(row) + "|" + JSON.stringify([row.strategyId || "", row.indication || "", row.calc || "base", laneTactic(row), laneRange(row),
     ...(complete ? [row.playbook || "normal", row.kind || ""] : [])]) + "|";
   if (row.tpAtr != null && row.slOfTp != null) return head + exactProtectionCombo(row);
   return head + "plain:" + geometryKey(row);
@@ -5710,6 +5713,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   if (!botBook && countsOnBlockTape(e, gatedClose)) {
     recordBlockClose(e, p, ratio, exit);
     noteBlockPosClose(e, p.symbol, p.side, ratio, e.blockCfg, {
+      connId: p.connId,
+      strategyId: p.strategyId,
       indication: p.indication,
       kind: p.kind,
       tactic: p.tactic ?? e.lastTactic,
@@ -5860,6 +5865,7 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
     : axisProtect(nextAvg, p.side, q, p.rangeSpacing || q.atr, {...cfg, minSlDistancePct: p.minSlDistancePct ?? e.minSlDistancePct}, p.controllingRange, p.modelRtCost ?? modeledPositionCost(e, p.symbol));
   queueOrder(e, {
     id: nextId(e, "d"),
+    strategyId: p.strategyId,
     connId: p.connId,
     symbol: p.symbol,
     side: p.side,
@@ -6709,7 +6715,8 @@ export function blockRelationKeys(rel: ConfigIdentity & {
       ...(rel.microRange ? [rel.microMinSlDistancePct, rel.microMinTrailDistancePct] : []),
       rel.priceStopPct, rel.priceTrailPct,
       ...(Number.isFinite(rel.maxHoldTicks) ? ["hold-ticks", rel.maxHoldTicks] : []),
-      ...(rel.trailingDistance === "fixed" ? ["fixed-distance"] : [])] : legacy)}`);
+      ...(rel.trailingDistance === "fixed" ? ["fixed-distance"] : []),
+      ...(rel.strategyId ? ["strategy", rel.strategyId] : [])] : legacy)}`);
   }
   if (rel.kind) keys.push(`kind:${rel.kind}`);
   if (rel.playbook) keys.push(`book:${rel.playbook}`);
@@ -9077,6 +9084,7 @@ export function adjustActiveBlocks(
           );
           queueOrder(e, {
             id: oid,
+            strategyId: p.strategyId,
             connId: conn,
             symbol: p.symbol,
             side: p.side,
