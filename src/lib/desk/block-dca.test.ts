@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 import { describe, it } from "node:test";
 import type { BlockPosWindow, LivePosition } from "./types.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, shortControlPrices } from "./engine.ts";
-import { adjustActiveBlocks, enabledLiveTactics, initVstEngine, LIVE_RUN_CFG, liveShouldExecute, rankIndications, simulateHours, tickVst, unadjustedNormalOrder, VST_DEFAULT_CONN } from "./vst.ts";
+import { adjustActiveBlocks, blockRelationKeys, enabledLiveTactics, initVstEngine, LIVE_RUN_CFG, liveShouldExecute, noteBlockPosClose, rankIndications, simulateHours, tickVst, unadjustedNormalOrder, VST_DEFAULT_CONN } from "./vst.ts";
 
 const CFG = {
   ...DEFAULT_TACTIC_CONFIG,
@@ -762,6 +762,70 @@ describe("Block and DCA", () => {
     const elapsedMs = performance.now() - started;
     const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
     console.info(`block hour-PF ownership benchmark siblingChildren=${siblingChildren.length} elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(siblingChildren))}`);
+  });
+
+  it("Set Block count PF uses the exact native parent window instead of pooled siblings", () => {
+    const e = book();
+    e.openCompleteTape = true;
+    e.tick = 100;
+    e.pfCoords = { hourKeep: false, bankWin: false, pairAdd: false, laneCool: false, winAgain: false };
+    e.strategyToggles = { ...e.strategyToggles!, block: true, trailing: true };
+    const symbol = Object.keys(e.quotes)[0]!;
+    const exact = (id: string, priceStopPct: number, trailingDistance?: "fixed"): LivePosition => ({
+      id, connId: e.activeConnId || VST_DEFAULT_CONN, symbol, side: "long", qty: 1, plannedQty: 1,
+      avgEntry: 100, mark: 101, sl: 94, tp: 104, slDist: 6, tpDist: 4,
+      realized: 0, unrealized: 1, legs: [{ orderId: `fill:${id}`, qty: 1, px: 100 }],
+      controllingRange: "atr", rangeSpacing: 1, status: "open", openedTick: 1,
+      tactic: "trailing", indication: "ema", playbook: "short", kind: "short", calc: "px",
+      tpAtr: .6, slOfTp: .5, trailPct: .2, trailingDistance, priceStopPct, priceTrailPct: .2,
+      maxHoldTicks: 12, microRange: false, minimalRange: false, shortRange: true,
+      modelRtCost: .00176, minSlDistancePct: .1, validExec: true,
+    });
+    const losing = exact("count-loss-a", .2, "fixed");
+    const winning = exact("count-win-b", .3);
+    const block = { ...DEFAULT_BLOCK_CONFIG, enabled: true, overall: true, stack: true, windows: true,
+      sets: true, autoEval: false, addOnWin: false, counts: [1, 2, 3, 4, 5, 6], evalLastNs: [1, 2, 3, 4, 5, 6], evalPosCount: 6,
+      maxMultiple: 6, maxVolumeMultiplier: 7, minMultiple: 1, minActiveLevel: 1, minRelPf: 1.2,
+      sharedVolumeRatio: 1, volumeMode: "shared" as const, overallMode: "shared" as const };
+    const relation = (p: LivePosition) => ({
+      indication: p.indication, kind: p.kind, tactic: p.tactic, rangeType: p.controllingRange,
+      playbook: p.playbook, tpAtr: p.tpAtr, slOfTp: p.slOfTp, trailPct: p.trailPct,
+      trailingDistance: p.trailingDistance, priceStopPct: p.priceStopPct, priceTrailPct: p.priceTrailPct,
+      maxHoldTicks: p.maxHoldTicks, calc: p.calc, microRange: p.microRange,
+      minimalRange: p.minimalRange, shortRange: p.shortRange, modelRtCost: p.modelRtCost,
+      minSlDistancePct: p.minSlDistancePct,
+    });
+    for (let i = 0; i < 8; i++) {
+      noteBlockPosClose(e, symbol, "long", 1, block, relation(winning));
+      noteBlockPosClose(e, symbol, "long", -2, block, relation(losing));
+    }
+    const winningKey = blockRelationKeys({ symbol, side: "long", ...relation(winning) }).find(key => key.startsWith("cfg:"))!;
+    const losingKey = blockRelationKeys({ symbol, side: "long", ...relation(losing) }).find(key => key.startsWith("cfg:"))!;
+    assert.ok(winningKey && losingKey && winningKey !== losingKey);
+    assert.equal(e.blockRelWindows[winningKey]?.[6]?.closed, 8);
+    assert.ok((e.blockRelWindows[winningKey]?.[6]?.lastPf ?? 0) > 1.2);
+    assert.ok((e.blockRelWindows[losingKey]?.[6]?.lastPf ?? 4) < 1);
+    assert.ok((e.blockWindows[6]?.lastPf ?? 4) < 1);
+    e.blockCfg = block;
+    e.queue = []; e.orders = []; e.blockLanes = {};
+    Object.assign(e.quotes[symbol], { open: 101, lo: 100, hi: 101, px: 101, vol: .02 });
+    e.positions = [winning];
+    const heapBefore = process.memoryUsage().heapUsed;
+    const started = performance.now();
+    const winningAdd = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.ok(winningAdd.added > 0, "a profitable exact parent inherited the pooled sibling Block count PF");
+    const winningChildren = [...e.queue];
+    // Count 2 remains scored but is intentionally excluded from native live volume.
+    assert.deepEqual([...new Set(winningChildren.map(child => child.level))].sort(), [1, 3, 4, 5, 6]);
+    assert.ok(winningChildren.every(child => Math.abs(child.qty - 1) < 1e-9),
+      "a profitable exact parent inherited the pooled sibling Block prove scale");
+    e.queue = []; e.orders = []; e.blockLanes = {};
+    e.positions = [losing];
+    const losingAdd = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.equal(losingAdd.added, 0, "a losing exact parent escaped its own Block count PF");
+    const elapsedMs = performance.now() - started;
+    const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+    console.info(`block count-PF ownership benchmark winnerChildren=${winningChildren.length} elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(winningChildren))}`);
   });
 
   it("full compute keeps Block and DCA finite, joined, and busy", () => {
