@@ -93,6 +93,31 @@ test("settlement preserves the original fee and stop policy for subsequent quali
   assert.equal(c.calc, "px"); assert.equal(c.microRange, true); assert.equal(c.trailPct, .2);
 });
 
+test("settling a native parent cancels its still-working DCA child", () => {
+  const { e, p, cfg } = fixture("long", false);
+  Object.assign(p, { kind: "normal", microRange: true, minimalRange: false, shortRange: false,
+    tpAtr: .2, slOfTp: .5, trailPct: .3, calc: "base", modelRtCost: .00176,
+    minSlDistancePct: .1, microMinSlDistancePct: .1, microMinTrailDistancePct: .2 });
+  e.orders.push({ id: "working-dca-child", connId: p.connId, symbol: p.symbol, side: p.side,
+    type: "market", qty: .5, filled: 0, remaining: .5, price: p.avgEntry, status: "open", level: 1,
+    sl: p.sl, tp: p.tp, slDist: p.slDist, tpDist: p.tpDist, rangeType: p.controllingRange,
+    indication: p.indication, tactic: "dca", playbook: "dca", kind: p.kind, calc: p.calc,
+    microRange: p.microRange, minimalRange: p.minimalRange, shortRange: p.shortRange,
+    tpAtr: p.tpAtr, slOfTp: p.slOfTp, trailPct: p.trailPct, modelRtCost: p.modelRtCost,
+    minSlDistancePct: p.minSlDistancePct, microMinSlDistancePct: p.microMinSlDistancePct,
+    microMinTrailDistancePct: p.microMinTrailDistancePct, batchId: `pos:${p.id}:dca:1`,
+    note: "DCA L1", validExec: true } as never);
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
+  tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+  assert.equal(e.positions.length, 0);
+  assert.equal(e.orders[0].status, "cancelled",
+    "the settled parent left its DCA child working without an owning position");
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  console.info(`DCA parent-cancel benchmark elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(e.orders[0]))}`);
+});
+
 test("win-again coordination creates one independently owned child per exact native parent", () => {
   const { e, p, q, cfg } = fixture("long", false);
   e.pfCoords = { hourKeep: false, bankWin: false, pairAdd: false, laneCool: false, winAgain: true };

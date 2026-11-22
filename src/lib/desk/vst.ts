@@ -5370,11 +5370,20 @@ function cancelLane(e: VstEngine, p: LivePosition) {
   for (const o of pool) {
     if (!mapped && (o.symbol !== p.symbol || o.side !== p.side || o.connId !== p.connId)) continue;
     if (!(o.status === "open" || o.status === "partial" || o.status === "queued")) continue;
-    if (!p.legs.some(l => l.orderId === o.id) && !(isBlockOrder(o) ? blockTargets(o, p) : sameProtectLane(p, o, complete))) continue;
+    if (!p.legs.some(l => l.orderId === o.id) &&
+        !(isBlockOrder(o) ? blockTargets(o, p) : dcaTargets(o, p) || sameProtectLane(p, o, complete))) continue;
     markTerminal(e, o, "cancelled");
   }
   cancelQueued(e, (o) => o.symbol === p.symbol && o.side === p.side && o.connId === p.connId
-    && (p.legs.some(l => l.orderId === o.id) || (isBlockOrder(o) ? blockTargets(o, p) : sameProtectLane(p, o, complete))));
+    && (p.legs.some(l => l.orderId === o.id) ||
+      (isBlockOrder(o) ? blockTargets(o, p) : dcaTargets(o, p) || sameProtectLane(p, o, complete))));
+}
+
+function dcaTargets(o: LiveOrder, p: LivePosition): boolean {
+  if (o.playbook !== "dca" && o.tactic !== "dca" && !/^DCA\b/i.test(o.note || "")) return false;
+  const prefix = `pos:${p.id}:dca`;
+  return p.connId === o.connId && p.symbol === o.symbol && p.side === o.side &&
+    (o.batchId === prefix || (o.batchId || "").startsWith(`${prefix}:`));
 }
 function bookRealized(e: VstEngine, pnl: number, reason: "sl" | "tp" | "time" | "partial") {
   const x = Number.isFinite(pnl) ? pnl : 0;
