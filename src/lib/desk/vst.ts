@@ -6703,7 +6703,8 @@ export function blockRelationKeys(rel: ConfigIdentity & {
       [rel.microRange, rel.minimalRange, rel.shortRange].every((value) => typeof value === "boolean") &&
       typeof rel.calc === "string" && rel.calc.length > 0 &&
       (!rel.microRange || [rel.microMinSlDistancePct, rel.microMinTrailDistancePct].every(Number.isFinite));
-    keys.push(`cfg:${JSON.stringify(exact ? ["exact-v1", ...legacy, rel.trailPct, rel.calc,
+    keys.push(`cfg:${JSON.stringify(exact ? ["exact-v2", rel.connId ?? "", rel.symbol, rel.side,
+      ...legacy, rel.trailPct, rel.calc,
       rel.microRange, rel.minimalRange, rel.shortRange, rel.modelRtCost, rel.minSlDistancePct,
       ...(rel.microRange ? [rel.microMinSlDistancePct, rel.microMinTrailDistancePct] : []),
       rel.priceStopPct, rel.priceTrailPct,
@@ -6767,7 +6768,7 @@ export function noteBlockPosClose(
       both[n] = tickBlockWindow(both[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
     }
   }
-  const keys = blockRelationKeys({ symbol, side, ...rel });
+  const keys = blockRelationKeys({ symbol, side, ...rel, connId: rel?.connId ?? e.activeConnId });
   for (const key of keys) {
     const map = (e.blockRelWindows[key] ??= {});
     for (const n of ns) map[n] = tickBlockWindow(map[n] ?? emptyBlockWindow(n), symbol, side, pnl, pauseRatio, keep);
