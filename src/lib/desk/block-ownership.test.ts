@@ -426,8 +426,13 @@ test("a validated Axis parent marks its derived Block child executable", () => {
     shortRange: true,
     tpAtr: .6,
     slOfTp: .5,
+    priceDistanceGrid: { enabled: true, stopPcts: [2.2], trailPcts: [.3] },
   };
   const e = initVstEngine(exactCfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
+  // A multi-range desk can arm a Short config while its coarse desk flag is
+  // different. Every derived child must use the config parent, not that flag.
+  e.shortRange = false;
+  e.minSlDistancePct = .41;
   e.strategyToggles = {
     ...DEFAULT_STRATEGY_TOGGLES,
     normal: true,
@@ -462,6 +467,8 @@ test("a validated Axis parent marks its derived Block child executable", () => {
   finishBaseEval(e);
   e.closed = [];
 
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
   armUniverse(e, exactCfg, "axis", "atr");
   const after = [...e.orders, ...e.queue];
   const parent = after.find(order =>
@@ -487,6 +494,11 @@ test("a validated Axis parent marks its derived Block child executable", () => {
     order.slOfTp === parent.slOfTp);
   assert.ok(child, "the eligible exact parent must create its Block child");
   assert.equal(child.validExec, true, "the child inherits the parent’s own exact verdict, not the coarse pre-geometry placeholder");
+  for (const key of ["priceStopPct", "priceTrailPct", "trailingDistance", "maxHoldTicks", "microRange",
+    "minimalRange", "shortRange", "modelRtCost", "minSlDistancePct", "microMinSlDistancePct",
+    "microMinTrailDistancePct"] as const) {
+    assert.equal(child[key], parent[key], `Axis Block child lost parent-owned ${key}`);
+  }
   assert.ok(completeConfigSampleKey(child), "the child keeps the complete configuration evidence identity");
   assert.equal(liveShouldExecute(e, child), false, "the parent tape cannot bypass the child’s independent gate");
   e.closed = Array.from({ length: 60 }, (_, i) => ({
@@ -504,4 +516,9 @@ test("a validated Axis parent marks its derived Block child executable", () => {
   assert.equal(liveShouldExecute(e, child), true, "the child passes only after its own held-out tape qualifies");
   assert.equal(liveShouldExecute(e, { ...child, slOfTp: (child.slOfTp ?? .5) + .25 }), false,
     "an unevaluated sibling child cannot borrow the winner’s evidence");
+  assert.equal(liveShouldExecute(e, { ...child, shortRange: false }), false,
+    "a sibling range cannot borrow the exact Short child’s evidence");
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  console.info(`Axis Block parent handoff benchmark elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify([parent, child]))}`);
 });
