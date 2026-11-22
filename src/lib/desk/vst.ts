@@ -5817,12 +5817,13 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
   const crossedBack = p.side === "long" ? q.px > axis * 1.002 : q.px < axis * 0.998;
   if (openedFade && crossedBack) return;
   const tag = `DCA L${p.legs.length + 1}`;
+  const exactParent = completeConfigSampleKey({ ...p, rangeType: p.controllingRange }) !== null;
   const pending = [...e.queue, ...e.orders].some(
     (o) =>
       ownedByDesk(o, p.connId) &&
       o.symbol === p.symbol &&
       o.side === p.side &&
-      o.note.includes(tag) &&
+      (dcaTargets(o, p) || (!exactParent && !o.batchId && o.note.includes(tag))) &&
       !isTerminal(o.status),
   );
   if (pending) return;

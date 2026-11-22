@@ -155,6 +155,45 @@ describe("Block and DCA", () => {
     assert.equal(siblingDecision.pass, false, "a DCA sibling borrowed the child's native proof");
   });
 
+  it("each native parent can queue its own DCA child on the same symbol and side", () => {
+    const e = book();
+    e.completeSim = false;
+    e.preEvalDone = false;
+    e.strategyToggles = { ...e.strategyToggles!, normal: true, dca: true, block: false, axis: false };
+    const { pos } = seedLong(e, 0.98);
+    Object.assign(pos, {
+      priceStopPct: 2.2,
+      priceTrailPct: .3,
+      trailPct: .3,
+      trailingDistance: "fixed" as const,
+      maxHoldTicks: 170,
+      microRange: false,
+      minimalRange: false,
+      shortRange: false,
+      modelRtCost: .00176,
+      minSlDistancePct: .1,
+    });
+    const sibling: LivePosition = structuredClone(pos);
+    sibling.id = "p-native-sibling";
+    sibling.priceStopPct = 2.1;
+    sibling.legs = [{ orderId: "seed-sibling", qty: 2, px: sibling.avgEntry }];
+    e.positions = [pos, sibling];
+    e.tick = 79;
+    const heapBefore = process.memoryUsage().heapUsed;
+    const started = performance.now();
+    tickVst(e, CFG, "trailing", { skipWalk: true, rangeType: "atr" });
+    const children = [...e.queue, ...e.orders].filter((o) => /^DCA\b/.test(o.note));
+    const elapsedMs = performance.now() - started;
+    const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+    assert.deepEqual(new Set(children.map((o) => o.batchId)), new Set([
+      `pos:${pos.id}:dca`,
+      `pos:${sibling.id}:dca`,
+    ]), "one native parent suppressed its sibling's independently owned DCA child");
+    assert.equal(children.length, 2);
+    assert.notEqual(completeConfigSampleKey(children[0]!), completeConfigSampleKey(children[1]!));
+    console.info(`DCA sibling-admission benchmark elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(children))}`);
+  });
+
   it("DCA stays quiet without drawdown, past the leg cap, and when the switch is off", () => {
     const e = book();
     e.strategyToggles = { ...e.strategyToggles!, dca: true };
