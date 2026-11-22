@@ -19,6 +19,7 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run test:strategy-features
+      - run: node --experimental-strip-types --test --test-name-pattern='Block hour-PF losses gate only' src/lib/desk/block-dca.test.ts
       - run: npm run test:lastn-blocks
       - run: node --experimental-strip-types --test src/lib/desk/project-order-identity.test.ts
       - run: node --experimental-strip-types --test src/lib/desk/disjoint-last-n.test.ts
