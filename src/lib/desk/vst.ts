@@ -904,25 +904,32 @@ function pfHourIndex(e: VstEngine) {
   return Math.floor(Math.max(0, e.tick - 1) / TICKS_PER_HOUR);
 }
 const laneCoolMem = new WeakMap<VstEngine, { hour: number; loss: Record<string, number> }>();
-function noteLaneLoss(e: VstEngine, symbol: string, ind: string | undefined, tac: string | undefined, ratio: number) {
-  if (!pfCoordOn(e, "laneCool") || !ind || ratio >= -1e-9) return;
+function laneCoolKey(p: LivePosition): string | null {
+  if (!p.indication) return null;
+  const exact = completeConfigSampleKey({ ...p, rangeType: p.controllingRange });
+  return exact ? `cfg:${exact}` : `legacy:${p.symbol}:${p.indication}:${p.tactic || "x"}`;
+}
+function noteLaneLoss(e: VstEngine, p: LivePosition, ratio: number) {
+  if (!pfCoordOn(e, "laneCool") || ratio >= -1e-9) return;
   if (!(completeOpenTape(e) || performingLive(e) || e.liveTape)) return;
+  const k = laneCoolKey(p);
+  if (!k) return;
   const hour = pfHourIndex(e);
   let bag = laneCoolMem.get(e);
   if (!bag || bag.hour !== hour) {
     bag = { hour, loss: {} };
     laneCoolMem.set(e, bag);
   }
-  const k = `${symbol}:${ind}:${tac || "x"}`;
   const n = (bag.loss[k] ?? 0) + 1;
   bag.loss[k] = n;
   if (n === 2) notePfCoord(e, "cool");
 }
-function laneCooled(e: VstEngine, symbol: string, ind: string, tac: string): boolean {
+function laneCooled(e: VstEngine, p: LivePosition): boolean {
   if (!pfCoordOn(e, "laneCool")) return false;
   const bag = laneCoolMem.get(e);
   if (!bag || bag.hour !== pfHourIndex(e)) return false;
-  return (bag.loss[`${symbol}:${ind}:${tac}`] ?? 0) >= 2;
+  const k = laneCoolKey(p);
+  return k != null && (bag.loss[k] ?? 0) >= 2;
 }
 const winAgainMem = new WeakMap<VstEngine, { hour: number; n: Record<string, number> }>();
 function queueWinAgain(e: VstEngine, p: LivePosition) {
@@ -5564,7 +5571,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
       bumpBookPf(e, `block:${reason}`, ratio);
     }
   }
-  if (!botBook && ratio < 0) noteLaneLoss(e, p.symbol, p.indication, p.tactic, ratio);
+  if (!botBook && ratio < 0) noteLaneLoss(e, p, ratio);
   if (!botBook) {
     if (p.validExec === true && p.indication) noteLiveInd(e, p.indication, ratio, p.tactic);
     noteHourFlow(e, p.indication, ratio);
@@ -8629,7 +8636,7 @@ function blockProveScale(e: VstEngine, next: number): number {
 function blockCoordsAllow(e: VstEngine, p: LivePosition, move: number): boolean {
   if (!(completeOpenTape(e) || performingLive(e))) return true;
   if (e.blockCfg?.windows === false) return true;
-  if (pfCoordOn(e, "laneCool") && p.indication && laneCooled(e, p.symbol, p.indication, String(p.tactic || "x"))) return false;
+  if (pfCoordOn(e, "laneCool") && laneCooled(e, p)) return false;
   if (pfCoordOn(e, "hourKeep")) {
     const bag = hourLaneOf(e, "play:block");
     if (bag.p + bag.l > 1e-6) {
