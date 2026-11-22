@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 import { describe, it } from "node:test";
 import type { BlockPosWindow, LivePosition } from "./types.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, shortControlPrices } from "./engine.ts";
@@ -663,6 +664,53 @@ describe("Block and DCA", () => {
     pos.unrealized = (q.px - entry) * pos.qty;
     const deep = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
     assert.equal(deep.added, 0, "added Block more than halfway to the stop");
+  });
+
+  it("lane-cool losses stop only their exact native parent and not a sibling cell", () => {
+    const e = book();
+    e.openCompleteTape = true;
+    e.tick = 100;
+    e.pfCoords = { hourKeep: false, bankWin: false, pairAdd: false, laneCool: true, winAgain: false };
+    e.strategyToggles = { ...e.strategyToggles!, block: true, trailing: true };
+    const symbol = Object.keys(e.quotes)[0]!;
+    const exact = (id: string, priceStopPct: number, trailingDistance?: "fixed"): LivePosition => ({
+      id, connId: e.activeConnId || VST_DEFAULT_CONN, symbol, side: "long", qty: 1, plannedQty: 1,
+      avgEntry: 100, mark: 100, sl: 99, tp: 104, slDist: 1, tpDist: 4,
+      realized: 0, unrealized: 0, legs: [{ orderId: `fill:${id}`, qty: 1, px: 100 }],
+      controllingRange: "atr", rangeSpacing: 1, status: "open", openedTick: 1,
+      tactic: "trailing", indication: "ema", playbook: "short", kind: "short", calc: "px",
+      tpAtr: .6, slOfTp: .5, trailPct: .2, trailingDistance, priceStopPct, priceTrailPct: .2,
+      maxHoldTicks: 12, microRange: false, minimalRange: false, shortRange: true,
+      modelRtCost: .00176, minSlDistancePct: .1, validExec: true,
+    });
+    e.positions = [exact("loss-a-1", .2, "fixed"), exact("loss-a-2", .2, "fixed")];
+    Object.assign(e.quotes[symbol], { open: 98.5, lo: 98.5, hi: 98.5, px: 98.5, vol: .02 });
+    tickVst(e, CFG, "trailing", { bookOnly: true, skipWalk: true, skipMatch: true });
+    assert.equal(e.closed.filter(row => row.id.startsWith("loss-a")).length, 2);
+    e.cooldown = {};
+    e.queue = []; e.orders = [];
+    const sibling = exact("green-b", .3);
+    sibling.sl = 94; sibling.slDist = 6; sibling.mark = 101; sibling.unrealized = 1;
+    e.positions = [sibling];
+    Object.assign(e.quotes[symbol], { open: 101, lo: 100, hi: 101, px: 101, vol: .02 });
+    const block = { ...DEFAULT_BLOCK_CONFIG, enabled: true, overall: true, stack: true, windows: true,
+      addOnWin: false, counts: [1], maxMultiple: 2, minActiveLevel: 1,
+      volumeMode: "shared" as const, overallMode: "shared" as const };
+    e.blockCfg = block;
+    const heapBefore = process.memoryUsage().heapUsed;
+    const started = performance.now();
+    const siblingAdd = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.ok(siblingAdd.added > 0, "an unrelated native sibling inherited another cell's lane cooldown");
+    const siblingChildren = [...e.queue];
+    e.queue = []; e.orders = []; e.blockLanes = {};
+    const owner = exact("green-a", .2, "fixed");
+    owner.sl = 94; owner.slDist = 6; owner.mark = 101; owner.unrealized = 1;
+    e.positions = [owner];
+    const ownerAdd = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.equal(ownerAdd.added, 0, "two own-cell losses did not cool their exact parent");
+    const elapsedMs = performance.now() - started;
+    const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+    console.info(`lane-cool ownership benchmark siblingChildren=${siblingChildren.length} elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(siblingChildren))}`);
   });
 
   it("full compute keeps Block and DCA finite, joined, and busy", () => {
