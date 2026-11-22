@@ -21,6 +21,7 @@ jobs:
       - run: npm run test:strategy-features
       - run: node --experimental-strip-types --test --test-name-pattern='Block hour-PF losses gate only' src/lib/desk/block-dca.test.ts
       - run: node --experimental-strip-types --test --test-name-pattern='Set Block count PF uses' src/lib/desk/block-dca.test.ts
+      - run: node --experimental-strip-types --test --test-name-pattern='Set Block count PF keeps identical native parents independent across symbols' src/lib/desk/block-dca.test.ts
       - run: node --experimental-strip-types --test --test-name-pattern='DCA adds onto' src/lib/desk/block-dca.test.ts
       - run: node --experimental-strip-types --test --test-name-pattern='each native parent can queue' src/lib/desk/block-dca.test.ts
       - run: node --experimental-strip-types --test --test-name-pattern='old cost-policy parent' src/lib/desk/low-range-admission.test.ts

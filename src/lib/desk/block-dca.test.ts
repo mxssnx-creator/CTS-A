@@ -885,8 +885,8 @@ describe("Block and DCA", () => {
       noteBlockPosClose(e, symbol, "long", 1, block, relation(winning));
       noteBlockPosClose(e, symbol, "long", -2, block, relation(losing));
     }
-    const winningKey = blockRelationKeys({ symbol, side: "long", ...relation(winning) }).find(key => key.startsWith("cfg:"))!;
-    const losingKey = blockRelationKeys({ symbol, side: "long", ...relation(losing) }).find(key => key.startsWith("cfg:"))!;
+    const winningKey = blockRelationKeys({ connId: winning.connId, symbol, side: "long", ...relation(winning) }).find(key => key.startsWith("cfg:"))!;
+    const losingKey = blockRelationKeys({ connId: losing.connId, symbol, side: "long", ...relation(losing) }).find(key => key.startsWith("cfg:"))!;
     assert.ok(winningKey && losingKey && winningKey !== losingKey);
     assert.equal(e.blockRelWindows[winningKey]?.[6]?.closed, 8);
     assert.ok((e.blockRelWindows[winningKey]?.[6]?.lastPf ?? 0) > 1.2);
@@ -912,6 +912,72 @@ describe("Block and DCA", () => {
     const elapsedMs = performance.now() - started;
     const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
     console.info(`block count-PF ownership benchmark winnerChildren=${winningChildren.length} elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(winningChildren))}`);
+  });
+
+  it("Set Block count PF keeps identical native parents independent across symbols", () => {
+    const e = book();
+    e.openCompleteTape = true;
+    e.tick = 100;
+    e.pfCoords = { hourKeep: false, bankWin: false, pairAdd: false, laneCool: false, winAgain: false };
+    e.strategyToggles = { ...e.strategyToggles!, block: true, trailing: true };
+    const [losingSymbol, winningSymbol] = Object.keys(e.quotes);
+    assert.ok(losingSymbol && winningSymbol && losingSymbol !== winningSymbol);
+    const exact = (id: string, symbol: string): LivePosition => ({
+      id, connId: e.activeConnId || VST_DEFAULT_CONN, symbol, side: "long", qty: 1, plannedQty: 1,
+      avgEntry: 100, mark: 101, sl: 94, tp: 104, slDist: 6, tpDist: 4,
+      realized: 0, unrealized: 1, legs: [{ orderId: `fill:${id}`, qty: 1, px: 100 }],
+      controllingRange: "atr", rangeSpacing: 1, status: "open", openedTick: 1,
+      tactic: "trailing", indication: "ema", playbook: "short", kind: "short", calc: "px",
+      tpAtr: .6, slOfTp: .5, trailPct: .2, priceStopPct: .3, priceTrailPct: .2,
+      maxHoldTicks: 12, microRange: false, minimalRange: false, shortRange: true,
+      modelRtCost: .00176, minSlDistancePct: .1, validExec: true,
+    });
+    const losing = exact("symbol-loss", losingSymbol);
+    const winning = exact("symbol-win", winningSymbol);
+    const block = { ...DEFAULT_BLOCK_CONFIG, enabled: true, overall: true, stack: true, windows: true,
+      sets: true, autoEval: false, addOnWin: false, counts: [1, 2, 3, 4, 5, 6],
+      evalLastNs: [1, 2, 3, 4, 5, 6], evalPosCount: 6, maxMultiple: 6,
+      maxVolumeMultiplier: 7, minMultiple: 1, minActiveLevel: 1, minRelPf: 1.2,
+      sharedVolumeRatio: 1, volumeMode: "shared" as const, overallMode: "shared" as const };
+    const relation = (p: LivePosition) => ({
+      indication: p.indication, kind: p.kind, tactic: p.tactic, rangeType: p.controllingRange,
+      playbook: p.playbook, tpAtr: p.tpAtr, slOfTp: p.slOfTp, trailPct: p.trailPct,
+      trailingDistance: p.trailingDistance, priceStopPct: p.priceStopPct, priceTrailPct: p.priceTrailPct,
+      maxHoldTicks: p.maxHoldTicks, calc: p.calc, microRange: p.microRange,
+      minimalRange: p.minimalRange, shortRange: p.shortRange, modelRtCost: p.modelRtCost,
+      minSlDistancePct: p.minSlDistancePct,
+    });
+    for (let i = 0; i < 8; i++) {
+      noteBlockPosClose(e, winningSymbol, "long", 1, block, relation(winning));
+      noteBlockPosClose(e, losingSymbol, "long", -2, block, relation(losing));
+    }
+    const keyOf = (p: LivePosition) => blockRelationKeys({
+      connId: p.connId, symbol: p.symbol, side: p.side, ...relation(p),
+    }).find(key => key.startsWith("cfg:"))!;
+    const winningKey = keyOf(winning);
+    const losingKey = keyOf(losing);
+    assert.notEqual(winningKey, losingKey,
+      "same-shape parents on different symbols must not share the exact Block Set key");
+    assert.equal(e.blockRelWindows[winningKey]?.[6]?.closed, 8);
+    assert.ok((e.blockRelWindows[winningKey]?.[6]?.lastPf ?? 0) > 1.2);
+    assert.ok((e.blockRelWindows[losingKey]?.[6]?.lastPf ?? 4) < 1);
+    e.blockCfg = block;
+    e.queue = []; e.orders = []; e.blockLanes = {};
+    Object.assign(e.quotes[winningSymbol], { open: 101, lo: 100, hi: 101, px: 101, vol: .02 });
+    Object.assign(e.quotes[losingSymbol], { open: 101, lo: 100, hi: 101, px: 101, vol: .02 });
+    const heapBefore = process.memoryUsage().heapUsed;
+    const started = performance.now();
+    e.positions = [winning];
+    const winningAdd = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.ok(winningAdd.added > 0, "the profitable symbol inherited the losing symbol's count-PF gate");
+    const winningChildren = [...e.queue];
+    e.queue = []; e.orders = []; e.blockLanes = {};
+    e.positions = [losing];
+    const losingAdd = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.equal(losingAdd.added, 0, "the losing symbol borrowed the profitable symbol's count-PF proof");
+    const elapsedMs = performance.now() - started;
+    const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+    console.info(`block symbol-parent benchmark winnerChildren=${winningChildren.length} elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(winningChildren))}`);
   });
 
   it("full compute keeps Block and DCA finite, joined, and busy", () => {
