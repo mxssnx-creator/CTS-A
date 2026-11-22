@@ -885,8 +885,8 @@ describe("Block and DCA", () => {
       noteBlockPosClose(e, symbol, "long", 1, block, relation(winning));
       noteBlockPosClose(e, symbol, "long", -2, block, relation(losing));
     }
-    const winningKey = blockRelationKeys({ symbol, side: "long", ...relation(winning) }).find(key => key.startsWith("cfg:"))!;
-    const losingKey = blockRelationKeys({ symbol, side: "long", ...relation(losing) }).find(key => key.startsWith("cfg:"))!;
+    const winningKey = blockRelationKeys({ connId: winning.connId, symbol, side: "long", ...relation(winning) }).find(key => key.startsWith("cfg:"))!;
+    const losingKey = blockRelationKeys({ connId: losing.connId, symbol, side: "long", ...relation(losing) }).find(key => key.startsWith("cfg:"))!;
     assert.ok(winningKey && losingKey && winningKey !== losingKey);
     assert.equal(e.blockRelWindows[winningKey]?.[6]?.closed, 8);
     assert.ok((e.blockRelWindows[winningKey]?.[6]?.lastPf ?? 0) > 1.2);
