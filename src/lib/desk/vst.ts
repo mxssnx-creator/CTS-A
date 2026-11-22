@@ -2702,10 +2702,10 @@ function occupiedSymbols(e: VstEngine, connId?: string): Set<string> {
   for (const o of e.queue) if (on(o.connId) && !isBotPlay(o.playbook)) s.add(o.symbol);
   return s;
 }
-function laneBusyKey(row: { symbol: string; side: string; indication?: string; tpAtr?: number; slOfTp?: number; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; calc?: string; controllingRange?: string; rangeType?: string; priceStopPct?: number; priceTrailPct?: number; maxHoldTicks?: number } & TrailingPolicyIdentity): string {
+function laneBusyKey(row: { symbol: string; side: string; indication?: string; tpAtr?: number; slOfTp?: number; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; calc?: string; controllingRange?: string; rangeType?: string; priceStopPct?: number; priceTrailPct?: number; maxHoldTicks?: number; modelRtCost?: number; minSlDistancePct?: number; microMinSlDistancePct?: number; microMinTrailDistancePct?: number } & TrailingPolicyIdentity): string {
   const combo = row.priceStopPct != null || (row.tpAtr != null && row.slOfTp != null) ? exactProtectionCombo(row) : "x";
   const range = row.controllingRange || row.rangeType || "";
-  return `${row.symbol}:${row.side}:${row.indication || ""}:${row.tactic || ""}:${combo}:${row.calc || "base"}:${range}${trailingPolicyKey(row)}`;
+  return `${row.symbol}:${row.side}:${row.indication || ""}:${row.tactic || ""}:${combo}:${row.calc || "base"}:${range}:${protectionPolicyKey(row)}`;
 }
 /** Pair coordination groups indications, but never different configuration parents. */
 function pairCoordinationKey(row: ConfigIdentity & { symbol: string; side: Side }): string {
@@ -4026,7 +4026,10 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             const legKey = laneBusyKey({ ...execRel, calc: leg.kind, rangeType: hi.rangeType,
               tpAtr: miniTp, slOfTp: miniSl, microRange: microOn, minimalRange: minimalOn, shortRange: short,
               trailPct, trailingDistance, priceStopPct: protection?.priceStopPct, priceTrailPct: protection?.priceTrailPct,
-              maxHoldTicks: protection?.maxHoldTicks });
+              maxHoldTicks: protection?.maxHoldTicks, modelRtCost: modeledPositionCost(e, s.id),
+              minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct),
+              ...(microOn ? { microMinSlDistancePct: e.microMinSlDistancePct,
+                microMinTrailDistancePct: e.microMinTrailDistancePct } : {}) });
             if (busyLegs.has(legKey)) return;
             let entryValid = legOk;
             let relateMultiplier = 1;
