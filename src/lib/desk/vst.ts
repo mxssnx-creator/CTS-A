@@ -4134,6 +4134,13 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 maxHoldTicks: protection?.maxHoldTicks,
                 minimalRange: minimalOn,
                 microRange: microOn,
+                shortRange: short,
+                modelRtCost: modeledPositionCost(e, s.id),
+                minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct),
+                ...(microOn ? {
+                  microMinSlDistancePct: e.microMinSlDistancePct,
+                  microMinTrailDistancePct: e.microMinTrailDistancePct,
+                } : {}),
                 calc: leg.kind,
               });
               qn += 1;
