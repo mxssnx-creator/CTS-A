@@ -344,7 +344,7 @@ test("exact Block relation winners are independently re-evaluated on the current
   e.tick = 100;
   e.intervalStrategy = { ...DEFAULT_INTERVAL_STRATEGY, scaleVol: false, relationHaircut: .4, relationKeepPf: .85 };
   const exact = (priceStopPct: number) => ({
-    symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, kind: "short",
+    connId: e.activeConnId, symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, kind: "short",
     tactic: "trailing" as const, rangeType: "atr" as const, playbook: "short",
     tpAtr: .6, slOfTp: .4, trailPct: .2, trailingDistance: "fixed" as const,
     priceStopPct, priceTrailPct: .2, calc: "base", microRange: false,
@@ -383,7 +383,7 @@ test("Block current-interval relation scoring excludes selection-only and reject
   e.preEvalDone = true;
   e.intervalStrategy = { ...DEFAULT_INTERVAL_STRATEGY, scaleVol: false, relationHaircut: .4, relationKeepPf: .85 };
   const exact = (priceStopPct: number) => ({
-    symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, kind: "short",
+    connId: e.activeConnId, symbol: "BTCUSDT", side: "long" as const, indication: "trend" as const, kind: "short",
     tactic: "trailing" as const, rangeType: "atr" as const, playbook: "short",
     tpAtr: .6, slOfTp: .4, trailPct: .2, trailingDistance: "fixed" as const,
     priceStopPct, priceTrailPct: .2, calc: "base", microRange: false,
