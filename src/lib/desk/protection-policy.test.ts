@@ -191,6 +191,53 @@ test("ordinary fills keep indication, tactic, calculation and range lanes separa
   assert.equal(new Set(e.positions.map(p=>JSON.stringify([p.indication,p.tactic,p.calc,p.controllingRange]))).size,5);
 });
 
+test("independent strategy Set fills retain separate positions and evaluation", async () => {
+  const { completeConfigSampleKey, initVstEngine, laneLastNDecision, tickVst } = await import("./vst.ts");
+  const { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES, microControlPrices } = await import("./engine.ts");
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, microRange: true, tpAtr: .2, slOfTp: .5 };
+  const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
+  e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true };
+  e.orders = [];
+  e.queue = [];
+  e.positions = [];
+  const symbol = Object.keys(e.quotes)[0];
+  const px = e.quotes[symbol].px;
+  const levels = microControlPrices("long", px, .2, .5, .00176, .1);
+  const families = [["normal", "normal"], ["short", "short"]] as const;
+  for (const [i, [playbook, kind]] of families.entries()) e.orders.push({ id: `family-${i}`, symbol,
+    connId: e.activeConnId, side: "long", type: "market", qty: .001, filled: 0, remaining: .001,
+    price: px, status: "open", rangeType: "atr", level: 1, indication: "trend", tactic: "trailing",
+    calc: "base", microRange: true, minimalRange: false, shortRange: false, tpAtr: .2, slOfTp: .5,
+    trailPct: .3, modelRtCost: .00176, minSlDistancePct: .1, microMinSlDistancePct: .1,
+    microMinTrailDistancePct: .2, playbook, kind, ...levels,
+    batchId: `family-${i}`, note: "independent strategy Set", validExec: true } as never);
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
+  tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true });
+  assert.equal(e.positions.length, 2, JSON.stringify(e.positions.map(p => ({ playbook: p.playbook,
+    kind: p.kind, qty: p.qty, legs: p.legs.map(leg => leg.orderId) }))));
+  assert.ok(e.positions.every(p => p.qty === .001 && p.legs.length === 1));
+  const normal = e.positions.find(p => p.playbook === "normal" && p.kind === "normal");
+  const short = e.positions.find(p => p.playbook === "short" && p.kind === "short");
+  assert.ok(normal && short);
+  const normalIdentity = { ...normal, rangeType: normal.controllingRange };
+  const shortIdentity = { ...short, rangeType: short.controllingRange };
+  assert.notEqual(completeConfigSampleKey(normalIdentity), completeConfigSampleKey(shortIdentity));
+  const evalEngine = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4 });
+  evalEngine.tick = 200;
+  evalEngine.liveTape = false;
+  evalEngine.preEvalDone = false;
+  evalEngine.closed = Array.from({ length: 60 }, (_, i) => ({ ...normalIdentity, id: `normal-fill-${i}`,
+    tick: 199 - i, pnl: 1, ratio: .01, r: 1, entry: normal.avgEntry,
+    exit: normal.avgEntry * 1.01, reason: "tp" as const, validExec: false }));
+  assert.equal(laneLastNDecision(evalEngine, normalIdentity).pass, true);
+  assert.equal(laneLastNDecision(evalEngine, shortIdentity).pass, false,
+    "the independently filled Short Set borrowed the Normal position tape");
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  console.info(`strategy fill-lane benchmark elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(e.positions))}`);
+});
+
 test("native Micro and Minimal grids arm every cell without rearming an occupied lane", async () => {
   const { initVstEngine, armUniverse, lowRangeProtectGrid, exactProtectionCombo } = await import("./vst.ts");
   const { DEFAULT_TACTIC_CONFIG } = await import("./engine.ts");

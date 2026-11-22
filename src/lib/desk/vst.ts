@@ -4869,8 +4869,8 @@ function geometryKey(row: ProtectionGeometry): string {
 }
 
 function sameProtectLane(
-  p: { modelRtCost?: number; minSlDistancePct?: number; indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry,
-  o: { modelRtCost?: number; minSlDistancePct?: number; indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; note?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry,
+  p: { modelRtCost?: number; minSlDistancePct?: number; indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; kind?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry,
+  o: { modelRtCost?: number; minSlDistancePct?: number; indication?: string; tpAtr?: number; slOfTp?: number; playbook?: string; kind?: string; note?: string; calc?: string; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry,
   complete: boolean,
 ) {
   if (protectionPolicyKey(p) !== protectionPolicyKey(o)) return false;
@@ -4884,6 +4884,8 @@ function sameProtectLane(
   const oBlock = o.playbook === "block" || /Block/i.test(o.note || "");
   const pBlock = p.playbook === "block";
   if (complete && pBlock !== oBlock && !/Block/i.test(o.note || "")) return false;
+  if (complete && !pBlock && !oBlock &&
+      ((p.playbook || "normal") !== (o.playbook || "normal") || (p.kind || "") !== (o.kind || ""))) return false;
   if (p.tpAtr != null && p.slOfTp != null && o.tpAtr != null && o.slOfTp != null) {
     return exactProtectionCombo(p) === exactProtectionCombo(o);
   }
@@ -4904,10 +4906,11 @@ type BookBuckets = {
   released: WeakSet<LiveOrder>;
 };
 
-function protectIdentity(row: { modelRtCost?: number; minSlDistancePct?: number; playbook?: string; indication?: string; calc?: string; tpAtr?: number; slOfTp?: number; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry, complete: boolean): string {
+function protectIdentity(row: { modelRtCost?: number; minSlDistancePct?: number; playbook?: string; kind?: string; indication?: string; calc?: string; tpAtr?: number; slOfTp?: number; tactic?: string; controllingRange?: string; rangeType?: string } & ProtectionGeometry, complete: boolean): string {
   const bot = String(row.playbook || "");
   if (bot.startsWith("bot:")) return `bot:${bot}|${protectionPolicyKey(row)}`;
-  const head = protectionPolicyKey(row) + "|" + JSON.stringify([row.indication || "", row.calc || "base", laneTactic(row), laneRange(row)]) + "|";
+  const head = protectionPolicyKey(row) + "|" + JSON.stringify([row.indication || "", row.calc || "base", laneTactic(row), laneRange(row),
+    ...(complete ? [row.playbook || "normal", row.kind || ""] : [])]) + "|";
   if (row.tpAtr != null && row.slOfTp != null) return head + exactProtectionCombo(row);
   return head + "plain:" + geometryKey(row);
 }
