@@ -1048,6 +1048,10 @@ function noteHourLane(e: VstEngine, key: string, ratio: number) {
   if (ratio > 0) bag.p += ratio;
   else bag.l += -ratio;
 }
+function blockHourLaneKey(p: LivePosition): string {
+  const exact = completeConfigSampleKey({ ...p, rangeType: p.controllingRange });
+  return exact ? `play:block:cfg:${exact}` : "play:block";
+}
 function noteHourLive(e: VstEngine, pnl: number, gated: boolean, ratio = 0) {
   if (!gated) return;
   const hour = Math.floor(Math.max(0, e.tick - 1) / TICKS_PER_HOUR);
@@ -5481,7 +5485,7 @@ function peelBlockOverlay(e: VstEngine, p: LivePosition, q: VstQuote) {
   const reason: "tp" | "sl" = bank ? "tp" : "sl";
   bumpBookPf(e, "block", ratio);
   bumpBookPf(e, `block:${reason}`, ratio);
-  noteHourLane(e, "play:block", ratio);
+  noteHourLane(e, blockHourLaneKey(p), ratio);
   noteHourLane(e, `ind:${String(p.indication || "trend")}`, ratio);
   bookClosedSlice(e, p.symbol, pnl, ratio, reason);
   noteLaneLive(e, "block", ratio);
@@ -5540,7 +5544,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   const ratio = positionNetRatio(signed, p.avgEntry, exit, p.modelRtCost ?? modeledPositionCost(e, p.symbol));
   if (!Number.isFinite(pnl) || !Number.isFinite(ratio)) throw new RangeError("Invalid settlement economics");
   const botBook = String(p.playbook || "").startsWith("bot:");
-  const playKey = `play:${String(p.playbook || "short")}`;
+  const playKey = p.playbook === "block" ? blockHourLaneKey(p) : `play:${String(p.playbook || "short")}`;
   const indKey = `ind:${String(p.indication || "trend")}`;
   // Admission controls can affect future entries, never rewrite an owned close.
   if (!botBook) {
@@ -5566,6 +5570,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
       const br = positionNetRatio(signed, p.blockAvg || p.avgEntry, exit, p.modelRtCost ?? modeledPositionCost(e, p.symbol));
       bumpBookPf(e, "block", br);
       bumpBookPf(e, `block:${reason}`, br);
+      if (p.validExec === true && p.playbook !== "block") noteHourLane(e, blockHourLaneKey(p), br);
     } else if (p.playbook === "block" || bq > 1e-12) {
       bumpBookPf(e, "block", ratio);
       bumpBookPf(e, `block:${reason}`, ratio);
@@ -8638,7 +8643,7 @@ function blockCoordsAllow(e: VstEngine, p: LivePosition, move: number): boolean 
   if (e.blockCfg?.windows === false) return true;
   if (pfCoordOn(e, "laneCool") && laneCooled(e, p)) return false;
   if (pfCoordOn(e, "hourKeep")) {
-    const bag = hourLaneOf(e, "play:block");
+    const bag = hourLaneOf(e, blockHourLaneKey(p));
     if (bag.p + bag.l > 1e-6) {
       const pf = profitFactor(bag.p, bag.l);
       if (pf + 1e-9 < STABLE_HOUR_PF) return false;
