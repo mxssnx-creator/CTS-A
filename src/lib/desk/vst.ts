@@ -8554,10 +8554,10 @@ export function blockOverlayStats(e: VstEngine): { n: number; pf: number } {
   return row;
 }
 
-function blockCountPositive(e: VstEngine, n: number, minPf: number) {
+function blockCountPositive(e: VstEngine, n: number, minPf: number, ownWindow = e.blockWindows?.[n]) {
   if (n < 1 || n > 6) return false;
   if (internAllPhase(e)) return true;
-  const w = e.blockWindows?.[n];
+  const w = ownWindow;
   const need = Math.max(8, n);
   const strict = completeOpenTape(e) || performingLive(e);
   const floor = strict
@@ -8576,6 +8576,20 @@ function blockCountPositive(e: VstEngine, n: number, minPf: number) {
     return openScopePf(e, "book", { symbol: "", side: "long" }) + 1e-9 >= openFloor;
   }
   return w.lastPf + 1e-9 >= floor;
+}
+
+/** A complete parent uses its own full count window once one exists.
+ * Until then, retain the established pooled discovery behavior. */
+function blockParentCountWindow(e: VstEngine, p: LivePosition, n: number) {
+  const exactKey = blockRelationKeys({ ...p, rangeType: p.controllingRange }).find((key) => key.startsWith("cfg:"));
+  return exactKey ? e.blockRelWindows?.[exactKey]?.[n] : undefined;
+}
+
+function blockParentCountPositive(e: VstEngine, p: LivePosition, n: number, minPf: number) {
+  const own = blockParentCountWindow(e, p, n);
+  return own && own.closed >= Math.max(8, n)
+    ? blockCountPositive(e, n, minPf, own)
+    : blockCountPositive(e, n, minPf);
 }
 
 function blockPfOk(
@@ -8626,11 +8640,12 @@ export function collectActiveOrderBlocks(e: VstEngine, connId?: string) {
   });
 }
 
-function blockProveScale(e: VstEngine, next: number): number {
+function blockProveScale(e: VstEngine, next: number, p?: LivePosition): number {
   if (!(completeOpenTape(e) || performingLive(e))) return 1;
   if (e.blockCfg?.windows === false) return 1;
-  const w = e.blockWindows?.[next];
   const need = Math.max(8, next);
+  const own = p ? blockParentCountWindow(e, p, next) : undefined;
+  const w = own && own.closed >= need ? own : e.blockWindows?.[next];
   const pf = w && (w.closed || 0) >= need ? Number(w.lastPf) || 0 : 0;
   if (pf >= 1.8) return 1;
   if (pf >= 1.35) return 0.7;
@@ -8881,7 +8896,7 @@ export function adjustActiveBlocks(
         const plan = (kind: "relation" | "overall", next: number, vr: number, extraQty: number, scope: OverallScope = "book", relExtra = false) => {
           const overallKind = kind === "overall";
           const stepMode: "additive" | "shared" = mode;
-          const prove = blockProveScale(e, next);
+          const prove = blockProveScale(e, next, p);
           const step = relExtra ? 0 : blockStepQty(lane.baseQty, next, vr * prove, maxMul, 1, 0, stepMode);
           const qty = (step + Math.max(0, extraQty))*additionalLaneVolumeFactor(e.relationalVolumeRatios,p,"block");
           if (!(qty > 0)) return false;
@@ -8916,7 +8931,7 @@ export function adjustActiveBlocks(
             lane.pending !== next &&
             relQty + 1e-12 < relCap &&
             blockPfOk(lane, next, block, minPf, expansion) &&
-            (block.windows === false || blockCountPositive(e, next, minPf))
+            (block.windows === false || blockParentCountPositive(e, p, next, minPf))
           ) {
             // Independent N step only. Winning-rel extra is applied once after all N=1–6.
             plan("relation", next, vrModeRel, 0);
