@@ -5838,6 +5838,16 @@ function handleDca(e: VstEngine, p: LivePosition, cfg: TacticConfig) {
     slOfTp: p.slOfTp,
     trailPct: p.trailPct,
     trailingDistance: p.trailingDistance,
+    priceStopPct: p.priceStopPct,
+    priceTrailPct: p.priceTrailPct,
+    maxHoldTicks: p.maxHoldTicks,
+    minimalRange: p.minimalRange,
+    microRange: p.microRange,
+    shortRange: p.shortRange,
+    modelRtCost: p.modelRtCost,
+    minSlDistancePct: p.minSlDistancePct,
+    microMinSlDistancePct: p.microMinSlDistancePct,
+    microMinTrailDistancePct: p.microMinTrailDistancePct,
     calc: p.calc ?? "base",
   });
   countPlaced(e);
