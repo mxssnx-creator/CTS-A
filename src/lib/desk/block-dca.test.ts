@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 import { describe, it } from "node:test";
 import type { BlockPosWindow, LivePosition } from "./types.ts";
 import { DEFAULT_BLOCK_CONFIG, DEFAULT_TACTIC_CONFIG, shortControlPrices } from "./engine.ts";
-import { adjustActiveBlocks, blockRelationKeys, enabledLiveTactics, initVstEngine, LIVE_RUN_CFG, liveShouldExecute, noteBlockPosClose, rankIndications, simulateHours, tickVst, unadjustedNormalOrder, VST_DEFAULT_CONN } from "./vst.ts";
+import { adjustActiveBlocks, blockRelationKeys, completeConfigSampleKey, enabledLiveTactics, initVstEngine, laneLastNDecision, LIVE_RUN_CFG, liveShouldExecute, noteBlockPosClose, rankIndications, simulateHours, tickVst, unadjustedNormalOrder, VST_DEFAULT_CONN } from "./vst.ts";
 
 const CFG = {
   ...DEFAULT_TACTIC_CONFIG,
@@ -78,11 +78,33 @@ function seedLong(e: ReturnType<typeof book>, drop = 0.97) {
 describe("Block and DCA", () => {
   it("DCA adds onto the same short position and keeps its combo", () => {
     const e = book();
-    e.strategyToggles = { ...e.strategyToggles!, dca: true };
-    const { entry } = seedLong(e, 0.97);
-    tickVst(e, CFG, "trailing", { skipWalk: true, rangeType: "atr" });
-    const add = [...e.queue, ...e.orders].find((o) => /^DCA/.test(o.note));
-    assert.ok(add, "DCA add was not queued");
+    e.completeSim = false;
+    e.preEvalDone = false;
+    e.strategyToggles = { ...e.strategyToggles!, dca: true, block: false, axis: false };
+    const { pos, entry } = seedLong(e, 0.98);
+    Object.assign(pos, {
+      priceStopPct: 2.2,
+      priceTrailPct: .3,
+      trailPct: .3,
+      trailingDistance: "fixed" as const,
+      maxHoldTicks: 170,
+      microRange: false,
+      minimalRange: false,
+      shortRange: false,
+      modelRtCost: .0037,
+      minSlDistancePct: .42,
+      microMinSlDistancePct: .55,
+      microMinTrailDistancePct: .65,
+    });
+    e.tick = 79;
+    const heapBefore = process.memoryUsage().heapUsed;
+    const started = performance.now();
+    let add;
+    for (let i = 0; i < 4 && !add; i++) {
+      tickVst(e, CFG, "trailing", { skipWalk: true, rangeType: "atr" });
+      add = [...e.queue, ...e.orders].find((o) => /^DCA/.test(o.note));
+    }
+    assert.ok(add, `DCA add was not queued ${JSON.stringify({ tick: e.tick, positions: e.positions.map(p => ({ id: p.id, qty: p.qty, sl: p.sl, tp: p.tp, slDist: p.slDist, openedTick: p.openedTick })), closed: e.closed.slice(0, 2), quote: e.quotes[pos.symbol], lastMsg: e.lastMsg })}`);
     assert.equal(add!.indication, "ema");
     assert.equal(add!.calc, "px");
     assert.equal(add!.tpAtr, 0.42);
@@ -90,6 +112,14 @@ describe("Block and DCA", () => {
     assert.equal(add!.playbook, "dca");
     assert.equal(add!.tactic, "dca");
     assert.equal(add!.validExec, true);
+    for (const key of ["priceStopPct", "priceTrailPct", "trailingDistance", "maxHoldTicks", "microRange",
+      "minimalRange", "shortRange", "modelRtCost", "minSlDistancePct", "microMinSlDistancePct",
+      "microMinTrailDistancePct"] as const) {
+      assert.equal(add![key], pos[key], `DCA child lost parent-owned ${key}`);
+    }
+    const createElapsedMs = performance.now() - started;
+    const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+    console.info(`DCA parent handoff benchmark elapsedMs=${createElapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(add))}`);
     assert.ok(Math.abs(add!.price - e.quotes[add!.symbol]!.px) < 1e-8);
     const q = e.quotes[add!.symbol]!;
     q.lo = Math.min(q.lo, add!.price);
@@ -106,6 +136,23 @@ describe("Block and DCA", () => {
     assert.ok(same[0]!.avgEntry < entry && same[0]!.avgEntry > 0);
     assert.ok(Number.isFinite(same[0]!.sl) && Number.isFinite(same[0]!.tp));
     assert.ok(same[0]!.sl < same[0]!.avgEntry && same[0]!.tp > same[0]!.avgEntry);
+    const sibling = { ...add!, id: "dca-sibling", priceStopPct: 2.1 };
+    assert.notEqual(completeConfigSampleKey(add!), completeConfigSampleKey(sibling));
+    e.tick = 200;
+    e.closed = Array.from({ length: 60 }, (_, i) => ({ ...add!, id: `dca-own-${i}`, tick: 199 - i,
+      pnl: 1, ratio: .01, r: 1, entry: add!.price, exit: add!.price * 1.01, reason: "tp" as const,
+      validExec: false }));
+    assert.equal(completeConfigSampleKey(e.closed[0]!), completeConfigSampleKey(add!));
+    assert.equal(e.activeConnId, add!.connId);
+    const evalEngine = book();
+    evalEngine.tick = 200;
+    evalEngine.liveTape = false;
+    evalEngine.preEvalDone = false;
+    evalEngine.closed = e.closed;
+    const ownDecision = laneLastNDecision(evalEngine, add!);
+    const siblingDecision = laneLastNDecision(evalEngine, sibling);
+    assert.equal(ownDecision.pass, true, `the DCA child did not independently qualify on its own tape ${JSON.stringify(ownDecision)}`);
+    assert.equal(siblingDecision.pass, false, "a DCA sibling borrowed the child's native proof");
   });
 
   it("DCA stays quiet without drawdown, past the leg cap, and when the switch is off", () => {
