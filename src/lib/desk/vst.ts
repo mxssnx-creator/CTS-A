@@ -622,7 +622,11 @@ function frozenConfigRows(e: VstEngine): ConfigTapeRow[] {
 
 const frozenNativeCandidates = new WeakMap<ConfigTapeRow[], Map<string, Set<string>>>();
 function nativeCandidateOwner(rel: ConfigIdentity) {
-  return JSON.stringify([rel.connId, rel.symbol, rel.side, rel.indication, rel.tactic, rel.playbook, rel.kind]);
+  return JSON.stringify([rel.connId, rel.symbol, rel.side, rel.indication, rel.tactic, rel.rangeType,
+    rel.playbook, rel.kind, rel.tpAtr, rel.slOfTp,
+    !!rel.microRange, !!rel.minimalRange, !!rel.shortRange,
+    rel.modelRtCost, rel.minSlDistancePct,
+    ...(rel.microRange ? [rel.microMinSlDistancePct, rel.microMinTrailDistancePct] : [])]);
 }
 function nativeGeometryKey(rel: Pick<ConfigIdentity, "priceStopPct" | "priceTrailPct" | "trailingDistance">) {
   return JSON.stringify([rel.priceStopPct, rel.priceTrailPct, rel.trailingDistance === "fixed"]);
@@ -3794,7 +3798,22 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
           if (afterBase && frozenCandidates) {
             // This lookup only enumerates candidates. The complete range, calculation,
             // cost and protection identity must still pass the entry gate below.
-            const shapes = frozenCandidates.get(nativeCandidateOwner({ ...execRel, connId }));
+            const parentTp = cfg.microRange
+              ? snapMicroTpPct(cfg.tpAtr ?? .2)
+              : cfgUsesMinimalRange(cfg)
+                ? snapMinimalTpCost(cfg.tpAtr ?? MINIMAL_WINNER.tpCost)
+                : cfg.tpAtr;
+            const parentSl = cfg.microRange
+              ? snapSlOfTp(cfg.slOfTp ?? .5)
+              : cfgUsesMinimalRange(cfg)
+                ? snapMinimalSlOfTp(cfg.slOfTp ?? MINIMAL_WINNER.slOfTp)
+                : cfg.slOfTp;
+            const shapes = frozenCandidates.get(nativeCandidateOwner({ ...execRel, connId,
+              tpAtr: parentTp, slOfTp: parentSl,
+              microRange: cfg.microRange === true, minimalRange: cfgUsesMinimalRange(cfg), shortRange: short,
+              modelRtCost: modeledPositionCost(e, s.id), minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct),
+              ...(cfg.microRange ? { microMinSlDistancePct: e.microMinSlDistancePct,
+                microMinTrailDistancePct: e.microMinTrailDistancePct } : {}) }));
             const candidates = shapes ? nativeGrid.filter(cell => shapes.has(nativeGeometryKey(cell))) : [];
             boundedNativeGrid = candidates.length <= 16 ? candidates
               : priceDistanceParentBatch(candidates, e.priceDistanceValidationBatches ??= {}, parentKey);
