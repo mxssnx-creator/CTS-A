@@ -218,6 +218,61 @@ test("native Micro and Minimal grids arm every cell without rearming an occupied
   }
 });
 
+test("busy native lanes keep frozen cost-policy siblings independent", async () => {
+  const { armUniverse, completeConfigSampleKey, exactProtectionCombo, initVstEngine,
+    laneLastNDecision, modeledPositionCost } = await import("./vst.ts");
+  const { DEFAULT_STRATEGY_TOGGLES, DEFAULT_TACTIC_CONFIG } = await import("./engine.ts");
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, microRange: true, minimalRange: false, shortRange: false,
+    tpAtr: .3, slOfTp: 1, priceDistanceGrid: { enabled: true, stopPcts: [.2], trailPcts: [.3] } };
+  const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
+  e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true,
+    axis: false, block: false, dca: false };
+  armUniverse(e, cfg, "trailing", "atr");
+  const seed = e.queue.find(order => order.priceStopPct === .2 && order.priceTrailPct === .3);
+  assert.ok(seed, "the native fixture must create an exact cost-policy parent");
+  const old = { ...seed, id: "old-cost-policy", modelRtCost: .0011, minSlDistancePct: .2 };
+  e.queue = [old];
+  e.orders = [];
+  e.positions = [];
+  e.fees = { maker: .0002, taker: .0005, slippageFeeRatio: .6 };
+  e.minSlDistancePct = .1;
+  const currentCost = modeledPositionCost(e, seed.symbol);
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
+  armUniverse(e, cfg, "trailing", "atr");
+  const fresh = e.queue.find(order => order.id !== old.id && order.symbol === old.symbol &&
+    order.side === old.side && order.indication === old.indication && order.tactic === old.tactic &&
+    order.calc === old.calc && order.rangeType === old.rangeType &&
+    exactProtectionCombo(order) === exactProtectionCombo(old) && order.modelRtCost === currentCost &&
+    order.minSlDistancePct === .1);
+  assert.ok(fresh, "an old fee policy suppressed the eligible current-cost sibling");
+  assert.notEqual(completeConfigSampleKey(fresh), completeConfigSampleKey(old));
+  const sameCurrentLane = (order: typeof fresh) => order.symbol === fresh.symbol &&
+    order.side === fresh.side && order.indication === fresh.indication && order.tactic === fresh.tactic &&
+    order.calc === fresh.calc && order.rangeType === fresh.rangeType &&
+    exactProtectionCombo(order) === exactProtectionCombo(fresh) && order.modelRtCost === currentCost &&
+    order.minSlDistancePct === fresh.minSlDistancePct;
+  const beforeRearm = e.queue.filter(sameCurrentLane).length;
+  armUniverse(e, cfg, "trailing", "atr");
+  assert.equal(e.queue.filter(sameCurrentLane).length, beforeRearm,
+    "the current frozen policy rearmed an already occupied lane");
+  const evalEngine = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4 });
+  evalEngine.tick = 200;
+  evalEngine.liveTape = false;
+  evalEngine.preEvalDone = false;
+  evalEngine.closed = Array.from({ length: 60 }, (_, i) => ({ ...fresh, id: `fresh-cost-${i}`,
+    tick: 199 - i, pnl: 1, ratio: .01, r: 1, entry: fresh.price,
+    exit: fresh.price * (fresh.side === "long" ? 1.01 : .99), reason: "tp" as const,
+    validExec: false }));
+  assert.equal(laneLastNDecision(evalEngine, fresh).pass, true,
+    "the current-cost child did not qualify from its own tape");
+  assert.equal(laneLastNDecision(evalEngine, old).pass, false,
+    "the old cost-policy sibling borrowed current-cost evidence");
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  console.info(`cost-policy busy-lane benchmark elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify([old, fresh]))}`);
+});
+
 test("Micro and Minimal trailing positions use their captured gap on both quote paths", async () => {
   const { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES, trailStopFromPeak } = await import("./engine.ts");
   const { initVstEngine, tickVst } = await import("./vst.ts");
