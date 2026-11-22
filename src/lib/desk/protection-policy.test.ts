@@ -238,6 +238,49 @@ test("independent strategy Set fills retain separate positions and evaluation", 
   console.info(`strategy fill-lane benchmark elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(e.positions))}`);
 });
 
+test("a native DCA fill retains its previous-stage parent Set identity", async () => {
+  const { completeConfigSampleKey, initVstEngine, tickVst } = await import("./vst.ts");
+  const { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES, microControlPrices } = await import("./engine.ts");
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, microRange: true, tpAtr: .2, slOfTp: .5 };
+  const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
+  e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, dca: true };
+  e.orders = [];
+  e.queue = [];
+  e.positions = [];
+  const symbol = Object.keys(e.quotes)[0];
+  const px = e.quotes[symbol].px;
+  const levels = microControlPrices("long", px, .2, .5, .00176, .1);
+  const parentOrder = { id: "dca-parent", symbol, connId: e.activeConnId, side: "long" as const,
+    type: "market" as const, qty: .001, filled: 0, remaining: .001, price: px, status: "open" as const,
+    rangeType: "atr" as const, level: 1, indication: "trend" as const, tactic: "trailing" as const,
+    calc: "base" as const, microRange: true, minimalRange: false, shortRange: false, tpAtr: .2,
+    slOfTp: .5, trailPct: .3, modelRtCost: .00176, minSlDistancePct: .1,
+    microMinSlDistancePct: .1, microMinTrailDistancePct: .2, playbook: "normal", kind: "normal" as const,
+    ...levels, batchId: "dca-parent", note: "native parent", validExec: true };
+  e.orders.push(parentOrder as never);
+  tickVst(e, cfg, "trailing", { bookOnly: true, skipWalk: true });
+  assert.equal(e.positions.length, 1);
+  const parent = e.positions[0];
+  const before = completeConfigSampleKey({ ...parent, rangeType: parent.controllingRange });
+  assert.ok(before);
+  e.orders.push({ ...parentOrder, id: "dca-child", tactic: "dca", playbook: "dca", kind: "normal",
+    qty: .0005, filled: 0, remaining: .0005, status: "open", batchId: `pos:${parent.id}:dca:1`,
+    note: "DCA L1" } as never);
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
+  tickVst(e, cfg, "dca", { bookOnly: true, skipWalk: true });
+  assert.equal(e.positions.length, 1);
+  assert.equal(parent.qty, .0015);
+  assert.equal(parent.dcaQty, .0005);
+  assert.equal(parent.playbook, "normal", "the DCA child replaced its previous-stage parent Set family");
+  assert.equal(parent.kind, "normal");
+  assert.equal(completeConfigSampleKey({ ...parent, rangeType: parent.controllingRange }), before,
+    "the filled DCA child changed the parent's Last-N/Auto-PF identity");
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  console.info(`DCA fill-parent benchmark elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(parent))}`);
+});
+
 test("native Micro and Minimal grids arm every cell without rearming an occupied lane", async () => {
   const { initVstEngine, armUniverse, lowRangeProtectGrid, exactProtectionCombo } = await import("./vst.ts");
   const { DEFAULT_TACTIC_CONFIG } = await import("./engine.ts");

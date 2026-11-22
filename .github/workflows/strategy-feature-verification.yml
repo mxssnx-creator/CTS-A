@@ -26,6 +26,7 @@ jobs:
       - run: node --experimental-strip-types --test --test-name-pattern='busy native lanes keep frozen' src/lib/desk/protection-policy.test.ts
       - run: node --experimental-strip-types --test --test-name-pattern='derived strategy lanes cannot suppress' src/lib/desk/protection-policy.test.ts
       - run: node --experimental-strip-types --test --test-name-pattern='independent strategy Set fills retain' src/lib/desk/protection-policy.test.ts
+      - run: node --experimental-strip-types --test --test-name-pattern='native DCA fill retains' src/lib/desk/protection-policy.test.ts
       - run: npm run test:lastn-blocks
       - run: node --experimental-strip-types --test src/lib/desk/project-order-identity.test.ts
       - run: node --experimental-strip-types --test src/lib/desk/disjoint-last-n.test.ts
