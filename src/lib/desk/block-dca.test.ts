@@ -83,6 +83,7 @@ describe("Block and DCA", () => {
     e.strategyToggles = { ...e.strategyToggles!, dca: true, block: false, axis: false };
     const { pos, entry } = seedLong(e, 0.98);
     Object.assign(pos, {
+      strategyId: "source-dca-parent",
       priceStopPct: 2.2,
       priceTrailPct: .3,
       trailPct: .3,
@@ -111,6 +112,7 @@ describe("Block and DCA", () => {
     assert.equal(add!.slOfTp, 1.7);
     assert.equal(add!.playbook, "dca");
     assert.equal(add!.tactic, "dca");
+    assert.equal(add!.strategyId, pos.strategyId);
     assert.equal(add!.validExec, true);
     for (const key of ["priceStopPct", "priceTrailPct", "trailingDistance", "maxHoldTicks", "microRange",
       "minimalRange", "shortRange", "modelRtCost", "minSlDistancePct", "microMinSlDistancePct",
@@ -978,6 +980,74 @@ describe("Block and DCA", () => {
     const elapsedMs = performance.now() - started;
     const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
     console.info(`block symbol-parent benchmark winnerChildren=${winningChildren.length} elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(winningChildren))}`);
+  });
+
+  it("Set Block keeps source-strategy parents independent", () => {
+    const e = book();
+    e.openCompleteTape = true;
+    e.tick = 100;
+    e.pfCoords = { hourKeep: false, bankWin: false, pairAdd: false, laneCool: false, winAgain: false };
+    e.strategyToggles = { ...e.strategyToggles!, block: true, trailing: true };
+    const symbol = Object.keys(e.quotes)[0]!;
+    const exact = (id: string, strategyId: string): LivePosition => ({
+      id, strategyId, connId: e.activeConnId || VST_DEFAULT_CONN, symbol, side: "long",
+      qty: 1, plannedQty: 1, avgEntry: 100, mark: 101, sl: 94, tp: 104,
+      slDist: 6, tpDist: 4, realized: 0, unrealized: 1,
+      legs: [{ orderId: `fill:${id}`, qty: 1, px: 100 }], controllingRange: "atr",
+      rangeSpacing: 1, status: "open", openedTick: 1, tactic: "trailing",
+      indication: "ema", playbook: "short", kind: "short", calc: "px",
+      tpAtr: .6, slOfTp: .5, trailPct: .2, priceStopPct: .3, priceTrailPct: .2,
+      maxHoldTicks: 12, microRange: false, minimalRange: false, shortRange: true,
+      modelRtCost: .00176, minSlDistancePct: .1, validExec: true,
+    });
+    const winning = exact("strategy-win", "source-alpha");
+    const losing = exact("strategy-loss", "source-beta");
+    const block = { ...DEFAULT_BLOCK_CONFIG, enabled: true, overall: true, stack: true, windows: true,
+      sets: true, autoEval: false, addOnWin: false, counts: [1, 2, 3, 4, 5, 6],
+      evalLastNs: [1, 2, 3, 4, 5, 6], evalPosCount: 6, maxMultiple: 6,
+      maxVolumeMultiplier: 7, minMultiple: 1, minActiveLevel: 1, minRelPf: 1.2,
+      sharedVolumeRatio: 1, volumeMode: "shared" as const, overallMode: "shared" as const };
+    const relation = (p: LivePosition) => ({
+      strategyId: p.strategyId, indication: p.indication, kind: p.kind, tactic: p.tactic,
+      rangeType: p.controllingRange, playbook: p.playbook, tpAtr: p.tpAtr, slOfTp: p.slOfTp,
+      trailPct: p.trailPct, trailingDistance: p.trailingDistance,
+      priceStopPct: p.priceStopPct, priceTrailPct: p.priceTrailPct,
+      maxHoldTicks: p.maxHoldTicks, calc: p.calc, microRange: p.microRange,
+      minimalRange: p.minimalRange, shortRange: p.shortRange, modelRtCost: p.modelRtCost,
+      minSlDistancePct: p.minSlDistancePct,
+    });
+    for (let i = 0; i < 8; i++) {
+      noteBlockPosClose(e, symbol, "long", 1, block, relation(winning));
+      noteBlockPosClose(e, symbol, "long", -2, block, relation(losing));
+    }
+    const keyOf = (p: LivePosition) => blockRelationKeys({
+      connId: p.connId, symbol: p.symbol, side: p.side, ...relation(p),
+    }).find(key => key.startsWith("cfg:"))!;
+    const winningKey = keyOf(winning);
+    const losingKey = keyOf(losing);
+    assert.notEqual(winningKey, losingKey,
+      "source-strategy parents must own independent Block count-PF windows");
+    assert.equal(e.blockRelWindows[winningKey]?.[6]?.closed, 8);
+    assert.ok((e.blockRelWindows[winningKey]?.[6]?.lastPf ?? 0) > 1.2);
+    assert.ok((e.blockRelWindows[losingKey]?.[6]?.lastPf ?? 4) < 1);
+    e.blockCfg = block;
+    e.queue = []; e.orders = []; e.blockLanes = {};
+    Object.assign(e.quotes[symbol], { open: 101, lo: 100, hi: 101, px: 101, vol: .02 });
+    const heapBefore = process.memoryUsage().heapUsed;
+    const started = performance.now();
+    e.positions = [winning];
+    const winningAdd = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.ok(winningAdd.added > 0, "the profitable source strategy inherited its sibling's loss gate");
+    const winningChildren = [...e.queue];
+    assert.ok(winningChildren.every(child => child.strategyId === winning.strategyId),
+      "Block children must retain their exact source-strategy parent");
+    e.queue = []; e.orders = []; e.blockLanes = {};
+    e.positions = [losing];
+    const losingAdd = adjustActiveBlocks(e, CFG, "trailing", block, "atr");
+    assert.equal(losingAdd.added, 0, "the losing source strategy borrowed its sibling's PF proof");
+    const elapsedMs = performance.now() - started;
+    const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+    console.info(`block strategy-parent benchmark winnerChildren=${winningChildren.length} elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify(winningChildren))}`);
   });
 
   it("full compute keeps Block and DCA finite, joined, and busy", () => {
