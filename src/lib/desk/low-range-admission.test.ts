@@ -4,6 +4,7 @@ import { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES } from "./engine.ts";
 import { armUniverse, completeConfigSampleKey, exactProtectionCombo, finishBaseEval, initVstEngine, liveShouldExecute, auditEngine, lowRangeProtectGrid, noteBlockPosClose, skipLiveSymbol, tickVst } from "./vst.ts";
 import { DEFAULT_LOW_RANGE_GRID, lowRangeGridProtects } from "../../../shared/cts-indications/origin/indications/low-range.ts";
 import { sanitizeDeskSettings } from "./settings-sync.ts";
+import { priceDistanceParentBatch, priceDistanceVariants } from "./price-distance-grid.ts";
 
 test("audit accepts the own cost-plus-stop floor but rejects an unjustified wider stop",()=>{
   for (const side of ["long","short"] as const) {
@@ -216,6 +217,54 @@ test("the next native discovery batch cannot hide a qualified frozen child in va
   armUniverse(restored, cfg, "trailing", "atr");
   assert.deepEqual(restored.queue.map(o => o.protectionKey), e.queue.map(o => o.protectionKey),
     "the held-out candidates still come from the same frozen tape after restart");
+});
+
+test("an old cost-policy parent cannot occupy another native parent's validation cohort", () => {
+  const cfg = {
+    ...DEFAULT_TACTIC_CONFIG,
+    microRange: true, minimalRange: false, shortRange: false, tpAtr: .3, slOfTp: 1,
+    priceDistanceGrid: { enabled: true, stopPcts: [.2, .3, .4, .5], trailPcts: [.2, .3, .4, .5, .6] },
+  };
+  const e = initVstEngine(cfg, { arm: false, symbolCount: 4 });
+  e.lastTactic = "trailing";
+  e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true, axis: false, dca: false, block: false };
+  armUniverse(e, cfg, "trailing", "atr");
+  const seed = e.queue[0]!;
+  assert.ok(completeConfigSampleKey(seed), "the fixture starts from a complete native parent");
+  const variants = priceDistanceVariants(cfg, "trailing");
+  const parentKey = JSON.stringify([seed.symbol, seed.side, seed.indication, seed.tactic, seed.playbook, seed.kind,
+    seed.rangeType, cfg.tpAtr, cfg.slOfTp, !!cfg.microRange, !!cfg.minimalRange, !!cfg.shortRange, cfg.priceDistanceGrid]);
+  const firstBatch = priceDistanceParentBatch(variants, {}, parentKey);
+  const geometry = (row: { priceStopPct?: number; priceTrailPct?: number; trailingDistance?: string }) =>
+    JSON.stringify([row.priceStopPct, row.priceTrailPct, row.trailingDistance === "fixed"]);
+  const firstKeys = new Set(firstBatch.map(geometry));
+  const targetGeometry = variants.find(row => !firstKeys.has(geometry(row)))!;
+  assert.ok(targetGeometry, "the bounded first cohort leaves a later geometry for the regression");
+  const target = { ...seed, ...targetGeometry };
+  const signed = target.side === "long" ? 1 : -1;
+  const wins = Array.from({ length: 60 }, (_, index) => ({
+    ...target, id: `current-policy-win-${index}`, tick: 99 - index, pnl: 1, ratio: .01,
+    entry: target.price, exit: target.price * (1 + signed * .012), r: 1, reason: "tp" as const,
+  }));
+  const oldPolicy = variants.map((variant, index) => ({
+    ...seed, ...variant, id: `old-policy-shape-${index}`, tick: 39 - index,
+    modelRtCost: .0011, pnl: -1, ratio: -.01, entry: seed.price,
+    exit: seed.price * (1 - signed * .01), r: -1, reason: "sl" as const,
+  }));
+  e.closed = [...wins, ...oldPolicy];
+  e.queue = []; e.orders = []; e.positions = []; e.tick = 100;
+  finishBaseEval(e);
+  assert.equal(liveShouldExecute(e, target), true, "the current-policy child has its own qualified Base tape");
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
+  armUniverse(e, cfg, "trailing", "atr");
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  const payloadBytes = Buffer.byteLength(JSON.stringify(e.queue));
+  console.log(`native-parent-policy benchmark elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${payloadBytes}`);
+  assert.ok(e.queue.some(order => order.symbol === target.symbol && order.validExec &&
+    geometry(order) === geometry(target) && order.modelRtCost === target.modelRtCost),
+  "the current parent must enumerate its own qualified child before unrelated old-policy shapes");
 });
 
 
