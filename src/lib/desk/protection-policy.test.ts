@@ -273,6 +273,53 @@ test("busy native lanes keep frozen cost-policy siblings independent", async () 
   console.info(`cost-policy busy-lane benchmark elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify([old, fresh]))}`);
 });
 
+test("derived strategy lanes cannot suppress or qualify their native parent", async () => {
+  const { armUniverse, completeConfigSampleKey, exactProtectionCombo, initVstEngine,
+    laneLastNDecision } = await import("./vst.ts");
+  const { DEFAULT_STRATEGY_TOGGLES, DEFAULT_TACTIC_CONFIG } = await import("./engine.ts");
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, microRange: true, minimalRange: false, shortRange: false,
+    tpAtr: .3, slOfTp: 1, priceDistanceGrid: { enabled: true, stopPcts: [.2], trailPcts: [.3] } };
+  const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
+  e.strategyToggles = { ...DEFAULT_STRATEGY_TOGGLES, normal: true, trailing: true,
+    axis: false, block: false, dca: false };
+  armUniverse(e, cfg, "trailing", "atr");
+  const seed = e.queue.find(order => order.priceStopPct === .2 && order.priceTrailPct === .3 &&
+    order.playbook === "normal");
+  assert.ok(seed, "the native fixture must create a Normal parent");
+  const child = { ...seed, id: "derived-block-child", playbook: "block", kind: "block" as const };
+  e.queue = [child];
+  e.orders = [];
+  e.positions = [];
+  const heapBefore = process.memoryUsage().heapUsed;
+  const started = performance.now();
+  armUniverse(e, cfg, "trailing", "atr");
+  const parent = e.queue.find(order => order.id !== child.id && order.symbol === child.symbol &&
+    order.side === child.side && order.indication === child.indication && order.tactic === child.tactic &&
+    order.calc === child.calc && order.rangeType === child.rangeType && order.playbook === "normal" &&
+    order.kind === seed.kind && exactProtectionCombo(order) === exactProtectionCombo(child));
+  assert.ok(parent, "a derived Block child suppressed its eligible Normal parent");
+  assert.notEqual(completeConfigSampleKey(parent), completeConfigSampleKey(child));
+  const beforeRearm = e.queue.filter(order => completeConfigSampleKey(order) === completeConfigSampleKey(parent)).length;
+  armUniverse(e, cfg, "trailing", "atr");
+  assert.equal(e.queue.filter(order => completeConfigSampleKey(order) === completeConfigSampleKey(parent)).length,
+    beforeRearm, "the restored Normal parent duplicated on re-arm");
+  const evalEngine = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4 });
+  evalEngine.tick = 200;
+  evalEngine.liveTape = false;
+  evalEngine.preEvalDone = false;
+  evalEngine.closed = Array.from({ length: 60 }, (_, i) => ({ ...parent, id: `normal-parent-${i}`,
+    tick: 199 - i, pnl: 1, ratio: .01, r: 1, entry: parent.price,
+    exit: parent.price * (parent.side === "long" ? 1.01 : .99), reason: "tp" as const,
+    validExec: false }));
+  assert.equal(laneLastNDecision(evalEngine, parent).pass, true,
+    "the restored parent did not qualify from its own tape");
+  assert.equal(laneLastNDecision(evalEngine, child).pass, false,
+    "the derived child borrowed the parent’s evidence");
+  const elapsedMs = performance.now() - started;
+  const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
+  console.info(`strategy busy-lane benchmark elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${Buffer.byteLength(JSON.stringify([parent, child]))}`);
+});
+
 test("Micro and Minimal trailing positions use their captured gap on both quote paths", async () => {
   const { DEFAULT_TACTIC_CONFIG, DEFAULT_STRATEGY_TOGGLES, trailStopFromPeak } = await import("./engine.ts");
   const { initVstEngine, tickVst } = await import("./vst.ts");
