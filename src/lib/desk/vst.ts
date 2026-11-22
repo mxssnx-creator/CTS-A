@@ -5189,7 +5189,13 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     }
   } else if (/^DCA/i.test(o.note || "")) {
     pos.dcaQty = (pos.dcaQty || 0) + take;
-    if (pos.playbook !== "block" && pos.playbook !== "short" && !(performingLive(e) && (pos.playbook === "axis" || pos.tactic === "axis"))) pos.playbook = "dca";
+    // A complete/live DCA order is an overlay child of the already-owned
+    // position. Re-labelling that position as DCA changes its complete Set key
+    // after the fill, so subsequent Last-N and Auto-PF evidence no longer
+    // belongs to the previous-stage parent that admitted the child. Legacy
+    // books keep their coarse DCA label for checkpoint compatibility.
+    if (!complete && pos.playbook !== "block" && pos.playbook !== "short" &&
+        !(performingLive(e) && (pos.playbook === "axis" || pos.tactic === "axis"))) pos.playbook = "dca";
     if (!pos.tactic) pos.tactic = "dca";
   }
   // Block fills keep the parent's bracket. The add is peeled on its own risk.
