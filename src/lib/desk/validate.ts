@@ -39,7 +39,7 @@ import {
   profitFactor,
   strategiesForKinds,
 } from "./engine.ts";
-import { adjustActiveBlocks, completeConfigSampleKey, simulateHours } from "./vst.ts";
+import { adjustActiveBlocks, completeConfigSampleKey, simulateHours, TICKS_PER_HOUR } from "./vst.ts";
 
 export const HIST_HOURS = [2, 4, 8, 16, 32] as const;
 export const DAYS_HOURS = 72;
@@ -308,10 +308,11 @@ export function overlayLiveTracks(
   }
   return tracks.map((t) => {
     const laneNs = t.ns.map((row) => row.n);
-    const need = Math.max(1, ...laneNs);
     if (!t.executionKey) return t;
     const xs = byLane.get(JSON.stringify([t.strategyId, t.executionKey]));
-    if (!xs || xs.length < need) return t;
+    // Each window is judged on the lane's own newest N closes; a short sample fails only the
+    // windows it cannot fill (pfClosed requires trades >= n) and never blocks the smaller ones.
+    if (!xs?.length) return t;
     const ns = laneNs.map((n) => {
       const row = pfClosed(xs, n);
       return { ...row, ok: row.ok && row.pf >= minPf };
@@ -329,10 +330,38 @@ export function overlayLiveTracks(
 }
 
 /** Keep every requested horizon; missing marks are not replaced by another period. */
+export interface StageLaneSummary { samples: number; pf: number; effective: number; valid: number }
+
+/** Independent lane evaluation for one stage: a fresh set built only from closes settled by the
+ * stage's own end tick (newest first), so a later stage's closes never leak into an earlier one. */
+export function stageLaneSummary(
+  source: readonly LaneEvalTrack[],
+  settled: readonly ClosedTrade[],
+  hour: number,
+  lastNs: readonly number[],
+  minPf: number,
+  ticksPerHour = TICKS_PER_HOUR,
+): StageLaneSummary {
+  const cutoff = hour * ticksPerHour;
+  const own = settled.filter((row) => Number.isFinite(row.tick) && row.tick <= cutoff);
+  const tracks = overlayLiveTracks([...source], own, minPf).filter((t) => t.evidence === "settled-identity");
+  const endN = lastNs[lastNs.length - 1];
+  const rows = tracks
+    .filter((t) => t.effective)
+    .map((t) => t.ns.find((r) => r.n === endN) ?? t.ns[t.ns.length - 1]!);
+  return {
+    samples: rows.length,
+    pf: rows.length ? rows.reduce((sum, r) => sum + r.pf, 0) / rows.length : 0,
+    effective: rows.length,
+    valid: tracks.filter((t) => t.ns.some((r) => r.ok)).length,
+  };
+}
+
 export function stageMarkers(
   hours: readonly number[],
   marks: readonly HorizonMark[],
   end: { samples: number; pf: number; minPf: number; effective: number; valid: number },
+  lanes?: ReadonlyMap<number, StageLaneSummary>,
 ): StageEval[] {
   const ordered = [...new Set(hours.filter((hour) => Number.isFinite(hour) && hour > 0))].sort((a, b) => a - b);
   return ordered.map((hour, index) => {
@@ -348,9 +377,9 @@ export function stageMarkers(
       trades: mark?.trades ?? 0,
       ok: isEnd ? end.samples > 0 && end.pf >= end.minPf && Boolean(mark?.ok) : Boolean(mark?.ok),
       recorded: Boolean(mark) && (!isEnd || end.samples > 0),
-      effective: isEnd ? end.effective : 0,
-      valid: isEnd ? end.valid : 0,
-      pfAvg: isEnd ? end.pf : undefined,
+      effective: isEnd ? end.effective : lanes?.get(hour)?.effective ?? 0,
+      valid: isEnd ? end.valid : lanes?.get(hour)?.valid ?? 0,
+      pfAvg: isEnd ? end.pf : lanes?.get(hour)?.samples ? lanes.get(hour)!.pf : undefined,
     };
   });
 }
@@ -392,13 +421,17 @@ export function evaluateStages(opts?: {
   const endRows = effectiveTracks.map((t) => t.ns.find((r) => r.n === lastNs[lastNs.length - 1]) ?? t.ns[t.ns.length - 1]!);
   const endPfAvg = endRows.length ? endRows.reduce((s, r) => s + r.pf, 0) / endRows.length : 0;
   const liveNs = liveLastNEvals(settled, lastNs, th.minPf);
+  const sourceTracks = trackLaneEvals(th, kinds, lastNs);
+  const stageLanes = new Map<number, StageLaneSummary>(
+    hours.slice(0, -1).map((hour) => [hour, stageLaneSummary(sourceTracks, settled, hour, lastNs, th.minPf)] as const),
+  );
   const stages = stageMarkers(hours, marks, {
     samples: endRows.length,
     pf: endPfAvg,
     minPf: th.minPf,
     effective: effectiveTracks.length,
     valid,
-  });
+  }, stageLanes);
 
   const coords: CoordValidate[] = [];
   for (const t of TACTICS) {
