@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { liveLastNEvals, overlayLiveTracks, stageMarkers } from "./validate.ts";
+import { liveLastNEvals, overlayLiveTracks, stageLaneSummary, stageMarkers } from "./validate.ts";
 import { DEFAULT_TACTIC_CONFIG } from "./engine.ts";
 import { completeConfigSampleKey, simulateHours, TICKS_PER_HOUR } from "./vst.ts";
 import type { ClosedTrade, HorizonMark, LaneEvalTrack } from "./types.ts";
@@ -93,4 +93,29 @@ test("a quick replay carries Base samples forward without carrying its open orde
   assert.equal(later.some((row) => row.tick - (row.holdTicks ?? 0) <= boundary), false);
   assert.equal(engine.positions.some((position) => position.openedTick <= boundary), false);
   assert.equal(report.settledSlices, later.length);
+});
+
+test("each Last-N window is judged independently on the lane's own closes", () => {
+  const src: LaneEvalTrack = { ...track("alpha", "axis"), ns: [
+    { n: 2, pf: 9, wr: 1, net: 9, trades: 2, ok: true }, { n: 4, pf: 9, wr: 1, net: 9, trades: 4, ok: true } ] };
+  const own = [close("a", 1, .02, { strategyId: "alpha" }), close("b", 1, .02, { strategyId: "alpha" })];
+  const [out] = overlayLiveTracks([src], own, 1);
+  assert.equal(out!.evidence, "settled-identity");
+  assert.equal(out!.ns[0]!.ok, true, "N2 is full and positive");
+  assert.equal(out!.ns[1]!.ok, false, "N4 cannot be filled by two closes and never inherits the source model");
+  assert.equal(out!.effective, false);
+});
+
+test("a stage lane evaluation uses only closes settled by that stage's end", () => {
+  const src = [track("alpha", "axis")];
+  src[0]!.ns = [{ n: 2, pf: 9, wr: 1, net: 9, trades: 2, ok: true }];
+  const early = [close("e1", 1, .02, { strategyId: "alpha", tick: 100 }), close("e2", 1, .02, { strategyId: "alpha", tick: 90 })];
+  const late = [close("l1", -1, -.05, { strategyId: "alpha", tick: 500 }), close("l2", -1, -.05, { strategyId: "alpha", tick: 450 })];
+  const settled = [...late, ...early];
+  const pre = stageLaneSummary(src, settled, 2, [2], 1);
+  const end = stageLaneSummary(src, settled, 10, [2], 1);
+  assert.equal(pre.effective, 1);
+  assert.ok(pre.pf > 1);
+  assert.equal(end.effective, 0, "later losses belong to the later stage only");
+  assert.equal(stageLaneSummary(src, settled, 1, [2], 1).valid, 0, "no closes by hour 1");
 });
