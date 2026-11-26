@@ -2,7 +2,7 @@ import { it } from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_STEP_PF, stepPfFloor } from "./step-pf.ts";
 
-test("the Auto PF ratio raises this target step while respecting caps and exact overrides", () => {
+it("the Auto PF ratio raises this target step while respecting caps and exact overrides", () => {
   const defaultFloor = stepPfFloor(1.1, 1.5, DEFAULT_STEP_PF);
   assert.equal(stepPfFloor(1.1, 1.5, {...DEFAULT_STEP_PF, autoPfRatio: 8}), 1.6);
   assert.equal(defaultFloor, 1.3);
