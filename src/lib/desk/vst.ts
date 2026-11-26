@@ -4,6 +4,7 @@ import {publishPortedIndications} from "./engine.ts";
 import { strategyTogglesForRange } from "./strategy-processing.ts";
 import { prehistoryHours } from "./prehistory.ts";
 import { relateAllocation, relateConfig } from "./relate.ts";
+import { RELATE_SOURCES, relateKeys, relateLossLevel } from "../../../shared/cts-relate/policy.ts";
 import { extendOwnSampleHistory, sampleRows, type SampleCoverage } from "./last-n-samples.ts";
 import { hasDisjointBlocks, measuredEdgePnl, selectedDisjointBlocks } from "./last-n-progress.ts";
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
@@ -627,7 +628,8 @@ function nativeCandidateOwner(rel: ConfigIdentity) {
     rel.playbook, rel.kind, rel.tpAtr, rel.slOfTp,
     !!rel.microRange, !!rel.minimalRange, !!rel.shortRange,
     rel.modelRtCost, rel.minSlDistancePct,
-    ...(rel.microRange ? [rel.microMinSlDistancePct, rel.microMinTrailDistancePct] : [])]);
+    ...(rel.microRange ? [rel.microMinSlDistancePct, rel.microMinTrailDistancePct] : []),
+    ...(rel.strategyId ? ["source-strategy", rel.strategyId] : [])]);
 }
 function nativeGeometryKey(rel: Pick<ConfigIdentity, "priceStopPct" | "priceTrailPct" | "trailingDistance">) {
   return JSON.stringify([rel.priceStopPct, rel.priceTrailPct, rel.trailingDistance === "fixed"]);
@@ -659,7 +661,7 @@ function hasConfigProvenance(rel: ConfigIdentity): boolean {
  * An empty/denied/cancelled own cohort must not disappear from sample percentages. */
 export function registerSampleContext(e: VstEngine, rel: ConfigIdentity): void {
   if (!hasConfigProvenance(rel)) return;
-  const key = configSampleKey(rel);
+  const key = strategyConfigSampleKey(rel);
   const contexts = e.configuredSampleContexts ?? (e.configuredSampleContexts = {});
   if (!(key in contexts)) {
     const { pnl: _pnl, examFlat: _flat, id: _id, tick: _tick, ...identity } = configTapeRow({ ...rel, pnl: NaN });
@@ -682,7 +684,21 @@ export function completeConfigSampleKey(rel: ConfigIdentity): string | null {
   if (rel.microRange && ![rel.microMinSlDistancePct, rel.microMinTrailDistancePct].every(Number.isFinite)) return null;
   return configSampleKey(rel);
 }
+/** Stage accounting owns strategyId as an outer dimension. Runtime evidence
+ * needs the same dimension inside its retained-tape and coordination maps. */
+function strategyConfigSampleKey(rel: ConfigIdentity): string {
+  const key = configSampleKey(rel);
+  return rel.strategyId ? JSON.stringify([key, "source-strategy", rel.strategyId]) : key;
+}
+export function completeStrategyConfigSampleKey(rel: ConfigIdentity): string | null {
+  return completeConfigSampleKey(rel) == null ? null : strategyConfigSampleKey(rel);
+}
+function deskRelateKeys(rel: ConfigIdentity, exactKey: string) {
+  return relateKeys(JSON.stringify([rel.connId, rel.calc]), exactKey, rel.symbol!, rel.side!, rel.indication!,
+    rel.strategyId ?? rel.kind!, rel.playbook!, rel.rangeType!);
+}
 function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
+  if (rel.strategyId != null && row.strategyId !== rel.strategyId) return false;
   if (rel.connId != null && row.connId !== rel.connId) return false;
   if (rel.calc != null && row.calc !== rel.calc) return false;
   if ((row.trailingDistance === "fixed") !== (rel.trailingDistance === "fixed")) return false;
@@ -723,7 +739,7 @@ function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id
   if (!deskTapeRow(e, c)) return;
   const row = configTapeRow(c);
   registerSampleContext(e, row);
-  const key = configSampleKey(row);
+  const key = strategyConfigSampleKey(row);
   let bag = configTapeMem.get(e);
   if (!bag) {
     bag = new Map();
@@ -743,7 +759,7 @@ function noteConfigSample(e: VstEngine, c: ConfigTapeRow & { connId?: string; id
 function historyRows(e: VstEngine, rel: ConfigIdentity) {
   const bag = configTapeMem.get(e);
   if (!bag) return [];
-  return bag.get(configSampleKey(rel)) ?? [];
+  return bag.get(strategyConfigSampleKey(rel)) ?? [];
 }
 
 /** Own configured candidates survive empty, rejected and cancelled order lifecycles.
@@ -755,7 +771,7 @@ export function lastNSampleCoverage(e: VstEngine): SampleCoverage {
   const identities = new Map<string, ConfigIdentity>();
   for (const row of e.closed) {
     if (row.connId !== e.activeConnId || !deskTapeRow(e,row) || ("examFlat" in row && row.examFlat)) continue;
-    const key=configSampleKey(row);
+    const key=strategyConfigSampleKey(row);
     identities.set(key,row);
     if (!hasConfigProvenance(row)) { current.set(key,null); continue; }
     const own=current.get(key) ?? [];
@@ -774,7 +790,7 @@ export function lastNSampleCoverage(e: VstEngine): SampleCoverage {
   const frozen = new Map<string, Tape | null>();
   for (const row of frozenConfigRows(e)) {
     if (row.connId !== e.activeConnId || row.examFlat) continue;
-    const key=configSampleKey(row);
+    const key=strategyConfigSampleKey(row);
     identities.set(key,row);
     if (!hasConfigProvenance(row)) { frozen.set(key,null); continue; }
     const own=frozen.get(key) ?? [];
@@ -782,7 +798,7 @@ export function lastNSampleCoverage(e: VstEngine): SampleCoverage {
     frozen.set(key,own);
   }
   for (const row of [...Object.values(e.configuredSampleContexts ?? {}),...e.positions,...e.orders,...e.queue]) {
-    if (row.connId === e.activeConnId) identities.set(configSampleKey(row),row);
+    if (row.connId === e.activeConnId) identities.set(strategyConfigSampleKey(row),row);
   }
   const selected = new Map<string, Tape | null>();
   for (const [key, rel] of identities) {
@@ -802,7 +818,7 @@ function snapshotConfigPreTape(e: VstEngine) {
   const grouped = new Map<string, ConfigTapeRow[]>();
   for (const c of e.closed) {
     if (!deskTapeRow(e,c) || ("examFlat" in c && c.examFlat)) continue;
-    const row=configTapeRow(c), key=configSampleKey(row), own=grouped.get(key) ?? [];
+    const row=configTapeRow(c), key=strategyConfigSampleKey(row), own=grouped.get(key) ?? [];
     if (own.length < capacity) own.push(row);
     grouped.set(key,own);
   }
@@ -839,7 +855,7 @@ function ownFrozenConfigRows(e: VstEngine, rel: ConfigIdentity, limit: number) {
   const rows = frozenConfigRows(e);
   if (!rows.length) return rows;
   const key = Number.isFinite(rel.priceStopPct) && Number.isFinite(rel.priceTrailPct)
-    ? completeConfigSampleKey(rel) : null;
+    ? completeStrategyConfigSampleKey(rel) : null;
   if (key == null) return filterConfigRows(rows, rel, limit);
   let index = frozenNativeIndex.get(rows);
   if (!index) {
@@ -847,7 +863,7 @@ function ownFrozenConfigRows(e: VstEngine, rel: ConfigIdentity, limit: number) {
     index = new Map();
     for (const row of rows) {
       if (row.examFlat) continue;
-      const rowKey = completeConfigSampleKey(row);
+      const rowKey = completeStrategyConfigSampleKey(row);
       if (rowKey == null) continue;
       const own = index.get(rowKey);
       if (own) own.push(row);
@@ -911,7 +927,7 @@ function pfHourIndex(e: VstEngine) {
 const laneCoolMem = new WeakMap<VstEngine, { hour: number; loss: Record<string, number> }>();
 function laneCoolKey(p: LivePosition): string | null {
   if (!p.indication) return null;
-  const exact = completeConfigSampleKey({ ...p, rangeType: p.controllingRange });
+  const exact = completeStrategyConfigSampleKey({ ...p, rangeType: p.controllingRange });
   return exact ? `cfg:${exact}` : `legacy:${p.symbol}:${p.indication}:${p.tactic || "x"}`;
 }
 function noteLaneLoss(e: VstEngine, p: LivePosition, ratio: number) {
@@ -951,7 +967,7 @@ function queueWinAgain(e: VstEngine, p: LivePosition) {
     winAgainMem.set(e, bag);
   }
   const parentIdentity: ConfigIdentity = { ...p, rangeType: p.controllingRange };
-  const exactParentKey = completeConfigSampleKey(parentIdentity);
+  const exactParentKey = completeStrategyConfigSampleKey(parentIdentity);
   const legacyKey = `${p.symbol}:${p.side}:${p.indication || "x"}:${p.tactic || "x"}`;
   const k = exactParentKey ? `cfg:${exactParentKey}` : `legacy:${legacyKey}`;
   if ((bag.n[k] ?? 0) >= 4) return;
@@ -976,7 +992,7 @@ function queueWinAgain(e: VstEngine, p: LivePosition) {
     if (play === "block" && laneLiveCold(e, "block")) return;
   }
   if (e.queue.some((o) => o.note.includes("pf-again") && (exactParentKey
-    ? completeConfigSampleKey(o) === exactParentKey
+    ? completeStrategyConfigSampleKey(o) === exactParentKey
     : o.symbol === p.symbol && o.side === p.side && o.indication === p.indication))) return;
   bag.n[k] = (bag.n[k] ?? 0) + 1;
   const px = q.px;
@@ -1055,7 +1071,7 @@ function noteHourLane(e: VstEngine, key: string, ratio: number) {
   else bag.l += -ratio;
 }
 function blockHourLaneKey(p: LivePosition): string {
-  const exact = completeConfigSampleKey({ ...p, rangeType: p.controllingRange });
+  const exact = completeStrategyConfigSampleKey({ ...p, rangeType: p.controllingRange });
   return exact ? `play:block:cfg:${exact}` : "play:block";
 }
 function noteHourLive(e: VstEngine, pnl: number, gated: boolean, ratio = 0) {
@@ -2708,16 +2724,17 @@ function occupiedSymbols(e: VstEngine, connId?: string): Set<string> {
   for (const o of e.queue) if (on(o.connId) && !isBotPlay(o.playbook)) s.add(o.symbol);
   return s;
 }
-function laneBusyKey(row: { symbol: string; side: string; indication?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; calc?: string; controllingRange?: string; rangeType?: string; priceStopPct?: number; priceTrailPct?: number; maxHoldTicks?: number; modelRtCost?: number; minSlDistancePct?: number; microMinSlDistancePct?: number; microMinTrailDistancePct?: number } & TrailingPolicyIdentity): string {
+function laneBusyKey(row: { strategyId?: string; symbol: string; side: string; indication?: string; playbook?: string; kind?: string; tpAtr?: number; slOfTp?: number; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean; calc?: string; controllingRange?: string; rangeType?: string; priceStopPct?: number; priceTrailPct?: number; maxHoldTicks?: number; modelRtCost?: number; minSlDistancePct?: number; microMinSlDistancePct?: number; microMinTrailDistancePct?: number } & TrailingPolicyIdentity): string {
   const combo = row.priceStopPct != null || (row.tpAtr != null && row.slOfTp != null) ? exactProtectionCombo(row) : "x";
   const range = row.controllingRange || row.rangeType || "";
-  return `${row.symbol}:${row.side}:${row.indication || ""}:${row.tactic || ""}:${row.playbook || ""}:${row.kind || ""}:${combo}:${row.calc || "base"}:${range}:${protectionPolicyKey(row)}`;
+  return `${row.symbol}:${row.side}:${row.indication || ""}:${row.tactic || ""}:${row.playbook || ""}:${row.kind || ""}:${combo}:${row.calc || "base"}:${range}:${protectionPolicyKey(row)}${row.strategyId ? `:source-strategy=${row.strategyId}` : ""}`;
 }
 /** Pair coordination groups indications, but never different configuration parents. */
 function pairCoordinationKey(row: ConfigIdentity & { symbol: string; side: Side }): string {
   return JSON.stringify([row.connId ?? "", row.symbol, row.side, row.tactic, row.rangeType, row.playbook, row.kind,
     row.calc ?? "base", exactProtectionCombo(row), row.trailPct, row.modelRtCost, row.minSlDistancePct,
-    ...(row.microRange ? [row.microMinSlDistancePct, row.microMinTrailDistancePct] : [])]);
+    ...(row.microRange ? [row.microMinSlDistancePct, row.microMinTrailDistancePct] : []),
+    ...(row.strategyId ? ["source-strategy", row.strategyId] : [])]);
 }
 function occupiedLegs(e: VstEngine, connId?: string): Set<string> {
   const s = new Set<string>();
@@ -3455,15 +3472,28 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   const relate = relateConfig(cfg.relate);
   const relateRows = new Map<string, ConfigTapeRow[]>();
   const relateMultipliers = new Map<string, number>();
+  const relationReturns = new Map<string, (number | undefined)[]>();
+  const relationLevels = new Map<string, number | null>();
+  const relationSources = relate.scope === "overall"
+    ? RELATE_SOURCES.filter(source => source !== "config" && (relate.volumeFactors?.[source] ?? 1) > 0) : [];
   const eligibleRelate = (row: ConfigTapeRow) => row.validExec === true && !row.examFlat &&
     typeof row.tick === "number" && row.tick < e.tick && row.connId === connId && Boolean(row.id) && deskTapeRow(e, row);
   if (relate.enabled && (e.preEvalDone || e.liveTape)) for (const row of e.closed) {
     if (!eligibleRelate(row)) continue;
-    const key = completeConfigSampleKey(row);
+    const key = completeStrategyConfigSampleKey(row);
     if (!key) continue;
     let own = relateRows.get(key);
     if (!own) relateRows.set(key, own = []);
     if (own.length < relate.lastN) own.push(row);
+    if (relationSources.length) {
+      const keys = deskRelateKeys(row, key);
+      for (const source of relationSources) {
+        const relation = keys[source];
+        let returns = relationReturns.get(relation);
+        if (!returns) relationReturns.set(relation, returns = []);
+        if (returns.length < relate.lastN) returns.push(row.ratio);
+      }
+    }
   }
   keepCatalogLanes(e, connId);
   thinCrowdedLanes(e, connId);
@@ -4064,7 +4094,7 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 modelRtCost: modeledPositionCost(e, s.id), minSlDistancePct: normalizeMinSlDistancePct(e.minSlDistancePct),
                 ...(microOn ? {microMinSlDistancePct:e.microMinSlDistancePct,microMinTrailDistancePct:e.microMinTrailDistancePct} : {}) } as const;
               registerSampleContext(e, entryRel);
-              const proofKey = JSON.stringify([configSampleKey(entryRel), configStepFloor(e, baseStageFloor(e), entryRel)]);
+              const proofKey = JSON.stringify([strategyConfigSampleKey(entryRel), configStepFloor(e, baseStageFloor(e), entryRel)]);
               let verdict = entryVerdicts.get(proofKey);
               if (verdict === undefined) {
                 verdict = liveShouldExecute(e, entryRel);
@@ -4073,13 +4103,21 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
               entryValid = verdict;
               if (!entryValid) return;
               if (relate.enabled && !axisInd && book !== "dca") {
-                const key = completeConfigSampleKey(entryRel);
+                const key = completeStrategyConfigSampleKey(entryRel);
                 if (key) {
                   const decisionKey = JSON.stringify([key, lv.slDist / lv.tpDist]);
                   let multiplier = relateMultipliers.get(decisionKey);
                   if (multiplier === undefined) {
                     const own = extendOwnSampleHistory(relateRows.get(key) ?? [], historyRows(e, entryRel).filter(eligibleRelate), relate.lastN);
-                    multiplier = relateAllocation(own.map(row => row.ratio), lv.slDist, lv.tpDist, relate);
+                    const keys = relationSources.length ? deskRelateKeys(entryRel, key) : undefined;
+                    multiplier = relateAllocation(own.map(row => row.ratio), lv.slDist, lv.tpDist, relate, source => {
+                      if (!keys) return null;
+                      const relation = keys[source];
+                      if (!relationLevels.has(relation)) {
+                        relationLevels.set(relation, relateLossLevel(relationReturns.get(relation) ?? [], relate));
+                      }
+                      return relationLevels.get(relation) ?? null;
+                    });
                     relateMultipliers.set(decisionKey, multiplier);
                   }
                   relateMultiplier = multiplier;
@@ -5654,6 +5692,7 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   }
   const closedRow = {
     id: p.id,
+    ...(p.relateMultiplier !== undefined ? { relateMultiplier: p.relateMultiplier } : {}),
     connId: p.connId,
     symbol: p.symbol,
     strategyId: p.strategyId,
@@ -7775,7 +7814,7 @@ function laneDecTapeSig(e: VstEngine) {
 }
 
 function laneDecKey(rel: Parameters<typeof lanePassExec>[1]) {
-  return JSON.stringify([configSampleKey(rel), rel.tpPct]);
+  return JSON.stringify([strategyConfigSampleKey(rel), rel.tpPct]);
 }
 
 /** Score every last-N / Block / indication / tactic / range type by PF.

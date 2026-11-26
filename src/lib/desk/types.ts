@@ -923,6 +923,8 @@ export interface VstBatch {
 }
 
 export interface ClosedTrade {
+  /** Relate sizing captured on the position when it opened. */
+  relateMultiplier?: number;
   /** Economic policy captured by the owned position, not the current settings. */
   modelRtCost?: number;
   minSlDistancePct?: number;

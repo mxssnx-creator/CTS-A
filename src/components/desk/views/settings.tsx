@@ -4,6 +4,7 @@ import {PORTED_CATALOG,DEFAULT_TACTIC_SOURCES,DEFAULT_INVERSE_SOURCES} from "../
 import { DEFAULT_LOW_RANGE_SOURCES, LOW_RANGE_CATALOG } from "../../../../shared/cts-indications/low-range-catalog.ts";
 import { DEFAULT_LOW_RANGE_GRID } from "../../../../shared/cts-indications/origin/indications/low-range.ts";
 import { relateConfig, type RelateConfig } from "@/lib/desk/relate.ts";
+import { RELATE_LABELS, RELATE_SOURCES } from "../../../../shared/cts-relate/policy.ts";
 import { DEFAULT_PRICE_DISTANCE_GRID } from "@/lib/desk/price-distance-grid";
 import { STRATEGY_PROCESSING_RANGES } from "@/lib/desk/strategy-processing";
 import { DEFAULT_PREHISTORY_HOURS, MAX_PREHISTORY_HOURS } from "../../../lib/desk/prehistory";
@@ -1091,10 +1092,17 @@ export function SettingsView() {
           Increase allocation on qualified post-Base Sets
         </label>
         {relate.enabled && <>
-          <p className="mt-2 text-xs text-muted">Each Set uses its own earlier signed closes. A stop above half the target keeps base size.</p>
+          <p className="mt-2 text-xs text-muted">Consecutive settled losses increase the next allocation on a qualified Set. A win or flat close resets the step.</p>
+          <label className="mt-3 grid gap-1 text-xs">Relation scope
+            <select className="rounded border bg-bg p-2" value={relate.scope}
+              onChange={event => setRelate({ scope: event.target.value === "overall" ? "overall" : "set" })}>
+              <option value="set">Exact Set</option><option value="overall">Overall · all relations</option>
+            </select>
+          </label>
           <div className="mt-3 grid gap-3 sm:grid-cols-3">
             {([
-              ["steps", "Winning steps", 2, 15, 1],
+              ["steps", "Maximum loss steps", 2, 15, 1],
+              ["activeStep", "Relate Active positions to skip", 0, Math.min(relate.steps, 6), 1],
               ["ratio", "Increase per step", .2, 6, .2],
               ["lastN", "Recent closes", 60, 250, 1],
               ["minTrades", "Minimum closes", 60, relate.lastN, 1],
@@ -1105,6 +1113,15 @@ export function SettingsView() {
                 defaultValue={relate[key]} key={String(relate[key])}
                 onBlur={event => { if (Number.isFinite(event.target.valueAsNumber)) setRelate({ [key]: event.target.valueAsNumber }); }} />
             </label>)}
+            {RELATE_SOURCES.filter(source => relate.scope === "overall" || source === "config").map(source => (
+              <label key={source} className="grid gap-1 text-xs">{RELATE_LABELS[source]} volume factor
+                <input className="rounded border bg-bg p-2" type="number" min={0} max={8} step={.1}
+                  value={relate.volumeFactors?.[source] ?? 1} onChange={event => {
+                    if (Number.isFinite(event.target.valueAsNumber))
+                      setRelate({ volumeFactors: { ...relate.volumeFactors, [source]: event.target.valueAsNumber } });
+                  }} />
+              </label>
+            ))}
           </div>
         </>}
       </Panel>

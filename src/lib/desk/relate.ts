@@ -1,3 +1,6 @@
+import { normalizeRelateFactors, relateLossLevel, weightedRelateAllocation,
+  type RelateScope, type RelateSource, type RelateVolumeFactors } from "../../../shared/cts-relate/policy.ts";
+
 export interface RelateConfig {
   enabled: boolean;
   steps: number;
@@ -6,6 +9,9 @@ export interface RelateConfig {
   minTrades: number;
   minPF: number;
   maxMultiplier: number;
+  activeStep?: number;
+  scope?: RelateScope;
+  volumeFactors?: RelateVolumeFactors;
 }
 
 export const DEFAULT_RELATE: RelateConfig = {
@@ -16,30 +22,24 @@ export function relateConfig(raw?: Partial<RelateConfig>): RelateConfig {
   const clamp = (value: number | undefined, fallback: number, min: number, max: number) =>
     typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
   const lastN = Math.floor(clamp(raw?.lastN, 250, 60, 250));
+  const steps = Math.floor(clamp(raw?.steps, 12, 2, 15));
   return {
     enabled: raw?.enabled === true,
-    steps: Math.floor(clamp(raw?.steps, 12, 2, 15)),
+    steps,
+    activeStep: Math.floor(clamp(raw?.activeStep, 0, 0, Math.min(6, steps))),
     ratio: Math.round(clamp(raw?.ratio, .2, .2, 6) * 5) / 5,
     lastN,
     minTrades: Math.floor(clamp(raw?.minTrades, 60, 60, lastN)),
     minPF: clamp(raw?.minPF, 1.1, 1.01, 10),
     maxMultiplier: clamp(raw?.maxMultiplier, 2, 1, 8),
+    scope: raw?.scope === "overall" ? "overall" : "set",
+    volumeFactors: normalizeRelateFactors(raw?.volumeFactors),
   };
 }
 
-/** CTS-G's positive-run sizing rule, using the qualifying Set's signed returns. */
-export function relateAllocation(returns: readonly (number | undefined)[], sl: number, tp: number, cfg: RelateConfig): number {
-  const count = Math.min(returns.length, cfg.lastN);
-  if (!cfg.enabled || count < cfg.minTrades || !(Number.isFinite(sl + tp) && sl > 0 && tp > 0 && sl <= tp * .5)) return 1;
-  let gains = 0, losses = 0, wins = 0;
-  for (let i = 0; i < count; i++) {
-    const result = returns[i];
-    if (result === undefined || !Number.isFinite(result)) return 1;
-    if (result > 0) {
-      gains += result;
-      if (i === wins && wins < cfg.steps) wins++;
-    } else losses -= result;
-  }
-  if (!wins || !Number.isFinite(gains + losses) || (losses > 0 && gains / losses < cfg.minPF)) return 1;
-  return Math.min(cfg.maxMultiplier, 1 + cfg.ratio * wins);
+/** The exact Set must qualify before any independent relation can allocate exposure. */
+export function relateAllocation(returns: readonly (number | undefined)[], sl: number, tp: number, cfg: RelateConfig,
+  levelOf: (source: RelateSource) => number | null = () => null): number {
+  if (!cfg.enabled || !(Number.isFinite(sl + tp) && sl > 0 && tp > 0 && sl <= tp * .5 + 1e-12)) return 1;
+  return weightedRelateAllocation(relateLossLevel(returns, cfg), cfg, cfg.scope, cfg.volumeFactors, levelOf);
 }
