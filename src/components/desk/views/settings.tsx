@@ -1274,6 +1274,9 @@ export function SettingsView() {
             <RangeKnob label="Step PF ratio" value={cfg.stepPf?.ratio ?? 0.2} min={0.1} max={1.5} step={0.05}
               format={(n) => n.toFixed(2)} ariaLabel="Step profit factor ratio"
               onChange={(n) => setCfg({ stepPf: { enabled: true, max: 2, ...cfg.stepPf, ratio: n } })} />
+            <RangeKnob label="Auto PF ratio" value={cfg.stepPf?.autoPfRatio ?? 4} min={1} max={10} step={1}
+              format={(n) => n.toFixed(0)} ariaLabel="Auto profit factor ratio"
+              onChange={(n) => setCfg({ stepPf: { enabled: true, ratio: 0.2, max: 2, ...cfg.stepPf, autoPfRatio: n } })} />
             <RangeKnob label="Step PF maximum" value={cfg.stepPf?.max ?? 2} min={1} max={2} step={0.05}
               format={(n) => n.toFixed(2)} ariaLabel="Step profit factor maximum"
               onChange={(n) => setCfg({ stepPf: { enabled: true, ratio: 0.2, ...cfg.stepPf, max: n } })} />

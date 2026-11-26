@@ -12448,7 +12448,10 @@ export function lanePassExec(
   if (internAllPhase(e) || completeOpenTape(e)) return true;
   if (e.preEvalDone && !validatedSet(e, rel)) return false;
   if (e.preEvalDone) {
-    if (liveRelationDisabled(e, rel as Parameters<typeof liveRelationDisabled>[1])) return false;
+    // A measured protection cell and its siblings can share TP and SL ratio.
+    // The legacy pooled pause only applies to callers without exact proof.
+    if (!hasConfigProvenance({ ...rel, connId: e.activeConnId }) &&
+      liveRelationDisabled(e, rel as Parameters<typeof liveRelationDisabled>[1])) return false;
     return true;
   }
   // Independent combo tape: intern always processes this TP×SL; last-N is scored, not a self-kill.

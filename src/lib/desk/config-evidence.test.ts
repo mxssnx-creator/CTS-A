@@ -52,7 +52,7 @@ test("a validated signed 20/10/3 configuration reaches its own execution lane", 
   e.lastNProgress={evalNs:[20],validNs:[10],disableNs:[3],mode:"independent",parallelStack:false,parallelVolRatio:1,
     blocks:{long:20,short:10,minimal:3,shortPolarity:"negative",minimalPolarity:"negative"}};
   e.closed=Array.from({length:33},(_,i)=>({...e.closed[0],id:`x:signed-${i}`,tick:99-i,
-    pnl:i<13?-1:i%2? -1:2,ratio:i<13?-.01:i%2? -.01:.02}));
+    pnl:i<13?-1:i%2? -1:4,ratio:i<13?-.01:i%2? -.01:.04}));
   assert.equal(laneLastNDecision(e,own).pass,true);
   assert.equal(lanePassExec(e,own),true);
   assert.equal(liveShouldExecute(e,own),true);

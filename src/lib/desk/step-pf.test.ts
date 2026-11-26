@@ -1,6 +1,14 @@
 import { it } from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_STEP_PF, stepPfFloor } from "./step-pf.ts";
+
+test("the Auto PF ratio raises this target step while respecting caps and exact overrides", () => {
+  const defaultFloor = stepPfFloor(1.1, 1.5, DEFAULT_STEP_PF);
+  assert.equal(stepPfFloor(1.1, 1.5, {...DEFAULT_STEP_PF, autoPfRatio: 8}), 1.6);
+  assert.equal(defaultFloor, 1.3);
+  assert.equal(stepPfFloor(1.4, 1.5, {...DEFAULT_STEP_PF, autoPfRatio: 1}), 1.4);
+  assert.throws(() => stepPfFloor(1.1, 1.5, {...DEFAULT_STEP_PF, autoPfRatio: 11}), /1 to 10/);
+});
 it("manual step PF matches CTS-G percent units, flooring, cap and stricter settings", () => {
   for (const [pct, expected] of [[.2,1.04],[.25,1.04],[.3,1.06],[3.2,1.64],[3.5,1.7],[9,1.7]])
     assert.equal(stepPfFloor(1,pct,DEFAULT_STEP_PF),expected);

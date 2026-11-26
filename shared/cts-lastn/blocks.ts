@@ -53,7 +53,9 @@ export function blockWindow(pre:BlockPrefix,offset:number,n:number,minPf:number,
   if(Number.isFinite(gp)&&Number.isFinite(gl)&&Math.abs(net)<=Number.EPSILON*(gp+gl)*(count+1))net=directSum(pre.values,start,end,'net');
   const unknown=pre.unknown[end]!==pre.unknown[start]||![gp,gl,net].every(Number.isFinite);
   const pf=unknown||count<n?null:gl>0?gp/gl:gp>0?Infinity:0;
-  const passed=n===0||(polarity==='negative'?net<0:net>0&&(signOnly||pf!==null&&pf>=minPf));
+  const passed=n===0||(polarity==='negative'
+    ? net<0&&(signOnly||gl>=gp*minPf)
+    : net>0&&(signOnly||pf!==null&&pf>=minPf));
   return {offset,requested:n,count,gp,gl,net,pf,state:unknown?'unknown':count<n?'insufficient':passed?'qualified':'failed'};
 }
 /** One prefix per exact configuration can evaluate all 1,560 policies without copying position arrays. */

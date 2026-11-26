@@ -1,6 +1,10 @@
 /** CTS-G manual step policy. Distances are price PERCENT, not fractions or ATR multipliers. */
-export interface StepPfRules { enabled: boolean; ratio: number; max: number; byStep?: Record<string, number>; bySlRatio?: Record<string, number> }
-export const DEFAULT_STEP_PF: StepPfRules = { enabled: true, ratio: 0.2, max: 2 };
+export interface StepPfRules { enabled: boolean; ratio: number; max: number; autoPfRatio?: number; byStep?: Record<string, number>; bySlRatio?: Record<string, number> }
+export const DEFAULT_STEP_PF: StepPfRules = { enabled: true, ratio: 0.2, max: 2, autoPfRatio: 4 };
+export function validateAutoPfRatio(value: unknown): void {
+  if (value !== undefined && (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 10))
+    throw new Error("Auto PF ratio must be a whole number from 1 to 10");
+}
 export function stepPfFloor(legacy: number, tpPercent: number | undefined, rules?: Partial<StepPfRules>, slRatio?: number): number {
   if (!rules?.enabled || tpPercent === undefined || !Number.isFinite(tpPercent) || tpPercent <= 0) return legacy;
   const overrides: number[] = [];
@@ -16,5 +20,7 @@ export function stepPfFloor(legacy: number, tpPercent: number | undefined, rules
   const cap = typeof rules.max === "number" && Number.isFinite(rules.max)
     ? Math.max(1, Math.min(2, rules.max)) : DEFAULT_STEP_PF.max;
   const step = Math.max(0.2, Math.min(3.5, Math.floor(tpPercent * 10 + 1e-9) / 10));
-  return Math.max(legacy, Math.min(cap, Math.round((1 + step * ratio) * 1e6) / 1e6));
+  validateAutoPfRatio(rules.autoPfRatio);
+  const strength = (rules.autoPfRatio ?? 4) / 4;
+  return Math.max(legacy, Math.min(cap, Math.round((1 + step * ratio * strength) * 1e6) / 1e6));
 }
