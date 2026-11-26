@@ -8075,8 +8075,10 @@ export function refreshPrePassKeys(e: VstEngine, opts?: { intern?: boolean }) {
     push(`${ind}:${play}:${tac}`, edgePnl(c));
   }
   const keys: Record<string, number> = {};
+  let evaluated = false;
   for (const [k, rows] of by) {
     if (rows.length < 6) continue;
+    evaluated = true;
     const parts = k.split(":");
     const play = parts.length >= 2 ? parts[1]! : parts[0]!;
     const lane = playLaneOf(play, e.shortRange);
@@ -8084,7 +8086,7 @@ export function refreshPrePassKeys(e: VstEngine, opts?: { intern?: boolean }) {
     const pf = pfFromPnls(rows);
     if (pf + 1e-9 >= floor) keys[k] = pf;
   }
-  if (!Object.keys(keys).length && e.prePassKeys && Object.keys(e.prePassKeys).length) return;
+  if (!evaluated && e.prePassKeys && Object.keys(e.prePassKeys).length) return;
   e.prePassKeys = keys;
 }
 
@@ -8171,8 +8173,6 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
     const disableNs = (e.lastNCoord?.disableNs?.length ? e.lastNCoord.disableNs : ln.disableNs);
     const tapes = { ...(e.shortComboPreTape ?? {}), ...(e.shortComboTape ?? {}), ...(e.shortComboLiveTape ?? {}) };
     const liveTapes = e.preEvalDone ? (e.shortComboLiveTape ?? e.shortComboTape ?? {}) : tapes;
-    let bestPf = -1;
-    let bestK = "";
     for (const [k, rows] of Object.entries(liveTapes)) {
       if (!rows || rows.length < minS) continue;
       const hits = lastNWindows(rows, disableNs);
@@ -8180,18 +8180,10 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
       if (!sampled.length) continue;
       const bad = sampled.filter((h) => h.avg < -1e-12);
       const st = comboTapeStats(rows);
-      if (st.pf > bestPf) {
-        bestPf = st.pf;
-        bestK = k;
-      }
       const kill = bad.length === sampled.length && !(st.n >= 8 && st.pf + 1e-9 >= 1 && st.net > 0);
       const key = `combo:${k}`;
       if (kill) disabled[key] = { pf: st.pf, n: st.n, at: e.tick };
       else kept.push(key);
-    }
-    if (bestK && !kept.length && disabled[`combo:${bestK}`]) {
-      delete disabled[`combo:${bestK}`];
-      kept.push(`combo:${bestK}`);
     }
     e.liveDisabled = disabled;
     e.liveHealth = { n, at: e.tick, disabled: Object.keys(disabled), kept: [...new Set(kept)] };
@@ -8250,12 +8242,6 @@ export function refreshLiveDisable(e: VstEngine, block: BlockConfig = e.blockCfg
           kept.push(x.key);
           delete disabled[x.key];
         }
-      }
-      const anyKept = list.some((y) => !disabled[y.key]);
-      if (!anyKept && list.length) {
-        const best = list[0]!;
-        delete disabled[best.key];
-        kept.push(best.key);
       }
     }
   }
