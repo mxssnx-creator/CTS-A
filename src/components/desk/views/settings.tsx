@@ -1103,6 +1103,8 @@ export function SettingsView() {
             {([
               ["steps", "Maximum loss steps", 2, 15, 1],
               ["activeStep", "Relate Active positions to skip", 0, Math.min(relate.steps, 6), 1],
+              ["recoveryMinTrades", "Minimum completed trials at the same loss step", 6, relate.lastN, 1],
+              ["recoveryMaxDrawdownRatio", "Maximum recovery drawdown / gross profit", .01, 1, .01],
               ["ratio", "Increase per step", .2, 6, .2],
               ["lastN", "Recent closes", 60, 250, 1],
               ["minTrades", "Minimum closes", 60, relate.lastN, 1],

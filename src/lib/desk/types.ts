@@ -788,6 +788,8 @@ export interface VstQuote {
 
 export interface LiveOrder {
   relateMultiplier?: number;
+  relateTrial?: import("./relate.ts").RelateTrialStamp;
+  relateRelationTrials?: import("./relate.ts").RelateRelationTrials;
   /** Exact research/source strategy when the entry provenance is known. */
   strategyId?: string;
   /** Exact position receiving an additional-strategy fill; never inferred from a sibling's geometry. */
@@ -837,6 +839,8 @@ export interface LiveOrder {
 
 export interface LivePosition {
   relateMultiplier?: number;
+  relateTrial?: import("./relate.ts").RelateTrialStamp;
+  relateRelationTrials?: import("./relate.ts").RelateRelationTrials;
   /** Exact research/source strategy when the entry provenance is known. */
   strategyId?: string;
   shortRange?: boolean;
@@ -925,6 +929,8 @@ export interface VstBatch {
 export interface ClosedTrade {
   /** Relate sizing captured on the position when it opened. */
   relateMultiplier?: number;
+  relateTrial?: import("./relate.ts").RelateTrialStamp;
+  relateRelationTrials?: import("./relate.ts").RelateRelationTrials;
   /** Economic policy captured by the owned position, not the current settings. */
   modelRtCost?: number;
   minSlDistancePct?: number;

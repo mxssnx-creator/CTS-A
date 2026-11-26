@@ -3,8 +3,8 @@ import {indicationSourceIds,isPortedIndication,refreshPortedIndications} from ".
 import {publishPortedIndications} from "./engine.ts";
 import { strategyTogglesForRange } from "./strategy-processing.ts";
 import { prehistoryHours } from "./prehistory.ts";
-import { relateAllocation, relateConfig } from "./relate.ts";
-import { RELATE_SOURCES, relateKeys, relateLossLevel } from "../../../shared/cts-relate/policy.ts";
+import { planRelate, relateConfig, type RelateEvidence, type RelateRelationTrials, type RelateTrialStamp } from "./relate.ts";
+import { RELATE_SOURCES, relateKeys } from "../../../shared/cts-relate/policy.ts";
 import { extendOwnSampleHistory, sampleRows, type SampleCoverage } from "./last-n-samples.ts";
 import { hasDisjointBlocks, measuredEdgePnl, selectedDisjointBlocks } from "./last-n-progress.ts";
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
@@ -612,6 +612,8 @@ export type ConfigTapeRow = ConfigIdentity & {
   tick?: number;
   pnl: number;
   ratio?: number;
+  relateTrial?: RelateTrialStamp;
+  relateRelationTrials?: RelateRelationTrials;
   validExec?: boolean;
   /** Flattened at the Base boundary. Not a strategy outcome. */
   examFlat?: boolean;
@@ -711,7 +713,8 @@ function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
   return true;
 }
 function configTapeRow(c: ConfigTapeRow): ConfigTapeRow {
-  return { id:c.id, tick:c.tick, pnl: measuredEdgePnl(c), ratio: c.ratio, validExec: c.validExec, strategyId: c.strategyId, connId: c.connId, symbol: c.symbol, side: c.side,
+  return { id:c.id, tick:c.tick, pnl: measuredEdgePnl(c), ratio: c.ratio, relateTrial: c.relateTrial,
+    relateRelationTrials: c.relateRelationTrials, validExec: c.validExec, strategyId: c.strategyId, connId: c.connId, symbol: c.symbol, side: c.side,
     indication: c.indication, tactic: c.tactic, rangeType: c.rangeType, playbook: c.playbook, kind: c.kind,
     tpAtr: c.tpAtr, slOfTp: c.slOfTp, trailPct: c.trailPct, trailingDistance: c.trailingDistance,
     priceStopPct: c.priceStopPct, priceTrailPct: c.priceTrailPct, maxHoldTicks: c.maxHoldTicks, calc: c.calc,
@@ -3471,9 +3474,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
   const entryVerdicts = new Map<string, boolean>();
   const relate = relateConfig(cfg.relate);
   const relateRows = new Map<string, ConfigTapeRow[]>();
-  const relateMultipliers = new Map<string, number>();
-  const relationReturns = new Map<string, (number | undefined)[]>();
-  const relationLevels = new Map<string, number | null>();
+  const relatePlans = new Map<string, ReturnType<typeof planRelate>>();
+  const relationRows = new Map<string, ConfigTapeRow[]>();
+  const relationEvidence = new Map<string, RelateEvidence>();
   const relationSources = relate.scope === "overall"
     ? RELATE_SOURCES.filter(source => source !== "config" && (relate.volumeFactors?.[source] ?? 1) > 0) : [];
   const eligibleRelate = (row: ConfigTapeRow) => row.validExec === true && !row.examFlat &&
@@ -3489,9 +3492,9 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
       const keys = deskRelateKeys(row, key);
       for (const source of relationSources) {
         const relation = keys[source];
-        let returns = relationReturns.get(relation);
-        if (!returns) relationReturns.set(relation, returns = []);
-        if (returns.length < relate.lastN) returns.push(row.ratio);
+        let rows = relationRows.get(relation);
+        if (!rows) relationRows.set(relation, rows = []);
+        if (rows.length < relate.lastN) rows.push(row);
       }
     }
   }
@@ -4084,6 +4087,8 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
             if (busyLegs.has(legKey)) return;
             let entryValid = legOk;
             let relateMultiplier = 1;
+            let relateTrial: RelateTrialStamp | undefined;
+            let relateRelationTrials: RelateRelationTrials | undefined;
             // The coarse selection above does not yet know the final calc/trail
             // or snapped distance. Admission must use the actual order identity.
             if (afterBase && !internHere) {
@@ -4106,27 +4111,39 @@ export function armUniverse(e: VstEngine, cfg: TacticConfig, _tactic: TacticKind
                 const key = completeStrategyConfigSampleKey(entryRel);
                 if (key) {
                   const decisionKey = JSON.stringify([key, lv.slDist / lv.tpDist]);
-                  let multiplier = relateMultipliers.get(decisionKey);
-                  if (multiplier === undefined) {
+                  let plan = relatePlans.get(decisionKey);
+                  if (!plan) {
                     const own = extendOwnSampleHistory(relateRows.get(key) ?? [], historyRows(e, entryRel).filter(eligibleRelate), relate.lastN);
                     const keys = relationSources.length ? deskRelateKeys(entryRel, key) : undefined;
-                    multiplier = relateAllocation(own.map(row => row.ratio), lv.slDist, lv.tpDist, relate, source => {
-                      if (!keys) return null;
+                    plan = planRelate(own.map(row => row.ratio), own.flatMap(row => row.relateTrial && row.tick !== undefined
+                      ? [[row.tick, row.relateTrial.step, row.ratio ?? null, row.relateTrial.size]] : []),
+                    e.tick, lv.slDist, lv.tpDist, relate, source => {
+                      if (!keys) return undefined;
                       const relation = keys[source];
-                      if (!relationLevels.has(relation)) {
-                        relationLevels.set(relation, relateLossLevel(relationReturns.get(relation) ?? [], relate));
-                      }
-                      return relationLevels.get(relation) ?? null;
+                      const cached = relationEvidence.get(relation);
+                      if (cached) return cached;
+                      const rows = relationRows.get(relation);
+                      if (!rows?.length) return undefined;
+                      const evidence: RelateEvidence = {returns: rows.map(row => row.ratio), trials: rows.flatMap(row => {
+                        const trial = row.relateRelationTrials?.[source];
+                        return trial && row.tick !== undefined ? [[row.tick, trial.step, row.ratio ?? null, trial.size]] : [];
+                      })};
+                      relationEvidence.set(relation, evidence);
+                      return evidence;
                     });
-                    relateMultipliers.set(decisionKey, multiplier);
+                    relatePlans.set(decisionKey, plan);
                   }
-                  relateMultiplier = multiplier;
+                  relateMultiplier = plan.multiplier;
+                  relateTrial = plan.trial;
+                  relateRelationTrials = plan.relationTrials;
                 }
               }
             }
             const qty = unscaledQty * relateMultiplier;
             queueOrder(e, {
               ...(relateMultiplier > 1 ? { relateMultiplier } : {}),
+              ...(relateTrial && {relateTrial}),
+              ...(relateRelationTrials && {relateRelationTrials}),
               id: nextId(e, "q"),
               connId,
               symbol: s.id,
@@ -5170,6 +5187,8 @@ function applyFill(e: VstEngine, o: LiveOrder, qty: number, px: number, kind: Fi
     pos = {
       id: nextId(e, "p"),
       ...(o.relateMultiplier !== undefined ? { relateMultiplier: o.relateMultiplier } : {}),
+      ...(o.relateTrial && {relateTrial:o.relateTrial}),
+      ...(o.relateRelationTrials && {relateRelationTrials:o.relateRelationTrials}),
       strategyId: o.strategyId,
       protectionKey: geometryKey(o),
       modelRtCost: o.modelRtCost ?? modeledPositionCost(e, o.symbol),
@@ -5693,6 +5712,8 @@ function closePosition(e: VstEngine, p: LivePosition, exit: number, reason: "sl"
   const closedRow = {
     id: p.id,
     ...(p.relateMultiplier !== undefined ? { relateMultiplier: p.relateMultiplier } : {}),
+    ...(p.relateTrial && {relateTrial:p.relateTrial}),
+    ...(p.relateRelationTrials && {relateRelationTrials:p.relateRelationTrials}),
     connId: p.connId,
     symbol: p.symbol,
     strategyId: p.strategyId,

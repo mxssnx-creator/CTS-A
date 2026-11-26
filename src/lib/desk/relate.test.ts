@@ -42,6 +42,7 @@ test("post-Base order sizes change only for the qualifying exact Set and exclude
   e.closed = Array.from({ length: 60 }, (_, i) => ({
     ...seed, id: `own-${i}`, tick: 99-i, pnl: lossRun[i], ratio: lossRun[i], r: lossRun[i], entry: seed.price,
     exit: seed.price * (seed.side === "long" ? 1.012 : .988), reason: "tp", validExec: true,
+    relateTrial: i >= 9 && i < 25 ? { step: 4, size: 2 } : undefined,
   }));
   const reset = () => { e.queue = []; e.orders = []; e.positions = []; };
   reset();
