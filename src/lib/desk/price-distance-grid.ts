@@ -1,11 +1,13 @@
+import { STOP_BANDS, DEFAULT_MAX_STOP_RATIO, maxStopRatio, stopSelections, type StopBand, type FixedStopSelections } from "../../../shared/cts-protection/fixed-stop-bands.ts";
+export { STOP_BANDS };
 import type { Side, TacticConfig, TacticKind, TrailingDistance } from "./types.ts";
 
 export const STOP_DISTANCE_PCTS = Array.from({ length: 21 }, (_, i) => (i + 2) / 10);
 export const TRAIL_DISTANCE_PCTS = Array.from({ length: 25 }, (_, i) => (i + 2) / 10);
 
-export type PriceDistanceGridConfig = { enabled: boolean; stopPcts: number[]; trailPcts: number[] };
+export type PriceDistanceGridConfig = { enabled: boolean; maxStopLossRatio?: number; fixedSlBands?: FixedStopSelections; stopPcts: number[]; trailPcts: number[] };
 export const DEFAULT_PRICE_DISTANCE_GRID: PriceDistanceGridConfig = {
-  enabled: false, stopPcts: STOP_DISTANCE_PCTS, trailPcts: TRAIL_DISTANCE_PCTS,
+  enabled: true, fixedSlBands: {}, maxStopLossRatio: DEFAULT_MAX_STOP_RATIO, stopPcts: STOP_DISTANCE_PCTS, trailPcts: TRAIL_DISTANCE_PCTS,
 };
 
 function exactSteps(value: unknown, allowed: readonly number[], label: string): number[] {
@@ -18,16 +20,17 @@ function exactSteps(value: unknown, allowed: readonly number[], label: string): 
 }
 
 export function sanitizePriceDistanceGrid(value: unknown): PriceDistanceGridConfig {
-  if (value === undefined) return { enabled: false, stopPcts: [...STOP_DISTANCE_PCTS], trailPcts: [...TRAIL_DISTANCE_PCTS] };
+  if (value === undefined) return { enabled: true, fixedSlBands: stopSelections(), maxStopLossRatio: DEFAULT_MAX_STOP_RATIO, stopPcts: [...STOP_DISTANCE_PCTS], trailPcts: [...TRAIL_DISTANCE_PCTS] };
   if (!value || typeof value !== "object") throw new TypeError("Price-distance grid must be an object.");
   const raw = value as Partial<PriceDistanceGridConfig>;
   if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") throw new TypeError("Price-distance grid enabled must be boolean.");
-  return { enabled: raw.enabled === true, stopPcts: exactSteps(raw.stopPcts, STOP_DISTANCE_PCTS, "stop distances"),
+  return { enabled: raw.fixedSlBands !== undefined || raw.enabled === true, ...(raw.fixedSlBands !== undefined ? {fixedSlBands:stopSelections(raw.fixedSlBands),maxStopLossRatio:maxStopRatio(raw.maxStopLossRatio)} : {}), stopPcts: exactSteps(raw.stopPcts, STOP_DISTANCE_PCTS, "stop distances"),
     trailPcts: exactSteps(raw.trailPcts, TRAIL_DISTANCE_PCTS, "trailing distances") };
 }
 
 export type PriceDistanceVariant = {
-  priceStopPct: number; priceTrailPct?: number; trailingDistance?: TrailingDistance;
+  priceStopBand?: StopBand; priceStopPct: number; priceTrailPct?: number; trailingDistance?: TrailingDistance;
+  lowRangeOnly?: boolean; maxHoldTicks?: number;
   tpAtr?: number; slOfTp?: number; microRange?: boolean; minimalRange?: boolean; shortRange?: boolean;
 };
 
@@ -41,19 +44,22 @@ export function priceDistanceVariants(cfg: TacticConfig, tactic: TacticKind): Pr
     minimalRange: cfg.minimalRange === true, shortRange: cfg.shortRange === true };
   const trailing = tactic === "trailing" || tactic === "hybrid";
   const key = JSON.stringify([trailing, base.tpAtr, base.slOfTp, base.microRange, base.minimalRange, base.shortRange,
-    grid.stopPcts, trailing ? grid.trailPcts : []]);
+    grid.fixedSlBands, grid.stopPcts, trailing ? grid.trailPcts : []]);
   const cached = variantCache.get(key);
   if (cached) {
     variantCache.delete(key);
     variantCache.set(key, cached);
     return cached;
   }
+  const stops = grid.fixedSlBands ? (["short", "long"] as const).flatMap(priceStopBand =>
+    (grid.fixedSlBands![priceStopBand] ?? STOP_BANDS[priceStopBand].stops).map(priceStopPct => ({priceStopBand, priceStopPct}))) :
+    grid.stopPcts.map(priceStopPct => ({priceStopPct}));
   const variants = trailing
-    ? grid.stopPcts.flatMap(priceStopPct => grid.trailPcts.flatMap(priceTrailPct => [
-        { ...base, priceStopPct, priceTrailPct },
-        { ...base, priceStopPct, priceTrailPct, trailingDistance: "fixed" as const },
+    ? stops.flatMap(stop => grid.trailPcts.flatMap(priceTrailPct => [
+        { ...base, ...stop, priceTrailPct },
+        { ...base, ...stop, priceTrailPct, trailingDistance: "fixed" as const },
       ]))
-    : grid.stopPcts.map(priceStopPct => ({ ...base, priceStopPct }));
+    : stops.map(stop => ({ ...base, ...stop }));
   variantCache.set(key, variants);
   while (variantCache.size > VARIANT_CACHE_LIMIT) variantCache.delete(variantCache.keys().next().value!);
   return variants;
@@ -88,7 +94,7 @@ export function priceDistanceParentBatch<T>(
 }
 
 export function absoluteProtection(side: Side, entry: number, stopPct: number, targetDistance: number) {
-  if (!(entry > 0) || !(targetDistance > 0) || !STOP_DISTANCE_PCTS.includes(stopPct)) throw new RangeError("Invalid absolute protection geometry.");
+  if (!(entry > 0) || !(targetDistance > 0) || !(STOP_DISTANCE_PCTS.includes(stopPct) || STOP_BANDS.long.stops.includes(stopPct))) throw new RangeError("Invalid absolute protection geometry.");
   const slDist = entry * stopPct / 100, sign = side === "long" ? 1 : -1;
   return { sl: entry - sign * slDist, slDist, tp: entry + sign * targetDistance, tpDist: targetDistance };
 }

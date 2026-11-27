@@ -830,6 +830,7 @@ export interface LiveOrder {
   slOfTp?: number;
   trailPct?: number;
   trailingDistance?: TrailingDistance;
+  priceStopBand?: "short" | "long";
   priceStopPct?: number;
   priceTrailPct?: number;
   /** Cell-owned time exit; absent rows retain the configured engine hold. */
@@ -890,6 +891,7 @@ export interface LivePosition {
   slOfTp?: number;
   trailPct?: number;
   trailingDistance?: TrailingDistance;
+  priceStopBand?: "short" | "long";
   priceStopPct?: number;
   priceTrailPct?: number;
   maxHoldTicks?: number;
@@ -974,6 +976,7 @@ export interface ClosedTrade {
   slOfTp?: number;
   trailPct?: number;
   trailingDistance?: TrailingDistance;
+  priceStopBand?: "short" | "long";
   priceStopPct?: number;
   priceTrailPct?: number;
   maxHoldTicks?: number;

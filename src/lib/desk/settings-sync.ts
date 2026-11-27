@@ -261,7 +261,7 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
       validateAutoPfRatio(cfg.stepPf?.autoPfRatio);
       const sourceSettings = {
         ...(cfg.stepPf === undefined ? {} : { stepPf: { ...DEFAULT_STEP_PF, ...cfg.stepPf } }),
-        priceDistanceGrid: sanitizePriceDistanceGrid(cfg.priceDistanceGrid),
+        priceDistanceGrid: sanitizePriceDistanceGrid({...cfg.priceDistanceGrid, enabled:true, fixedSlBands: cfg.priceDistanceGrid?.fixedSlBands ?? {}}),
         lowRange: sanitizeLowRangeGrid(cfg.lowRange),
         microMinSlDistancePct: Math.max(0, Math.min(10, asNum(cfg.microMinSlDistancePct, .1))),
         microMinTrailDistancePct: Math.max(0, Math.min(10, asNum(cfg.microMinTrailDistancePct, .05))),

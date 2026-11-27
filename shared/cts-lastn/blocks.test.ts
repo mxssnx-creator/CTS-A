@@ -53,3 +53,15 @@ test('disjoint windows retain small returns after much larger earlier gains and 
   assert.equal(almostFlat.net,1e-18);assert.equal(almostFlat.state,'qualified');
   assert.equal(blockWindow(blockPrefix([-0.1,1e-18,null]),1,2,1.1).state,'unknown');
 });
+
+
+test('staged Last blocks must meet their own positive or inverse PF floor', () => {
+  for (const sign of ['positive', 'negative'] as const) {
+    const factor = sign === 'positive' ? 1 : -1;
+    const policy = { long: 1, short: 1, minimal: 2, shortPolarity: 'positive' as const, minimalPolarity: sign };
+    const score = (gain: number) => evaluateBlocks(blockPrefix([gain * factor, -factor, 10, 10]), policy, 1.5, true);
+    assert.equal(score(1.25).minimal.state, 'failed');
+    assert.equal(score(1.25).state, 'failed');
+    assert.equal(score(1.5).state, 'qualified');
+  }
+});
