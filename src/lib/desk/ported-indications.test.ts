@@ -1,10 +1,25 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {parseClosedIndicationBars,fetchClosedIndicationBars} from './closed-indication-feed.ts';import {indicationSourceIds,refreshPortedIndications} from './ported-indications.ts';import {stable02EntrySide,stable02ProcessSide} from './stable02.ts';
 import {waveBars} from '../../../shared/cts-indications/fixtures.ts';
 import {entryOnsets,portedStates} from '../../../shared/cts-indications/index.ts';
+import {REVERSAL_SOURCES} from '../../../shared/cts-reversal/reversal.ts';
 import { armUniverse, completeConfigSampleKey, finishBaseEval, initVstEngine, liveShouldExecute } from "./vst.ts";
 import { DEFAULT_STRATEGY_TOGGLES, DEFAULT_TACTIC_CONFIG } from "./engine.ts";
 import type { TacticConfig } from "./types.ts";
 const start=1700000040000;
+test("bounded reversal refresh matches full completed-bar vectors and keeps Signal aliases separate", () => {
+ const e = initVstEngine(DEFAULT_TACTIC_CONFIG, {arm:false,warmup:0,symbolCount:1});
+ const q = Object.values(e.quotes)[0];
+ const bars = waveBars(260);
+ const ids = REVERSAL_SOURCES.flatMap(source => [source.id, "sig-" + source.id]);
+ const full = portedStates("BTC-USDT",1,bars,ids);
+ const onsets = Object.fromEntries(ids.map(id => [id, entryOnsets(full.states[id])]));
+ assert.ok(Object.values(onsets).some(series => series.some(Boolean)));
+ for (let i = 1; i < bars.length - 1; i++) {
+  q.closedBars = bars.slice(0, i + 2);
+  refreshPortedIndications(e, ids, bars[i].timestamp + 60_000);
+  for (const id of ids) assert.equal(q.portedDirections?.[id], onsets[id][i], id + " at " + i);
+ }
+});
 test('live candle parser preserves real timestamps and volume, rejects corrupt data and never fills gaps or admits an unfinished candle',()=>{
  const rows=[{time:start,open:'100',high:'101',low:'99',close:'100.5',volume:'8'},[start+120000,100.5,102,100,101,12],[start+180000,101,103,100,102,7]];
  const b=parseClosedIndicationBars(rows,start+180000);assert.deepEqual(b.map(b=>b.timestamp),[start,start+120000]);assert.deepEqual(b.map(b=>b.volume),[8,12]);assert.throws(()=>parseClosedIndicationBars([[start,100,99,101,100,5]],start+60000));
