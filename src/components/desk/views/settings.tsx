@@ -775,7 +775,8 @@ export function SettingsView() {
               <button
                 type="button"
                 className={`${chip} ${chipOff}`}
-                onClick={() => setLastNProgress({ ...DEFAULT_LAST_N_PROGRESS })}
+                onClick={() => changeStageConfig({ ...DEFAULT_LAST_N_PROGRESS, blocks: undefined,
+                  stageLongModes: undefined, stageBlocks: undefined, policies: undefined, negativeFilter: undefined })}
               >
                 Reset last-N
               </button>
@@ -829,6 +830,8 @@ export function SettingsView() {
                   onBlur={() => {
                     try {
                       const value = JSON.parse(stageWindowsDraft);
+                      if (!value || typeof value !== "object" || Array.isArray(value))
+                        throw new Error("Stage windows must be a map of stage names to arrays");
                       setLastNProgress({ stageBlocks: Object.keys(value).length ? value : undefined });
                       setStageWindowsError("");
                     } catch (error) {
