@@ -47,6 +47,21 @@ test("frozen Base evidence retains range, calculation and economic identity", ()
   assert.equal(liveShouldExecute(e, { ...own, modelRtCost: .00176 }), false);
 });
 
+test("an exact Block set above Base PF still needs its own execution PF floor", () => {
+  const e = fixture();
+  e.stepPf = { ...e.stepPf!, enabled: false };
+  e.basePf = 1.1;
+  e.blockPf = 1.5;
+  e.closed = e.closed.map((row, i) => ({ ...row, ratio: i % 2 ? -.01 : .012, pnl: i % 2 ? -1 : 1.2 }));
+  assert.equal(liveShouldExecute(e, own), false);
+  e.blockPf = 1.15;
+  assert.equal(liveShouldExecute(e, own), true);
+  e.liveTape = false; e.preEvalDone = false;
+  finishBaseEval(e);
+  e.closed = []; e.liveTape = true; e.blockPf = 1.5;
+  assert.equal(liveShouldExecute(e, own), false);
+});
+
 test("a validated signed 20/10/3 configuration reaches its own execution lane", () => {
   const e=fixture();
   e.lastNProgress={evalNs:[20],validNs:[10],disableNs:[3],mode:"independent",parallelStack:false,parallelVolRatio:1,
