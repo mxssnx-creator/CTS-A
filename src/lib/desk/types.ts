@@ -659,6 +659,8 @@ export interface LastNCompleteScore {
 export interface LastNProgressConfig {
   blocks?: import("../../../shared/cts-lastn/blocks").BlockPolicy;
   stageLongModes?: Record<"main" | "real" | "exec", "inherit" | "none" | "both">;
+  /** Choices expand separately from every qualified parent at each stage. */
+  stageBlocks?: Partial<Record<"main" | "real" | "exec", import("../../../shared/cts-lastn/blocks").BlockPolicy[]>>;
   negativeFilter?: import("./negative-last-n").NegativeLastN;
   /** Independent policies on this exact configuration stream; never a pooled sibling tape. */
   policies?: Array<Omit<LastNProgressConfig, "policies"> & { id: string; role: "major" | "minor" | "independent" | "additional" }>;

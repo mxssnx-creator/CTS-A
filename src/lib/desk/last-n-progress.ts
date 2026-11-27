@@ -1,4 +1,4 @@
-import {blockPrefix,blockRequired,blockWindow,checkBlockPolicy,evaluateBlocks,type BlockResult} from "../../../shared/cts-lastn/blocks.ts";
+import {blockPolicyKey,blockPrefix,blockRequired,blockWindow,checkBlockPolicy,evaluateBlocks,type BlockResult} from "../../../shared/cts-lastn/blocks.ts";
 import type { LastNCompleteScore, LastNOverallScore, LastNPassMode, LastNProgressConfig } from "./types";
 import { profitFactor } from "./profit-factor.ts";
 import { negativeLastN, negativeLastNDecision, type NegativeResult } from "./negative-last-n.ts";
@@ -103,11 +103,32 @@ export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null |
     });
   }
   if(raw.blocks!==undefined) checkBlockPolicy(raw.blocks);
+  const stageBlocks = raw.stageBlocks;
+  if (stageBlocks !== undefined) {
+    if (!raw.blocks || !stageBlocks || typeof stageBlocks !== "object" || Array.isArray(stageBlocks) ||
+        Object.entries(stageBlocks).some(([stage, choices]) =>
+          !["main", "real", "exec"].includes(stage) || !Array.isArray(choices) || !choices.length))
+      throw new Error("Invalid independent stage Last-N windows");
+    for (const choices of Object.values(stageBlocks)) {
+      for (const block of choices!) checkBlockPolicy(block);
+      if (new Set(choices!.map(blockPolicyKey)).size !== choices!.length)
+        throw new Error("Duplicate independent stage Last-N window");
+    }
+  }
   const stageLongModes = raw.stageLongModes;
   if (stageLongModes !== undefined && (!raw.blocks?.long || !(raw.blocks.short || raw.blocks.minimal) ||
     !stageLongModes || Object.keys(stageLongModes).length !== 3 ||
     !(["main", "real", "exec"] as const).every(stage => ["inherit", "none", "both"].includes(stageLongModes[stage]))))
     throw new Error("Independent stage Long choices need a Base Long and a Short or Last block");
+  if (stageBlocks && raw.blocks) {
+    for (const stage of ["main", "real", "exec"] as const) {
+      const mode = stageLongModes?.[stage];
+      for (const block of stageBlocks[stage] ?? [raw.blocks]) {
+        for (const long of mode === "both" ? [raw.blocks.long, 0] : mode === "inherit" ? [raw.blocks.long] : mode === "none" ? [0] : [block.long])
+          checkBlockPolicy({ ...block, long });
+      }
+    }
+  }
   const mode: LastNPassMode =
     raw.mode === "independent" || raw.mode === "combined" || raw.mode === "parallel" || raw.mode === "majority"
       ? raw.mode
@@ -116,6 +137,7 @@ export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null |
     ...(policies === undefined ? {} : { policies }),
     ...(raw.blocks ? {blocks:{...raw.blocks}} : {}),
     ...(stageLongModes ? { stageLongModes: { ...stageLongModes } } : {}),
+    ...(stageBlocks ? { stageBlocks: structuredClone(stageBlocks) } : {}),
     ...(raw.negativeFilter == null ? {} : {negativeFilter:negativeLastN(raw.negativeFilter)}),
     evalNs: sanitizeNs(raw.evalNs, EVAL_POS_NS, d.evalNs),
     validNs: sanitizeNs(raw.validNs, VALID_EXEC_NS, d.validNs),
@@ -128,26 +150,38 @@ export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null |
 
 export function lastNMaxOf(cfg: LastNProgressConfig): number {
   const signed = cfg.blocks ? blockRequired(cfg.blocks) : 0;
-  return Math.max(1, cfg.stageLongModes ? 4 * signed + 2 * AUTO_PF_HALF : signed, ...cfg.evalNs, ...cfg.validNs, ...cfg.disableNs, ...(cfg.negativeFilter?.windows ?? []), ...(cfg.policies ?? []).map(p =>
-    lastNMaxOf({ ...p, stageLongModes: p.stageLongModes ?? cfg.stageLongModes })));
+  let staged = signed;
+  if (cfg.blocks && (cfg.stageLongModes || cfg.stageBlocks)) {
+    for (const stage of ["main", "real", "exec"] as const) {
+      const mode = cfg.stageLongModes?.[stage];
+      const choices = cfg.stageBlocks?.[stage] ?? [cfg.blocks];
+      staged += Math.max(...choices.map(block => blockRequired({ ...block,
+        long: mode === "none" ? 0 : mode === "inherit" || mode === "both" ? cfg.blocks!.long : block.long,
+      })));
+    }
+    staged += 8 * AUTO_PF_HALF;
+  }
+  return Math.max(1, staged, ...cfg.evalNs, ...cfg.validNs, ...cfg.disableNs, ...(cfg.negativeFilter?.windows ?? []), ...(cfg.policies ?? []).map(p =>
+    lastNMaxOf({ ...p, stageLongModes: p.stageLongModes ?? cfg.stageLongModes, stageBlocks: p.stageBlocks ?? cfg.stageBlocks })));
 }
 
 export const hasStageLongModes = (cfg: LastNProgressConfig): boolean =>
-  Boolean(cfg.stageLongModes || cfg.policies?.some(p => p.stageLongModes));
+  Boolean(cfg.stageLongModes || cfg.stageBlocks || cfg.policies?.some(p => p.stageLongModes || p.stageBlocks));
 
 type StageSample = { id?: string; tick?: number; openedTick?: number; holdTicks?: number; pnl: number; ratio?: number };
 
 /** Virtual descendants for one exact, unchanged protection geometry. An older
  * close can enter a child only if its own parent had qualified at that entry. */
-export function stageLongPaths(
+export function stageWindowPaths(
   samples: readonly StageSample[], cfg: LastNProgressConfig, before: number, minPf: number, basePf: number, autoRatio?: number,
-): Array<readonly number[]> {
-  if (cfg.policies?.length) return cfg.policies.flatMap(policy => stageLongPaths(samples, {
+): Array<readonly NonNullable<LastNProgressConfig["blocks"]>[]> {
+  if (cfg.policies?.length) return cfg.policies.flatMap(policy => stageWindowPaths(samples, {
     ...policy, stageLongModes: policy.stageLongModes ?? cfg.stageLongModes,
+    stageBlocks: policy.stageBlocks ?? cfg.stageBlocks,
     negativeFilter: policy.negativeFilter ?? cfg.negativeFilter,
   }, before, minPf, basePf, autoRatio));
   const base = cfg.blocks, modes = cfg.stageLongModes;
-  if (!base || !modes || !Number.isFinite(before)) return [];
+  if (!base || !(modes || cfg.stageBlocks) || !Number.isFinite(before)) return [];
   const observable = samples.filter(row => Number.isFinite(row.tick) && row.tick! < before);
   const counts = new Map<string, number>();
   for (const s of observable) if (s.id) counts.set(s.id, (counts.get(s.id) ?? 0) + 1);
@@ -160,7 +194,7 @@ export function stageLongPaths(
     }).sort((a, b) => a.at - b.at);
   const negativeNeed = Math.max(0, ...(cfg.negativeFilter?.windows ?? []));
   const calibration = Number.isFinite(autoRatio) && autoRatio! > 0 ? 2 * AUTO_PF_HALF : 0;
-  const cached = new WeakMap<typeof rows, Map<number, Map<number, boolean>>>();
+  const cached = new WeakMap<typeof rows, Map<string, Map<number, boolean>>>();
   const gate = (tape: typeof rows, t: number, blocks: NonNullable<LastNProgressConfig["blocks"]>, floor: number) => {
     const need = blockRequired(blocks);
     let low = 0, high = tape.length;
@@ -170,10 +204,11 @@ export function stageLongPaths(
       else high = mid;
     }
     if (low < need) return false;
-    const results = cached.get(tape) ?? new Map<number, Map<number, boolean>>();
+    const results = cached.get(tape) ?? new Map<string, Map<number, boolean>>();
     if (!cached.has(tape)) cached.set(tape, results);
-    const decisions = results.get(need) ?? new Map<number, boolean>();
-    if (!results.has(need)) results.set(need, decisions);
+    const key = JSON.stringify([blockPolicyKey(blocks), floor]);
+    const decisions = results.get(key) ?? new Map<number, boolean>();
+    if (!results.has(key)) results.set(key, decisions);
     const prior = decisions.get(low);
     if (prior !== undefined) return prior;
     const retained = need + calibration;
@@ -196,20 +231,35 @@ export function stageLongPaths(
   const baseFloor = Math.max(1.000001, basePf);
   if (!gate(rows, before, base, baseFloor)) return [];
   const min = Math.max(1.000001, minPf);
-  let parents: { tape: typeof rows; path: number[] }[] = [{
+  let parents: { tape: typeof rows; path: NonNullable<LastNProgressConfig["blocks"]>[] }[] = [{
     tape: rows.filter(row => Number.isFinite(row.opened) && gate(rows, row.opened, base, baseFloor)), path: [],
   }];
   for (const stage of ["main", "real", "exec"] as const) {
-    const longChoices = modes[stage] === "both" ? [base.long, 0] : [modes[stage] === "inherit" ? base.long : 0];
-    parents = parents.flatMap(({ tape, path }) => longChoices.flatMap(long => {
-      const blocks = { ...base, long };
+    const mode = modes?.[stage];
+    const windows = new Map<string, NonNullable<LastNProgressConfig["blocks"]>>();
+    for (const template of cfg.stageBlocks?.[stage] ?? [base]) {
+      const longs = mode === "both" ? [base.long, 0] : mode === "inherit" ? [base.long] : mode === "none" ? [0] : [template.long];
+      for (const long of longs) {
+        const block = { ...template, long };
+        checkBlockPolicy(block);
+        windows.set(blockPolicyKey(block), block);
+      }
+    }
+    parents = parents.flatMap(({ tape, path }) => [...windows.values()].flatMap(blocks => {
       if (!gate(tape, before, blocks, min)) return [];
       const admitted = stage === "exec" ? tape : tape.filter(row => gate(tape, row.opened, blocks, min));
-      return [{ tape: admitted, path: [...path, long] }];
+      return [{ tape: admitted, path: [...path, blocks] }];
     }));
     if (!parents.length) break;
   }
   return parents.map(parent => parent.path);
+}
+
+/** Backward-compatible Long-only view; every returned row still represents a distinct stage-window path. */
+export function stageLongPaths(
+  samples: readonly StageSample[], cfg: LastNProgressConfig, before: number, minPf: number, basePf: number, autoRatio?: number,
+): Array<readonly number[]> {
+  return stageWindowPaths(samples, cfg, before, minPf, basePf, autoRatio).map(path => path.map(block => block.long));
 }
 
 /** Prefix sums over newest-first rows. O(min(len, maxN)) then O(1) per window. */
@@ -445,11 +495,21 @@ export type LastNCoordPick = {
   disableHits: LastNWindowHit[];
 };
 
-function addUnique(out: number[], n: number) {
-  if (!out.includes(n)) out.push(n);
-}
+/** Coordinated active last-N: retain every configured window for independent evaluation. */
+export type LastNCoordPick = {
+  mode: LastNPassMode;
+  independent: boolean;
+  combined: boolean;
+  majority: boolean;
+  evalNs: number[];
+  validNs: number[];
+  disableNs: number[];
+  evalHits: LastNWindowHit[];
+  validHits: LastNWindowHit[];
+  disableHits: LastNWindowHit[];
+};
 
-/** Eval / valid: keep the windows that actually pass (plus a close runner-up). Cap 3. */
+/** Eval / valid: keep every full passing window, or every full window while none pass. */
 function pickActiveNs(
   hits: LastNWindowHit[],
   pred: (h: LastNWindowHit) => boolean,
@@ -460,36 +520,21 @@ function pickActiveNs(
   const ok = full.filter(pred);
   const pool = (ok.length ? ok : full).slice();
   if (!pool.length) {
-    const fb = fallback.find((n) => n === primary) ?? fallback[0] ?? primary;
-    return [fb];
+    const configured = [...new Set(fallback)];
+    return (configured.length ? configured : [primary]).sort((a, b) => a - b);
   }
-  pool.sort((a, b) => b.pf - a.pf || b.n - a.n);
-  const out: number[] = [];
-  addUnique(out, pool[0]!.n);
-  if (pool[1] && pool[1].pf + 0.2 >= pool[0]!.pf) addUnique(out, pool[1].n);
-  if (ok.some((h) => h.n === primary)) addUnique(out, primary);
-  else if (!ok.length && full.some((h) => h.n === primary)) addUnique(out, primary);
-  return out.sort((a, b) => a - b).slice(0, 3);
+  return [...new Set(pool.map((hit) => hit.n))].sort((a, b) => a - b);
 }
 
-/**
- * Disable: keep diagnostic windows, not only the green ones.
- * Primary + shortest full (reactive) + longest full (stable). Cap 3.
- */
+/** Disable: keep every configured full window as independent live evidence. */
 function pickDisableNs(hits: LastNWindowHit[], primary: number, fallback: number[]): number[] {
   const full = hits.filter((h) => h.samples >= h.n);
   const pool = (full.length ? full : hits.filter((h) => h.samples > 0)).slice();
   const allow = (n: number) => fallback.includes(n) || n === primary;
-  const out: number[] = [];
-  if (allow(primary)) addUnique(out, primary);
-  if (!pool.length) return out.length ? out.sort((a, b) => a - b) : [fallback[0] ?? primary];
-  const byN = [...pool].sort((a, b) => a.n - b.n);
-  if (allow(byN[0]!.n)) addUnique(out, byN[0]!.n);
-  if (allow(byN[byN.length - 1]!.n)) addUnique(out, byN[byN.length - 1]!.n);
-  const worst = [...pool].sort((a, b) => a.avg - b.avg || a.pf - b.pf)[0];
-  if (worst && worst.avg < 0 && allow(worst.n)) addUnique(out, worst.n);
-  const sorted = out.sort((a, b) => a - b);
-  return sorted.length ? sorted.slice(0, 3) : [primary];
+  const out = pool.map((hit) => hit.n).filter(allow);
+  if (!out.length) out.push(...fallback.filter(allow));
+  if (!out.length && allow(primary)) out.push(primary);
+  return [...new Set(out)].sort((a, b) => a - b);
 }
 
 function modeFromDecision(d: LastNDecision, fallback: LastNPassMode): LastNPassMode {
@@ -544,9 +589,9 @@ export function coordinateLastN(
 /** Settings grid stays full; live / type evals use this slim cfg. */
 export function slimLastNProgress(cfg: LastNProgressConfig, pick: LastNCoordPick): LastNProgressConfig {
   return {
-    evalNs: pick.evalNs.length ? pick.evalNs : [EVAL_POS_N],
-    validNs: pick.validNs.length ? pick.validNs : [VALID_EXEC_POS_N],
-    disableNs: pick.disableNs.length ? pick.disableNs : [LIVE_DISABLE_N],
+    evalNs: [...cfg.evalNs],
+    validNs: [...cfg.validNs],
+    disableNs: [...cfg.disableNs],
     mode: pick.mode,
     parallelStack: cfg.parallelStack,
     parallelVolRatio: cfg.parallelVolRatio,

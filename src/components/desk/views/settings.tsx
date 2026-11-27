@@ -9,7 +9,7 @@ import { RELATE_LABELS, RELATE_SOURCES } from "../../../../shared/cts-relate/pol
 import { DEFAULT_PRICE_DISTANCE_GRID } from "@/lib/desk/price-distance-grid";
 import { STRATEGY_PROCESSING_RANGES } from "@/lib/desk/strategy-processing";
 import { DEFAULT_PREHISTORY_HOURS, MAX_PREHISTORY_HOURS } from "../../../lib/desk/prehistory";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LAST_N_RESEARCH_NS, NEGATIVE_LAST_N_RESEARCH_NS } from "../../../lib/desk/last-n-progress";
 import { Link } from "@tanstack/react-router";
 import {
@@ -332,6 +332,13 @@ export function SettingsView() {
   const setIntervalStrategy = useDesk((s) => s.setIntervalStrategy);
   const lastNProgress = useDesk((s) => s.lastNProgress);
   const setLastNProgress = useDesk((s) => s.setLastNProgress);
+  const [stageWindowsDraft, setStageWindowsDraft] = useState(() => JSON.stringify(lastNProgress.stageBlocks ?? {}, null, 2));
+  const [stageWindowsError, setStageWindowsError] = useState("");
+  useEffect(() => setStageWindowsDraft(JSON.stringify(lastNProgress.stageBlocks ?? {}, null, 2)), [lastNProgress.stageBlocks]);
+  const changeStageConfig = (patch: Parameters<typeof setLastNProgress>[0]) => {
+    try { setLastNProgress(patch); setStageWindowsError(""); }
+    catch (error) { setStageWindowsError(error instanceof Error ? error.message : "Invalid stage windows"); }
+  };
   const evalHours = useDesk((s) => s.evalHours);
   const evalLastNs = useDesk((s) => s.evalLastNs);
   const setEvalHours = useDesk((s) => s.setEvalHours);
@@ -768,7 +775,8 @@ export function SettingsView() {
               <button
                 type="button"
                 className={`${chip} ${chipOff}`}
-                onClick={() => setLastNProgress({ ...DEFAULT_LAST_N_PROGRESS })}
+                onClick={() => changeStageConfig({ ...DEFAULT_LAST_N_PROGRESS, blocks: undefined,
+                  stageLongModes: undefined, stageBlocks: undefined, policies: undefined, negativeFilter: undefined })}
               >
                 Reset last-N
               </button>
@@ -776,18 +784,19 @@ export function SettingsView() {
             <div className="mt-3">
               <p className="mb-1 text-[11px] uppercase tracking-widest text-subtle">Base eval</p>
               <div className="flex flex-wrap gap-1">
-                <BlockPolicyFields value={lastNProgress.blocks} onChange={blocks=>setLastNProgress({
+                <BlockPolicyFields value={lastNProgress.blocks} onChange={blocks=>changeStageConfig({
                   blocks, ...(!blocks?.long || !(blocks.short || blocks.minimal) ? { stageLongModes: undefined } : {}),
+                  ...(!blocks ? { stageBlocks: undefined } : {}),
                 })}/>
                 {!!lastNProgress.blocks?.long && !!(lastNProgress.blocks.short || lastNProgress.blocks.minimal) && <>
                   <button type="button" className={chip} aria-pressed={!!lastNProgress.stageLongModes}
-                    onClick={() => setLastNProgress({ stageLongModes: lastNProgress.stageLongModes ? undefined : {
+                    onClick={() => changeStageConfig({ stageLongModes: lastNProgress.stageLongModes ? undefined : {
                       main: "both", real: "both", exec: "both",
                     } })}>Independent Base-to-Exec Long lanes</button>
                   {lastNProgress.stageLongModes && (["main", "real", "exec"] as const).map(stage => {
                     const modes = lastNProgress.stageLongModes!;
                     return <label key={stage} className="text-xs">{stage.toUpperCase()} Long <select
-                      value={modes[stage]} onChange={event => setLastNProgress({ stageLongModes: {
+                      value={modes[stage]} onChange={event => changeStageConfig({ stageLongModes: {
                         ...modes, [stage]: event.target.value as typeof modes[typeof stage],
                       } })}>
                       <option value="both">Both</option><option value="inherit">Base Long</option><option value="none">Without Long</option>
@@ -813,6 +822,24 @@ export function SettingsView() {
                   );
                 })}
               </div>
+              {lastNProgress.blocks && <label className="mt-2 block text-xs">
+                Independent Main, Real and Exec windows (JSON arrays of complete block policies)
+                <textarea aria-label="Independent stage windows" aria-invalid={!!stageWindowsError}
+                  className="block w-full rounded border bg-transparent p-2 font-mono" rows={4} value={stageWindowsDraft}
+                  onChange={event => setStageWindowsDraft(event.target.value)}
+                  onBlur={() => {
+                    try {
+                      const value = JSON.parse(stageWindowsDraft);
+                      if (!value || typeof value !== "object" || Array.isArray(value))
+                        throw new Error("Stage windows must be a map of stage names to arrays");
+                      setLastNProgress({ stageBlocks: Object.keys(value).length ? value : undefined });
+                      setStageWindowsError("");
+                    } catch (error) {
+                      setStageWindowsError(error instanceof Error ? error.message : "Invalid stage windows");
+                    }
+                  }}/>
+                {stageWindowsError && <span role="alert">{stageWindowsError}</span>}
+              </label>}
             </div>
             <div className="mt-3">
               <p className="mb-1 text-[11px] uppercase tracking-widest text-subtle">Valid execute</p>
