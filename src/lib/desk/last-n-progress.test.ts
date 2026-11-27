@@ -33,6 +33,7 @@ import {
   LAST_N_PASS_MODES,
   slimLastNProgress,
   stageLongPaths,
+  stageWindowPaths,
 } from "./last-n-progress.ts";
 
 const cfgP = sanitizeLastNProgress({
@@ -64,6 +65,26 @@ it("branches on the exact Base Long at every stage using only admitted parent cl
   const future = { ...tape[0], tick: 150, pnl: -100 };
   assert.deepEqual(stageLongPaths([...tape, future], cfg, 150, 1.5, 1.5), paths);
   assert.deepEqual(stageLongPaths(tape.map(row => ({ ...row, holdTicks: undefined })), cfg, 150, 1.5, 1.5), []);
+});
+
+it("expands each parent's independent stage windows without sharing verdicts for different signs", () => {
+  const base = { long: 2, short: 1, minimal: 1, shortPolarity: "positive" as const, minimalPolarity: "positive" as const };
+  const one = { ...base, long: 0, minimal: 0 };
+  const two = { ...one, short: 2 };
+  const neg = { ...one, shortPolarity: "negative" as const };
+  const tape = Array.from({ length: 100 }, (_, i) => ({ id: String(i), tick: 3 * i + 2, holdTicks: 1, pnl: 2 }));
+  const cfg = sanitizeLastNProgress({ blocks: base, stageBlocks: { main: [one, two], real: [one, two], exec: [one, two] } });
+  const all = stageWindowPaths(tape, cfg, 310, 1.5, 1.5);
+  assert.equal(all.length, 8);
+  assert.equal(new Set(all.map(path => JSON.stringify(path))).size, 8);
+  for (const main of [one, two]) for (const real of [one, two]) for (const exec of [one, two]) {
+    const isolated = sanitizeLastNProgress({ blocks: base, stageBlocks: { main: [main], real: [real], exec: [exec] } });
+    assert.deepEqual(stageWindowPaths(tape, isolated, 310, 1.5, 1.5), [[main, real, exec]]);
+  }
+  const signs = sanitizeLastNProgress({ blocks: base, stageBlocks: { main: [one, neg], real: [one], exec: [one] } });
+  assert.deepEqual(stageWindowPaths(tape, signs, 310, 1.5, 1.5), [[one, one, one]]);
+  assert.throws(() => sanitizeLastNProgress({ blocks: base, stageBlocks: { main: [one, one] } }), /Duplicate/);
+  assert.ok(lastNMaxOf(sanitizeLastNProgress({ blocks: base, stageBlocks: { main: [{ ...two, short: 80 }] } })) > lastNMaxOf(cfg));
 });
 
 describe("multi last-N prefix + modes", () => {
