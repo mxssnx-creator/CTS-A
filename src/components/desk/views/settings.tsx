@@ -776,7 +776,24 @@ export function SettingsView() {
             <div className="mt-3">
               <p className="mb-1 text-[11px] uppercase tracking-widest text-subtle">Base eval</p>
               <div className="flex flex-wrap gap-1">
-                <BlockPolicyFields value={lastNProgress.blocks} onChange={blocks=>setLastNProgress({blocks})}/>
+                <BlockPolicyFields value={lastNProgress.blocks} onChange={blocks=>setLastNProgress({
+                  blocks, ...(!blocks?.long || !(blocks.short || blocks.minimal) ? { stageLongModes: undefined } : {}),
+                })}/>
+                {!!lastNProgress.blocks?.long && !!(lastNProgress.blocks.short || lastNProgress.blocks.minimal) && <>
+                  <button type="button" className={chip} aria-pressed={!!lastNProgress.stageLongModes}
+                    onClick={() => setLastNProgress({ stageLongModes: lastNProgress.stageLongModes ? undefined : {
+                      main: "both", real: "both", exec: "both",
+                    } })}>Independent Base-to-Exec Long lanes</button>
+                  {lastNProgress.stageLongModes && (["main", "real", "exec"] as const).map(stage => {
+                    const modes = lastNProgress.stageLongModes!;
+                    return <label key={stage} className="text-xs">{stage.toUpperCase()} Long <select
+                      value={modes[stage]} onChange={event => setLastNProgress({ stageLongModes: {
+                        ...modes, [stage]: event.target.value as typeof modes[typeof stage],
+                      } })}>
+                      <option value="both">Both</option><option value="inherit">Base Long</option><option value="none">Without Long</option>
+                    </select></label>;
+                  })}
+                </>}
                 {[...new Set([...EVAL_POS_NS,...LAST_N_RESEARCH_NS,...lastNProgress.evalNs])].sort((a,b)=>a-b).map((n) => {
                   const on = lastNProgress.evalNs.includes(n);
                   return (

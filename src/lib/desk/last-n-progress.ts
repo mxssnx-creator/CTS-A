@@ -22,6 +22,8 @@ export const NEGATIVE_LAST_N_RESEARCH_NS = [1,2,3,5,8,10,12,15,20,25,30,40,50];
 export const EVAL_POS_N = 50;
 export const VALID_EXEC_POS_N = 15;
 export const LIVE_DISABLE_N = 12;
+export const SIGNAL_STAGE_MIN_PF = 1.55;
+const AUTO_PF_HALF = 12;
 
 /** PF scores the position return, not the dollar balance. `ratio` is net vs entry (0 = base 1). */
 export function edgePnl(row: { pnl?: number; ratio?: number } | null | undefined): number {
@@ -101,6 +103,11 @@ export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null |
     });
   }
   if(raw.blocks!==undefined) checkBlockPolicy(raw.blocks);
+  const stageLongModes = raw.stageLongModes;
+  if (stageLongModes !== undefined && (!raw.blocks?.long || !(raw.blocks.short || raw.blocks.minimal) ||
+    !stageLongModes || Object.keys(stageLongModes).length !== 3 ||
+    !(["main", "real", "exec"] as const).every(stage => ["inherit", "none", "both"].includes(stageLongModes[stage]))))
+    throw new Error("Independent stage Long choices need a Base Long and a Short or Last block");
   const mode: LastNPassMode =
     raw.mode === "independent" || raw.mode === "combined" || raw.mode === "parallel" || raw.mode === "majority"
       ? raw.mode
@@ -108,6 +115,7 @@ export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null |
   return {
     ...(policies === undefined ? {} : { policies }),
     ...(raw.blocks ? {blocks:{...raw.blocks}} : {}),
+    ...(stageLongModes ? { stageLongModes: { ...stageLongModes } } : {}),
     ...(raw.negativeFilter == null ? {} : {negativeFilter:negativeLastN(raw.negativeFilter)}),
     evalNs: sanitizeNs(raw.evalNs, EVAL_POS_NS, d.evalNs),
     validNs: sanitizeNs(raw.validNs, VALID_EXEC_NS, d.validNs),
@@ -119,7 +127,89 @@ export function sanitizeLastNProgress(raw: Partial<LastNProgressConfig> | null |
 }
 
 export function lastNMaxOf(cfg: LastNProgressConfig): number {
-  return Math.max(1, cfg.blocks?blockRequired(cfg.blocks):0, ...cfg.evalNs, ...cfg.validNs, ...cfg.disableNs, ...(cfg.negativeFilter?.windows ?? []), ...(cfg.policies ?? []).map(p => lastNMaxOf(p)));
+  const signed = cfg.blocks ? blockRequired(cfg.blocks) : 0;
+  return Math.max(1, cfg.stageLongModes ? 4 * signed + 2 * AUTO_PF_HALF : signed, ...cfg.evalNs, ...cfg.validNs, ...cfg.disableNs, ...(cfg.negativeFilter?.windows ?? []), ...(cfg.policies ?? []).map(p =>
+    lastNMaxOf({ ...p, stageLongModes: p.stageLongModes ?? cfg.stageLongModes })));
+}
+
+export const hasStageLongModes = (cfg: LastNProgressConfig): boolean =>
+  Boolean(cfg.stageLongModes || cfg.policies?.some(p => p.stageLongModes));
+
+type StageSample = { id?: string; tick?: number; openedTick?: number; holdTicks?: number; pnl: number; ratio?: number };
+
+/** Virtual descendants for one exact, unchanged protection geometry. An older
+ * close can enter a child only if its own parent had qualified at that entry. */
+export function stageLongPaths(
+  samples: readonly StageSample[], cfg: LastNProgressConfig, before: number, minPf: number, basePf: number, autoRatio?: number,
+): Array<readonly number[]> {
+  if (cfg.policies?.length) return cfg.policies.flatMap(policy => stageLongPaths(samples, {
+    ...policy, stageLongModes: policy.stageLongModes ?? cfg.stageLongModes,
+    negativeFilter: policy.negativeFilter ?? cfg.negativeFilter,
+  }, before, minPf, basePf, autoRatio));
+  const base = cfg.blocks, modes = cfg.stageLongModes;
+  if (!base || !modes || !Number.isFinite(before)) return [];
+  const observable = samples.filter(row => Number.isFinite(row.tick) && row.tick! < before);
+  const counts = new Map<string, number>();
+  for (const s of observable) if (s.id) counts.set(s.id, (counts.get(s.id) ?? 0) + 1);
+  const rows = observable.map(row => {
+      const opened = row.openedTick ?? (row.holdTicks === undefined ? NaN : row.tick! - row.holdTicks);
+      // A repeated native position ID cannot supply multiple qualified samples.
+      const unique = !row.id || counts.get(row.id) === 1;
+      return { at: row.tick!, opened: unique && opened <= row.tick! ? opened : NaN,
+        value: unique ? measuredEdgePnl(row) : NaN };
+    }).sort((a, b) => a.at - b.at);
+  const negativeNeed = Math.max(0, ...(cfg.negativeFilter?.windows ?? []));
+  const calibration = Number.isFinite(autoRatio) && autoRatio! > 0 ? 2 * AUTO_PF_HALF : 0;
+  const cached = new WeakMap<typeof rows, Map<number, Map<number, boolean>>>();
+  const gate = (tape: typeof rows, t: number, blocks: NonNullable<LastNProgressConfig["blocks"]>, floor: number) => {
+    const need = blockRequired(blocks);
+    let low = 0, high = tape.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (tape[mid].at < t) low = mid + 1;
+      else high = mid;
+    }
+    if (low < need) return false;
+    const results = cached.get(tape) ?? new Map<number, Map<number, boolean>>();
+    if (!cached.has(tape)) cached.set(tape, results);
+    const decisions = results.get(need) ?? new Map<number, boolean>();
+    if (!results.has(need)) results.set(need, decisions);
+    const prior = decisions.get(low);
+    if (prior !== undefined) return prior;
+    const retained = need + calibration;
+    const values = tape.slice(Math.max(0, low - Math.max(retained, negativeNeed)), low)
+      .map(row => row.value).reverse();
+    const prefix = blockPrefix(values, retained);
+    let effectiveFloor = floor;
+    if (calibration && prefix.n >= retained) {
+      const recent = blockWindow(prefix, need, AUTO_PF_HALF, floor).pf;
+      const earlier = blockWindow(prefix, need + AUTO_PF_HALF, AUTO_PF_HALF, floor).pf;
+      if (recent !== null && earlier !== null && Number.isFinite(recent) && Number.isFinite(earlier))
+        effectiveFloor += Math.min(0.2, Math.max(0, Math.min(recent, earlier) - floor) * autoRatio! / 6);
+    }
+    const pass = evaluateBlocks(prefix, blocks, effectiveFloor).state === "qualified" &&
+      blockWindow(prefix, 0, need, effectiveFloor).state === "qualified" &&
+      negativeLastNDecision(values, cfg.negativeFilter).pass;
+    decisions.set(low, pass);
+    return pass;
+  };
+  const baseFloor = Math.max(1.000001, basePf);
+  if (!gate(rows, before, base, baseFloor)) return [];
+  const min = Math.max(1.000001, minPf);
+  let parents: { tape: typeof rows; path: number[] }[] = [{
+    tape: rows.filter(row => Number.isFinite(row.opened) && gate(rows, row.opened, base, baseFloor)), path: [],
+  }];
+  for (const stage of ["main", "real", "exec"] as const) {
+    const longChoices = modes[stage] === "both" ? [base.long, 0] : [modes[stage] === "inherit" ? base.long : 0];
+    parents = parents.flatMap(({ tape, path }) => longChoices.flatMap(long => {
+      const blocks = { ...base, long };
+      if (!gate(tape, before, blocks, min)) return [];
+      const admitted = stage === "exec" ? tape : tape.filter(row => gate(tape, row.opened, blocks, min));
+      return [{ tape: admitted, path: [...path, long] }];
+    }));
+    if (!parents.length) break;
+  }
+  return parents.map(parent => parent.path);
 }
 
 /** Prefix sums over newest-first rows. O(min(len, maxN)) then O(1) per window. */
