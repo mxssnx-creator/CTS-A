@@ -6,7 +6,7 @@ import { prehistoryHours } from "./prehistory.ts";
 import { planRelate, relateConfig, type RelateEvidence, type RelateRelationTrials, type RelateTrialStamp } from "./relate.ts";
 import { RELATE_SOURCES, relateKeys } from "../../../shared/cts-relate/policy.ts";
 import { extendOwnSampleHistory, sampleRows, type SampleCoverage } from "./last-n-samples.ts";
-import { hasDisjointBlocks, measuredEdgePnl, selectedDisjointBlocks } from "./last-n-progress.ts";
+import { hasDisjointBlocks, hasStageLongModes, measuredEdgePnl, selectedDisjointBlocks, SIGNAL_STAGE_MIN_PF, stageLongPaths } from "./last-n-progress.ts";
 import { DEFAULT_MIN_SL_DISTANCE_PCT, initialProtection, minimumStopDistance, normalizeMinSlDistancePct } from "./protection-policy.ts";
 import { absoluteProtection, priceDistanceParentBatch, priceDistanceVariants, priceTrailStop, STOP_DISTANCE_PCTS } from "./price-distance-grid.ts";
 import { lowRangeGridProtects } from "../../../shared/cts-indications/origin/indications/low-range.ts";
@@ -610,6 +610,7 @@ export type ConfigIdentity = {
 export type ConfigTapeRow = ConfigIdentity & {
   id?: string;
   tick?: number;
+  holdTicks?: number;
   pnl: number;
   ratio?: number;
   relateTrial?: RelateTrialStamp;
@@ -713,7 +714,7 @@ function configDetailsMatch(row: ConfigIdentity, rel: ConfigIdentity): boolean {
   return true;
 }
 function configTapeRow(c: ConfigTapeRow): ConfigTapeRow {
-  return { id:c.id, tick:c.tick, pnl: measuredEdgePnl(c), ratio: c.ratio, relateTrial: c.relateTrial,
+  return { id:c.id, tick:c.tick, holdTicks:c.holdTicks, pnl: measuredEdgePnl(c), ratio: c.ratio, relateTrial: c.relateTrial,
     relateRelationTrials: c.relateRelationTrials, validExec: c.validExec, strategyId: c.strategyId, connId: c.connId, symbol: c.symbol, side: c.side,
     indication: c.indication, tactic: c.tactic, rangeType: c.rangeType, playbook: c.playbook, kind: c.kind,
     tpAtr: c.tpAtr, slOfTp: c.slOfTp, trailPct: c.trailPct, trailingDistance: c.trailingDistance,
@@ -7103,8 +7104,9 @@ export function configStepFloor(e: VstEngine, legacy: number, rel?: StepPfContex
     ? rel.slDist / rel.tpDist : undefined;
   return effectiveSlRatio == null ? requestedFloor : stepPfFloor(requestedFloor, pct, e.stepPf, effectiveSlRatio);
 }
-export function entryMinPfFor(e: VstEngine, rel?: Parameters<typeof pfLaneOf>[0] & StepPfContext): number {
-  return configStepFloor(e, minPfFor(e, pfLaneOf(rel)), rel);
+export function entryMinPfFor(e: VstEngine, rel?: Parameters<typeof pfLaneOf>[0] & StepPfContext & { indication?: string }): number {
+  const signals = rel?.indication?.startsWith("sig-");
+  return Math.max(configStepFloor(e, minPfFor(e, pfLaneOf(rel)), rel), signals ? SIGNAL_STAGE_MIN_PF : 0);
 }
 
 /** Lowest floor among enabled strategies — Short 1.2 can arm when Overall is 1.8. */
@@ -7720,12 +7722,19 @@ function validatedSet(
   if (!e.preEvalDone || internAllPhase(e) || completeOpenTape(e)) return true;
   const base = configStepFloor(e, baseStageFloor(e), rel);
   const ident = { ...rel, connId: e.activeConnId };
-  const need = lastNMaxOf(lastNProgressOf(e));
+  const progress = lastNProgressOf(e);
+  const need = lastNMaxOf(progress);
   const own = currentConfigRows(e, ident, need);
   const tape = own.length ? own : ownFrozenConfigRows(e, ident, need);
   // Exact admission must clear its execution floor. Base's lower qualification must not
   // let a marginal Block, Axis, DCA, or ordinary Set bypass the final gate.
   const floor = rel.symbol || rel.side ? Math.max(base, entryMinPfFor(e, rel)) : base;
+  if (hasStageLongModes(progress) && rel.symbol && rel.side) {
+    if (!hasConfigProvenance(ident)) return false;
+    const signals = rel.indication?.startsWith("sig-");
+    return stageLongPaths(tape, progress, e.tick, floor, signals ? floor : base,
+      signals && e.stepPf?.enabled ? e.stepPf.autoPfRatio : undefined).length > 0;
+  }
   if (lastNTapePass(e, tape, floor)) return true;
   if (rel.symbol || rel.side) return false;
   // A TP×SL pass does not unlock every range. This range must clear last-N on its own tape.
@@ -12426,8 +12435,20 @@ export function laneLastNDecision(
   if (cached) return cached;
   const need = lastNMaxOf(cfg);
   const identity = {...rel,connId:e.activeConnId};
-  const rows = hasConfigProvenance(identity) ? currentConfigRows(e,identity,need) : laneClosed(e,rel,need);
+  const exact = hasConfigProvenance(identity);
+  const current = exact ? currentConfigRows(e,identity,need) : laneClosed(e,rel,need);
+  const staged = hasStageLongModes(cfg) && exact;
+  const rows = staged && !current.length ? ownFrozenConfigRows(e, identity, need) : current;
   const d = decideLastN(rows, cfg, minPf, basePf);
+  if (staged) {
+    const base = configStepFloor(e, baseStageFloor(e), rel);
+    const floor = Math.max(base, minPf);
+    const signals = rel.indication?.startsWith("sig-");
+    const paths = stageLongPaths(rows, cfg, e.tick, floor, signals ? floor : base,
+      signals && e.stepPf?.enabled ? e.stepPf.autoPfRatio : undefined);
+    d.pass = paths.length > 0;
+    d.stack = d.pass ? d.stack : 1;
+  }
   bag.map.set(key, d);
   return d;
 }

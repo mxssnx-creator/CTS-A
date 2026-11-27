@@ -32,6 +32,7 @@ import {
   MAJORITY_MIN_POSITIVE,
   LAST_N_PASS_MODES,
   slimLastNProgress,
+  stageLongPaths,
 } from "./last-n-progress.ts";
 
 const cfgP = sanitizeLastNProgress({
@@ -49,6 +50,21 @@ function wins(n: number, pnl = 1.2) {
 function mixed(good: number, bad: number, gp = 1.4, gl = -0.9) {
   return [...Array.from({ length: good }, () => ({ pnl: gp })), ...Array.from({ length: bad }, () => ({ pnl: gl }))];
 }
+
+it("branches on the exact Base Long at every stage using only admitted parent closes", () => {
+  const cfg = sanitizeLastNProgress({
+    blocks: { long: 2, short: 1, minimal: 1, shortPolarity: "positive", minimalPolarity: "positive" },
+    stageLongModes: { main: "both", real: "both", exec: "both" },
+  });
+  const tape = Array.from({ length: 40 }, (_, i) => ({ id: String(i), tick: 3 * i + 2, holdTicks: 1, pnl: 2 }));
+  assert.deepEqual(stageLongPaths(tape.slice(0, 11), cfg, 150, 1.5, 1.5), [[0, 0, 0]]);
+  const paths = stageLongPaths(tape, cfg, 150, 1.5, 1.5);
+  assert.equal(paths.length, 8);
+  assert.ok(paths.every(path => path.length === 3 && path.every(long => long === 0 || long === 2)));
+  const future = { ...tape[0], tick: 150, pnl: -100 };
+  assert.deepEqual(stageLongPaths([...tape, future], cfg, 150, 1.5, 1.5), paths);
+  assert.deepEqual(stageLongPaths(tape.map(row => ({ ...row, holdTicks: undefined })), cfg, 150, 1.5, 1.5), []);
+});
 
 describe("multi last-N prefix + modes", () => {
   it("prefix hits match naive slices and stay O(windows) after one prefix", () => {

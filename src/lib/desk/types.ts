@@ -658,6 +658,7 @@ export interface LastNCompleteScore {
 /** Multi last-N progress: Base eval 15–80 / Valid 8–24 / Disable 6–20. Independent, combined, or both (parallel stack). */
 export interface LastNProgressConfig {
   blocks?: import("../../../shared/cts-lastn/blocks").BlockPolicy;
+  stageLongModes?: Record<"main" | "real" | "exec", "inherit" | "none" | "both">;
   negativeFilter?: import("./negative-last-n").NegativeLastN;
   /** Independent policies on this exact configuration stream; never a pooled sibling tape. */
   policies?: Array<Omit<LastNProgressConfig, "policies"> & { id: string; role: "major" | "minor" | "independent" | "additional" }>;
