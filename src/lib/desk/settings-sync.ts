@@ -1,3 +1,4 @@
+import { DEFAULT_STEP_PF, validateAutoPfRatio } from "./step-pf.ts";
 import {relationalVolumeSettings} from "../../../shared/cts-volume/ratios.ts";
 import {indicationSourceIds} from "./ported-indications.ts";
 import { relateConfig } from "./relate.ts";
@@ -257,7 +258,9 @@ export function sanitizeDeskSettings(raw: Partial<DeskSettingsSnap> | null | und
     },
     tacticConfig: (() => {
       const minSlDistancePct = normalizeMinSlDistancePct(cfg.minSlDistancePct);
+      validateAutoPfRatio(cfg.stepPf?.autoPfRatio);
       const sourceSettings = {
+        ...(cfg.stepPf === undefined ? {} : { stepPf: { ...DEFAULT_STEP_PF, ...cfg.stepPf } }),
         priceDistanceGrid: sanitizePriceDistanceGrid(cfg.priceDistanceGrid),
         lowRange: sanitizeLowRangeGrid(cfg.lowRange),
         microMinSlDistancePct: Math.max(0, Math.min(10, asNum(cfg.microMinSlDistancePct, .1))),

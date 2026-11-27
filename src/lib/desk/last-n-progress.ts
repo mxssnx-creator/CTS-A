@@ -1,4 +1,4 @@
-import {blockPrefix,blockRequired,checkBlockPolicy,evaluateBlocks,type BlockResult} from "../../../shared/cts-lastn/blocks.ts";
+import {blockPrefix,blockRequired,blockWindow,checkBlockPolicy,evaluateBlocks,type BlockResult} from "../../../shared/cts-lastn/blocks.ts";
 import type { LastNCompleteScore, LastNOverallScore, LastNPassMode, LastNProgressConfig } from "./types";
 import { profitFactor } from "./profit-factor.ts";
 import { negativeLastN, negativeLastNDecision, type NegativeResult } from "./negative-last-n.ts";
@@ -240,6 +240,7 @@ export function disableLastNBad(h: LastNWindowHit): boolean {
 
 export type LastNDecision = {
   negative?: NegativeResult;
+  fullBlock?: LastNWindowHit;
   policyDecisions?: Record<string, LastNDecision & { role: string }>;
   selectedPolicy?: string;
   pass: boolean;
@@ -285,12 +286,16 @@ export function decideLastNFromPrefix(
       selectedPolicy: selected.id, policyDecisions };
   }
   if(cfg.blocks){
-    const v=evaluateBlocks(blockPrefix(pre.values??[],blockRequired(cfg.blocks)),cfg.blocks,Math.max(1.000001,minPf,basePf));
+    const required=blockRequired(cfg.blocks);
+    const prefix=blockPrefix(pre.values??[],required);
+    const floor=Math.max(1.000001,minPf,basePf);
+    const v=evaluateBlocks(prefix,cfg.blocks,floor);
+    const fullBlock=blockWindow(prefix,0,required,floor);
     const hit=(w:BlockResult):LastNWindowHit=>({n:w.requested,samples:w.count,pf:w.pf===Infinity?99:w.pf??0,avg:w.count?w.net/w.count:0,net:w.net,ok:w.state==="qualified"});
     const negative=negativeLastNDecision(pre.values ?? [], cfg.negativeFilter);
-    const pass=v.state==="qualified" && negative.pass;
+    const pass=v.state==="qualified" && fullBlock.state==="qualified" && negative.pass;
     // Signed blocks are conjunctive evidence on this exact lane; they never multiply its volume.
-    return {pass,independent:pass,combined:pass,majority:pass,stack:1,evalHits:[hit(v.long)],validHits:[hit(v.short)],disableHits:[hit(v.minimal)],negative};
+    return {pass,independent:pass,combined:pass,majority:pass,stack:1,evalHits:[hit(v.long)],validHits:[hit(v.short)],disableHits:[hit(v.minimal)],negative,fullBlock:hit(fullBlock)};
   }
   const evalHits = hitsOf(pre, cfg.evalNs);
   const validHits = hitsOf(pre, cfg.validNs);
@@ -503,10 +508,8 @@ export function scoreLastNGroup(
   }
   const d = decideLastN(rows, cfg, minPf, basePf);
   if (selectedDisjointBlocks(cfg, d)) {
-    const long = d.evalHits[0];
-    // The short/minimal blocks can intentionally be negative. Their state is
-    // already part of d.pass; the reported PF and net belong to long alone.
-    return { n: long?.samples ?? 0, pf: long?.pf ?? 0, net: long?.net ?? 0, ok: d.pass, stack: d.pass ? d.stack : 1 };
+    const full = d.fullBlock!;
+    return { n: full.samples, pf: full.pf, net: full.net, ok: d.pass, stack: d.pass ? d.stack : 1 };
   }
   const hit = pickLastNScoreHit(d, minPf);
   const full = Boolean(hit && hit.samples >= hit.n);
@@ -553,14 +556,14 @@ export function scoreLastNModeTape(
 ): LastNModeScore {
   const d = decideLastN(rows, { ...cfg, mode }, minPf, basePf);
   if (selectedDisjointBlocks(cfg, d)) {
-    const long = d.evalHits[0];
+    const full = d.fullBlock!;
     return {
       pass: d.pass,
-      pf: long?.pf ?? 0,
-      n: long?.samples ?? 0,
-      net: long?.net ?? 0,
-      gatedPf: long?.pf ?? 0,
-      gatedN: long?.n ?? 0,
+      pf: full.pf,
+      n: full.samples,
+      net: full.net,
+      gatedPf: full.pf,
+      gatedN: full.n,
     };
   }
   const st = tapeFold(rows);
