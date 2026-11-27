@@ -3,20 +3,27 @@ import { test } from "node:test";
 import { DEFAULT_STRATEGY_TOGGLES, DEFAULT_TACTIC_CONFIG } from "./engine.ts";
 import { DEFAULT_RELATE, relateAllocation, relateConfig } from "./relate.ts";
 import { sanitizeDeskSettings } from "./settings-sync.ts";
-import { armUniverse, completeConfigSampleKey, finishBaseEval, initVstEngine } from "./vst.ts";
+import { armUniverse, completeConfigSampleKey, completeStrategyConfigSampleKey, finishBaseEval, initVstEngine } from "./vst.ts";
 
 const policy = { ...DEFAULT_RELATE, enabled: true };
+const lossRun = [-.001, -.001, -.001, -.001, ...Array<number>(56).fill(.01)];
 
 test("Relate requires complete signed evidence and a bounded stop", () => {
   const wins = Array.from({ length: 60 }, () => .01);
-  assert.equal(relateAllocation(wins, .4, 1, policy), 2);
-  assert.equal(relateAllocation(wins, .51, 1, policy), 1);
-  assert.equal(relateAllocation(wins.slice(1), .4, 1, policy), 1);
-  assert.equal(relateAllocation([.01, undefined, ...wins.slice(2)], .4, 1, policy), 1);
-  assert.equal(relateAllocation([.01, -.8, ...wins.slice(2)], .4, 1, policy), 1);
-  assert.equal(relateAllocation([.01, -.002, ...wins.slice(2)], .4, 1, policy), 1.2);
-  const saved = sanitizeDeskSettings({ tacticConfig: { ...DEFAULT_TACTIC_CONFIG, relate: policy } } as never);
-  assert.deepEqual(sanitizeDeskSettings(JSON.parse(JSON.stringify(saved))).tacticConfig.relate, relateConfig(policy));
+  assert.equal(relateAllocation(lossRun, .4, 1, policy), 2);
+  assert.equal(relateAllocation(wins, .4, 1, policy), 1);
+  assert.equal(relateAllocation(lossRun, .51, 1, policy), 1);
+  assert.equal(relateAllocation(lossRun.slice(1), .4, 1, policy), 1);
+  assert.equal(relateAllocation([-.001, undefined, ...wins.slice(2)], .4, 1, policy), 1);
+  assert.equal(relateAllocation([-.001, -.8, ...wins.slice(2)], .4, 1, policy), 1);
+  assert.equal(relateAllocation([-.002, .01, ...wins.slice(2)], .4, 1, policy), 1.2);
+  assert.equal(relateAllocation([-.002, ...wins.slice(1)], .4, 1, { ...policy, activeStep: 2 }), 1);
+  assert.equal(relateAllocation(lossRun, .4, 1, { ...policy, activeStep: 2 }), 2);
+  const overall = { ...policy, scope: "overall" as const, volumeFactors: { overall: 3, symbol: 1 } };
+  assert.equal(relateAllocation([], .4, 1, overall, () => 1), 1);
+  assert.equal(relateAllocation(wins, .4, 1, overall, source => source === "overall" ? 1 : null), 1.06);
+  const saved = sanitizeDeskSettings({ tacticConfig: { ...DEFAULT_TACTIC_CONFIG, relate: overall } } as never);
+  assert.deepEqual(sanitizeDeskSettings(JSON.parse(JSON.stringify(saved))).tacticConfig.relate, relateConfig(overall));
 });
 
 test("post-Base order sizes change only for the qualifying exact Set and exclude current-tick evidence", () => {
@@ -33,8 +40,9 @@ test("post-Base order sizes change only for the qualifying exact Set and exclude
   const key = completeConfigSampleKey(seed);
   e.tick = 100;
   e.closed = Array.from({ length: 60 }, (_, i) => ({
-    ...seed, id: `own-${i}`, tick: 99-i, pnl: 1, ratio: .01, r: 1, entry: seed.price,
+    ...seed, id: `own-${i}`, tick: 99-i, pnl: lossRun[i], ratio: lossRun[i], r: lossRun[i], entry: seed.price,
     exit: seed.price * (seed.side === "long" ? 1.012 : .988), reason: "tp", validExec: true,
+    relateTrial: i >= 9 && i < 25 ? { step: 4, size: 2 } : undefined,
   }));
   const reset = () => { e.queue = []; e.orders = []; e.positions = []; };
   reset();
@@ -73,12 +81,34 @@ test("Relate keeps every native stop-gap and trailing-mode sibling on its own hi
   assert.ok(keys.every(Boolean));
   assert.equal(new Set(keys).size, siblings.length);
 
-  const ownWins = Array.from({ length: 60 }, () => .01);
-  const histories = new Map([[keys[0]!, ownWins]]);
+  const histories = new Map([[keys[0]!, lossRun]]);
   const multiplier = (row: (typeof siblings)[number]) =>
     relateAllocation(histories.get(completeConfigSampleKey(row)!) ?? [], row.slDist, row.tpDist, policy);
   assert.equal(multiplier(fixed), 2);
   assert.equal(multiplier(dynamic), 1);
   assert.equal(multiplier(otherStop), 1);
   assert.equal(multiplier(otherGap), 1);
+});
+
+test("Relate keeps identical native parents from different source strategies independent", () => {
+  const parent = {
+    connId: "bingx-x02", symbol: "BTCUSDT", side: "long" as const, indication: "ema",
+    tactic: "trailing", rangeType: "atr", playbook: "short", kind: "short",
+    tpAtr: .6, slOfTp: .5, trailPct: .2, trailingDistance: "fixed" as const,
+    priceStopPct: .2, priceTrailPct: .2, maxHoldTicks: 12, calc: "base",
+    microRange: false, minimalRange: false, shortRange: true,
+    modelRtCost: .00176, minSlDistancePct: .1,
+  };
+  const winner = { ...parent, strategyId: "source-alpha" };
+  const sibling = { ...parent, strategyId: "source-beta" };
+  const winnerKey = completeStrategyConfigSampleKey(winner);
+  const siblingKey = completeStrategyConfigSampleKey(sibling);
+  assert.ok(winnerKey && siblingKey);
+  assert.notEqual(siblingKey, winnerKey,
+    "source strategies must not share Last-N, Relate, cooldown or coordination evidence");
+
+  const histories = new Map([[winnerKey, lossRun]]);
+  assert.equal(relateAllocation(histories.get(winnerKey) ?? [], .4, 1, policy), 2);
+  assert.equal(relateAllocation(histories.get(siblingKey) ?? [], .4, 1, policy), 1,
+    "an unobserved source-strategy sibling cannot borrow the winner's Relate multiplier");
 });

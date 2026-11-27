@@ -106,3 +106,22 @@ it("native Last-N and Auto PF cannot borrow an absolute stop-gap or trailing-mod
  assert.equal(laneLastNDecision(e,{...own,priceTrailPct:.4}).pass,false,
   "an unobserved trailing-gap sibling cannot borrow proof");
 });
+
+it("native Last-N and Auto PF keep source-strategy parents independent", () => {
+ const e=engine();
+ e.lastNProgress={...DEFAULT_LAST_N_PROGRESS,evalNs:[15],validNs:[8],disableNs:[6],mode:"independent"};
+ e.minPf=1.1;e.basePf=1.1;e.stepPf={enabled:true,ratio:1.5,max:2};
+ const own={...rel,connId:e.activeConnId,calc:"base" as const,microRange:false,minimalRange:false,shortRange:true,
+  modelRtCost:.00176,minSlDistancePct:.1,priceStopPct:.2,priceTrailPct:.3,trailingDistance:"fixed" as const};
+ const rows=(strategyId:string,pnl:number)=>Array.from({length:16},(_,i)=>({
+  ...own,id:`${strategyId}-${i}`,strategyId,pnl,ratio:pnl,tick:100-i,qty:1,entry:100,
+  exit:100*(1+pnl),r:pnl,reason:pnl<0?"sl":"tp",
+ } as ClosedTrade));
+ e.closed=[...rows("source-alpha",.02),...rows("source-beta",-.01)];
+ assert.equal(laneLastNDecision(e,{...own,strategyId:"source-alpha"}).pass,true,
+  "the winning source parent owns its Auto-PF proof");
+ assert.equal(laneLastNDecision(e,{...own,strategyId:"source-beta"}).pass,false,
+  "the losing source sibling cannot borrow another strategy's proof");
+ assert.equal(laneLastNDecision(e,{...own,strategyId:"source-gamma"}).pass,false,
+  "an unobserved source sibling remains unqualified");
+});
