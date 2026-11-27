@@ -306,7 +306,7 @@ test("the runtime materializes the configured cost-aware Low-Range cells", () =>
     trailRatios: [0, .5],
     maxHoldMin: 60,
   };
-  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, lowRange } as typeof DEFAULT_TACTIC_CONFIG & { lowRange: typeof lowRange };
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, priceDistanceGrid:{enabled:false,stopPcts:[.2],trailPcts:[.2]}, lowRange } as typeof DEFAULT_TACTIC_CONFIG & { lowRange: typeof lowRange };
   const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4 });
   e.fees = { maker: cost / 2, taker: cost / 2, slippageFeeRatio: 0 };
   const expected = lowRangeGridProtects(lowRange, cost, 5, .1);
@@ -331,7 +331,7 @@ test("Low-Range protection settings are opt-in and survive a saved-settings roun
 
 test("the complete cost-aware Low-Range catalog has bounded active materialization", async () => {
   const { performance } = await import("node:perf_hooks");
-  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true,
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, priceDistanceGrid:{enabled:false,stopPcts:[.2],trailPcts:[.2]},
     lowRange: { ...DEFAULT_LOW_RANGE_GRID, enabled: true } };
   const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 1 });
   e.fees = { maker: .00088, taker: .00088, slippageFeeRatio: 0 };
@@ -353,7 +353,7 @@ test("the complete cost-aware Low-Range catalog has bounded active materializati
 
 test("independent Low-Range hold windows retain bounded geometry identity", async () => {
   const { performance } = await import("node:perf_hooks");
-  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true,
+  const cfg = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, priceDistanceGrid:{enabled:false,stopPcts:[.2],trailPcts:[.2]},
     lowRange: { ...DEFAULT_LOW_RANGE_GRID, enabled: true } };
   const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 1 });
   e.fees = { maker: .00088, taker: .00088, slippageFeeRatio: 0 };

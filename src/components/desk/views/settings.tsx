@@ -6,7 +6,7 @@ import { DEFAULT_LOW_RANGE_SOURCES, LOW_RANGE_CATALOG } from "../../../../shared
 import { DEFAULT_LOW_RANGE_GRID } from "../../../../shared/cts-indications/origin/indications/low-range.ts";
 import { relateConfig, type RelateConfig } from "@/lib/desk/relate.ts";
 import { RELATE_LABELS, RELATE_SOURCES } from "../../../../shared/cts-relate/policy.ts";
-import { DEFAULT_PRICE_DISTANCE_GRID } from "@/lib/desk/price-distance-grid";
+import { DEFAULT_PRICE_DISTANCE_GRID, STOP_BANDS } from "@/lib/desk/price-distance-grid";
 import { STRATEGY_PROCESSING_RANGES } from "@/lib/desk/strategy-processing";
 import { DEFAULT_PREHISTORY_HOURS, MAX_PREHISTORY_HOURS } from "../../../lib/desk/prehistory";
 import { useEffect, useMemo, useState } from "react";
@@ -1200,14 +1200,20 @@ export function SettingsView() {
             >
               Trailing {strategyToggles.trailing ? "on" : "off"}
             </button>
-            <button
-              type="button"
-              aria-pressed={priceDistanceGrid.enabled}
-              className={`${chip} ${priceDistanceGrid.enabled ? chipOn : chipOff}`}
-              onClick={() => setCfg({ priceDistanceGrid: { ...priceDistanceGrid, enabled: !priceDistanceGrid.enabled } })}
-            >
-              Exact 0.1% grid {priceDistanceGrid.enabled ? "on" : "off"}
-            </button>
+            <label>Maximum SL / TP ratio
+              <input type="number" min={0.01} max={5} step={0.01} value={priceDistanceGrid.maxStopLossRatio ?? 2.5}
+                onChange={event => {const value = event.currentTarget.valueAsNumber;
+                  if (value > 0 && value <= 5) setCfg({priceDistanceGrid:{...priceDistanceGrid, maxStopLossRatio:value}});}} />
+            </label>
+            {(["short", "long"] as const).map(band => {
+              const spec = STOP_BANDS[band];
+              const selected = priceDistanceGrid.fixedSlBands?.[band] ?? spec.stops;
+              return <fieldset key={band}><legend>Fixed SL for TP {spec.minTpPct}–{spec.maxTpPct}%</legend>
+                {spec.stops.map(value => <button type="button" key={value} aria-pressed={selected.includes(value)}
+                  className={`${chip} ${selected.includes(value) ? chipOn : chipOff}`}
+                  onClick={() => setCfg({priceDistanceGrid:{...priceDistanceGrid, enabled:true, fixedSlBands:{
+                    ...priceDistanceGrid.fixedSlBands, [band]:selected.includes(value) ? selected.filter(v => v !== value) : [...selected,value]}}})}>{value.toFixed(1)}%</button>)}</fieldset>;
+            })}
             <button
               type="button"
               aria-pressed={lowRangeGrid.enabled}
@@ -1218,7 +1224,7 @@ export function SettingsView() {
             </button>
           </div>
           <p className="mb-3 text-xs text-subtle">
-            Native absolute-price coverage: {priceDistanceGrid.stopPcts.length} stops (0.2–2.2%) · {priceDistanceGrid.trailPcts.length} gaps
+            Trailing price gaps · {priceDistanceGrid.trailPcts.length} gaps
             (0.2–2.6%) · fixed and dynamic trailing are separate evaluation lanes. Existing saved desks remain off until enabled.
           </p>
           <p className="mb-3 text-xs text-subtle">

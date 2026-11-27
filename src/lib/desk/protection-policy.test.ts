@@ -286,7 +286,8 @@ test("native Micro and Minimal grids arm every cell without rearming an occupied
   const { DEFAULT_TACTIC_CONFIG } = await import("./engine.ts");
   for (const range of ["micro", "minimal"]) {
     const cfg={...DEFAULT_TACTIC_CONFIG,microRange:range==="micro",minimalRange:range==="minimal",
-      shortRange:false,tpAtr:range==="micro"?.2:1,slOfTp:.25};
+      shortRange:false,tpAtr:range==="micro"?.2:1,slOfTp:.25,
+      priceDistanceGrid:{enabled:false,stopPcts:[.2],trailPcts:[.2]}};
     const e=initVstEngine(cfg,{arm:false,warmup:0,symbolCount:4,complete:true});
     e.strategyToggles!.normal=true;
     armUniverse(e,cfg,"trailing","atr");
@@ -471,27 +472,27 @@ test("absolute stop and fixed or dynamic trailing grids remain independent setti
   assert.deepEqual(TRAIL_DISTANCE_PCTS, Array.from({ length: 25 }, (_, i) => (i + 2) / 10));
 
   const legacy = sanitizeDeskSettings({ tacticConfig: DEFAULT_TACTIC_CONFIG } as never);
-  assert.equal(legacy.tacticConfig.priceDistanceGrid?.enabled, false);
-  assert.equal(priceDistanceVariants(legacy.tacticConfig, "axis").length, 0);
+  assert.equal(legacy.tacticConfig.priceDistanceGrid?.enabled, true);
+  assert.equal(priceDistanceVariants(legacy.tacticConfig, "axis").length, 27);
 
   const configured = sanitizeDeskSettings({ tacticConfig: { ...DEFAULT_TACTIC_CONFIG,
     priceDistanceGrid: { enabled: true, stopPcts: STOP_DISTANCE_PCTS, trailPcts: TRAIL_DISTANCE_PCTS },
   } } as never);
   assert.deepEqual(configured.tacticConfig.priceDistanceGrid,
-    { enabled: true, stopPcts: STOP_DISTANCE_PCTS, trailPcts: TRAIL_DISTANCE_PCTS });
+    { enabled:true, maxStopLossRatio:2.5, fixedSlBands:(await import("../../../shared/cts-protection/fixed-stop-bands.ts")).stopSelections(), stopPcts:STOP_DISTANCE_PCTS, trailPcts:TRAIL_DISTANCE_PCTS });
 
   const ordinary = priceDistanceVariants(configured.tacticConfig, "axis");
   const trailing = priceDistanceVariants(configured.tacticConfig, "trailing");
-  assert.equal(ordinary.length, 21);
-  assert.equal(trailing.length, 21 * 25 * 2);
+  assert.equal(ordinary.length, 27);
+  assert.equal(trailing.length, 27 * 25 * 2);
   assert.equal(priceDistanceVariants(configured.tacticConfig, "trailing"), trailing, "repeat materialization reuses one bounded catalog");
   assert.equal(new Set([...ordinary, ...trailing].map(row =>
-    JSON.stringify([row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic"]))).size, 21 * (1 + 25 * 2));
+    JSON.stringify([row.priceStopBand, row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic"]))).size, 27 * (1 + 25 * 2));
   const covered = new Set<string>();
   for (let tick = 0; tick < Math.ceil(trailing.length / 16); tick++) {
     const batch = priceDistanceBatch(trailing, tick, "BTCUSDT:long:low-range-breakout:trailing");
     assert.ok(batch.length <= 16);
-    for (const row of batch) covered.add(JSON.stringify([row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic"]));
+    for (const row of batch) covered.add(JSON.stringify([row.priceStopBand, row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic"]));
   }
   assert.equal(covered.size, trailing.length, "bounded tick batches cover every independent child");
 
@@ -564,12 +565,28 @@ test("full native price grid reports bounded active materialization cost", async
   const started = performance.now();
   const variants = priceDistanceVariants(configured.tacticConfig, "trailing");
   const keys = new Set(variants.map(row => JSON.stringify([
-    row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic",
+    row.priceStopBand, row.priceStopPct, row.priceTrailPct, row.trailingDistance ?? "dynamic",
   ])));
   const elapsedMs = performance.now() - started;
   const heapDeltaBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
   const payloadBytes = Buffer.byteLength(JSON.stringify(variants));
-  assert.equal(variants.length, 1_050);
-  assert.equal(keys.size, 1_050);
-  console.info(`price-distance-grid benchmark variants=1050 elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${payloadBytes}`);
+  assert.equal(variants.length, 1_350);
+  assert.equal(keys.size, 1_350);
+  console.info(`price-distance-grid benchmark variants=1350 elapsedMs=${elapsedMs.toFixed(3)} heapDeltaBytes=${heapDeltaBytes} payloadBytes=${payloadBytes}`);
+});
+
+test("fixed bands keep the same stop on both sides and apply the cap to the actual target", async () => {
+  const {fixedStopsAt,stopSelections,maxStopRatio} = await import("../../../shared/cts-protection/fixed-stop-bands.ts");
+  const {absoluteProtection, sanitizePriceDistanceGrid} = await import("./price-distance-grid.ts");
+  const stops = stopSelections();
+  assert.equal(sanitizePriceDistanceGrid(undefined).maxStopLossRatio,2.5);
+  assert.equal(fixedStopsAt(.1,stops).length,1);
+  assert.equal(fixedStopsAt(1.2,stops).length,27);
+  assert.equal(fixedStopsAt(1.6,stops).length,27);
+  assert.ok(fixedStopsAt(.4,stops,maxStopRatio(1)).every(s=>s.stopPct<=.4));
+  for (const side of ["long","short"] as const) {
+    const p=absoluteProtection(side,100,2.6,1.2);
+    assert.equal(p.slDist,2.6);
+    assert.equal(p.tpDist,1.2);
+  }
 });

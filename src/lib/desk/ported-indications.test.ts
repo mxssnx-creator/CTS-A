@@ -79,9 +79,10 @@ test("a Low-Range source carries its own coordination switch from discovery to q
  assert.equal(liveShouldExecute(e, seed), false);
 });
 
-test("Low-Range discovery creates every configured cost cell with independent fixed and dynamic evidence", () => {
+for (const fixed of [false, true]) test(`Low-Range discovery keeps every ${fixed ? "fixed-stop" : "archived cost"} cell and trailing mode independent`, () => {
  const id = "low-range-1-failed-break-standalone";
  const cfg: TacticConfig = { ...DEFAULT_TACTIC_CONFIG, shortRange: true, microRange: false, minimalRange: false,
+   priceDistanceGrid: {enabled:fixed, ...(fixed ? { fixedSlBands:{short:[.3,.5],long:[]}, maxStopLossRatio:2.5 } : {}), stopPcts:[.3],trailPcts:[.2]},
    indicationSourceIds: [id], lowRange: { enabled: true, step: .002, steps: [2], slRatios: [.25, .3],
      trailRatios: [0, .5], maxHoldMin: 60 } };
  const e = initVstEngine(cfg, { arm: false, warmup: 0, symbolCount: 4, complete: true });
@@ -100,13 +101,14 @@ test("Low-Range discovery creates every configured cost cell with independent fi
  const rows = [...e.orders, ...e.queue].filter(order => order.symbol === q.id && order.indication === id && order.tactic === "trailing");
  assert.ok(rows.length > 0);
  assert.ok(rows.every(order => Math.abs(order.tpDist / order.price - .00576) < 1e-12));
- assert.ok(rows.every(order => Math.abs(order.slDist / order.price - .00276) < 1e-12));
+ if (fixed) assert.deepEqual(new Set(rows.map(o => +(o.slDist/o.price*100).toFixed(3))), new Set([.3,.5]));
+ else assert.ok(rows.every(order => Math.abs(order.slDist / order.price - .00276) < 1e-12));
  assert.ok(rows.every(order => order.maxHoldTicks === 12));
  const cells = new Map(rows.map(order => [JSON.stringify([
    order.tpAtr, order.slOfTp, order.trailPct, order.trailingDistance ?? "dynamic",
  ]), completeConfigSampleKey(order)]));
- assert.equal(cells.size, 3, "no-trail plus fixed and dynamic trailing are separate children");
- assert.equal(new Set(cells.values()).size, 3, "each actual child owns a complete evaluation key");
+ assert.equal(cells.size, fixed ? 4 : 3, "no-trail plus fixed and dynamic trailing are separate children");
+ assert.equal(new Set(cells.values()).size, fixed ? 4 : 3, "each actual child owns a complete evaluation key");
  const firstKeys = new Set(rows.map(order => completeConfigSampleKey(order)));
  assert.ok([...firstKeys].every(Boolean));
 
