@@ -25,7 +25,7 @@ export function laneVolumeFactor(policy: RelationalVolumeRatios | undefined, lan
   const indication = lane.indication ?? "";
   const lowRange = indication.startsWith("low-range-");
   return relationalVolumeFactor(policy, {
-    indicationType: indication.startsWith("inverse-") ? "inverse" : indication.startsWith("tactic-") ? "tactic" : lowRange ? "low-range" : indication,
+    indicationType: indication.startsWith("sig-trend-reversal-") ? "signals" : indication.startsWith("trend-reversal-") ? "trend-reversal" : indication.startsWith("inverse-") ? "inverse" : indication.startsWith("tactic-") ? "tactic" : lowRange ? "low-range" : indication,
     indication,
     strategy,
     range: [

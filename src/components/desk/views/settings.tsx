@@ -1,3 +1,4 @@
+import { REVERSAL_SOURCES } from "../../../../shared/cts-reversal/reversal.ts";
 import {BlockPolicyFields} from "../../../../shared/cts-lastn/fields";
 import {VolumeRatioSliders} from "../../../../shared/cts-volume/sliders.tsx";
 import {PORTED_CATALOG,DEFAULT_TACTIC_SOURCES,DEFAULT_INVERSE_SOURCES} from "../../../../shared/cts-indications/catalog.ts";
@@ -284,8 +285,10 @@ export function SettingsView() {
   const relate = relateConfig(cfg.relate);
   const setRelate = (patch: Partial<RelateConfig>) => setCfg({ relate: relateConfig({ ...relate, ...patch }) });
   const [sourceSelectionError, setSourceSelectionError] = useState(false);
-  const selectSources = (lowRange: boolean, ids: string[]) => {
-    const next = [...(cfg.indicationSourceIds ?? []).filter(id => id.startsWith("low-range-") !== lowRange), ...ids];
+  const sourceGroup = (id: string) => id.startsWith("low-range-") ? "low-range"
+    : id.startsWith("sig-trend-reversal-") ? "signals" : id.startsWith("trend-reversal-") ? "reversal" : "ported";
+  const selectSources = (group: string, ids: string[]) => {
+    const next = [...(cfg.indicationSourceIds ?? []).filter(id => sourceGroup(id) !== group), ...ids];
     setSourceSelectionError(next.length > 128);
     if (next.length <= 128) setCfg({ indicationSourceIds: next });
   };
@@ -1065,18 +1068,29 @@ export function SettingsView() {
         </Panel>
       </div>
 
-      <Panel title="Relational volume · Indications"><VolumeRatioSliders overall value={cfg.relationalVolumeRatios} onChange={v=>setCfg({relationalVolumeRatios:v})} buckets={{indicationTypes:['trend','break','active','direction','move','rsi','bollinger','sar','macd','ema','tactic','inverse','low-range'],indications:cfg.indicationSourceIds??[]}}/></Panel>
+      <Panel title="Relational volume · Indications"><VolumeRatioSliders overall value={cfg.relationalVolumeRatios} onChange={v=>setCfg({relationalVolumeRatios:v})} buckets={{indicationTypes:['trend','trend-reversal','signals','break','active','direction','move','rsi','bollinger','sar','macd','ema','tactic','inverse','low-range'],indications:cfg.indicationSourceIds??[]}}/></Panel>
       <Panel title="Relational volume · Strategies / Ranges"><VolumeRatioSliders value={cfg.relationalVolumeRatios} onChange={v=>setCfg({relationalVolumeRatios:v})} buckets={{strategies:['normal','trailing','axis','block','dca'],ranges:[...STRATEGY_PROCESSING_RANGES]}}/></Panel>
       <Panel title="Tactic & Inverse indications"><p className="mb-3 text-sm text-muted">Independent CTS-A-O sources: DCA decline / recovery levels and Inverse before entry. Every source keeps its own configuration, costs, Last-N and execution proof. Closed OHLCV is required.</p>
-        <button type="button" className={chip} onClick={() => selectSources(false, [...DEFAULT_TACTIC_SOURCES, ...DEFAULT_INVERSE_SOURCES])}>Prepare Tactic + Inverse sources</button>
-        <label className="mt-3 block text-xs">Independent source configurations<select multiple size={8} className="mt-2 w-full rounded border bg-bg p-2" aria-label="Tactic and Inverse source configurations" value={cfg.indicationSourceIds??[]} onChange={event => selectSources(false, Array.from(event.target.selectedOptions, option => option.value))}>{PORTED_CATALOG.map(s=><option key={s.id} value={s.id}>{s.label} · {s.id}</option>)}</select></label>
+        <button type="button" className={chip} onClick={() => selectSources("ported", [...DEFAULT_TACTIC_SOURCES, ...DEFAULT_INVERSE_SOURCES])}>Prepare Tactic + Inverse sources</button>
+        <label className="mt-3 block text-xs">Independent source configurations<select multiple size={8} className="mt-2 w-full rounded border bg-bg p-2" aria-label="Tactic and Inverse source configurations" value={cfg.indicationSourceIds??[]} onChange={event => selectSources("ported", Array.from(event.target.selectedOptions, option => option.value))}>{PORTED_CATALOG.map(s=><option key={s.id} value={s.id}>{s.label} · {s.id}</option>)}</select></label>
+      </Panel>
+      <Panel title="Trend-Reversal">
+        <p className="mb-3 text-sm text-muted">Choose completed one-minute sources. Signals versions keep separate configuration and Last-N evidence.</p>
+        {(["reversal", "signals"] as const).map(group => <label key={group} className="mt-3 block text-xs">
+          {group === "reversal" ? "Ordinary Trend-Reversal sources" : "Independent Signals sources"}
+          <select multiple size={6} className="mt-2 w-full rounded border bg-bg p-2"
+            value={(cfg.indicationSourceIds ?? []).filter(id => sourceGroup(id) === group)}
+            onChange={event => selectSources(group, Array.from(event.target.selectedOptions, option => option.value))}>
+            {REVERSAL_SOURCES.map(source => <option key={source.id} value={group === "signals" ? `sig-${source.id}` : source.id}>{source.label}</option>)}
+          </select>
+        </label>)}
       </Panel>
       <Panel title="Low-Range indications">
         <p className="mb-3 text-sm text-muted">Closed one-minute setups for the Micro, Minimal and Short coordinations. Each source uses its own direction and configuration history. Up to 128 imported sources can be enabled across these two panels.</p>
-        <button type="button" className={chip} onClick={() => selectSources(true, DEFAULT_LOW_RANGE_SOURCES)}>Prepare Low-Range sources</button>
+        <button type="button" className={chip} onClick={() => selectSources("low-range", DEFAULT_LOW_RANGE_SOURCES)}>Prepare Low-Range sources</button>
         <label className="mt-3 block text-xs">Low-Range sources
           <select multiple size={7} className="mt-2 w-full rounded border bg-bg p-2" value={cfg.indicationSourceIds ?? []}
-            onChange={event => selectSources(true, Array.from(event.target.selectedOptions, option => option.value))}>
+            onChange={event => selectSources("low-range", Array.from(event.target.selectedOptions, option => option.value))}>
             {LOW_RANGE_CATALOG.map(source => <option key={source.id} value={source.id}>{source.label}</option>)}
           </select>
         </label>
