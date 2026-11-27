@@ -495,11 +495,21 @@ export type LastNCoordPick = {
   disableHits: LastNWindowHit[];
 };
 
-function addUnique(out: number[], n: number) {
-  if (!out.includes(n)) out.push(n);
-}
+/** Coordinated active last-N: retain every configured window for independent evaluation. */
+export type LastNCoordPick = {
+  mode: LastNPassMode;
+  independent: boolean;
+  combined: boolean;
+  majority: boolean;
+  evalNs: number[];
+  validNs: number[];
+  disableNs: number[];
+  evalHits: LastNWindowHit[];
+  validHits: LastNWindowHit[];
+  disableHits: LastNWindowHit[];
+};
 
-/** Eval / valid: keep the windows that actually pass (plus a close runner-up). Cap 3. */
+/** Eval / valid: keep every full passing window, or every full window while none pass. */
 function pickActiveNs(
   hits: LastNWindowHit[],
   pred: (h: LastNWindowHit) => boolean,
@@ -510,36 +520,21 @@ function pickActiveNs(
   const ok = full.filter(pred);
   const pool = (ok.length ? ok : full).slice();
   if (!pool.length) {
-    const fb = fallback.find((n) => n === primary) ?? fallback[0] ?? primary;
-    return [fb];
+    const configured = [...new Set(fallback)];
+    return (configured.length ? configured : [primary]).sort((a, b) => a - b);
   }
-  pool.sort((a, b) => b.pf - a.pf || b.n - a.n);
-  const out: number[] = [];
-  addUnique(out, pool[0]!.n);
-  if (pool[1] && pool[1].pf + 0.2 >= pool[0]!.pf) addUnique(out, pool[1].n);
-  if (ok.some((h) => h.n === primary)) addUnique(out, primary);
-  else if (!ok.length && full.some((h) => h.n === primary)) addUnique(out, primary);
-  return out.sort((a, b) => a - b).slice(0, 3);
+  return [...new Set(pool.map((hit) => hit.n))].sort((a, b) => a - b);
 }
 
-/**
- * Disable: keep diagnostic windows, not only the green ones.
- * Primary + shortest full (reactive) + longest full (stable). Cap 3.
- */
+/** Disable: keep every configured full window as independent live evidence. */
 function pickDisableNs(hits: LastNWindowHit[], primary: number, fallback: number[]): number[] {
   const full = hits.filter((h) => h.samples >= h.n);
   const pool = (full.length ? full : hits.filter((h) => h.samples > 0)).slice();
   const allow = (n: number) => fallback.includes(n) || n === primary;
-  const out: number[] = [];
-  if (allow(primary)) addUnique(out, primary);
-  if (!pool.length) return out.length ? out.sort((a, b) => a - b) : [fallback[0] ?? primary];
-  const byN = [...pool].sort((a, b) => a.n - b.n);
-  if (allow(byN[0]!.n)) addUnique(out, byN[0]!.n);
-  if (allow(byN[byN.length - 1]!.n)) addUnique(out, byN[byN.length - 1]!.n);
-  const worst = [...pool].sort((a, b) => a.avg - b.avg || a.pf - b.pf)[0];
-  if (worst && worst.avg < 0 && allow(worst.n)) addUnique(out, worst.n);
-  const sorted = out.sort((a, b) => a - b);
-  return sorted.length ? sorted.slice(0, 3) : [primary];
+  const out = pool.map((hit) => hit.n).filter(allow);
+  if (!out.length) out.push(...fallback.filter(allow));
+  if (!out.length && allow(primary)) out.push(primary);
+  return [...new Set(out)].sort((a, b) => a - b);
 }
 
 function modeFromDecision(d: LastNDecision, fallback: LastNPassMode): LastNPassMode {
@@ -594,9 +589,9 @@ export function coordinateLastN(
 /** Settings grid stays full; live / type evals use this slim cfg. */
 export function slimLastNProgress(cfg: LastNProgressConfig, pick: LastNCoordPick): LastNProgressConfig {
   return {
-    evalNs: pick.evalNs.length ? pick.evalNs : [EVAL_POS_N],
-    validNs: pick.validNs.length ? pick.validNs : [VALID_EXEC_POS_N],
-    disableNs: pick.disableNs.length ? pick.disableNs : [LIVE_DISABLE_N],
+    evalNs: [...cfg.evalNs],
+    validNs: [...cfg.validNs],
+    disableNs: [...cfg.disableNs],
     mode: pick.mode,
     parallelStack: cfg.parallelStack,
     parallelVolRatio: cfg.parallelVolRatio,
