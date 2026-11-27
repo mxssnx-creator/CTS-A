@@ -222,7 +222,7 @@ export function stageWindowPaths(
       if (recent !== null && earlier !== null && Number.isFinite(recent) && Number.isFinite(earlier))
         effectiveFloor += Math.min(0.2, Math.max(0, Math.min(recent, earlier) - floor) * autoRatio! / 6);
     }
-    const pass = evaluateBlocks(prefix, blocks, effectiveFloor).state === "qualified" &&
+    const pass = evaluateBlocks(prefix, blocks, effectiveFloor, true).state === "qualified" &&
       blockWindow(prefix, 0, need, effectiveFloor).state === "qualified" &&
       negativeLastNDecision(values, cfg.negativeFilter).pass;
     decisions.set(low, pass);
